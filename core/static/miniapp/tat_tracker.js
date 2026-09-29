@@ -844,18 +844,19 @@
   }
 
   function recognitionRank(item) {
-    if (!item.ranked) return '<span class="recognition-rank unranked" aria-label="Not ranked yet"><b aria-hidden="true">—</b><small>Not ranked</small></span>';
-    if (!item.rank) return '<span class="recognition-rank unranked" aria-label="Eligible; no peer ranking"><b aria-hidden="true">✓</b><small>Eligible</small></span>';
     const rank = Number(item.rank || 0);
     const podium = rank >= 1 && rank <= 3 ? ` podium-${rank}` : '';
-    return `<span class="recognition-rank${podium}" aria-label="Rank ${escapeHtml(rank)}"><b>#${escapeHtml(rank)}</b><small>Rank</small></span>`;
+    return `<span class="recognition-rank${podium}" aria-label="Position ${escapeHtml(rank)}">#${escapeHtml(rank)}</span>`;
   }
 
-  function recognitionRow(item) {
+  function recognitionRow(item, isBranch = false) {
     const label = item.label || item.branch || 'Unnamed result';
+    const metrics = isBranch
+      ? `<span><b>${escapeHtml(item.on_time_rate || 0)}%</b> on time</span><span class="recognition-branch-counts"><span>Within <b>${escapeHtml(item.within_target || 0)}</b></span><span>Near <b>${escapeHtml(item.near_target || 0)}</b></span><span>Over <b>${escapeHtml(item.over_target || 0)}</b></span></span>`
+      : `<span><b>${escapeHtml(item.on_time_rate || 0)}%</b> on time</span><span><b>${escapeHtml(item.completed || 0)}</b> stages</span>`;
     return `<article class="recognition-row${item.ranked ? '' : ' unranked'}${item.is_current_user ? ' current-user' : ''}">
       ${recognitionRank(item)}
-      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item, label)}</div><div class="recognition-row-metrics"><span><b>${escapeHtml(item.on_time_rate || 0)}%</b> On time</span><span><b>${escapeHtml(item.completed || 0)}</b> Stages</span></div></div>
+      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item, label)}</div><div class="recognition-row-metrics">${metrics}</div></div>
       <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b><small>Score</small></span>
     </article>`;
   }
@@ -882,19 +883,18 @@
   function recognitionBreakdown(title, item) {
     const data = item || {};
     const percentages = data.percentages || {};
-    const bucket = (label, key, note = '') => `<div><dt>${escapeHtml(label)}${note ? `<small>${escapeHtml(note)}</small>` : ''}</dt><dd><strong>${escapeHtml(data[key] || 0)}</strong><small>${escapeHtml(percentages[key] || 0)}%</small></dd></div>`;
-    return `<div class="recognition-breakdown-group"><h4>${escapeHtml(title)}</h4><dl class="recognition-data-checks">${bucket('Within target', 'within_target')}${bucket('Near target', 'near_target')}${bucket('Over target', 'over_target')}${bucket('No target', 'target_unavailable', 'Excluded from score')}</dl><p>${escapeHtml(data.counted || 0)} counted of ${escapeHtml(data.recorded || 0)} completed actions.</p></div>`;
+    const bucket = (label, key, tone, effect) => `<div class="recognition-breakdown-${tone}"><dt>${escapeHtml(label)}</dt><dd><span class="recognition-breakdown-effect" aria-label="${escapeHtml(effect)}">${escapeHtml(effect)}</span><strong>${escapeHtml(data[key] || 0)}</strong><small>${escapeHtml(percentages[key] || 0)}%</small></dd></div>`;
+    return `<div class="recognition-breakdown-group"><h4>${escapeHtml(title)}</h4><dl class="recognition-data-checks">${bucket('Within target', 'within_target', 'positive', '+ on time')}${bucket('Near target', 'near_target', 'positive', '+ on time')}${bucket('Over target', 'over_target', 'negative', '- on time')}${bucket('No target', 'target_unavailable', 'neutral', 'Excluded')}</dl><p>${escapeHtml(data.counted || 0)} counted of ${escapeHtml(data.recorded || 0)} completed actions.</p></div>`;
   }
 
-  function recognitionStageRow(item) {
+  function recognitionStageRow(item, showRole = false) {
     const label = String(item.stage || 'Stage');
-    return `<article class="recognition-stage-row"><button type="button" class="recognition-stage-name" aria-expanded="false" aria-label="Show full stage name: ${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button><div class="recognition-stage-metrics"><span>${escapeHtml(item.completed || 0)} completed</span><span>${escapeHtml(item.on_time_rate || 0)}% on time</span><strong>Score ${escapeHtml(item.score || 0)}</strong></div></article>`;
+    return `<article class="recognition-stage-row"><strong class="recognition-stage-name">${escapeHtml(label)}</strong><div class="recognition-stage-metrics">${showRole && item.role ? `<span class="recognition-stage-role">${escapeHtml(item.role)}</span>` : ''}<span>${escapeHtml(item.completed || 0)} actions</span><span>${escapeHtml(item.on_time_rate || 0)}% on time</span><strong>Score ${escapeHtml(item.score || 0)}</strong></div></article>`;
   }
 
   function renderTatRecognition(data) {
     const payload = data || {};
     state.recognition.lastPayload = payload;
-    const minimumSample = Math.max(1, Number(payload.minimum_ranked_sample || 20));
     const selected = payload.selected || {};
     state.recognition.view = payload.view || state.recognition.view;
     state.recognition.role = selected.role || '';
@@ -937,28 +937,29 @@
     }
     if (state.recognition.view === 'personal') {
       const stages = (payload.stage_contributions || []).filter(item => Number(item.completed || 0) > 0);
-      const stageRows = stages.slice(0, 3).map(recognitionStageRow).join('');
+      const hasMultipleRoles = new Set(stages.map(item => item.role).filter(Boolean)).size > 1;
+      const stageRows = hasMultipleRoles ? stages.slice(0, 3).map(item => recognitionStageRow(item, true)).join('') : '';
       const best = payload.personal_best;
-      $('tatPersonalRecognition').innerHTML = `${best ? `<p class="recognition-personal-best">Personal best: <strong>${escapeHtml(best.month)}</strong> · Score ${escapeHtml(best.score)} from ${escapeHtml(best.completed)} actions</p>` : ''}${stageRows ? `<div class="recognition-stage-insights"><h3>Most active stages</h3>${stageRows}${stages.length > 3 ? `<button id="tatRecognitionAllStages" type="button" class="recognition-stage-all secondary">View all ${stages.length} stages</button>` : ''}</div>` : ''}`;
+      $('tatPersonalRecognition').innerHTML = `${best ? `<p class="recognition-personal-best">Personal best: <strong>${escapeHtml(best.month)}</strong> · Score ${escapeHtml(best.score)} from ${escapeHtml(best.completed)} actions</p>` : ''}${stages.length ? `<div class="recognition-stage-insights${stageRows ? '' : ' compact'}">${stageRows ? `<h3>Stage activity by role</h3>${stageRows}` : ''}<button id="tatRecognitionAllStages" type="button" class="recognition-stage-all secondary">View ${stages.length} stage${stages.length === 1 ? '' : 's'}</button></div>` : ''}`;
       const pageSize = 10;
       const pages = Math.max(1, Math.ceil(stages.length / pageSize));
       state.recognition.stagePage = Math.min(Math.max(1, state.recognition.stagePage || 1), pages);
       const first = (state.recognition.stagePage - 1) * pageSize;
-      $('tatRecognitionStageRows').innerHTML = stages.slice(first, first + pageSize).map(recognitionStageRow).join('');
+      $('tatRecognitionStageRows').innerHTML = stages.slice(first, first + pageSize).map(item => recognitionStageRow(item, hasMultipleRoles)).join('');
       $('tatRecognitionStagePagination').hidden = pages <= 1;
       $('tatRecognitionStagePage').textContent = `Page ${state.recognition.stagePage} of ${pages}`;
       $('tatRecognitionStagePrevious').disabled = state.recognition.stagePage <= 1;
       $('tatRecognitionStageNext').disabled = state.recognition.stagePage >= pages;
     }
-    $('tatRecognitionMinimum').textContent = `${minimumSample} counted stages required`;
     const standings = payload.standings || {};
+    $('tatRecognitionMinimum').textContent = `${Number(standings.total || 0)} result${Number(standings.total || 0) === 1 ? '' : 's'}`;
     if (state.recognition.view !== 'personal') {
       const people = state.recognition.view === 'people';
       $('tatRecognitionStandingsTitle').textContent = people ? 'People standings' : 'Branch standings';
       $('tatRecognitionStandingsBasis').textContent = people
         ? 'One result per person across the selected work. Filters narrow the actions being compared.'
         : 'One result per branch. Only cases created and finally resolved in this period count.';
-      $('tatRecognitionRows').innerHTML = (standings.rows || []).map(recognitionRow).join('') || `<div class="recognition-empty"><strong>${people ? 'No people have counted stages for this selection.' : 'No branches have counted stages for this selection.'}</strong></div>`;
+      $('tatRecognitionRows').innerHTML = (standings.rows || []).map(item => recognitionRow(item, !people)).join('') || `<div class="recognition-empty"><strong>${people ? 'No people have counted stages for this selection.' : 'No branches have counted stages for this selection.'}</strong></div>`;
       const pinned = standings.current_user_row;
       $('tatRecognitionPinned').hidden = !pinned;
       $('tatRecognitionPinned').innerHTML = pinned ? `<span>Your position</span>${recognitionRow(pinned)}` : '';
@@ -976,7 +977,7 @@
       || Number(breakdown.slice?.counted || 0) !== Number(breakdown.overall?.counted || 0)
     );
     $('tatRecognitionBreakdown').hidden = stagesOpen || state.recognition.view !== 'personal';
-    $('tatRecognitionBreakdown').innerHTML = `<h3>Score breakdown</h3>${recognitionBreakdown('Your overall result', breakdown.overall)}${selectedBreakdownDiffers ? recognitionBreakdown('Selected work', breakdown.slice) : ''}<p class="recognition-breakdown-note">Within and near target count as on time. Recognition is informational, not an HR or pay decision.</p>`;
+    $('tatRecognitionBreakdown').innerHTML = `<h3>Score breakdown</h3>${recognitionBreakdown('Your overall result', breakdown.overall)}${selectedBreakdownDiffers ? recognitionBreakdown('Selected work', breakdown.slice) : ''}<p class="recognition-breakdown-note">Within and near count equally as on time; over lowers the rate. No target is excluded. Signs show direction, not fixed points. Recognition is informational, not an HR or pay decision.</p>`;
     const technical = $('tatRecognitionTechnical');
     technical.hidden = stagesOpen || !payload.technical_details_visible;
     $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '';
@@ -1008,13 +1009,6 @@
       renderTatRecognition(state.recognition.lastPayload);
       $('tatRecognitionStageDetail').scrollIntoView({ block: 'start' });
     });
-    ['tatPersonalRecognition', 'tatRecognitionStageRows'].forEach(id => $(id).addEventListener('click', event => {
-      const button = event.target.closest('.recognition-stage-name');
-      if (!button) return;
-      const expanded = button.getAttribute('aria-expanded') !== 'true';
-      button.setAttribute('aria-expanded', String(expanded));
-      button.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Show full'} stage name: ${button.textContent.trim()}`);
-    }));
     return closeStages;
   }
 

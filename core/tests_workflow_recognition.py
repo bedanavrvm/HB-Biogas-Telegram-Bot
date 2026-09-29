@@ -185,7 +185,7 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertEqual(payload['slice_result']['share_of_overall'], 100.0)
         self.assertEqual((row['role'], row['branch'], row['product']), ('BRO', 'Embu', 'Standard'))
         self.assertTrue(row['ranked'])
-        self.assertIsNone(row['rank'])
+        self.assertEqual(row['rank'], 1)
         self.assertEqual(row['label'], 'You')
         self.assertEqual(row['on_time_rate'], 100.0)
         self.assertNotIn('key', row)
@@ -220,7 +220,7 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertEqual(payload['overall_result'], unfiltered['overall_result'])
         self.assertEqual(payload['slice_result']['completed'], 19)
         self.assertEqual(payload['overall_result']['completed'], 39)
-        self.assertFalse(payload['personal_result']['ranked'])
+        self.assertTrue(payload['personal_result']['ranked'])
         self.assertEqual(payload['personal_result']['completed'], 19)
         self.assertNotIn('excluded_target_unavailable', payload['personal_result'])
         self.assertTrue(payload['technical_details_visible'])
@@ -306,9 +306,9 @@ class TatRecognitionPresentationTests(TestCase):
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')
-    def test_singleton_role_is_eligible_without_number_one_ranking(self, stage_samples, _scope):
+    def test_singleton_role_has_numbered_standing(self, stage_samples, _scope):
         stage_samples.return_value = [
-            self._sample(case_suffix=f'-{sample_number}') for sample_number in range(20)
+            self._sample(case_suffix='-single')
         ]
 
         payload = tat_recognition_payload(
@@ -317,8 +317,24 @@ class TatRecognitionPresentationTests(TestCase):
 
         self.assertFalse(payload['standings']['has_competition'])
         self.assertEqual(payload['standings']['eligible_count'], 1)
-        self.assertIsNone(payload['standings']['rows'][0]['rank'])
+        self.assertEqual(payload['standings']['rows'][0]['rank'], 1)
         self.assertTrue(payload['standings']['rows'][0]['ranked'])
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_small_samples_have_numbered_people_standings(self, stage_samples, _scope):
+        stage_samples.return_value = [
+            self._sample(case_suffix='-self'),
+            self._sample(person_user_id=888, person='Mary Wanjiku', case_suffix='-peer'),
+        ]
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=True, view='people',
+        )
+        self.assertEqual(payload['minimum_ranked_sample'], 1)
+        self.assertEqual(payload['minimum_personal_best_sample'], MINIMUM_RANKED_SAMPLE)
+        self.assertEqual(payload['standings']['total'], 2)
+        self.assertEqual({row['rank'] for row in payload['standings']['rows']}, {1})
+        self.assertTrue(all(row['ranked'] for row in payload['standings']['rows']))
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')
@@ -375,6 +391,10 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertEqual(payload['standings']['rows'][0]['completed'], 2)
         self.assertEqual(payload['standings']['rows'][0]['role_count'], 2)
         self.assertEqual(payload['standings']['rows'][0]['product_count'], 2)
+        self.assertEqual(payload['standings']['rows'][0]['rank'], 1)
+        self.assertEqual(payload['standings']['rows'][0]['within_target'], 2)
+        self.assertEqual(payload['standings']['rows'][0]['near_target'], 0)
+        self.assertEqual(payload['standings']['rows'][0]['over_target'], 0)
 
     @patch('core.services.tat_reporting._stage_samples')
     def test_first_post_window_view_freezes_final_period(self, stage_samples):

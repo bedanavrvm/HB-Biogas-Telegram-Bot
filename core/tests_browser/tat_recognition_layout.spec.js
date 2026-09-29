@@ -17,22 +17,22 @@ const recognitionMarkup = `<main class="tat-app"><section id="recognitionView" c
   <div id="tatRecognitionContextControls" class="recognition-context-controls" hidden><label><span>Role</span><select id="tatRecognitionRole"></select></label><label><span>Product</span><select id="tatRecognitionProduct"></select></label><label><span>Branch</span><select id="tatRecognitionBranch"></select></label></div>
   <section id="tatRecognitionSlice" class="recognition-slice" hidden></section>
   <div id="tatRecognitionViews" class="recognition-view-toggle" role="group"><button type="button" data-recognition-view="personal">My result</button><button type="button" data-recognition-view="people">People</button><button type="button" data-recognition-view="branches">Branches</button></div>
+  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section>
   <section id="tatPersonalRecognition" class="recognition-personal"></section>
   <section id="tatRecognitionStageDetail" class="recognition-stage-detail" hidden><header><button id="tatRecognitionStagesBack" type="button">Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" hidden><button id="tatRecognitionStagePrevious">Previous</button><span id="tatRecognitionStagePage"></span><button id="tatRecognitionStageNext">Next</button></nav></section>
   <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><div><h2 id="tatRecognitionStandingsTitle"></h2><p id="tatRecognitionStandingsBasis"></p></div><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" hidden><button id="tatRecognitionPrevious">Previous</button><span id="tatRecognitionPage"></span><button id="tatRecognitionNext">Next</button></nav></section>
-  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section>
   <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
 </section></main>`;
 
 const selected = { role: 'BRO', role_label: 'BRO', product: 'standard', product_label: 'Standard HomeBiogas' };
 const personalResult = {
   label: 'You', role: 'BRO', branch: 'Embu', product: 'Standard HomeBiogas',
-  ranked: false, rank: null, completed: 16, completed_total: 16,
+  ranked: true, rank: 11, completed: 16, completed_total: 16,
   on_time_rate: 87.5, score: 64.1, is_current_user: true,
 };
 const basePayload = {
   contract_version: 3,
-  minimum_ranked_sample: 20,
+  minimum_ranked_sample: 1, minimum_personal_best_sample: 20,
   calculated_at: '2026-09-17T10:45:00+03:00',
   view: 'personal', selected,
   period: '2026-09', period_kind: 'month', result_status: 'live_provisional',
@@ -114,7 +114,8 @@ test('people standings render ten rows plus a pinned current result', async ({ p
   await expect(page.locator('#tatRecognitionRows .recognition-row')).toHaveCount(10);
   await expect(page.locator('.recognition-row')).toHaveCount(11);
   await expect(page.locator('#tatRecognitionBreakdown')).toBeHidden();
-  await expect(page.locator('.recognition-row').first()).toContainText('87.5% On time');
+  await expect(page.locator('.recognition-row').first()).toContainText('#11');
+  await expect(page.locator('.recognition-row').first()).toContainText('87.5% on time');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   const pinnedRow = await page.locator('#tatRecognitionPinned .recognition-row').boundingBox();
   expect(pinnedRow.y).toBeLessThan(568);
@@ -169,16 +170,52 @@ test('recognition empty states use plain language', async ({ page }) => {
   await expect(page.locator('#tatRecognitionBreakdown')).toContainText('0 counted of 0 completed actions');
 });
 
+test('score effects are labelled and single-role stage details stay secondary', async ({ page }) => {
+  await mount(page, {
+    ...basePayload,
+    stage_contributions: [
+      { role: 'BRO', stage: 'BRO action', completed: 8, on_time_rate: 75, score: 55 },
+      { role: 'BRO', stage: 'BRO follow-up', completed: 5, on_time_rate: 80, score: 60 },
+    ],
+  });
+  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-positive')).toHaveCount(2);
+  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-negative')).toContainText('- on time');
+  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-neutral')).toContainText('Excluded');
+  await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(0);
+  await expect(page.locator('#tatRecognitionAllStages')).toHaveText('View 2 stages');
+});
+
+test('branch standings show disjoint within, near and over counts', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mount(page, {
+    ...basePayload, view: 'branches',
+    standings: {
+      dimension: 'branches', rows: [{
+        branch: 'Embu', label: 'Embu', rank: 1, ranked: true,
+        completed: 19, on_time_rate: 89.5, score: 74.5,
+        within_target: 14, near_target: 3, over_target: 2,
+      }], current_user_row: null, page: 1, pages: 1, total: 1,
+    },
+  });
+  const row = page.locator('#tatRecognitionRows .recognition-row');
+  await expect(row).toContainText('#1');
+  await expect(row).toContainText('Within 14');
+  await expect(row).toContainText('Near 3');
+  await expect(row).toContainText('Over 2');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
 for (const width of [320, 360, 390, 430]) {
   test(`long stage names stay readable and all stages are paged at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 800 });
     const stage_contributions = Array.from({ length: 16 }, (_, index) => ({
+      role: index % 2 ? 'Credit Analyst' : 'BRO',
       stage: `Business administration disbursement verification and final register stage ${index + 1}`,
       completed: index === 15 ? 0 : 16 - index, on_time_rate: 75, score: 62.4,
     }));
     await mount(page, { ...basePayload, stage_contributions });
     await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(3);
-    await expect(page.locator('#tatRecognitionAllStages')).toHaveText('View all 15 stages');
+    await expect(page.locator('#tatRecognitionAllStages')).toHaveText('View 15 stages');
     await expect(page.locator('#tatRecognitionBreakdown .recognition-data-checks > div')).toHaveCount(4);
     if (width === 390 && process.env.TAT_RECOGNITION_SCREENSHOT) {
       await page.screenshot({ path: testInfo.outputPath('recognition-summary.png'), fullPage: true });
@@ -193,8 +230,9 @@ for (const width of [320, 360, 390, 430]) {
       await page.screenshot({ path: testInfo.outputPath('recognition-stages.png'), fullPage: true });
     }
     const stageName = page.locator('#tatRecognitionStageRows .recognition-stage-name').first();
-    await stageName.click();
-    await expect(stageName).toHaveAttribute('aria-expanded', 'true');
+    await expect(stageName).toHaveText(/Business administration disbursement verification/);
+    await expect(stageName).not.toHaveAttribute('aria-expanded');
+    expect(await stageName.evaluate(node => getComputedStyle(node, '::after').content)).toBe('none');
     await page.locator('#tatRecognitionStageNext').click();
     await expect(page.locator('#tatRecognitionStageRows .recognition-stage-row')).toHaveCount(5);
     await page.locator('#tatRecognitionStagesBack').click();

@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=69">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=70">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -124,10 +124,10 @@
       <div id="tatRecognitionContextControls" class="recognition-context-controls" hidden><label><span>Role</span><select id="tatRecognitionRole" aria-label="Recognition role"></select></label><label><span>Product</span><select id="tatRecognitionProduct" aria-label="Recognition product"></select></label><label><span>Branch</span><select id="tatRecognitionBranch" aria-label="Recognition branch"></select></label><button id="tatRecognitionClearFilters" type="button" class="secondary">Clear filters</button></div>
       <section id="tatRecognitionSlice" class="recognition-slice" aria-label="Selected part of your work" hidden></section>
       <div id="tatRecognitionViews" class="recognition-view-toggle" role="group" aria-label="Recognition view"><button type="button" class="active" data-recognition-view="personal" aria-pressed="true">My result</button><button type="button" data-recognition-view="people" aria-pressed="false">People</button><button type="button" data-recognition-view="branches" aria-pressed="false">Branches</button></div>
+      <section id="tatRecognitionBreakdown" class="recognition-breakdown" aria-label="Score breakdown"></section>
       <section id="tatPersonalRecognition" class="recognition-personal" aria-label="Your result for the selected period"></section>
       <section id="tatRecognitionStageDetail" class="recognition-stage-detail" aria-label="All stage contributions" hidden><header><button id="tatRecognitionStagesBack" type="button" class="secondary" aria-label="Back to my result">← Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" aria-label="Stage contribution pages" hidden><button id="tatRecognitionStagePrevious" type="button" class="secondary">Previous</button><span id="tatRecognitionStagePage">Page 1 of 1</span><button id="tatRecognitionStageNext" type="button" class="secondary">Next</button></nav></section>
       <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><div><h2 id="tatRecognitionStandingsTitle">People</h2><p id="tatRecognitionStandingsBasis"></p></div><span id="tatRecognitionMinimum">20 counted stages required</span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" aria-label="Recognition pages" hidden><button id="tatRecognitionPrevious" type="button" class="secondary">Previous</button><span id="tatRecognitionPage">Page 1 of 1</span><button id="tatRecognitionNext" type="button" class="secondary">Next</button></nav></section>
-      <section id="tatRecognitionBreakdown" class="recognition-breakdown" aria-label="Score breakdown"></section>
       <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
     </section>
 
@@ -478,6 +478,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=108"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=109"></script>
 </body>
 </html>

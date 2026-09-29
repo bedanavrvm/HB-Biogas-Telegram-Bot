@@ -16,6 +16,7 @@ from django.utils import timezone
 
 
 MINIMUM_RANKED_SAMPLE = 20
+RECOGNITION_STANDINGS_MINIMUM_SAMPLE = 1
 TAT_RECOGNITION_SCORE_POLICY_VERSION = 1
 WILSON_Z = 1.959963984540054
 ON_TIME_SLA_STATES = frozenset({'within_target', 'near_target'})
@@ -467,6 +468,8 @@ def tat_recognition_payload(
                 details[identity]['branches'].add(sample_branch)
         result = []
         for identity, counts in totals.items():
+            if not counts['completed']:
+                continue
             meta = details[identity]
             roles = sorted(meta['roles'])
             products = sorted(meta['products'])
@@ -483,7 +486,7 @@ def tat_recognition_payload(
                 'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
             })
         return _score_rows(result, quality_key='on_time_rate', volume_key='completed',
-                           success_key='on_time', minimum_sample=minimum_sample)
+                           success_key='on_time', minimum_sample=RECOGNITION_STANDINGS_MINIMUM_SAMPLE)
 
     def scored_branch_rows(role_filter='', product_filter='', branch_filter='', allowed_contexts=None):
         totals = defaultdict(_empty_tat_counts)
@@ -502,6 +505,8 @@ def tat_recognition_payload(
             details[identity]['products'].add((product_key, product_label))
         result = []
         for identity, counts in totals.items():
+            if not counts['completed']:
+                continue
             roles = sorted(details[identity]['roles'])
             products = sorted(details[identity]['products'])
             completed = counts['completed']
@@ -515,7 +520,7 @@ def tat_recognition_payload(
                 'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
             })
         return _score_rows(result, quality_key='on_time_rate', volume_key='completed',
-                           success_key='on_time', minimum_sample=minimum_sample)
+                           success_key='on_time', minimum_sample=RECOGNITION_STANDINGS_MINIMUM_SAMPLE)
 
     requested_branch = str(branch or '').strip()
     context_keys = sorted(
@@ -580,7 +585,6 @@ def tat_recognition_payload(
         elif not include_people:
             result['label'] = f"Peer {peer_numbers[row['key']]}"
         result['is_current_user'] = is_current
-        result['rank'] = row.get('rank') if people_have_competition else None
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
@@ -591,11 +595,11 @@ def tat_recognition_payload(
 
     def public_branch(row):
         result = dict(row)
-        result['rank'] = row.get('rank') if branches_have_competition else None
+        result['over_target'] = result.get('overdue_recovered', 0)
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
-            'sample_status', 'score_basis', 'within_target', 'near_target',
+            'sample_status', 'score_basis',
         ):
             result.pop(field, None)
         return result
@@ -678,7 +682,7 @@ def tat_recognition_payload(
             'completed': completed, 'completed_total': int(counts['completed_total']),
             'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
             'score': round(_wilson_lower_bound(counts['on_time'], completed), 1),
-            'ranked': completed >= minimum_sample,
+            'ranked': completed >= RECOGNITION_STANDINGS_MINIMUM_SAMPLE,
         }
 
     def breakdown(counts):
@@ -750,7 +754,8 @@ def tat_recognition_payload(
     return {
         'contract_version': 3,
         'period': label, 'period_kind': period_kind, 'period_start': start.isoformat(),
-        'period_end': end.isoformat(), 'minimum_ranked_sample': minimum_sample,
+        'period_end': end.isoformat(), 'minimum_ranked_sample': RECOGNITION_STANDINGS_MINIMUM_SAMPLE,
+        'minimum_personal_best_sample': minimum_sample,
         'calculated_at': timezone.now().isoformat(),
         'result_status': 'final' if captured_at else 'live_provisional',
         'captured_at': captured_at.isoformat() if captured_at else '',
