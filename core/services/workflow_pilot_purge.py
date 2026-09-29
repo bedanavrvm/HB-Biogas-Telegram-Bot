@@ -499,7 +499,8 @@ def process_purge(run_id) -> WorkflowPilotPurgeRun:
             else:
                 WorkflowSlaEscalation.objects.filter(workflow='tat_tracker', data_scope_key__in=scope_keys).delete()
                 WorkflowTatDailyMetric.objects.filter(workflow='tat_tracker', data_scope_key__in=scope_keys).delete()
-                from tat_recognition.models import TatRecognitionPeriodSnapshot
+                from tat_recognition.models import TatRecognitionLiveStanding, TatRecognitionPeriodSnapshot
+                TatRecognitionLiveStanding.objects.filter(scope_key__in=scope_keys).delete()
                 TatRecognitionPeriodSnapshot.objects.filter(scope_key__in=scope_keys).delete()
     except Exception as exc:
         failures.append({'message': str(exc)[:500], 'at': timezone.now().isoformat()})

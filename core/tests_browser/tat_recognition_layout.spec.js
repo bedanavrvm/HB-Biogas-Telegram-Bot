@@ -9,6 +9,12 @@ const trackerSource = fs.readFileSync(asset('tat_tracker.js'), 'utf8');
 const recognitionStart = trackerSource.indexOf('  function recognitionContext(');
 const recognitionEnd = trackerSource.indexOf('  async function loadTatRecognition', recognitionStart);
 const recognitionRenderer = trackerSource.slice(recognitionStart, recognitionEnd);
+const templateSource = fs.readFileSync(path.resolve(__dirname, '../templates/tat_tracker/app.html'), 'utf8');
+const logoData = `data:image/png;base64,${fs.readFileSync(asset('jawabu-logo.png')).toString('base64')}`;
+const fullShellMarkup = `<body>${templateSource.slice(
+  templateSource.indexOf('<main class="tat-app"'), templateSource.lastIndexOf('</main>') + '</main>'.length,
+).replaceAll("{% static 'miniapp/jawabu-logo.png' %}", logoData)
+  .replace(/{%[\s\S]*?%}|{{[\s\S]*?}}/g, '')}</body>`;
 
 const recognitionMarkup = `<main class="tat-app"><section id="recognitionView" class="view recognition-view active">
   <header class="recognition-header"><div><h2>Standings</h2></div><div class="recognition-header-actions"><button id="tatRecognitionPeriodButton" type="button">Period</button><span id="tatRecognitionUpdated"></span></div></header>
@@ -55,8 +61,19 @@ const peopleRows = Array.from({ length: 5 }, (_, index) => ({
   is_current_user: false,
 }));
 
-async function mount(page, payload = basePayload) {
-  await page.setContent(recognitionMarkup);
+async function mount(page, payload = basePayload, markup = recognitionMarkup) {
+  await page.setContent(markup);
+  if (markup === fullShellMarkup) await page.evaluate(() => {
+    document.querySelectorAll('.view').forEach(node => node.classList.remove('active'));
+    document.getElementById('recognitionView').classList.add('active');
+    document.getElementById('trackerTabs').hidden = true;
+    document.getElementById('loadingBrand').hidden = true;
+    document.getElementById('loadingBrand').style.display = 'none';
+    document.getElementById('recognitionWorkspaceBtn').hidden = false;
+    document.getElementById('recognitionWorkspaceBtn').classList.add('active');
+    document.getElementById('dashboardWorkspaceBtn').hidden = false;
+    document.getElementById('userLine').textContent = 'Test staff · TAT';
+  });
   await page.addStyleTag({ path: asset('base.css') });
   await page.addStyleTag({ path: asset('tat_tracker.css') });
   await page.addScriptTag({ content: `
@@ -75,6 +92,67 @@ async function mount(page, payload = basePayload) {
   ` });
   await page.evaluate(value => window.renderTatRecognitionForTest(value), payload);
 }
+
+for (const width of [320, 360, 390, 430]) {
+  for (const theme of ['light', 'dark']) {
+    test(`full TAT shell keeps standings columns aligned at ${width}px in ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      await mount(page, {
+        ...basePayload,
+        standings: {
+          dimension: 'people',
+          rows: [...peopleRows, ...peopleRows.map((row, index) => ({
+            ...row, label: `Very Long Staff Name From A Different Operational Branch ${index + 1}`,
+            rank: index + 6, movement: index % 2
+              ? {direction: 'up', places: 2} : {direction: 'down', places: 1},
+          }))],
+          current_user_row: {...personalResult, movement: {direction: 'up', places: 3}},
+          page: 2, pages: 4, total: 37, page_size: 10,
+        },
+      }, fullShellMarkup);
+      await page.evaluate(value => { document.documentElement.dataset.miniappColorScheme = value; }, theme);
+      await expect(page.locator('#appHeader')).toBeVisible();
+      await expect(page.locator('#workspaceTabs')).toBeVisible();
+      await expect(page.locator('#tatRecognitionRows .recognition-row')).toHaveCount(10);
+      await expect(page.locator('#tatRecognitionPinned .recognition-movement')).toHaveText('↑ 3');
+      const positions = await page.locator('.recognition-row').evaluateAll(rows => rows.map(row => {
+        const rank = row.querySelector('.recognition-rank').getBoundingClientRect();
+        const main = row.querySelector('.recognition-row-main').getBoundingClientRect();
+        const score = row.querySelector('.recognition-score').getBoundingClientRect();
+        return {rank: rank.left, main: main.left, score: score.left, right: score.right};
+      }));
+      for (const position of positions) {
+        expect(Math.abs(position.rank - positions[0].rank)).toBeLessThanOrEqual(1);
+        expect(Math.abs(position.main - positions[0].main)).toBeLessThanOrEqual(1);
+        expect(Math.abs(position.score - positions[0].score)).toBeLessThanOrEqual(1);
+        expect(position.right).toBeLessThanOrEqual(width);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      if (process.env.TAT_RECOGNITION_SCREENSHOT) {
+        await page.screenshot({ path: testInfo.outputPath(`full-shell-${width}-${theme}.png`), fullPage: true });
+      }
+    });
+  }
+}
+
+test('full shell branch movement and unfiltered summary stay aligned at 320px', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mount(page, {
+    ...basePayload,
+    view: 'branches',
+    selected: {role: '', role_label: '', product: '', product_label: '', branch: ''},
+    standings: {dimension: 'branches', rows: [
+      {label: 'Long Operational Branch Name Nakuru North', branch: 'Long Operational Branch Name Nakuru North', rank: 1, ranked: true, score: 82, within_target: 17, near_target: 2, over_target: 1, movement: {direction: 'up', places: 2}},
+      {label: 'Embu', branch: 'Embu', rank: 2, ranked: true, score: 78, within_target: 12, near_target: 3, over_target: 2, movement: {direction: 'down', places: 1}},
+    ], current_user_row: null, page: 1, pages: 1, total: 2},
+  }, fullShellMarkup);
+  await expect(page.locator('#tatRecognitionSlice')).toBeHidden();
+  await expect(page.locator('#tatRecognitionRows .recognition-movement.up')).toContainText('2');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  if (process.env.TAT_RECOGNITION_SCREENSHOT) {
+    await page.screenshot({path: testInfo.outputPath('full-shell-branches-320.png'), fullPage: true});
+  }
+});
 
 for (const viewport of [
   { width: 320, height: 568 },

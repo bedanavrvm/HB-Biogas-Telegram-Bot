@@ -243,6 +243,7 @@ class TatFullResetTests(TestCase):
             for model in apps.get_app_config('core').get_models()
             if model.__name__.startswith(('Tat', 'WorkflowTat', 'ProductTat'))
         }
+        discovered.update(apps.get_app_config('tat_recognition').get_models())
         self.assertEqual(set(TAT_RESET_MODELS), discovered)
 
     def test_service_rejects_non_superuser(self):

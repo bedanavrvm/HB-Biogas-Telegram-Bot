@@ -46,6 +46,13 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
         'retention': 'Retain permanently as the final recognition record; no customer names or external media.',
     },
+    'tat_recognition.TatRecognitionLiveStanding': {
+        'domain': 'tat_recognition',
+        'purpose': 'Expiring, per-viewer live rank baseline for one authorized period and filter scope.',
+        'classification': 'derived_cache', 'source_of_truth': False, 'lifecycle': 'active',
+        'retention': 'Delete expired rows in bounded batches after 45 days without a view, and on TAT or group reset; never a final score.',
+        'index_reasons': {'tat_live_expiry_idx': 'Find the oldest expired checkpoints for bounded on-demand cleanup.'},
+    },
     'hb_operations.HomeBiogasAction': {
         'domain': 'homebiogas_operations',
         'purpose': 'Authoritative post-order installation and commissioning state for one Portal case.',

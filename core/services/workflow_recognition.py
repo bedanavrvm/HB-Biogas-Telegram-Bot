@@ -10,8 +10,10 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from hashlib import sha256
 from math import sqrt
+import json
 
-from django.db.models import OuterRef, Subquery
+from django.db import transaction
+from django.db.models import Count, Max, OuterRef, Subquery
 from django.utils import timezone
 
 
@@ -20,6 +22,97 @@ RECOGNITION_STANDINGS_MINIMUM_SAMPLE = 1
 TAT_RECOGNITION_SCORE_POLICY_VERSION = 1
 WILSON_Z = 1.959963984540054
 ON_TIME_SLA_STATES = frozenset({'within_target', 'near_target'})
+
+
+def _recognition_access_signature(user) -> str:
+    from core.models import AccessGrant
+    from core.services.access_control import policy_version
+
+    grants = list(AccessGrant.objects.filter(
+        user=user, workflow='tat_tracker', active=True,
+    ).order_by('pk').values_list(
+        'pk', 'role', 'group_configuration_id', 'branch', 'product',
+    ))
+    value = [bool(user.is_active and user.is_superuser), policy_version(),
+             [[str(part) for part in grant] for grant in grants]]
+    return sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def tat_recognition_revision(user, *, group_id: str) -> str:
+    """Cheap, opaque scoped change token; never exposes case or staff identifiers."""
+    from core.models import TatTrackerCase, TatTrackerEvent
+    from core.services.tat_reporting import _metric_scope_q
+    from core.services.workflow_data_mode import WORKFLOW_TAT, mode_snapshot
+
+    cases = TatTrackerCase.objects.filter(_metric_scope_q(user), is_deleted=False)
+    if group_id:
+        cases = cases.filter(group_id=group_id)
+    case_state = cases.aggregate(count=Count('pk'), latest=Max('updated_at'))
+    event_state = TatTrackerEvent.objects.filter(case__in=cases).aggregate(
+        count=Count('pk'), latest=Max('created_at'),
+    )
+    parts = [group_id, mode_snapshot(WORKFLOW_TAT).data_scope_key, _recognition_access_signature(user),
+             case_state['count'], str(case_state['latest']),
+             event_state['count'], str(event_state['latest'])]
+    return sha256(json.dumps(parts).encode()).hexdigest()
+
+
+def _apply_live_rank_movement(user, *, group_id, scope_key, period_kind, period_key,
+                              view, role, product, branch, include_people=False, rows, observed_at):
+    """Persist net movement only when a standing actually changes."""
+    from tat_recognition.models import TatRecognitionLiveStanding
+
+    scope = _recognition_access_signature(user)
+    identity = [str(user.pk), group_id, scope_key, period_kind, period_key,
+                view, role, product, branch, bool(include_people), scope]
+    context_key = sha256(json.dumps(identity).encode()).hexdigest()
+    current_ranks = {str(row['key']): int(row['rank']) for row in rows if row.get('rank') is not None}
+    fingerprint = sorted((str(row['key']), row.get('rank'), row.get('score'),
+                          row.get('completed'), row.get('completed_total'),
+                          row.get('on_time_rate'), row.get('within_target'),
+                          row.get('near_target'), row.get('overdue_recovered')) for row in rows)
+    signature = sha256(json.dumps(fingerprint, sort_keys=True).encode()).hexdigest()
+    expires_at = observed_at + timedelta(days=45)
+    with transaction.atomic():
+        expired_ids = list(TatRecognitionLiveStanding.objects.filter(
+            expires_at__lt=observed_at,
+        ).order_by('expires_at').values_list('pk', flat=True)[:100])
+        if expired_ids:
+            TatRecognitionLiveStanding.objects.filter(
+                pk__in=expired_ids, expires_at__lt=observed_at,
+            ).delete()
+        checkpoint, created = TatRecognitionLiveStanding.objects.get_or_create(
+            context_key=context_key,
+            defaults={'viewer': user, 'group_id': group_id, 'scope_key': scope_key,
+                      'ranks': current_ranks, 'signature': signature, 'movement': {},
+                      'observed_at': observed_at, 'expires_at': expires_at},
+        )
+        if not created:
+            checkpoint = TatRecognitionLiveStanding.objects.select_for_update().get(pk=checkpoint.pk)
+            if checkpoint.signature != signature and checkpoint.observed_at <= observed_at:
+                previous = checkpoint.ranks or {}
+                movement = {}
+                for key, rank in current_ranks.items():
+                    if key not in previous:
+                        movement[key] = {'direction': 'new', 'places': 0}
+                    else:
+                        delta = int(previous[key]) - rank
+                        movement[key] = {
+                            'direction': 'up' if delta > 0 else 'down' if delta < 0 else 'same',
+                            'places': abs(delta),
+                        }
+                checkpoint.ranks = current_ranks
+                checkpoint.signature = signature
+                checkpoint.movement = movement
+                checkpoint.observed_at = observed_at
+                checkpoint.expires_at = expires_at
+                checkpoint.save(update_fields=['ranks', 'signature', 'movement', 'observed_at', 'expires_at'])
+            elif checkpoint.expires_at < observed_at + timedelta(days=44):
+                checkpoint.expires_at = expires_at
+                checkpoint.save(update_fields=['expires_at'])
+        movement = checkpoint.movement or {}
+    for row in rows:
+        row['movement'] = movement.get(str(row['key']), {'direction': 'none', 'places': 0})
 
 
 def _month_bounds(value: str = '') -> tuple[date, date, str]:
@@ -336,7 +429,10 @@ def tat_recognition_payload(
     from core.models import TatActionTask, TatActionTaskRecipient, TatTrackerCase
     from core.services.tat_reporting import _metric_scope_q
     from core.services.tat_tracker import role_display_name
+    from core.services.workflow_data_mode import WORKFLOW_TAT, mode_snapshot
 
+    observed_at = timezone.now()
+    data_revision = tat_recognition_revision(user, group_id=str(group_id or '').strip())
     start, end, label, period_kind = _recognition_period(period_kind, period)
     cases_qs = TatTrackerCase.objects.filter(_metric_scope_q(user), is_deleted=False)
     if str(group_id or '').strip():
@@ -618,6 +714,19 @@ def tat_recognition_payload(
         else selected_branches if selected_view == 'branches'
         else []
     )
+    if selected_view != 'personal':
+        if captured_at:
+            for row in source_rows:
+                row['movement'] = {'direction': 'none', 'places': 0}
+        else:
+            _apply_live_rank_movement(
+                user, group_id=str(group_id or '').strip(),
+                scope_key=mode_snapshot(WORKFLOW_TAT).data_scope_key,
+                period_kind=period_kind, period_key=label, view=selected_view,
+                role=selected_role, product=selected_product_key, branch=selected_branch,
+                include_people=include_people,
+                rows=source_rows, observed_at=observed_at,
+            )
     has_competition = (
         people_have_competition if selected_view == 'people'
         else branches_have_competition if selected_view == 'branches'
@@ -774,6 +883,7 @@ def tat_recognition_payload(
         'period_end': end.isoformat(), 'minimum_ranked_sample': RECOGNITION_STANDINGS_MINIMUM_SAMPLE,
         'minimum_personal_best_sample': minimum_sample,
         'calculated_at': timezone.now().isoformat(),
+        'data_revision': data_revision,
         'result_status': 'final' if captured_at else 'live_provisional',
         'captured_at': captured_at.isoformat() if captured_at else '',
         'view': selected_view,

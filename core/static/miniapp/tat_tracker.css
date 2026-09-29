@@ -1669,11 +1669,33 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .recognition-controls-sheet .recognition-period-controls select, .recognition-controls-sheet .recognition-period-controls input { width: 100%; min-height: 40px; }
 .recognition-controls-sheet .recognition-context-controls { margin: 12px; padding: 0; border: 0; background: transparent; }
 .recognition-controls-sheet .recognition-context-controls select { min-height: 40px; }
+/* A single column contract keeps the pinned row and every page aligned. */
+.recognition-view > .recognition-header { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.recognition-header-actions { min-width: 0; }
+.recognition-slice-line { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 8px 10px; }
+.recognition-slice-line > strong { font-size: 11px; line-height: 1.25; }
+.recognition-slice-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+.recognition-slice-metrics > span { display: grid; justify-items: center; align-content: start; min-width: 0; padding: 2px 4px; text-align: center; }
+.recognition-slice-metrics > span + span { border-left: 1px solid var(--tat-line); }
+.recognition-slice-metrics b { font-size: 14px; line-height: 1.15; }
+.recognition-slice-metrics small { color: var(--tat-muted); font-size: 11px; line-height: 1.2; }
+.recognition-row { grid-template-columns: 30px minmax(0, 1fr) 58px; gap: 8px; min-height: 50px; padding: 6px 10px; }
+.recognition-row.current-user { border-left: 0; box-shadow: inset 3px 0 var(--tat-accent); }
+.recognition-row-main > strong { overflow-wrap: anywhere; }
+.recognition-row-metrics { min-width: 0; }
+.recognition-score { align-content: center; min-width: 58px; min-height: 37px; font-variant-numeric: tabular-nums; }
+.recognition-score b { line-height: 1.1; }
+.recognition-movement { display: block; min-height: 15px; font-size: 11px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
+.recognition-movement.up { color: var(--tat-ok-text); }
+.recognition-movement.down { color: var(--tat-danger-text); }
+.recognition-movement.new { color: var(--tat-accent); }
+.recognition-movement.same, .recognition-movement.none { color: var(--tat-muted); }
+.recognition-pinned .recognition-row { border: 0; outline: 1px solid var(--tat-accent); outline-offset: -1px; }
 @media (max-width: 360px) {
   .recognition-header { display: flex; }
   .recognition-header > div:first-child { flex: 1; }
   .recognition-header-actions button { max-width: 100px; }
-  .recognition-row { grid-template-columns: 24px minmax(0, 1fr) 42px; }
+  .recognition-row { grid-template-columns: 26px minmax(0, 1fr) 55px; gap: 5px; padding-inline: 7px; }
   .recognition-slice-line { padding-inline: 6px; }
 }
 .task-inbox-card {

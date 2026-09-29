@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from unittest import skipUnless
@@ -18,9 +18,72 @@ from core.services.workflow_recognition import (
     _empty_tat_counts,
     _score_rows,
     _recognition_period,
+    _apply_live_rank_movement,
     portal_performance_payload,
     tat_recognition_payload,
 )
+
+
+class TatRecognitionMovementTests(TestCase):
+    def setUp(self):
+        self.viewer = get_user_model().objects.create_user(
+            username='recognition-movement-viewer', is_superuser=True, is_active=True,
+        )
+        self.options = dict(
+            group_id='movement-group', scope_key='production', period_kind='month',
+            period_key='2026-09', view='people', role='', product='', branch='',
+        )
+
+    def apply(self, rows, at, **overrides):
+        records = [dict(item) for item in rows]
+        _apply_live_rank_movement(self.viewer, rows=records, observed_at=at,
+                                  **{**self.options, **overrides})
+        return {row['key']: row['movement'] for row in records}
+
+    def test_live_rank_movement_survives_reopen_and_unchanged_refresh(self):
+        first = [
+            {'key': 'a', 'rank': 1, 'score': 80, 'completed': 2, 'on_time_rate': 100},
+            {'key': 'b', 'rank': 2, 'score': 70, 'completed': 2, 'on_time_rate': 90},
+        ]
+        start = timezone.now()
+        self.assertEqual(self.apply(first, start)['a']['direction'], 'none')
+        changed = [dict(first[0], rank=2), dict(first[1], rank=1, score=82)]
+        result = self.apply(changed, start + timedelta(seconds=1))
+        self.assertEqual(result['a'], {'direction': 'down', 'places': 1})
+        self.assertEqual(result['b'], {'direction': 'up', 'places': 1})
+        self.assertEqual(self.apply(changed, start + timedelta(seconds=2)), result)
+
+    def test_ties_new_entries_and_filter_scope(self):
+        start = timezone.now()
+        first = [{'key': 'a', 'rank': 1, 'score': 80, 'completed': 2, 'on_time_rate': 100}]
+        self.apply(first, start)
+        tied = [dict(first[0]), {'key': 'b', 'rank': 1, 'score': 80, 'completed': 2, 'on_time_rate': 100}]
+        result = self.apply(tied, start + timedelta(seconds=1))
+        self.assertEqual(result['a']['direction'], 'same')
+        self.assertEqual(result['b']['direction'], 'new')
+        filtered = self.apply(tied, start + timedelta(seconds=2), role='BRO')
+        self.assertEqual(filtered['a']['direction'], 'none')
+        self.assertEqual(filtered['b']['direction'], 'none')
+
+    def test_stale_request_cannot_replace_newer_rank(self):
+        from tat_recognition.models import TatRecognitionLiveStanding
+
+        start = timezone.now()
+        original = [{'key': 'a', 'rank': 1, 'score': 80, 'completed': 2, 'on_time_rate': 100}]
+        changed = [dict(original[0], rank=2, score=60)]
+        self.apply(original, start)
+        self.apply(changed, start + timedelta(seconds=2))
+        self.apply(original, start + timedelta(seconds=1))
+        self.assertEqual(TatRecognitionLiveStanding.objects.get().ranks['a'], 2)
+
+    def test_expired_checkpoints_are_cleaned_on_demand(self):
+        from tat_recognition.models import TatRecognitionLiveStanding
+
+        start = timezone.now()
+        self.apply([], start)
+        TatRecognitionLiveStanding.objects.update(expires_at=start - timedelta(days=1))
+        self.apply([], start + timedelta(seconds=1), branch='Nakuru')
+        self.assertEqual(TatRecognitionLiveStanding.objects.count(), 1)
 
 
 class WorkflowRecognitionScoreTests(SimpleTestCase):
@@ -165,6 +228,28 @@ class TatRecognitionPresentationTests(TestCase):
             'person_roles': person_roles,
             'sla_state': sla_state, 'elapsed_minutes': 60, 'corrected': False,
         }
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_live_people_payload_persists_rank_direction_without_exposing_keys(self, stage_samples, _scope):
+        mine = self._sample(case_suffix='-mine')
+        other = self._sample(person_user_id=888, person='Other Staff',
+                             sla_state='overdue', case_suffix='-other')
+        stage_samples.return_value = [mine, other]
+        options = dict(period='2026-09', group_id='-100tat', include_people=True, view='people')
+        first = tat_recognition_payload(self.user, **options)
+        self.assertEqual(first['standings']['rows'][0]['movement']['direction'], 'none')
+        stage_samples.return_value = [
+            {**mine, 'sla_state': 'overdue'},
+            {**other, 'sla_state': 'within_target'},
+        ]
+        changed = tat_recognition_payload(self.user, **options)
+        by_name = {row['label']: row for row in changed['standings']['rows']}
+        self.assertEqual(by_name['You']['movement'], {'direction': 'down', 'places': 1})
+        self.assertEqual(by_name['Other Staff']['movement'], {'direction': 'up', 'places': 1})
+        self.assertNotIn('key', by_name['Other Staff'])
+        self.assertEqual(tat_recognition_payload(self.user, **options)['standings']['rows'][0]['movement'],
+                         {'direction': 'up', 'places': 1})
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')

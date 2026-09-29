@@ -195,6 +195,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | payments | `payment_sequence_state` | `payments.PaymentSequenceState` | configuration_state | active | Group-scoped source of truth for the next official payment number. |
 | requisitions | `requisition_order_sequence_event` | `requisitions.OrderSequenceEvent` | immutable_event | active | Immutable customer-data-free evidence for each official sequence mutation. |
 | requisitions | `requisition_order_sequence_state` | `requisitions.OrderSequenceState` | configuration_state | active | Group-scoped source of truth for the next official requisition order number. |
+| tat_recognition | `tat_recognition_live_standing` | `tat_recognition.TatRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live rank baseline for one authorized period and filter scope. |
 | tat_recognition | `tat_recognition_period_snapshot` | `tat_recognition.TatRecognitionPeriodSnapshot` | immutable_event | active | Frozen completed-stage facts for one TAT group and settled calendar period. |
 
 ## Relationship and usage details
@@ -1858,7 +1859,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatTrackerApprovalCertificate`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_tracker.py`
-- Used by: `core/services/group_reset.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`
+- Used by: `core/services/group_reset.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatupdatesideeffectdispatch`
 
@@ -2299,6 +2300,17 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
 - Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+
+### `tat_recognition_live_standing`
+
+- Application identity: `tat_recognition.TatRecognitionLiveStanding` in **Tat Recognition**
+- Source of truth: **No**
+- Retention: Delete expired rows in bounded batches after 45 days without a view, and on TAT or group reset; never a final score.
+- Parents: `auth.User`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`
+- Used by: `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/tat_full_reset.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `tat_recognition/migrations/0002_tatrecognitionlivestanding.py`, `tat_recognition/models.py`
 
 ### `tat_recognition_period_snapshot`
 

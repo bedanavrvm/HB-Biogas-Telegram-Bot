@@ -151,6 +151,8 @@
       '/api/tat-tracker/settings/proposals/review/': 'Reviewing the settings proposal',
       '/api/tat-tracker/target-settings/': 'Saving TAT targets',
       '/api/tat-tracker/target-settings/sync/': 'Synchronising the TAT target sheet',
+      '/api/tat-tracker/recognition/': 'Loading recognition standings',
+      '/api/tat-tracker/recognition/revision/': 'Checking recognition standings',
     };
     return actions[path] || 'Completing the TAT action';
   }
@@ -858,6 +860,16 @@
     return `<span class="recognition-rank${podium}" aria-label="Position ${escapeHtml(rank)}">${escapeHtml(rank)}</span>`;
   }
 
+  function recognitionMovement(item) {
+    const movement = item.movement || {};
+    const places = Math.max(0, Number(movement.places || 0));
+    if (movement.direction === 'up' && places) return `<small class="recognition-movement up" aria-label="Up ${places} ${places === 1 ? 'place' : 'places'}">&#8593; ${escapeHtml(places)}</small>`;
+    if (movement.direction === 'down' && places) return `<small class="recognition-movement down" aria-label="Down ${places} ${places === 1 ? 'place' : 'places'}">&#8595; ${escapeHtml(places)}</small>`;
+    if (movement.direction === 'new') return '<small class="recognition-movement new" aria-label="New entry">New</small>';
+    if (movement.direction === 'same') return '<small class="recognition-movement same" aria-label="Rank unchanged">&#8212;</small>';
+    return '<small class="recognition-movement none" aria-hidden="true">&nbsp;</small>';
+  }
+
   function recognitionRow(item, isBranch = false) {
     const label = item.label || item.branch || 'Unnamed result';
     const metrics = isBranch
@@ -866,7 +878,7 @@
     return `<article class="recognition-row${item.ranked ? '' : ' unranked'}${item.is_current_user ? ' current-user' : ''}">
       ${recognitionRank(item)}
       <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}${item.is_current_user && label !== 'You' ? ' <small>You</small>' : ''}</strong><div class="recognition-row-metrics">${metrics}</div></div>
-      <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b></span>
+      <span class="recognition-score"><b aria-label="Performance score ${escapeHtml(item.score || 0)}">${escapeHtml(item.score || 0)}</b>${recognitionMovement(item)}</span>
     </article>`;
   }
 
@@ -941,7 +953,7 @@
     const slice = payload.slice_result || {};
     $('tatRecognitionSlice').hidden = !sliceLabels.length;
     $('tatRecognitionSlice').innerHTML = sliceLabels.length
-      ? `<div class="recognition-slice-line"><strong>Selected work</strong><span><b>${escapeHtml(slice.score || 0)}</b> score</span><span><b>${escapeHtml(slice.completed || 0)}</b> actions</span><span><b>${escapeHtml(slice.share_of_overall || 0)}%</b> of work</span></div>`
+      ? `<div class="recognition-slice-line"><strong>Selected work</strong><div class="recognition-slice-metrics"><span><b>${escapeHtml(slice.score || 0)}</b><small>score</small></span><span><b>${escapeHtml(slice.completed || 0)}</b><small>actions</small></span><span><b>${escapeHtml(slice.share_of_overall || 0)}%</b><small>of your work</small></span></div></div>`
       : '';
     document.querySelectorAll('[data-recognition-view]').forEach(button => {
       const active = button.dataset.recognitionView === state.recognition.view;
@@ -1131,6 +1143,23 @@
         if (!state.recognition.controlsOpen) syncRecognitionPeriodControls(previous);
       }
       throw error;
+    }
+  }
+
+  async function checkTatRecognitionRevision() {
+    const recognition = state.recognition;
+    if (state.currentView !== 'recognition' || recognition.view === 'personal'
+        || recognition.controlsOpen || recognition.loading || recognition.revisionChecking
+        || !recognition.lastPayload || recognition.lastPayload.result_status === 'final') return;
+    recognition.revisionChecking = true;
+    const sequence = recognition.sequence;
+    const previous = recognition.lastPayload;
+    try {
+      const result = await api('/api/tat-tracker/recognition/revision/', {});
+      if (sequence !== recognition.sequence || recognition.lastPayload !== previous) return;
+      if (result.data?.revision !== previous.data_revision) await loadTatRecognition();
+    } finally {
+      recognition.revisionChecking = false;
     }
   }
 
@@ -3976,6 +4005,7 @@
       const caseId = state.detail && state.detail.summary && state.detail.summary.case_id;
       if (state.currentView === 'detail' && caseId) await openCase(caseId);
       else if (state.currentView === 'dashboard') { invalidateTatReportInsights(); await refreshTatReport(); }
+      else if (state.currentView === 'recognition') await loadTatRecognition();
       else await refresh();
     } catch (error) {
       // The invoked loader already presents a safe, contextual error.
@@ -4363,6 +4393,7 @@
         applyPendingDetail();
       }, 1000);
       runtime.createVisibleInterval(updateQueueFreshness, 10000);
+      runtime.createVisibleInterval(() => checkTatRecognitionRevision().catch(() => {}), 10000, { immediateOnResume: true });
       return;
     }
     window.setInterval(function () {
@@ -4372,6 +4403,9 @@
         if (state.currentView === 'detail') refreshDetailBackground().catch(() => {});
       }
     }, 30000);
+    window.setInterval(function () {
+      if (document.visibilityState !== 'hidden') checkTatRecognitionRevision().catch(() => {});
+    }, 10000);
     window.setInterval(function () {
       if (document.visibilityState !== 'hidden') {
         tickTatCounters();

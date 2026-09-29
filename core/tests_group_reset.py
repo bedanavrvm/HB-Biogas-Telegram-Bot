@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
 
 from core.models import (
     ComplaintCaseControl,
@@ -22,7 +24,7 @@ from core.models import (
     RawMessage,
 )
 from core.services.group_reset import group_data_counts, reset_group_data
-from tat_recognition.models import TatRecognitionPeriodSnapshot
+from tat_recognition.models import TatRecognitionLiveStanding, TatRecognitionPeriodSnapshot
 
 
 User = get_user_model()
@@ -50,12 +52,22 @@ class GroupResetAdminTests(TestCase):
                 period_kind='month', period_key='2026-01',
                 facts={'score_policy_version': 1, 'minimum_ranked_sample': 20, 'actions': [], 'branches': []},
             )
+            TatRecognitionLiveStanding.objects.create(
+                viewer=self.admin_user, group_id=configuration.group_id,
+                scope_key='production', context_key=f'checkpoint-{configuration.group_id}',
+                ranks={}, signature='', observed_at=timezone.now(),
+                expires_at=timezone.now() + timedelta(days=45),
+            )
 
         self.assertEqual(group_data_counts(selected)['tat_recognition_snapshots'], 1)
+        self.assertEqual(group_data_counts(selected)['tat_recognition_live_standings'], 1)
         result = reset_group_data(selected)
         self.assertEqual(result['deleted']['tat_recognition_snapshots'], 1)
+        self.assertEqual(result['deleted']['tat_recognition_live_standings'], 1)
         self.assertFalse(TatRecognitionPeriodSnapshot.objects.filter(group_id=selected.group_id).exists())
         self.assertTrue(TatRecognitionPeriodSnapshot.objects.filter(group_id=other.group_id).exists())
+        self.assertFalse(TatRecognitionLiveStanding.objects.filter(group_id=selected.group_id).exists())
+        self.assertTrue(TatRecognitionLiveStanding.objects.filter(group_id=other.group_id).exists())
 
     def test_complaint_reset_page_exposes_only_complaint_configuration_scope(self):
         config = GroupSheetConfiguration.objects.create(

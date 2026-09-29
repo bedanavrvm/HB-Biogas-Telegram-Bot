@@ -5101,7 +5101,8 @@
       "used_by": [
         "core/services/group_reset.py",
         "core/services/tat_full_reset.py",
-        "core/services/tat_tracker.py"
+        "core/services/tat_tracker.py",
+        "core/services/workflow_recognition.py"
       ]
     },
     {
@@ -6416,6 +6417,42 @@
         "core/services/portal_full_reset.py",
         "requisitions/migrations/0001_initial.py",
         "requisitions/models.py"
+      ]
+    },
+    {
+      "application_area": "Tat Recognition",
+      "children": [],
+      "classification": "derived_cache",
+      "column_count": 10,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "core/services/group_reset.py",
+        "core/services/workflow_pilot_purge.py",
+        "core/services/workflow_recognition.py"
+      ],
+      "django_model": "tat_recognition.TatRecognitionLiveStanding",
+      "domain": "tat_recognition",
+      "explicit_indexes": [
+        "tat_live_expiry_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User"
+      ],
+      "purpose": "Expiring, per-viewer live rank baseline for one authorized period and filter scope.",
+      "retention": "Delete expired rows in bounded batches after 45 days without a view, and on TAT or group reset; never a final score.",
+      "source_of_truth": false,
+      "table": "tat_recognition_live_standing",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/group_reset.py",
+        "core/services/tat_full_reset.py",
+        "core/services/workflow_pilot_purge.py",
+        "core/services/workflow_recognition.py",
+        "tat_recognition/migrations/0002_tatrecognitionlivestanding.py",
+        "tat_recognition/models.py"
       ]
     },
     {

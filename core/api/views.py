@@ -629,6 +629,23 @@ def tat_tracker_recognition(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
+def tat_tracker_recognition_revision(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.recognition.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.workflow_recognition import tat_recognition_revision
+    return JsonResponse({'ok': True, 'data': {
+        'revision': tat_recognition_revision(user['_canonical_user'], group_id=group_id),
+    }})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_task_read(request):
     payload = _tat_json_body(request)
     key_error = _bind_miniapp_write_request(request, payload)

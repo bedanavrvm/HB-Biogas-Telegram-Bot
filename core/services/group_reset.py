@@ -34,7 +34,7 @@ from core.models import (
     TatTrackerCase,
     TatTrackerEvent,
 )
-from tat_recognition.models import TatRecognitionPeriodSnapshot
+from tat_recognition.models import TatRecognitionLiveStanding, TatRecognitionPeriodSnapshot
 
 
 DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME = 'SPIN Legacy Batch'
@@ -126,6 +126,7 @@ def group_data_counts(
         'tat_tracker_cases': TatTrackerCase.objects.filter(group_id=group_id).count(),
         'tat_tracker_events': TatTrackerEvent.objects.filter(group_id=group_id).count(),
         'tat_recognition_snapshots': TatRecognitionPeriodSnapshot.objects.filter(group_id=group_id).count(),
+        'tat_recognition_live_standings': TatRecognitionLiveStanding.objects.filter(group_id=group_id).count(),
         'live_sheet_changes': LiveSheetRecordChange.objects.filter(group_id=group_id).count(),
     }
 
@@ -188,6 +189,7 @@ def reset_group_data(
             _spin_legacy_queryset(group_id, spin_legacy_name).delete()
     elif workflow_type == 'tat_tracker':
         TatRecognitionPeriodSnapshot.objects.filter(group_id=group_id).delete()
+        TatRecognitionLiveStanding.objects.filter(group_id=group_id).delete()
         TatTrackerCase.objects.filter(group_id=group_id).delete()
         LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
 
