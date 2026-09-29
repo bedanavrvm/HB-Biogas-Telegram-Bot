@@ -370,7 +370,6 @@ def tat_recognition_payload(
             )
 
     people = defaultdict(_empty_tat_counts)
-    people_by_branch = defaultdict(_empty_tat_counts)
     person_branches = defaultdict(set)
     branches = defaultdict(_empty_tat_counts)
     contexts = defaultdict(_empty_tat_counts)
@@ -419,68 +418,111 @@ def tat_recognition_payload(
         _accumulate_tat_sample(
             people[person_key_tuple], sample, attribution_fallback=not bool(assigned),
         )
-        _accumulate_tat_sample(
-            people_by_branch[(*person_key_tuple, sample_branch)], sample,
-            attribution_fallback=not bool(assigned),
-        )
         if person_identity == str(user.pk):
             _accumulate_tat_sample(personal_total, sample, attribution_fallback=not bool(assigned))
 
-    def scored_people_rows(branch_filter=''):
-        result = []
-        source = people_by_branch if branch_filter else people
-        for source_key, counts in source.items():
-            key = source_key[:-1] if branch_filter else source_key
-            identity, display, item_role, product_key, product_label = key
-            completed = counts['completed']
-            public_counts = {name: value for name, value in counts.items() if not name.startswith('_')}
-            item_branches = [source_key[-1]] if branch_filter else sorted(person_branches[key], key=str.casefold)
-            result.append({
-                'key': str(identity), 'label': display, **public_counts,
-                'role': item_role, 'product_key': product_key, 'product': product_label,
-                'branch': item_branches[0] if len(item_branches) == 1 else '',
-                'branch_count': len(item_branches), '_rank_group': f'{item_role}|{product_key}',
-                'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
-            })
-        scored = _score_rows(
-            result, quality_key='on_time_rate', volume_key='completed', success_key='on_time',
-            rank_group_key='_rank_group', minimum_sample=minimum_sample,
-        )
-        for row in scored:
-            row.pop('_rank_group', None)
-        return scored
+    def merge_counts(target, source):
+        for name, value in source.items():
+            if name == '_durations':
+                target[name].extend(value)
+            else:
+                target[name] += value
 
-    def scored_branch_rows():
+    def scored_people_rows(role_filter='', product_filter='', branch_filter='', allowed_contexts=None):
+        totals = defaultdict(_empty_tat_counts)
+        details = defaultdict(lambda: {'roles': set(), 'products': set(), 'branches': set()})
+        labels = {}
+        for key, counts in people.items():
+            identity, display, item_role, product_key, product_label = key
+            if ((role_filter and item_role != role_filter)
+                    or (product_filter and product_key != product_filter)
+                    or (allowed_contexts is not None and (item_role, product_key) not in allowed_contexts)):
+                continue
+            item_branches = person_branches[key]
+            if branch_filter:
+                # A person's counts must be split by branch before aggregation.
+                # The unfiltered tuple contains actions across all their branches.
+                continue
+            merge_counts(totals[identity], counts)
+            labels.setdefault(identity, display)
+            details[identity]['roles'].add(item_role)
+            details[identity]['products'].add((product_key, product_label))
+            details[identity]['branches'].update(item_branches)
+        if branch_filter:
+            for sample in samples:
+                assigned, identity, display = attribution(sample)
+                item_role = str(sample.get('role') or 'Unassigned').strip().upper()
+                product_label = str(sample.get('product') or sample.get('product_key') or 'Unassigned').strip()
+                product_key = str(sample.get('product_key') or product_label).strip().lower()
+                sample_branch = str(sample.get('branch') or 'Unassigned')
+                if (not identity or sample_branch.casefold() != branch_filter.casefold()
+                        or (role_filter and item_role != role_filter)
+                        or (product_filter and product_key != product_filter)
+                        or (allowed_contexts is not None and (item_role, product_key) not in allowed_contexts)):
+                    continue
+                _accumulate_tat_sample(totals[identity], sample, attribution_fallback=not bool(assigned))
+                labels.setdefault(identity, display or 'Unassigned')
+                details[identity]['roles'].add(item_role)
+                details[identity]['products'].add((product_key, product_label))
+                details[identity]['branches'].add(sample_branch)
         result = []
-        for (item_role, product_key, product_label, branch), counts in branches.items():
+        for identity, counts in totals.items():
+            meta = details[identity]
+            roles = sorted(meta['roles'])
+            products = sorted(meta['products'])
+            item_branches = sorted(meta['branches'], key=str.casefold)
             completed = counts['completed']
-            public_counts = {name: value for name, value in counts.items() if not name.startswith('_')}
             result.append({
-                'key': f'branch-{sha256(f"{item_role}|{product_key}|{branch}".encode("utf-8")).hexdigest()[:12]}',
-                'label': branch, 'branch': branch, 'role': item_role,
-                'product_key': product_key, 'product': product_label, **public_counts,
-                '_rank_group': f'{item_role}|{product_key}',
+                'key': str(identity), 'label': labels[identity],
+                **{name: value for name, value in counts.items() if not name.startswith('_')},
+                'role': roles[0] if len(roles) == 1 else '', 'role_count': len(roles),
+                'product_key': products[0][0] if len(products) == 1 else '',
+                'product': products[0][1] if len(products) == 1 else '', 'product_count': len(products),
+                'branch': item_branches[0] if len(item_branches) == 1 else '',
+                'branch_count': len(item_branches),
                 'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
             })
-        scored = _score_rows(
-            result, quality_key='on_time_rate', volume_key='completed', success_key='on_time',
-            rank_group_key='_rank_group', minimum_sample=minimum_sample,
-        )
-        for row in scored:
-            row.pop('_rank_group', None)
-        return scored
+        return _score_rows(result, quality_key='on_time_rate', volume_key='completed',
+                           success_key='on_time', minimum_sample=minimum_sample)
+
+    def scored_branch_rows(role_filter='', product_filter='', branch_filter='', allowed_contexts=None):
+        totals = defaultdict(_empty_tat_counts)
+        details = defaultdict(lambda: {'roles': set(), 'products': set()})
+        labels = {}
+        for (item_role, product_key, product_label, item_branch), counts in branches.items():
+            if ((role_filter and item_role != role_filter)
+                    or (product_filter and product_key != product_filter)
+                    or (branch_filter and item_branch.casefold() != branch_filter.casefold())
+                    or (allowed_contexts is not None and (item_role, product_key) not in allowed_contexts)):
+                continue
+            identity = item_branch.casefold()
+            merge_counts(totals[identity], counts)
+            labels.setdefault(identity, item_branch)
+            details[identity]['roles'].add(item_role)
+            details[identity]['products'].add((product_key, product_label))
+        result = []
+        for identity, counts in totals.items():
+            roles = sorted(details[identity]['roles'])
+            products = sorted(details[identity]['products'])
+            completed = counts['completed']
+            result.append({
+                'key': f'branch-{sha256(identity.encode("utf-8")).hexdigest()[:12]}',
+                'label': labels[identity], 'branch': labels[identity],
+                'role': roles[0] if len(roles) == 1 else '', 'role_count': len(roles),
+                'product_key': products[0][0] if len(products) == 1 else '',
+                'product': products[0][1] if len(products) == 1 else '', 'product_count': len(products),
+                **{name: value for name, value in counts.items() if not name.startswith('_')},
+                'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
+            })
+        return _score_rows(result, quality_key='on_time_rate', volume_key='completed',
+                           success_key='on_time', minimum_sample=minimum_sample)
 
     requested_branch = str(branch or '').strip()
-    person_rows = scored_people_rows()
-    branch_rows = scored_branch_rows()
     context_keys = sorted(
         contexts,
         key=lambda item: (role_display_name(item[0]).casefold(), item[2].casefold()),
     )
-    personal_candidates = [row for row in person_rows if row['key'] == str(user.pk)]
-    personal_contexts = {
-        (row['role'], row['product_key']) for row in personal_candidates
-    }
+    personal_contexts = {(key[2], key[3]) for key in people if key[0] == str(user.pk)}
     visible_context_keys = context_keys if include_people else [
         item for item in context_keys if (item[0], item[1]) in personal_contexts
     ]
@@ -502,8 +544,6 @@ def tat_recognition_payload(
         and (not selected_product_key or str(sample.get('product_key') or '').lower() == selected_product_key)
     }, key=str.casefold)
     selected_branch = next((item for item in available_branches if item.casefold() == requested_branch.casefold()), '')
-    if selected_branch:
-        person_rows = scored_people_rows(selected_branch)
 
     role_options = [{'key': '', 'label': 'All roles'}] + [
         {'key': role_key, 'label': role_display_name(role_key)}
@@ -518,29 +558,13 @@ def tat_recognition_payload(
     branch_options = [{'key': '', 'label': 'All branches'}] + [
         {'key': item, 'label': item} for item in available_branches
     ]
-    selected_people = [
-        row for row in person_rows
-        if (include_people or (row['role'], row['product_key']) in personal_contexts)
-        and (not selected_role or row['role'] == selected_role)
-        and (not selected_product_key or row['product_key'] == selected_product_key)
-    ]
-    selected_branches = [
-        row for row in branch_rows
-        if (include_people or (row['role'], row['product_key']) in personal_contexts)
-        and (not selected_role or row['role'] == selected_role)
-        and (not selected_product_key or row['product_key'] == selected_product_key)
-        and (not selected_branch or row['branch'].casefold() == selected_branch.casefold())
-    ]
+    allowed_contexts = None if include_people else personal_contexts
+    selected_people = scored_people_rows(selected_role, selected_product_key, selected_branch, allowed_contexts)
+    selected_branches = scored_branch_rows(selected_role, selected_product_key, selected_branch, allowed_contexts)
     eligible_people = sum(1 for row in selected_people if row['ranked'])
     eligible_branches = sum(1 for row in selected_branches if row['ranked'])
-    people_groups = defaultdict(int)
-    for row in selected_people:
-        people_groups[(row['role'], row['product_key'])] += int(row['ranked'])
-    branch_groups = defaultdict(int)
-    for row in branch_rows:
-        branch_groups[(row['role'], row['product_key'])] += int(row['ranked'])
-    people_have_competition = any(count >= 2 for count in people_groups.values())
-    branches_have_competition = any(count >= 2 for count in branch_groups.values())
+    people_have_competition = eligible_people >= 2
+    branches_have_competition = eligible_branches >= 2
     peer_numbers = {
         identity: index
         for index, identity in enumerate(
@@ -556,7 +580,7 @@ def tat_recognition_payload(
         elif not include_people:
             result['label'] = f"Peer {peer_numbers[row['key']]}"
         result['is_current_user'] = is_current
-        result['rank'] = row.get('rank') if people_groups[(row['role'], row['product_key'])] >= 2 else None
+        result['rank'] = row.get('rank') if people_have_competition else None
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
@@ -567,7 +591,7 @@ def tat_recognition_payload(
 
     def public_branch(row):
         result = dict(row)
-        result['rank'] = row.get('rank') if branch_groups[(row['role'], row['product_key'])] >= 2 else None
+        result['rank'] = row.get('rank') if branches_have_competition else None
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
@@ -594,7 +618,7 @@ def tat_recognition_payload(
         selected_page = max(1, int(page or 1))
     except (TypeError, ValueError):
         selected_page = 1
-    page_size = 5
+    page_size = 10
     page_count = max(1, (len(source_rows) + page_size - 1) // page_size)
     selected_page = min(selected_page, page_count)
     start_index = (selected_page - 1) * page_size
@@ -681,6 +705,8 @@ def tat_recognition_payload(
     stage_contributions = []
     if selected_stages:
         for (item_role, stage_key, stage_label), counts in selected_stages.items():
+            if not counts['completed']:
+                continue
             stage_contributions.append({
                 'role': role_display_name(item_role), 'stage_key': stage_key,
                 'stage': stage_label, **result_summary(counts), 'breakdown': breakdown(counts),
@@ -711,7 +737,7 @@ def tat_recognition_payload(
     if include_people:
         methodology = {
             'score_method': 'The performance score is the 95% Wilson lower bound for on-time completion. It rewards consistent results without overstating small samples.',
-            'cohort_basis': 'People count stage actions completed in the selected period, compared within the same TAT group, role, and product. Branches count all completed stages on cases both created and finally resolved in that period, grouped by originating branch; cases spanning periods do not enter a monthly branch cohort.',
+            'cohort_basis': 'People count stage actions completed in the selected period. Each person appears once across the selected roles, products, and branches. Branches count completed stages on cases both created and finally resolved in that period; cases spanning periods do not enter a monthly branch cohort.',
             'correction_policy': 'Audited corrections update live results. A final period keeps the facts captured after its 30-day settlement window and does not change with later corrections. Recognition is informational, not an HR or compensation decision input.',
             'late_work_policy': 'Recovered overdue work remains visible in data checks but does not count as on time.',
             'completed_total': int(selected_counts.get('completed_total') or 0),

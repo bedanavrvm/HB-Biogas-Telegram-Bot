@@ -230,9 +230,35 @@ class TatRecognitionPresentationTests(TestCase):
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')
-    def test_ordinary_people_are_anonymous_and_limited_to_five_per_page(self, stage_samples, _scope):
+    def test_people_aggregate_once_by_staff_id_before_scoring_and_filtering(self, stage_samples, _scope):
+        stage_samples.return_value = (
+            [self._sample(role='BRO', branch='Embu', product='Standard', case_suffix=f'-bro-{number}') for number in range(20)]
+            + [self._sample(role='CA', branch='Nakuru', product='HOCC', case_suffix=f'-ca-{number}') for number in range(20)]
+            + [self._sample(role='BRO', branch='Embu', product='Standard', person_user_id=888,
+                            person='Mary Wanjiku', case_suffix=f'-other-{number}') for number in range(20)]
+        )
+        overall = tat_recognition_payload(self.user, period='2026-09', include_people=True, view='people')
+        self.assertEqual(overall['standings']['total'], 2)
+        self.assertEqual(overall['standings']['eligible_count'], 2)
+        own = next(row for row in overall['standings']['rows'] if row['is_current_user'])
+        self.assertEqual(own['completed'], 40)
+        self.assertEqual((own['role_count'], own['product_count'], own['branch_count']), (2, 2, 2))
+        self.assertEqual(overall['overall_result']['completed'], 40)
+
+        filtered = tat_recognition_payload(
+            self.user, period='2026-09', include_people=True, view='people',
+            role='BRO', product='standard', branch='Embu',
+        )
+        self.assertEqual(filtered['standings']['total'], 2)
+        self.assertEqual(filtered['overall_result'], overall['overall_result'])
+        self.assertEqual(next(row for row in filtered['standings']['rows'] if row['is_current_user'])['completed'], 20)
+        self.assertEqual(filtered['slice_result']['completed'], 20)
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_ordinary_people_are_anonymous_and_limited_to_ten_per_page(self, stage_samples, _scope):
         peers = []
-        for peer_number in range(1, 8):
+        for peer_number in range(1, 13):
             peers.extend(self._sample(
                 person_user_id=1000 + peer_number, person=f'Private Person {peer_number}',
                 case_suffix=f'-peer-{peer_number}-{sample_number}',
@@ -245,16 +271,21 @@ class TatRecognitionPresentationTests(TestCase):
             self.user, period='2026-09', include_people=False, view='people', page=2,
         )
 
-        self.assertEqual(payload['standings']['page_size'], 5)
+        self.assertEqual(payload['standings']['page_size'], 10)
         self.assertEqual(payload['standings']['page'], 2)
         self.assertEqual(payload['standings']['pages'], 2)
-        self.assertEqual(payload['standings']['total'], 8)
-        self.assertLessEqual(len(payload['standings']['rows']), 5)
+        self.assertEqual(payload['standings']['total'], 13)
+        self.assertLessEqual(len(payload['standings']['rows']), 10)
         labels = [row['label'] for row in payload['standings']['rows']]
         self.assertFalse(any(label.startswith('Private Person') for label in labels))
         self.assertTrue(all(label == 'You' or label.startswith('Peer ') for label in labels))
         if payload['standings']['current_user_row']:
             self.assertEqual(payload['standings']['current_user_row']['label'], 'You')
+        first_page = tat_recognition_payload(
+            self.user, period='2026-09', include_people=False, view='people', page=1,
+        )
+        self.assertEqual(sum(row['label'] == 'You' for row in first_page['standings']['rows']), 1)
+        self.assertIsNone(first_page['standings']['current_user_row'])
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')
@@ -325,14 +356,25 @@ class TatRecognitionPresentationTests(TestCase):
         case('cross-month', timezone.make_aware(datetime(2026, 8, 30)), timezone.make_aware(datetime(2026, 9, 5)), 'Nakuru')
 
         def samples(cases, filters, **_kwargs):
-            return [self._sample(branch=item.branch, case_suffix=item.case_id) | {
-                'case_id': item.case_id, 'completed_at': '2026-09-15T12:00:00+03:00',
-            } for item in cases]
+            result = []
+            for item in cases:
+                result.append(self._sample(branch=item.branch, case_suffix=item.case_id) | {
+                    'case_id': item.case_id, 'completed_at': '2026-09-15T12:00:00+03:00',
+                })
+                if item.case_id == 'same-month':
+                    result.append(self._sample(role='CA', branch=item.branch, product='HOCC',
+                                               case_suffix=f'{item.case_id}-ca') | {
+                        'case_id': item.case_id, 'completed_at': '2026-09-16T12:00:00+03:00',
+                    })
+            return result
 
         stage_samples.side_effect = samples
         payload = tat_recognition_payload(self.user, group_id='-100tat', period='2026-09', view='branches')
-        self.assertEqual(payload['overall_result']['completed'], 2)
+        self.assertEqual(payload['overall_result']['completed'], 3)
         self.assertEqual([row['branch'] for row in payload['standings']['rows']], ['Embu'])
+        self.assertEqual(payload['standings']['rows'][0]['completed'], 2)
+        self.assertEqual(payload['standings']['rows'][0]['role_count'], 2)
+        self.assertEqual(payload['standings']['rows'][0]['product_count'], 2)
 
     @patch('core.services.tat_reporting._stage_samples')
     def test_first_post_window_view_freezes_final_period(self, stage_samples):
