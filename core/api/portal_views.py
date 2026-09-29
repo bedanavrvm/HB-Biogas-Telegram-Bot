@@ -3969,6 +3969,14 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             'ok': False, 'error': batch_error, 'code': batch_code,
             'field_errors': {'jbl_visit_photo_files': batch_error},
         }, status=400)
+    location_errors = {}
+    if not str(body.get('county') or '').strip():
+        location_errors['county'] = 'Choose the county where this visit was done.'
+    if not str(body.get('sub_county') or '').strip():
+        location_errors['sub_county'] = 'Choose the constituency where this visit was done.'
+    if location_errors:
+        return JsonResponse({'ok': False, 'error': 'Choose the visit county and constituency.',
+                             'field_errors': location_errors}, status=400)
     sender = _portal_sender_from_request(request)
     try:
         ok, error, result = complete_jbl_visit(
@@ -7335,6 +7343,7 @@ def portal_create_and_complete_jbl_lead(request):
     if not national_id: errors['national_id'] = 'National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.'
     if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
+    if not str(body.get('sub_county') or '').strip(): errors['sub_county'] = 'Choose the constituency where this visit was done.'
     if len(hb_sales_person) > 255: errors['hb_sales_person'] = 'HB sales person must be 255 characters or fewer.'
     if deposit_raw:
         try:

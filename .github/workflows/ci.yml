@@ -118,6 +118,7 @@ jobs:
           path: |
             playwright-report/
             test-results/playwright/
+          retention-days: 14
           if-no-files-found: ignore
 
       - name: Check Apps Script syntax

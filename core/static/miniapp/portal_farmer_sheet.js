@@ -11,6 +11,7 @@
   let jblServerDraft = null;
   let jblServerDraftFarmerId = '';
   let jblDraftInputVersion = 0;
+  let jblLocationRefresh = null;
   let pendingJblDraftConflict = null;
   let pendingJblWorkflowConflict = null;
   let case360CounterCleanup = null;
@@ -448,9 +449,12 @@
       (groups[field.section] ||= []).push(field);
     });
     const fields = Object.entries(groups).map(([section, items]) => `<fieldset><legend>${deps.escapeHtml(humanLabel(section))}</legend><div class="case360-correction-grid">${items.map(field => {
+      if (field.type === 'location_county' || field.type === 'location_sub_county') {
+        return `<label><span>${deps.escapeHtml(field.label)}</span><select data-case-correction-field="${deps.escapeHtml(field.key)}" data-original-value="${deps.escapeHtml(field.value || '')}"><option value="">Choose ${deps.escapeHtml(field.label.toLowerCase())}</option>${field.value ? `<option value="${deps.escapeHtml(field.value)}" selected>${deps.escapeHtml(field.value)}</option>` : ''}</select></label>`;
+      }
       const inputMode = field.type === 'date' ? ' inputmode="numeric" placeholder="DD-MM-YYYY"' : field.type === 'money' ? ' inputmode="decimal"' : '';
       const type = field.type === 'tel' ? 'tel' : 'text';
-      return `<label><span>${deps.escapeHtml(field.label)}</span><input type="${type}" data-case-correction-field="${deps.escapeHtml(field.key)}" value="${deps.escapeHtml(field.value || '')}"${inputMode}></label>`;
+      return `<label><span>${deps.escapeHtml(field.label)}</span><input type="${type}" data-case-correction-field="${deps.escapeHtml(field.key)}" data-original-value="${deps.escapeHtml(field.value || '')}" value="${deps.escapeHtml(field.value || '')}"${inputMode}></label>`;
     }).join('')}</div></fieldset>`).join('');
     return `<form class="case360-correction-form" hidden>${fields}<label class="case360-correction-reason"><span>Correction reason</span><textarea data-case-correction-reason rows="2" required placeholder="State what was wrong and why this correction is required"></textarea></label><div class="case360-correction-actions"><button type="button" class="btn btn-secondary case360-correction-cancel">Return to view mode</button><button type="submit" class="btn btn-primary">Save correction</button></div></form>`;
   }
@@ -629,6 +633,42 @@
       window.location.assign('/portal/cases/' + encodeURIComponent(button.dataset.relatedFarmer) + '/');
     }));
     const correctionForm = root.querySelector('.case360-correction-form');
+    const correctionCounty = correctionForm?.querySelector('[data-case-correction-field="county"]');
+    const correctionConstituency = correctionForm?.querySelector('[data-case-correction-field="sub_county"]');
+    if (correctionCounty && correctionConstituency) {
+      let locationRequest = 0;
+      let locationTouched = false;
+      const loadCorrectionLocations = async (county, constituency) => {
+        const version = ++locationRequest;
+        const query = new URLSearchParams({ branch: sections.intake?.branch || '', county });
+        const { ok, data: options } = await deps.apiFetch(`/location-options/?${query.toString()}`);
+        if (version !== locationRequest || !correctionForm.isConnected) return;
+        if (!ok || !options?.ok) {
+          deps.showToast(options?.error || 'Could not load location choices.', 'error');
+          return;
+        }
+        replaceLocationOptions(correctionCounty, options.counties, county, 'Choose county');
+        replaceLocationOptions(correctionConstituency, options.sub_counties, constituency, 'Choose constituency');
+        // A legacy value may not be in today's catalogue. Keep it visible so
+        // an unrelated Case History correction never clears it implicitly.
+        if (county && !correctionCounty.value) {
+          correctionCounty.add(new Option(county, county, true, true));
+        }
+        if (constituency && !correctionConstituency.value) {
+          correctionConstituency.add(new Option(constituency, constituency, true, true));
+        }
+        if (!locationTouched) {
+          correctionCounty.dataset.originalValue = correctionCounty.value;
+          correctionConstituency.dataset.originalValue = correctionConstituency.value;
+        }
+      };
+      correctionCounty.addEventListener('change', () => {
+        locationTouched = true;
+        loadCorrectionLocations(correctionCounty.value, '');
+      });
+      correctionConstituency.addEventListener('change', () => { locationTouched = true; });
+      loadCorrectionLocations(correctionCounty.value, correctionConstituency.value);
+    }
     const correctionToggle = root.querySelector('.case360-edit-toggle');
     const viewContent = root.querySelector('.case360-view-content');
     const setCorrectionMode = enabled => {
@@ -647,7 +687,13 @@
       event.preventDefault();
       const submit = correctionForm.querySelector('button[type="submit"]');
       const values = {};
-      correctionForm.querySelectorAll('[data-case-correction-field]').forEach(input => { values[input.dataset.caseCorrectionField] = input.value; });
+      correctionForm.querySelectorAll('[data-case-correction-field]').forEach(input => {
+        if (input.value !== input.dataset.originalValue) values[input.dataset.caseCorrectionField] = input.value;
+      });
+      if (!Object.keys(values).length) {
+        deps.showToast('Change at least one field before saving.', 'info');
+        return;
+      }
       const reason = correctionForm.querySelector('[data-case-correction-reason]')?.value?.trim() || '';
       if (!reason) { deps.showToast('Enter a correction reason for the audit timeline.', 'error'); return; }
       deps.setButtonLoading?.(submit, true, 'Saving');
@@ -1156,9 +1202,9 @@
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
-        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
-        <div class="form-row" data-jbl-field="village"><label for="jbl-village">Village <span aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village / area" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
+        <div class="form-row" data-jbl-field="county"><label>County <span aria-hidden="true">*</span></label><select id="jbl-county" required><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
+        <div class="form-row" data-jbl-field="sub_county"><label>Constituency <span aria-hidden="true">*</span></label><select id="jbl-sub-county" required><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
+        <div class="form-row" data-jbl-field="village"><label for="jbl-village">Village / landmark <span aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village or landmark" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
@@ -1195,28 +1241,28 @@
     const countySelect = el('jbl-county');
     const subCountySelect = el('jbl-sub-county');
     if (!countySelect || !subCountySelect) return;
-    let initialCounty = countySelect.value || farmer.county_ref_code || farmer.county || '';
-    let initialSubCounty = subCountySelect.value || farmer.sub_county_ref_code || farmer.sub_county || '';
-    const loadOptions = async () => {
+    let requestVersion = 0;
+    const loadOptions = async (selectedCounty = countySelect.value, selectedSubCounty = subCountySelect.value) => {
+      const version = ++requestVersion;
       const branch = farmer.branch_ref_code || farmer.branch || '';
-      const county = countySelect.value || initialCounty;
-      const query = new URLSearchParams({ branch, county });
+      const query = new URLSearchParams({ branch, county: selectedCounty });
       const { ok, data } = await deps.apiFetch(`/location-options/?${query.toString()}`);
+      if (version !== requestVersion || countySelect !== el('jbl-county')) return;
       if (!ok || !data?.ok) {
         deps.showToast(data?.error || 'Could not load governed location choices.', 'error');
         return;
       }
-      replaceLocationOptions(countySelect, data.counties, data.selected_county?.code || county, '- Select county -');
-      replaceLocationOptions(subCountySelect, data.sub_counties, initialSubCounty, '- Select -');
-      initialCounty = countySelect.value;
-      initialSubCounty = subCountySelect.value;
+      replaceLocationOptions(countySelect, data.counties, selectedCounty, '- Select county -');
+      replaceLocationOptions(subCountySelect, data.sub_counties, selectedSubCounty, '- Select -');
+      if (selectedCounty && !countySelect.value) deps.showToast('The saved county is no longer available. Choose it again.', 'error');
+      if (selectedSubCounty && !subCountySelect.value) deps.showToast('The saved constituency is no longer available. Choose it again.', 'error');
     };
+    jblLocationRefresh = loadOptions;
     countySelect.addEventListener('change', () => {
-      initialCounty = countySelect.value;
-      initialSubCounty = '';
-      loadOptions();
+      loadOptions(countySelect.value, '');
     });
-    await loadOptions();
+    await loadOptions(countySelect.value || farmer.county_ref_code || farmer.county || '',
+      subCountySelect.value || farmer.sub_county_ref_code || farmer.sub_county || '');
   }
 
   function jblDraftKey(farmerId) { return `portal:jbl-visit-draft:${farmerId}`; }
@@ -1795,8 +1841,15 @@
     if (!draft?.values) return false;
     Object.entries(draft.values).forEach(([id, value]) => {
       const field = el(id);
-      if (field) field.value = value;
+      if (!field) return;
+      if (field.tagName === 'SELECT' && value && !Array.from(field.options).some(option => option.value === value)) {
+        field.add(new Option(value, value));
+      }
+      field.value = value;
     });
+    if (jblLocationRefresh && ('jbl-county' in draft.values || 'jbl-sub-county' in draft.values)) {
+      jblLocationRefresh(draft.values['jbl-county'] || '', draft.values['jbl-sub-county'] || '');
+    }
     if (draft.values['jbl-date']) syncJblDateControls(draft.values['jbl-date']);
     const help = el('gps-coords');
     if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
@@ -2019,6 +2072,8 @@
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
     if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
+    if (!el('jbl-county')?.value) errors.county = 'Choose the county where this visit was done.';
+    if (!el('jbl-sub-county')?.value) errors.sub_county = 'Choose the constituency where this visit was done.';
     const village = el('jbl-village')?.value.trim() || '';
     if (!village) errors.village = 'Enter the village.';
     else if (village.length > 255) errors.village = 'Village must be 255 characters or fewer.';
@@ -2730,6 +2785,7 @@
       delete acceptedVoiceAttempts[fieldName];
     });
     stopJblLiveCamera();
+    jblLocationRefresh = null;
     closeMediaViewer();
     if (case360CounterCleanup) case360CounterCleanup();
     case360CounterCleanup = null;

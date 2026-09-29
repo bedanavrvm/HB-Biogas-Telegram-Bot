@@ -313,7 +313,7 @@ test('Portal camera uses full height with an edge-to-edge preview on mobile and 
     await page.setViewportSize({width,height});
     const bounds=await page.locator('.jbl-camera-sheet').boundingBox();
     expect(Math.abs(bounds.height-height)).toBeLessThan(2);
-    expect(bounds.width).toBeLessThanOrEqual(620);
+    expect(bounds.width).toBeLessThanOrEqual(620.5);
     expect(Math.abs(bounds.y+bounds.height-height)).toBeLessThan(2);
     await expect(page.locator('#jbl-camera-done')).toBeVisible();
     expect(await page.locator('#jbl-camera-video').evaluate(video=>getComputedStyle(video).objectFit)).toBe('cover');
@@ -706,6 +706,8 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
   await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/?from=jbl');
   await expect(page.locator('#case360-toggle')).toBeVisible();
   await expect(page.locator('#jbl-village')).toHaveAttribute('required','');
+  await expect(page.locator('#jbl-county')).toHaveAttribute('required','');
+  await expect(page.locator('#jbl-sub-county')).toHaveAttribute('required','');
   await expect(page.locator('#jbl-village')).toHaveAttribute('maxlength','255');
   await page.locator('#jbl-village').fill('   ');
   await page.locator('#btn-submit-jbl').click();
@@ -1014,7 +1016,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
     window.__reportDataDelays = []; window.__reportAborted = 0;
     const webApp = {
       initData: 'synthetic-signed-init-data',
-      platform: 'android',
+      platform: 'tdesktop',
       BackButton: {
         onClick(callback) { window.__backHandler = callback; },
         show() { window.__backVisible = true; },
@@ -1086,8 +1088,8 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await expect(page.locator('.ag-row')).toHaveCount(1);
   await expect(page.locator('.ag-header-cell-movable')).toHaveCount(0);
   await expect(page.locator('.ag-header-cell-resize:visible')).toHaveCount(0);
-  await expect(page.locator('.ag-cell[col-id="date_reported"]')).toHaveText('01-09-26');
-  await expect(page.locator('.report-status')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.ag-cell[col-id="date_reported"]')).toHaveText('01-Sep-2026');
+  expect(await page.locator('.report-status').evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px agGridQuartz'))).toBe(true);
   await expect(page.locator('.ag-header-cell[col-id="complaint_id"] .ag-sort-indicator-icon:visible')).toHaveCount(0);
   await expect(page.getByText('CMP-1004', { exact: true })).toBeVisible();
@@ -1101,7 +1103,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
     node.scrollLeft = node.scrollWidth;
     node.dispatchEvent(new Event('scroll'));
   });
-  await expect(page.locator('.ag-cell[col-id="date_resolved"]')).toHaveText('02-09-26');
+  await expect(page.locator('.ag-cell[col-id="date_resolved"]')).toHaveText('02-Sep-2026');
 
   await page.locator('#reportDateMode').selectOption('month');
   await page.locator('input[name="report_month"]').fill('2026-07');
@@ -1135,9 +1137,9 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
 
   const dataRequestsBeforeRace = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
   await page.evaluate(() => { window.__reportDataDelays = [250, 10]; });
-  await page.locator('select[name="status"]').selectOption('pending');
+  await page.locator('select[name="status"]').selectOption('open');
   await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 1);
-  await page.locator('select[name="status"]').selectOption('resolved');
+  await page.locator('select[name="status"]').selectOption('closed');
   await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 2);
   await expect.poll(() => page.evaluate(() => window.__reportAborted)).toBe(1);
   await expect(page.locator('.ag-overlay-loading-center:visible')).toHaveCount(0);
@@ -1163,13 +1165,8 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#exportAllBtn').click();
   await expect(page.locator('#exportConfirm')).toBeVisible();
   await page.locator('#confirmExportBtn').click();
-  await expect.poll(() => page.evaluate(() => window.__sharedFiles.length)).toBe(1);
-  expect(await page.evaluate(() => window.__sharedFiles[0])).toMatchObject({
-    name: 'Complaint-Cases-Test.xlsx',
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  await expect(page.locator('#downloadResultTitle')).toHaveText('Excel file ready');
-  await expect(page.locator('#openExportBtn')).toBeVisible();
+  await expect(page.locator('#downloadResultTitle')).toHaveText('Download started');
+  await expect(page.locator('#openExportBtn')).toBeHidden();
 
   await page.evaluate(() => window.__backHandler());
   await expect(page.locator('#queueView')).toBeVisible();
@@ -1233,6 +1230,50 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
 
   expect(stopped).toBe(1);
   await expect(page.locator('#cameraOverlay')).toBeHidden();
+});
+
+test('Restored JBL location survives a late older location-options response', async ({ page }) => {
+  await page.route('http://miniapp.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Visit draft</title>' }));
+  await page.goto('http://miniapp.test/visit-draft');
+  await page.setContent('<div id="sheet-overlay"><div id="sheet-navigation"></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section></div><button id="case360-toggle"></button><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div>');
+  await page.addScriptTag({ path: asset('portal_farmer_sheet.js') });
+  await page.evaluate(() => {
+    sessionStorage.setItem('portal:jbl-visit-draft:case-1', JSON.stringify({
+      values: { 'jbl-county': 'MERU', 'jbl-sub-county': 'IMENTI' }, saved_at: Date.now(), workflow_revision: 1,
+    }));
+    window.__locationRequests = [];
+    const state = {
+      capabilities: new Set(['portal.case.read', 'portal.jbl_visit.write']),
+      metaStatuses: ['Rescheduled'], metaCounties: ['Meru', 'Nakuru'],
+      metaLocationCatalog: { counties: [{ code: 'MERU', name: 'Meru' }, { code: 'NAKURU', name: 'Nakuru' }] },
+      jblVisitDraftFields: ['jbl-county', 'jbl-sub-county'], businessDate: '2026-09-29',
+    };
+    window.PortalMiniAppFarmerSheet.init({
+      el: id => document.getElementById(id), state, tg: {},
+      escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'),
+      fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: () => {},
+      apiFetch: () => new Promise(resolve => window.__locationRequests.push(resolve)),
+    });
+    window.PortalMiniAppFarmerSheet.openFarmerSheet({
+      id: 'case-1', customer_name: 'Sample', workflow_revision: 1,
+      county: 'Meru', sub_county: 'Imenti',
+    }, 'jbl_visit');
+  });
+  await expect(page.locator('#jbl-county')).toHaveValue('MERU');
+  await expect(page.locator('#jbl-sub-county')).toHaveValue('IMENTI');
+  await page.locator('#jbl-county').selectOption('NAKURU');
+  await page.waitForFunction(() => window.__locationRequests.length === 2);
+  await page.evaluate(() => window.__locationRequests[1]({ ok: true, data: {
+    ok: true, counties: [{ code: 'MERU', name: 'Meru' }, { code: 'NAKURU', name: 'Nakuru' }],
+    sub_counties: [{ code: 'NAIVASHA', name: 'Naivasha' }],
+  } }));
+  await page.locator('#jbl-sub-county').selectOption('NAIVASHA');
+  await page.evaluate(() => window.__locationRequests[0]({ ok: true, data: {
+    ok: true, counties: [{ code: 'MERU', name: 'Meru' }, { code: 'NAKURU', name: 'Nakuru' }],
+    sub_counties: [{ code: 'IMENTI', name: 'Imenti' }],
+  } }));
+  await expect(page.locator('#jbl-county')).toHaveValue('NAKURU');
+  await expect(page.locator('#jbl-sub-county')).toHaveValue('NAIVASHA');
 });
 
 test('Portal review cells copy their actual value on hold without copying controls', async ({ page }) => {

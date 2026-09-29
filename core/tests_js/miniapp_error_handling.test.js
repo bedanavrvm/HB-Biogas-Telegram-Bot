@@ -64,8 +64,8 @@ function loadUtils(fetchImplementation) {
   assert.equal(retryUtils.displaySupportReference('ERR-7K4M-2P9Q'), 'ERR-7K4M-2P9Q');
 
   const tatSource = fs.readFileSync(path.join(__dirname, '..', 'static', 'miniapp', 'tat_tracker.js'), 'utf8');
-  assert.match(tatSource, /if \(tone === 'ok'\) showNotice\(message, tone\)/);
-  assert.doesNotMatch(tatSource, /tone === 'ok' \|\| tone === 'error'\) showNotice/);
+  assert.match(tatSource, /function setStatus\(message, tone\) \{[\s\S]*?showNotice\(message, tone === 'error' \? 'error' : 'ok'\);/);
+  assert.match(tatSource, /window\.MiniAppRuntime\.showToast\(message, \{ tone: tone === 'error' \? 'error' : 'success' \}\)/);
 
   const complaintSource = fs.readFileSync(path.join(__dirname, '..', 'static', 'miniapp', 'complaint_cases.js'), 'utf8');
   assert.match(complaintSource, /function presentError\(error, retry\)/);

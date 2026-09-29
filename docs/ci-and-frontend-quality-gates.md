@@ -16,6 +16,9 @@ CI runs these checks before the full Django suite:
 - `npm run test:browser` executes the Chromium Mini App contract tests for
   bootstrap, denied authentication, double-submit prevention, mobile navigation,
   multipart retry, and Origination test signing.
+- Playwright retains screenshots and video for failed tests; traces are retained
+  on local failures and captured on the first retry in CI. GitHub Actions uploads
+  browser failure evidence only when the job fails, retaining it for 14 days.
 - `ruff check config core scripts` applies only the correctness rules configured
   in `pyproject.toml`; it does not format the repository.
 - The settings/environment, runtime dependency, write-route inventory, artifact
@@ -60,6 +63,13 @@ npm run check:js
 npm run test:node
 npm run test:browser
 
+# Open the newest failure trace, or pass a specific trace .zip path after --
+npm run test:e2e:trace:show
+# npm run test:e2e:trace:show -- test-results/playwright/path/to/trace.zip
+
+# Force full tracing for every test; append a Playwright file/pattern as needed
+npm run test:e2e:trace -- core/tests_browser/miniapp_flows.spec.js --grep "payment"
+
 ruff check config core scripts
 python scripts/check_settings_env_parity.py
 python scripts/check_dependency_parity.py
@@ -78,4 +88,26 @@ coverage report
 
 For a pull request, pass the fetched target branch to reproduce changed-service
 enforcement, for example `--base-ref origin/main`.
+
+## Trace Viewer
+
+After a local browser-test failure, run `npm run test:e2e:trace:show` to open the
+most recently modified trace archive. Pass a specific `.zip` path after `--` to
+open that trace instead. To deliberately capture every step, use
+`npm run test:e2e:trace -- <Playwright file or pattern>` and append normal
+Playwright filters such as `--grep` as needed.
+
+## Playwright MCP authoring tool
+
+MCP setup is pending a reusable synthetic browser fixture. The current E2E
+suite installs Telegram/API mocks inside individual tests, so an independent
+MCP browser cannot reuse those mocks without first extracting them. Do not use
+an MCP browser against a running Portal until that shared fixture and a
+localhost-only setup are in place; otherwise authentication and integrations
+would not be guaranteed to stay synthetic.
+
+When enabled, MCP sessions and trace files are local development tools only.
+Never point them at staging or production, and never process real customer data;
+use only the project's synthetic or mocked fixtures. Review and clean up
+generated tests like hand-written code before committing them.
 

@@ -2689,6 +2689,8 @@ class JblPipelineApiTestCase(TestCase):
                 'visit_date': '2026-07-01',
                 'visit_status': 'Visited, Awaiting Credit Analysis',
                 'officer': 'JBL Officer Alpha',
+                'county': 'Meru',
+                'sub_county': 'Imenti',
                 'capture_latitude': '-1.2921',
                 'capture_longitude': '36.8219',
                 'location_override_reason': 'must not be accepted from Portal',
@@ -2712,13 +2714,23 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
             {'workflow_revision': self.farmer.workflow_revision, 'visit_date': '2026-07-01',
-             'visit_status': 'Deferred / On Hold', 'village': '   '},
+             'visit_status': 'Deferred / On Hold', 'county': 'Meru', 'sub_county': 'Imenti', 'village': '   '},
             HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='missing-village-api',
             HTTP_IDEMPOTENCY_KEY='missing-village-api',
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['field_errors']['village'], 'Enter the village.')
         uploads.assert_not_called()
+        self.assertFalse(JawabuPipelineEvent.objects.filter(farmer=self.farmer).exists())
+
+    def test_visit_api_requires_both_county_and_constituency(self):
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
+            {'client_request_id': 'missing-location-api', 'workflow_revision': self.farmer.workflow_revision,
+             'visit_date': '2026-07-01', 'visit_status': 'Deferred / On Hold', 'village': 'Market'},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.json()['field_errors']), {'county', 'sub_county'})
         self.assertFalse(JawabuPipelineEvent.objects.filter(farmer=self.farmer).exists())
 
     @patch('core.services.portal_voice.validate_transcription_reference')

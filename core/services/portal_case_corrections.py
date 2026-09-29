@@ -24,8 +24,9 @@ CASE_CORRECTION_FIELDS = {
     'lead_national_id': {'label': 'FarmUp lead national ID', 'section': 'identity', 'type': 'text'},
     'lead_primary_phone': {'label': 'FarmUp lead phone', 'section': 'identity', 'type': 'tel'},
     'hbg_visit_date': {'label': 'HB visit date', 'section': 'intake', 'type': 'date'},
-    'village': {'label': 'Village', 'section': 'intake', 'type': 'text'},
-    'landmark': {'label': 'Landmark', 'section': 'intake', 'type': 'text'},
+    'county': {'label': 'County', 'section': 'intake', 'type': 'location_county'},
+    'sub_county': {'label': 'Constituency', 'section': 'intake', 'type': 'location_sub_county'},
+    'village': {'label': 'Village / landmark', 'section': 'intake', 'type': 'text'},
     'lead_source': {'label': 'Lead source', 'section': 'intake', 'type': 'text'},
     'hb_sales_person': {'label': 'HB salesperson', 'section': 'intake', 'type': 'text'},
     'deposit_paid_hbg': {'label': 'Deposit paid to HB', 'section': 'intake', 'type': 'money'},
@@ -119,6 +120,29 @@ def correct_case_fields(
         update_fields.append(key)
     if not update_fields:
         raise ValueError('No field values changed.')
+
+    if {'county', 'sub_county'}.intersection(update_fields):
+        from core.services.location_catalog import LocationCatalogError, validate_location_selection
+
+        if not str(farmer.county or '').strip() or not str(farmer.sub_county or '').strip():
+            raise ValueError('Choose both county and constituency for this correction.')
+        try:
+            branch_ref, county_ref, sub_county_ref = validate_location_selection(
+                branch_value=farmer.branch_ref or farmer.branch,
+                county_value=farmer.county,
+                sub_county_value=farmer.sub_county,
+                source_workflow='jawabu_portal', source_model='JawabuFarmerMaster',
+                source_record_id=farmer.pk, actor=actor, request_id=request_id,
+            )
+        except LocationCatalogError as exc:
+            raise ValueError(str(exc)) from exc
+        if not county_ref or not sub_county_ref:
+            raise ValueError('Choose a recognized county and constituency.')
+        farmer.county, farmer.sub_county = county_ref.name, sub_county_ref.name
+        farmer.branch_ref, farmer.county_ref, farmer.sub_county_ref = branch_ref, county_ref, sub_county_ref
+        update_fields.extend(['branch_ref', 'county_ref', 'sub_county_ref'])
+        for key in {'county', 'sub_county'}.intersection(old_values):
+            new_values[key] = getattr(farmer, key)
 
     revision_before, revision_after = next_workflow_revision(farmer)
     farmer.workflow_revision = revision_after

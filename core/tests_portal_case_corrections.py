@@ -3,9 +3,9 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
-from core.models import JawabuFarmerMaster
+from core.models import JawabuApprovalRecord, JawabuFarmerMaster, OperationalLocation
 from core.services.invoice_parser import _match_invoice_to_farmer
-from core.services.portal_case_corrections import correct_case_fields
+from core.services.portal_case_corrections import correction_payload, correct_case_fields
 from core.services.workflow_timeline import _group_same_moment_activity, jawabu_case_timeline
 
 
@@ -100,6 +100,48 @@ class PortalCaseCorrectionTests(TestCase):
                 request_id='case-correction-replay',
                 actor=self.actor,
             )
+
+    @patch('core.services.portal_publication.reserve_farmer_publication', return_value=[])
+    def test_location_correction_preserves_stage_and_existing_approval(self, _reserve):
+        county = OperationalLocation.objects.create(location_type='county', code='KE-TEST', name='Test County')
+        constituency = OperationalLocation.objects.create(
+            location_type='sub_county', code='KE-TEST-EAST', name='East Constituency', parent=county,
+        )
+        self.farmer.workflow_state = 'requisition'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.save(update_fields=['workflow_state', 'final_decision'])
+        approval = JawabuApprovalRecord.objects.create(
+            farmer=self.farmer, gate=JawabuApprovalRecord.GATE_FINAL_REVIEW,
+            decision=JawabuApprovalRecord.DECISION_APPROVED,
+        )
+
+        fields = {field['key'] for field in correction_payload(self.farmer)['fields']}
+        self.assertTrue({'county', 'sub_county', 'village'} <= fields)
+        self.assertNotIn('landmark', fields)
+        values = {
+            'customer_name': 'Correct Name', 'national_id': '87654321',
+            'primary_phone': '0712000001', 'secondary_phone': '0712000002',
+            'customer_no': '12345', 'lead_name': 'Original Lead',
+            'lead_national_id': '1234567', 'lead_primary_phone': '0712000003',
+            'hbg_visit_date': '16-09-2026', 'county': county.code,
+            'sub_county': constituency.code, 'village': 'Market centre',
+            'lead_source': 'JAWABU', 'hb_sales_person': 'Sales Officer',
+            'deposit_paid_hbg': '1000',
+        }
+        self.assertEqual(set(values), fields)
+        updated = correct_case_fields(
+            self.farmer,
+            values=values,
+            expected_revision=2, reason='Corrected visit location against field notes.',
+            request_id='case-correction-location', actor=self.actor,
+        )
+        approval.refresh_from_db()
+        self.assertEqual(updated.county, county.name)
+        self.assertEqual(updated.sub_county, constituency.name)
+        self.assertEqual(updated.village, 'Market centre')
+        self.assertEqual(updated.workflow_state, 'requisition')
+        self.assertEqual(updated.final_decision, 'Approved')
+        self.assertEqual(approval.status, JawabuApprovalRecord.STATUS_ACTIVE)
 
 
 class InvoiceLeadMatchingTests(TestCase):
