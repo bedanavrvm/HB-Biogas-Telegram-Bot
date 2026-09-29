@@ -544,6 +544,11 @@
       <button type="button" class="btn btn-primary history-kind" data-kind="orders">Final Orders</button>
       <button type="button" class="btn btn-secondary history-kind" data-kind="payments">Payment Reviews / Finals</button>
     </div>
+    <div id="history-order-partner-filters" class="history-order-partner-filters" role="group" aria-label="Filter final orders by partner">
+      <button type="button" class="btn btn-primary" data-history-partner="all" aria-pressed="true">All partners</button>
+      <button type="button" class="btn btn-secondary" data-history-partner="HB" aria-pressed="false">HB</button>
+      <button type="button" class="btn btn-secondary" data-history-partner="ECOCONSERVE" aria-pressed="false">Eco-conserve</button>
+    </div>
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
   </section>
   {% endif %}

@@ -54,6 +54,10 @@
   function isoDate(value) {
     const text = String(value || '').trim();
     if (!text) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      const date = new Date(`${text}T00:00:00Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text ? text : null;
+    }
     const match = text.match(/^(\d{2})-(\d{2})-(\d{4})$/);
     if (!match) return null;
     const iso = `${match[3]}-${match[2]}-${match[1]}`;
@@ -212,7 +216,7 @@
       input.checked = selected.includes(input.value);
     });
     if (form?.elements.ordering) form.elements.ordering.value = filters.ordering || '';
-    ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { if (form?.elements[key]) form.elements[key].value = displayDate(filters[key]); });
+    ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { if (form?.elements[key]) form.elements[key].value = isoDate(filters[key]) || ''; });
     updatePresentation(root, queueKey);
     if (boundRoots.has(root)) return;
     boundRoots.add(root);
@@ -250,13 +254,13 @@
         const normalized = isoDate(data.get(key));
         if (normalized === null) {
           invalidDate = true;
-          control?.setCustomValidity('Use DD-MM-YYYY.');
+          control?.setCustomValidity('Choose a valid date.');
           control?.reportValidity?.();
           return;
         }
         control?.setCustomValidity('');
         filters[key] = normalized;
-        if (control && normalized) control.value = displayDate(normalized);
+        if (control && normalized) control.value = normalized;
       });
       if (invalidDate) return;
       state().pages[queueKey] = 1;

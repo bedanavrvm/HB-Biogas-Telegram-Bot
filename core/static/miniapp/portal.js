@@ -71,6 +71,7 @@
   state.actor = { name: '', roles: [] };
   state.lastRefreshedAt = 0;
   let historyKind = 'orders';
+  let historyPartner = 'all';
   let lastShellScreen = null;
   const queueLoadVersions = new Map();
   const queueLoadsActive = new Map();
@@ -1763,7 +1764,7 @@
             : '';
       return `<article class="farmer-card history-document-card">
         <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
-        <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
+        <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : `${escapeHtml(doc.fulfillment_partner === 'ECOCONSERVE' ? 'Eco-conserve' : 'HB')} | `}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
         <div class="fc-sub">Workbook generated: ${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
         ${syncBadge}
         ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting Head of Rural review'}</span>` : ''}
@@ -1786,7 +1787,17 @@
       button.classList.toggle('btn-primary', button.dataset.kind === kind);
       button.classList.toggle('btn-secondary', button.dataset.kind !== kind);
     });
-    const { ok, data } = await apiFetch('/document-history/?kind=' + encodeURIComponent(kind));
+    const partnerFilters = el('history-order-partner-filters');
+    if (partnerFilters) partnerFilters.hidden = kind !== 'orders';
+    partnerFilters?.querySelectorAll('[data-history-partner]').forEach(button => {
+      const selected = button.dataset.historyPartner === historyPartner;
+      button.classList.toggle('btn-primary', selected);
+      button.classList.toggle('btn-secondary', !selected);
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    const query = new URLSearchParams({ kind });
+    if (kind === 'orders' && historyPartner !== 'all') query.set('partner', historyPartner);
+    const { ok, data } = await apiFetch('/document-history/?' + query.toString());
     if (!isCurrentScreen('history')) return;
     if (!ok || !data.ok) {
       if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load document history</div></div>';
@@ -2668,6 +2679,13 @@
       setButtonLoading(button, true, 'Saving');
       savePortalTatTargets(form).catch(error => showToast(error.message || 'Portal TAT targets could not be saved.', 'error'))
         .finally(() => setButtonLoading(button, false));
+      return;
+    }
+    const historyPartnerButton = event.target.closest('[data-history-partner]');
+    if (historyPartnerButton) {
+      event.preventDefault();
+      historyPartner = historyPartnerButton.dataset.historyPartner || 'all';
+      loadHistory('orders');
       return;
     }
     if (!PORTAL_WORKSPACE_UI_ENABLED && (

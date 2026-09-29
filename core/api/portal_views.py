@@ -9122,10 +9122,17 @@ def portal_document_history(request):
             for doc in documents
             if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids, capability='portal.documents.view')
         ]})
-    documents = RequisitionBatch.objects.exclude(status='preview').order_by('-updated_at')[:100]
+    partner = (request.GET.get('partner') or '').strip().upper()
+    if partner and partner not in {'HB', 'ECOCONSERVE'}:
+        return JsonResponse({'ok': False, 'error': 'Choose HB or Eco-conserve.'}, status=400)
+    documents_query = RequisitionBatch.objects.exclude(status='preview')
+    if partner:
+        documents_query = documents_query.filter(fulfillment_partner=partner)
+    documents = documents_query.order_by('-updated_at')[:100]
     return JsonResponse({'ok': True, 'kind': 'orders', 'documents': [
         {
             'id': str(doc.id), 'order_number': doc.order_number,
+            'fulfillment_partner': getattr(doc, 'fulfillment_partner', 'HB') or 'HB',
             'version': getattr(doc, 'version', 0) or 0,
             'filename': doc.filename,
             'preview_version': getattr(doc, 'preview_version', 0) or 0,

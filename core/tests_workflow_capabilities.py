@@ -157,6 +157,26 @@ class WorkflowCapabilityPolicyTests(TestCase):
         self.assertEqual(archive.status_code, 200)
         self.assertEqual(json.loads(archive.content)['documents'][0]['id'], str(batch.pk))
 
+        eco_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Eco archive customer', national_id='22334455',
+            primary_phone='0711223344', branch='EMBU', order_number='ECO-104',
+        )
+        eco_batch = RequisitionBatch.objects.create(
+            order_number='ECO-104', fulfillment_partner='ECOCONSERVE',
+            farmer_ids=[str(eco_farmer.pk)], farmer_count=1,
+            filename='eco-order-104.xlsx', file_content=b'eco workbook',
+        )
+        filtered_request = RequestFactory().get(
+            '/api/portal/document-history/?kind=orders&partner=ECOCONSERVE',
+        )
+        filtered_request.portal_user = hb_user
+        filtered_request.portal_access = access
+        filtered_archive = portal_document_history(filtered_request)
+        self.assertEqual(filtered_archive.status_code, 200)
+        filtered_documents = json.loads(filtered_archive.content)['documents']
+        self.assertEqual([item['id'] for item in filtered_documents], [str(eco_batch.pk)])
+        self.assertEqual(filtered_documents[0]['fulfillment_partner'], 'ECOCONSERVE')
+
         preview = portal_document_order_preview(request, batch.pk)
         self.assertEqual(preview.status_code, 200)
         payload = json.loads(preview.content)['batch']

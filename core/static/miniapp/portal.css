@@ -2776,6 +2776,8 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-number-field span { white-space: nowrap; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .payment-number-field input { width: 74px; min-height: 28px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-base); padding: 3px 6px; }
 .history-tabs { display: flex; gap: 8px; margin: 0 4px 10px; }
+.history-order-partner-filters { display:flex; flex-wrap:wrap; gap:6px; margin:0 4px 10px; }
+.history-order-partner-filters .btn { min-height:34px; padding:6px 12px; }
 .history-document-card { cursor: default; }
 .physical-signoff { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); padding: 9px 10px; }
 .physical-signoff > div { min-width: 0; }
@@ -3952,6 +3954,9 @@ body.portal-app :is(#content, .sheet-overlay) :is(.danger, .destructive, .btn-da
 .portal-filter-options > div { display:flex; flex-wrap:wrap; gap:5px; max-height:190px; overflow:auto; }
 body.portal-app .portal-filter-options label { display:flex; flex:1 1 calc(50% - 5px); align-items:center; gap:6px; min-width:0; min-height:32px; font-size:12px; padding:5px 7px; border:1px solid var(--border-color); border-radius:7px; cursor:pointer; }
 body.portal-app .portal-filter-options input[type=checkbox] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--brand-primary); }
+.portal-filter-date-inputs { gap:8px!important; }
+body.portal-app .portal-filter-date-inputs label { display:flex; flex:1 1 calc(50% - 4px); flex-direction:column; align-items:stretch; gap:4px; min-width:0; min-height:0; padding:0; border:0; cursor:default; }
+body.portal-app .portal-filter-date-inputs input[type=date] { box-sizing:border-box; width:100%; min-width:0; min-height:38px; }
 .portal-filter-options label:has(input:checked) { background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); border-color:var(--brand-primary); }
 .payment-case-mode-readonly{display:inline-flex;width:max-content;padding:3px 7px;border-radius:999px;background:var(--bg-muted);color:var(--text-secondary);font-size:10px;font-weight:700}
 body.portal-app .sheet-overlay .case360-toggle { display:flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); text-decoration:none; margin-top:10px; }

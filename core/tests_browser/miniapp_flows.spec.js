@@ -358,14 +358,18 @@ test('All Cases checkbox filters apply automatically, combine and clear cleanly'
     window.PortalMiniAppFilters.init({state:window.filterState,queueConfig:{all:{}},loadQueue:()=>{window.filterLoads++;}});
     window.PortalMiniAppFilters.setupQueueTools('all');
   });
+  expect(await page.locator('[data-portal-date-filter]').evaluateAll(inputs=>inputs.map(input=>input.type))).toEqual(['date','date','date','date']);
   await page.locator('[data-portal-filter-trigger]').click();
   await page.locator('input[name="status"][value="deferred"]').check();
   await page.locator('input[name="status"][value="credit"]').check();
   await page.locator('input[name="county"][value="Kiambu"]').check();
+  await page.locator('input[name="hbg_visit_date_from"]').fill('2026-05-12');
   await expect.poll(()=>page.evaluate(()=>window.filterLoads)).toBeGreaterThan(0);
   expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toEqual(['credit','deferred']);
+  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.hbg_visit_date_from)).toBe('2026-05-12');
   expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=deferred');
   expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=credit');
+  expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('hbg_visit_date_from=2026-05-12');
   await expect(page.locator('[data-portal-filter-overlay]')).toBeVisible();
   await expect(page.locator('.portal-filter-help')).toHaveCount(0);
   await page.setViewportSize({width:390,height:700});
