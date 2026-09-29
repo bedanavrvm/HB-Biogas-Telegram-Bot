@@ -1457,7 +1457,7 @@
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
     const unit = escapeHtml(f.unit_number || 'not provided');
     const isJblQueue = qKey === 'jbl';
-    const status = escapeHtml(isJblQueue ? 'Pending Visit' : (f.jbl_visit_status || 'Submitted'));
+    const status = escapeHtml(isJblQueue ? 'Pending Visit' : (f.current_pipeline_state || f.jbl_visit_status || 'Submitted'));
     const datePrefix = isJblQueue ? 'HB visit' : 'JBL visit';
     const rawVisitDate = isJblQueue ? f.hbg_visit_date : f.jbl_visit_date;
     const visitDateLabel = isJblQueue ? f.hbg_visit_date_label : f.jbl_visit_date_label;

@@ -50,6 +50,22 @@ class PortalRoleSeparationTests(TestCase):
             [item['id'] for item in json.loads(response.content)['farmers']], [str(mine.pk)],
         )
 
+    def test_my_visits_exposes_current_pipeline_stage_not_only_historical_visit_outcome(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Advanced Case', national_id='10000004', primary_phone='254700000004',
+            branch='EMBU', status='active', jbl_visit_date=date(2026, 8, 1),
+            jbl_visit_status='Visited, Awaiting Credit Analysis',
+            workflow_state='final_review', credit_decision='Approved',
+        )
+        record_pipeline_event(farmer, action='jbl_visit_completed', actor_user=self.officer)
+
+        response = portal_my_visits(self._request('/api/portal/my-visits/'))
+
+        self.assertEqual(response.status_code, 200)
+        card = json.loads(response.content)['farmers'][0]
+        self.assertEqual(card['jbl_visit_status'], 'Visited, Awaiting Credit Analysis')
+        self.assertEqual(card['current_pipeline_state'], 'Awaiting Head of Rural Review')
+
     def test_jbl_officer_cannot_preview_a_requisition_batch(self):
         farmer = JawabuFarmerMaster.objects.create(
             customer_name='Approved Client', national_id='10000003', primary_phone='254700000003',

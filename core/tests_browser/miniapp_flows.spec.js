@@ -66,6 +66,28 @@ test('Portal case-card policy distinguishes work, inspection and unsupported que
   expect(source).toContain('openQueueCase(farmer, qKey, cfg.mode)');
 });
 
+test('My submitted visit cards show the latest pipeline stage instead of the original visit outcome', async ({ page }) => {
+  const source = fs.readFileSync(asset('portal.js'), 'utf8');
+  const renderer = source.match(/  function renderVisitQueueCard\([^]*?\n  \}/)[0];
+  await page.setContent('<main></main>');
+  await page.addScriptTag({ content: `
+    const escapeHtml = value => String(value || '');
+    const locationText = farmer => farmer.location_label || '-';
+    const fmtDate = value => value;
+    ${renderer}
+    window.renderVisitQueueCard = renderVisitQueueCard;
+  ` });
+
+  const visitCard = await page.evaluate(() => window.renderVisitQueueCard({
+    customer_name: 'Synthetic customer',
+    primary_phone: '254700000001',
+    jbl_visit_status: 'Visited, Awaiting Credit Analysis',
+    current_pipeline_state: 'Awaiting Head of Rural Review',
+  }, 'my_visits'));
+  expect(visitCard).toContain('Awaiting Head of Rural Review');
+  expect(visitCard).not.toContain('Visited, Awaiting Credit Analysis');
+});
+
 test('Staff activation remains readable in dark mode and follows Telegram theme changes',async({page},testInfo)=>{
   const source=fs.readFileSync(path.join(root,'core/templates/staff_telegram_activation.html'),'utf8');
   const html=source.replace(/\{%[^]*?%\}/g,'').replace(/<script src=[^]*?<\/script>/g,'').replace(/<link[^>]*>/g,'');

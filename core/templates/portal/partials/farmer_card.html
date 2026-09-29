@@ -28,7 +28,7 @@
       {% if queue_key == "jbl" %}
         <span class="badge jbl-pending-visit-badge">Pending Visit</span>
       {% else %}
-        <span class="badge my-visit-status-badge">{{ farmer.jbl_visit_status|default:"Submitted" }}</span>
+        <span class="badge my-visit-status-badge">{{ farmer.current_pipeline_state|default:farmer.jbl_visit_status|default:"Submitted" }}</span>
       {% endif %}
     </div>
     <div class="jbl-queue-card-details">
