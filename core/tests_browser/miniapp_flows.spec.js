@@ -1089,12 +1089,13 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
             reject(new DOMException('The request was cancelled.', 'AbortError'));
           }, { once: true });
         });
-        return { results: [{
+        const matchesSearch = !params?.search || 'CMP-1004 TEST CUSTOMER 12345678'.toLowerCase().includes(String(params.search).toLowerCase());
+        return { results: matchesSearch ? [{
           complaint_id: 'CMP-1004', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
           customer_name: 'TEST CUSTOMER', customer_id: '12345678', phone_number: '254700000000', reported_by: 'Officer',
           branch_region: 'Nakuru', complaint_category: 'Leakage', complaint_description: 'A sufficiently wide complaint description',
           source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '2026-09-02T14:00:00+03:00', days_open: 1,
-        }], count: 1, page: 1, page_size: 50 };
+        }] : [], count: matchesSearch ? 1 : 0, page: 1, page_size: 50 };
       },
       async postBlob() {
         return {
@@ -1121,6 +1122,9 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await expect(page.locator('#globalView')).toBeVisible();
   await expect(page.locator('#openComplaintReportFilters')).toBeVisible();
   await expect(page.locator('#globalFilters')).toBeHidden();
+  await expect(page.locator('#globalSearch')).toBeVisible();
+  await expect(page.locator('#globalMetrics .metric-card')).toHaveCount(3);
+  expect(await page.locator('#globalMetrics .metric-card').evaluateAll(cards => new Set(cards.map(card => Math.round(card.getBoundingClientRect().top))).size)).toBe(1);
   await expect(page.locator('[data-complaint-chart-slide]:visible')).toHaveCount(1);
   await expect(page.locator('#complaintChartPosition')).toHaveText('1 of 2');
   await page.screenshot({ path: testInfo.outputPath('complaints-overview-mobile.png') });
@@ -1146,6 +1150,21 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
     node.dispatchEvent(new Event('scroll'));
   });
   await expect(page.locator('.ag-cell[col-id="date_resolved"]')).toHaveText('02-Sep-2026');
+  await page.locator('#globalSearch').fill('no such complaint');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.some(item => item.path === 'reports/data/' && item.params.search === 'no such complaint'))).toBe(true);
+  await expect(page.locator('#globalResultCount')).toContainText('0 complaints');
+  await page.locator('#globalSearch').fill('CMP-1004');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.some(item => item.path === 'reports/data/' && item.params.search === 'CMP-1004'))).toBe(true);
+  await expect(page.locator('.ag-row')).toHaveCount(1);
+  await page.locator('#openComplaintReportFilters').click();
+  await page.locator('#clearGlobalFiltersBtn').click();
+  await expect(page.locator('#globalSearch')).toHaveValue('CMP-1004');
+  await page.locator('#closeComplaintReportFilters').click();
+  const dataRequestsBeforeClear = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
+  await page.locator('#globalSearch').fill('');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBeGreaterThan(dataRequestsBeforeClear);
+  await page.locator('#globalSearch').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('complaints-table-search-mobile.png') });
 
   await page.locator('#openComplaintReportFilters').click();
   await expect(page.locator('#globalFilters')).toBeVisible();
@@ -1235,6 +1254,11 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#openComplaintReportFilters').click();
   await page.locator('#reportDateMode').selectOption('custom');
   await expect(page.locator('#reportCustomDates')).toBeVisible();
+  expect(await page.locator('.complaint-report-filter-head').evaluate(node => {
+    const heading = node.querySelector('h3').getBoundingClientRect();
+    const close = node.querySelector('button').getBoundingClientRect();
+    return Math.abs((heading.top + heading.bottom) / 2 - (close.top + close.bottom) / 2);
+  })).toBeLessThan(8);
   expect(await page.locator('#complaintReportFilterSheet').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   expect(await page.locator('#complaintReportFilterSheet').evaluate(node => node.getBoundingClientRect().height <= window.innerHeight)).toBe(true);
   await expect(page.locator('#globalApplyFiltersBtn')).toBeVisible();

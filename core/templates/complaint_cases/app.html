@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=37">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=38">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -57,8 +57,8 @@
         <section class="report-chart" data-complaint-chart-slide aria-label="Complaints by Type"><div class="report-chart-head"><h3>Complaints by Type</h3><div class="chart-toggle" role="group" aria-label="Complaint type chart style"><button type="button" class="active" data-category-chart="bar" aria-pressed="true">Bar</button><button type="button" data-category-chart="pie" aria-pressed="false">Pie</button></div></div><div class="report-chart-body"><canvas id="categoryChart"></canvas><p id="categoryChartState" class="chart-state muted" role="status" hidden></p></div></section>
         <section class="report-chart" data-complaint-chart-slide aria-label="Complaints over Time"><div class="report-chart-head"><h3>Complaints over Time</h3><label class="chart-granularity"><span class="sr-only">Group complaints over time by</span><select id="reportGranularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label></div><div class="report-chart-body"><canvas id="timeChart"></canvas><p id="timeChartState" class="chart-state muted" role="status" hidden></p></div></section>
       </div>
-      <div id="complaintReportFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="complaintReportFilterTitle" hidden><section id="complaintReportFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><div><p class="eyebrow">Data Overview</p><h3 id="complaintReportFilterTitle">Filter complaints</h3></div><button id="closeComplaintReportFilters" type="button" aria-label="Close filters without applying">&times;</button></header><form id="globalFilters" class="register-filters">
-        <label class="filter-search"><span>Search</span><span class="filter-search-control"><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input name="search" type="search" autocomplete="off" placeholder="Search by complaint ID, complaint, customer name, ID or phone"></span></label>
+      <label class="report-search"><span class="sr-only">Search complaint report</span><span class="filter-search-control"><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="globalSearch" name="search" form="globalFilters" type="search" autocomplete="off" placeholder="Search complaints, names or IDs..."></span></label>
+      <div id="complaintReportFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="complaintReportFilterTitle" hidden><section id="complaintReportFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><h3 id="complaintReportFilterTitle">Filter complaints</h3><button id="closeComplaintReportFilters" type="button" aria-label="Close filters without applying">&times;</button></header><form id="globalFilters" class="register-filters">
         <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="open">OPEN</option><option value="reopened">REOPENED</option><option value="closed">CLOSED</option></select></label>
         <label class="filter-branch">Branch<select name="branch"><option value="">Any Branch</option></select></label>
         <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
@@ -126,6 +126,6 @@
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=8"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=48"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=49"></script>
 </body>
 </html>

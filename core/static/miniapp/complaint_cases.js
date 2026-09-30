@@ -20,7 +20,7 @@
     reportChartDisplay: (() => { try { return localStorage.getItem('complaint-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
     reportChartSlide: 0, reportChartTouchStart: null,
     reportFilterSheetOpen: false, reportFilterSnapshot: null, reportFilterReturnFocus: null,
-    reportSummarySequence: 0, reportTableSequence: 0,
+    reportSummarySequence: 0, reportTableSequence: 0, reportSearchTimer: null,
     reportTableAbortController: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
@@ -1383,11 +1383,11 @@
   }
 
   function renderMetrics(metrics) {
-    const labels = [['total', 'Total Complaints'], ['pending', 'Open'], ['resolved', 'Closed'], ['needs_details', 'Need More Information']];
-    const icons = { total: 'list', pending: 'clock', resolved: 'circle-check', needs_details: 'history' };
+    const labels = [['total', 'Total'], ['pending', 'Open'], ['resolved', 'Closed']];
+    const icons = { total: 'list', pending: 'clock', resolved: 'circle-check' };
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label]) => {
-      const card = document.createElement('div'); card.className = `metric-card ${key === 'needs_details' && metrics[key] ? 'attention' : ''}`;
+      const card = document.createElement('div'); card.className = 'metric-card';
       card.append(iconNode(icons[key], 'metric-icon'), textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
     });
   }
@@ -1540,6 +1540,11 @@
   }
   function openComplaintReportFilters() {
     if (state.reportFilterSheetOpen) return;
+    if (state.reportSearchTimer) {
+      clearTimeout(state.reportSearchTimer);
+      state.reportSearchTimer = null;
+      refreshReport();
+    }
     state.reportFilterSheetOpen = true;
     state.reportFilterSnapshot = snapshotComplaintReportFilters();
     state.reportFilterReturnFocus = document.activeElement;
@@ -1551,13 +1556,12 @@
   }
   function syncComplaintFilterSummary(filters) {
     const formNode = $('globalFilters');
-    const active = ['search', 'status', 'branch', 'category'].filter(name => formNode.elements[name].value);
+    const active = ['status', 'branch', 'category'].filter(name => formNode.elements[name].value);
     if (formNode.elements.date_mode.value !== 'all') active.push('date');
     const badge = $('complaintActiveFilterCount');
     badge.textContent = String(active.length); badge.hidden = !active.length;
     const labels = [formNode.elements.status, formNode.elements.branch, formNode.elements.category]
       .filter(input => input.value).map(input => input.selectedOptions[0]?.textContent || input.value);
-    if (formNode.elements.search.value) labels.unshift(`Search: ${formNode.elements.search.value}`);
     $('complaintFilterSummary').textContent = labels.length ? labels.join(' · ') : 'All complaints';
     $('reportPeriodLabel').textContent = reportPeriodText(filters);
   }
@@ -1878,11 +1882,25 @@
       (formNode.elements.date_mode.value === 'month' ? formNode.elements.report_month : formNode.elements.date_from).focus();
       return;
     }
-    state.globalPage = 1;
+    clearTimeout(state.reportSearchTimer); state.reportSearchTimer = null; state.globalPage = 1;
     closeComplaintReportFilters({ applied: true }); refreshReport();
   });
-  $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); updateReportDateControls(); $('globalFilters').elements.search.focus(); });
+  $('clearGlobalFiltersBtn').addEventListener('click', () => {
+    const search = $('globalSearch').value;
+    $('globalFilters').reset();
+    $('globalSearch').value = search;
+    updateReportDateControls();
+    $('globalFilters').elements.status.focus();
+  });
   $('globalFilters').addEventListener('change', event => { if (event.target.name === 'date_mode') updateReportDateControls(); });
+  $('globalSearch').addEventListener('input', event => {
+    clearTimeout(state.reportSearchTimer);
+    state.globalPage = 1;
+    state.reportSearchTimer = setTimeout(() => {
+      state.reportSearchTimer = null;
+      refreshReport();
+    }, event.target.value ? 250 : 0);
+  });
   document.querySelectorAll('[data-complaint-chart-display]').forEach(button => button.addEventListener('click', () => setComplaintChartDisplay(button.dataset.complaintChartDisplay)));
   $('complaintChartPrevious').addEventListener('click', () => moveComplaintChart(-1));
   $('complaintChartNext').addEventListener('click', () => moveComplaintChart(1));

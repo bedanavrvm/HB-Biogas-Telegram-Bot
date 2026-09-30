@@ -141,3 +141,15 @@ button{transition:border-color .16s ease,background-color .16s ease,color .16s e
 .report-charts.carousel{display:block;overflow:hidden;touch-action:pan-y;overscroll-behavior-x:contain}.report-charts.carousel .report-chart{width:100%}.report-charts.carousel .report-chart.carousel-inactive{display:none}.report-charts.list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.report-chart:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}.report-chart>.report-chart-body{height:220px}
 @media(max-width:700px){.report-charts.list{grid-template-columns:1fr}.report-chart>.report-chart-body{height:190px}}
 @media(min-width:701px){.complaint-report-filter-sheet .register-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.complaint-report-filter-sheet .register-filters .filter-search{grid-column:span 2}.complaint-report-filter-sheet .register-filters .date-filter{grid-column:span 2}.report-charts.carousel{width:min(100%,720px);margin-inline:auto}}
+
+/* Keep the table search visible and the filter sheet heading on one line. */
+#globalMetrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+#globalMetrics .metric-card{min-width:0;padding:9px 8px}
+#globalMetrics .metric-card strong{font-size:19px;line-height:1.1}
+#globalMetrics .metric-card span{font-size:10px;white-space:nowrap}
+.report-search{display:block;margin:8px 0 5px;letter-spacing:normal;text-transform:none}
+.report-search .filter-search-control{display:block}
+.report-search input{min-height:40px;font-size:12px}
+.complaint-report-filter-head{display:grid;grid-template-columns:minmax(0,1fr) 36px;align-items:center;gap:8px;min-height:52px}
+.complaint-report-filter-head h3{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.complaint-report-filter-head button{grid-column:2;justify-self:end}
