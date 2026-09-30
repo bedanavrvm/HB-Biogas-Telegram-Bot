@@ -17,7 +17,10 @@
     globalSort: '-date_reported', reportGridApi: null, reportGridZoom: null, reportGridLoading: false,
     reportGridCopyTimer: null, reportGridCopyPointerId: null, reportGridCopyStart: null, reportGridCopyReadyCell: null,
     categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
-    reportSummarySequence: 0, reportTableSequence: 0, reportFilterTimer: null,
+    reportChartDisplay: (() => { try { return localStorage.getItem('complaint-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
+    reportChartSlide: 0, reportChartTouchStart: null,
+    reportFilterSheetOpen: false, reportFilterSnapshot: null, reportFilterReturnFocus: null,
+    reportSummarySequence: 0, reportTableSequence: 0,
     reportTableAbortController: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
@@ -479,6 +482,7 @@
   }
 
   function setView(name) {
+    if (name !== 'globalView' && state.reportFilterSheetOpen) closeComplaintReportFilters({ restoreFocus: false });
     if (!$('cameraOverlay').hidden) closeCamera();
     if (!$('mediaViewerOverlay').hidden) closeMediaViewer();
     ['queueView', 'globalView', 'createView', 'detailView'].forEach(id => { $(id).hidden = id !== name; });
@@ -1420,7 +1424,7 @@
     const gridColor = chartColor('--line', 'rgba(22,36,29,.12)');
     setChartState('category', categories.length ? '' : 'No complaint types match these filters.');
     setChartState('time', periods.length ? '' : 'No complaints match this time period.');
-    if (!categories.length && !periods.length) return;
+    if (!categories.length && !periods.length) { syncComplaintChartDisplay(); return; }
     const colorMap = categoryColorMap(summary);
     const categoryColors = categories.map(item => colorMap.get(item.label) || 'hsl(210 65% 48%)');
     const categoryIsPie = state.categoryChartType === 'pie';
@@ -1442,6 +1446,49 @@
         datasets: [{ data: periods.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
       }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, autoSkip: true, autoSkipPadding: 8, maxTicksLimit: window.innerWidth <= 480 ? 4 : 8, maxRotation: 0, minRotation: 0, padding: 4, font: { size: 9 } }, grid: { color: gridColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor }, grid: { color: gridColor } } } },
     });
+    syncComplaintChartDisplay();
+  }
+  function complaintChartSlides() {
+    return Array.from($('complaintReportCharts').querySelectorAll('[data-complaint-chart-slide]'));
+  }
+  function syncComplaintChartDisplay() {
+    const slides = complaintChartSlides();
+    state.reportChartSlide = Math.max(0, Math.min(state.reportChartSlide, slides.length - 1));
+    const carousel = state.reportChartDisplay === 'carousel';
+    $('complaintReportCharts').classList.toggle('carousel', carousel);
+    $('complaintReportCharts').classList.toggle('list', !carousel);
+    slides.forEach((slide, index) => {
+      slide.classList.toggle('carousel-inactive', carousel && index !== state.reportChartSlide);
+      slide.setAttribute('aria-hidden', String(carousel && index !== state.reportChartSlide));
+    });
+    document.querySelectorAll('[data-complaint-chart-display]').forEach(button => {
+      const active = button.dataset.complaintChartDisplay === state.reportChartDisplay;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    $('complaintChartPagination').hidden = !carousel;
+    $('complaintChartPosition').textContent = `${state.reportChartSlide + 1} of ${slides.length}`;
+    $('complaintChartPrevious').disabled = state.reportChartSlide === 0;
+    $('complaintChartNext').disabled = state.reportChartSlide >= slides.length - 1;
+    window.requestAnimationFrame(() => {
+      if (carousel) {
+        (state.reportChartSlide === 0 ? state.categoryChart : state.timeChart)?.resize?.();
+      } else {
+        state.categoryChart?.resize?.(); state.timeChart?.resize?.();
+      }
+    });
+  }
+  function setComplaintChartDisplay(display) {
+    state.reportChartDisplay = display === 'list' ? 'list' : 'carousel';
+    state.reportChartSlide = 0;
+    try { localStorage.setItem('complaint-report-chart-display', state.reportChartDisplay); } catch (error) {}
+    syncComplaintChartDisplay(); utils.haptic?.('light');
+  }
+  function moveComplaintChart(direction) {
+    if (state.reportChartDisplay !== 'carousel') return;
+    const next = Math.max(0, Math.min(complaintChartSlides().length - 1, state.reportChartSlide + direction));
+    if (next === state.reportChartSlide) return;
+    state.reportChartSlide = next; syncComplaintChartDisplay(); utils.haptic?.('light');
   }
   function preserveSelectOptions(select, items, placeholder) {
     const selected = select.value;
@@ -1473,6 +1520,46 @@
     $('reportMonthField').hidden = mode !== 'month'; $('reportCustomDates').hidden = mode !== 'custom';
     formNode.elements.report_month.disabled = mode !== 'month';
     formNode.elements.date_from.disabled = mode !== 'custom'; formNode.elements.date_to.disabled = mode !== 'custom';
+  }
+  function snapshotComplaintReportFilters() {
+    return Array.from($('globalFilters').elements).filter(input => input.name).map(input => [input.name, input.value]);
+  }
+  function closeComplaintReportFilters({ applied = false, restoreFocus = true } = {}) {
+    if (!state.reportFilterSheetOpen) return;
+    if (!applied && state.reportFilterSnapshot) {
+      state.reportFilterSnapshot.forEach(([name, value]) => { $('globalFilters').elements[name].value = value; });
+      updateReportDateControls();
+    }
+    state.reportFilterSheetOpen = false;
+    state.reportFilterSnapshot = null;
+    $('complaintReportFilterOverlay').hidden = true;
+    $('complaintReportFilterOverlay').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('complaint-filter-open');
+    if (restoreFocus) state.reportFilterReturnFocus?.focus?.();
+    state.reportFilterReturnFocus = null;
+  }
+  function openComplaintReportFilters() {
+    if (state.reportFilterSheetOpen) return;
+    state.reportFilterSheetOpen = true;
+    state.reportFilterSnapshot = snapshotComplaintReportFilters();
+    state.reportFilterReturnFocus = document.activeElement;
+    $('complaintReportFilterOverlay').hidden = false;
+    $('complaintReportFilterOverlay').setAttribute('aria-hidden', 'false');
+    document.body.classList.add('complaint-filter-open');
+    $('complaintReportFilterSheet').focus();
+    utils.haptic?.('light');
+  }
+  function syncComplaintFilterSummary(filters) {
+    const formNode = $('globalFilters');
+    const active = ['search', 'status', 'branch', 'category'].filter(name => formNode.elements[name].value);
+    if (formNode.elements.date_mode.value !== 'all') active.push('date');
+    const badge = $('complaintActiveFilterCount');
+    badge.textContent = String(active.length); badge.hidden = !active.length;
+    const labels = [formNode.elements.status, formNode.elements.branch, formNode.elements.category]
+      .filter(input => input.value).map(input => input.selectedOptions[0]?.textContent || input.value);
+    if (formNode.elements.search.value) labels.unshift(`Search: ${formNode.elements.search.value}`);
+    $('complaintFilterSummary').textContent = labels.length ? labels.join(' · ') : 'All complaints';
+    $('reportPeriodLabel').textContent = reportPeriodText(filters);
   }
   function monthBoundaries(value) {
     const match = /^(\d{4})-(\d{2})$/.exec(value || '');
@@ -1507,7 +1594,7 @@
     return 'All reporting dates';
   }
   function currentReportFilters() {
-    const filters = globalFilterPayload(); $('reportPeriodLabel').textContent = reportPeriodText(filters); return filters;
+    const filters = globalFilterPayload(); syncComplaintFilterSummary(filters); return filters;
   }
   async function refreshReport(options) {
     let filters; try { filters = currentReportFilters(); } catch (error) { notify(error.message, true); return; }
@@ -1515,10 +1602,6 @@
     if (settings.summary) requests.push(loadGlobalOverview(filters));
     if (settings.table) requests.push(loadGlobalCases(filters));
     await Promise.all(requests);
-  }
-  function scheduleReportRefresh(delay) {
-    clearTimeout(state.reportFilterTimer);
-    state.reportFilterTimer = setTimeout(() => refreshReport(), delay == null ? 75 : delay);
   }
   function formatReportDate(value) {
     if (!value) return '';
@@ -1751,6 +1834,7 @@
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   function returnPrevious() {
+    if (state.reportFilterSheetOpen) { closeComplaintReportFilters(); return; }
     if (!$('mediaViewerOverlay').hidden) { closeMediaViewer(); return; }
     if (!$('cameraOverlay').hidden) { closeCamera(); return; }
     if (!$('exportConfirm').hidden) { cancelExport(); return; }
@@ -1775,16 +1859,52 @@
   $('queueWorkspaceBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
   $('globalWorkspaceBtn').addEventListener('click', openGlobalWorkspace);
   $('reportBackBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
-  $('globalFilters').addEventListener('submit', event => { event.preventDefault(); clearTimeout(state.reportFilterTimer); state.globalPage = 1; refreshReport(); });
-  $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); updateReportDateControls(); clearTimeout(state.reportFilterTimer); state.globalPage = 1; refreshReport(); });
-  $('globalFilters').addEventListener('change', event => {
-    updateReportDateControls(); state.globalPage = 1;
-    if (event.target.name === 'date_mode' && event.target.value !== 'all') return;
-    scheduleReportRefresh();
+  $('openComplaintReportFilters').addEventListener('click', openComplaintReportFilters);
+  $('closeComplaintReportFilters').addEventListener('click', () => closeComplaintReportFilters());
+  $('complaintReportFilterOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeComplaintReportFilters(); });
+  $('complaintReportFilterSheet').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeComplaintReportFilters(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from($('complaintReportFilterSheet').querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)'));
+    const first = focusable[0]; const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   });
-  $('globalFilters').elements.search.addEventListener('input', () => {
-    state.globalPage = 1; scheduleReportRefresh(300);
+  $('globalFilters').addEventListener('submit', event => {
+    event.preventDefault();
+    try { globalFilterPayload(); } catch (error) {
+      notify(error.message, true);
+      const formNode = $('globalFilters');
+      (formNode.elements.date_mode.value === 'month' ? formNode.elements.report_month : formNode.elements.date_from).focus();
+      return;
+    }
+    state.globalPage = 1;
+    closeComplaintReportFilters({ applied: true }); refreshReport();
   });
+  $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); updateReportDateControls(); $('globalFilters').elements.search.focus(); });
+  $('globalFilters').addEventListener('change', event => { if (event.target.name === 'date_mode') updateReportDateControls(); });
+  document.querySelectorAll('[data-complaint-chart-display]').forEach(button => button.addEventListener('click', () => setComplaintChartDisplay(button.dataset.complaintChartDisplay)));
+  $('complaintChartPrevious').addEventListener('click', () => moveComplaintChart(-1));
+  $('complaintChartNext').addEventListener('click', () => moveComplaintChart(1));
+  $('complaintReportCharts').addEventListener('keydown', event => {
+    if (event.target.closest('button, input, select, textarea, a')) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault(); moveComplaintChart(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+  });
+  $('complaintReportCharts').addEventListener('touchstart', event => {
+    state.reportChartTouchStart = null;
+    if (state.reportChartDisplay !== 'carousel' || event.touches.length !== 1) return;
+    state.reportChartTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+  }, { passive: true });
+  $('complaintReportCharts').addEventListener('touchend', event => {
+    if (!state.reportChartTouchStart || !event.changedTouches.length) return;
+    const deltaX = event.changedTouches[0].clientX - state.reportChartTouchStart.x;
+    const deltaY = event.changedTouches[0].clientY - state.reportChartTouchStart.y;
+    state.reportChartTouchStart = null;
+    if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) moveComplaintChart(deltaX < 0 ? 1 : -1);
+  }, { passive: true });
+  $('complaintReportCharts').addEventListener('touchcancel', () => { state.reportChartTouchStart = null; }, { passive: true });
   document.querySelectorAll('[data-category-chart]').forEach(button => button.addEventListener('click', () => {
     state.categoryChartType = button.dataset.categoryChart;
     document.querySelectorAll('[data-category-chart]').forEach(option => {

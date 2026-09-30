@@ -1031,7 +1031,7 @@ test('Complaints and TAT follow Telegram theme independently of the device theme
   expect(await page.locator('#tatGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color').trim())).toBe('#1e293b');
 });
 
-test('Complaint management report contains horizontal grid scrolling and Telegram back navigation', async ({ page }) => {
+test('Complaint management report contains horizontal grid scrolling and Telegram back navigation', async ({ page }, testInfo) => {
   const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
     .replace(/{% load static %}/g, '')
     .replace(/{% include [^%]+%}/g, '')
@@ -1119,6 +1119,11 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await page.locator('#globalWorkspaceBtn').click();
   await expect(page.locator('#globalView')).toBeVisible();
+  await expect(page.locator('#openComplaintReportFilters')).toBeVisible();
+  await expect(page.locator('#globalFilters')).toBeHidden();
+  await expect(page.locator('[data-complaint-chart-slide]:visible')).toHaveCount(1);
+  await expect(page.locator('#complaintChartPosition')).toHaveText('1 of 2');
+  await page.screenshot({ path: testInfo.outputPath('complaints-overview-mobile.png') });
   await expect(page.locator('.ag-row')).toHaveCount(1);
   await expect(page.locator('.ag-header-cell-movable')).toHaveCount(0);
   await expect(page.locator('.ag-header-cell-resize:visible')).toHaveCount(0);
@@ -1131,6 +1136,9 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('.ag-header-cell[col-id="date_reported"]').click();
   await expect(page.locator('.ag-header-cell[col-id="date_reported"]')).toHaveAttribute('aria-sort', 'ascending');
   await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-icon:visible .ag-icon-asc')).toHaveCount(1);
+  await page.locator('#complaintChartNext').click();
+  await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 2');
+  await expect(page.locator('[data-complaint-chart-slide]:visible')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels[0])).toBe('01-09-26');
   const monthlyPlotHeight = await page.evaluate(() => window.Chart.getChart('timeChart').chartArea.height);
   await page.locator('.ag-body-horizontal-scroll-viewport').evaluate(node => {
@@ -1139,19 +1147,48 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   });
   await expect(page.locator('.ag-cell[col-id="date_resolved"]')).toHaveText('02-Sep-2026');
 
+  await page.locator('#openComplaintReportFilters').click();
+  await expect(page.locator('#globalFilters')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('complaints-filters-mobile.png') });
+  await page.locator('select[name="status"]').selectOption('open');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#globalFilters')).toBeHidden();
+  await expect(page.locator('#openComplaintReportFilters')).toBeFocused();
+  await page.locator('#openComplaintReportFilters').click();
+  await expect(page.locator('select[name="status"]')).toHaveValue('');
   await page.locator('#reportDateMode').selectOption('month');
   await page.locator('input[name="report_month"]').fill('2026-07');
-  await page.locator('input[name="report_month"]').dispatchEvent('change');
+  await page.locator('#globalApplyFiltersBtn').click();
   await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.params.date_from === '2026-07-01').length)).toBe(2);
   const julyRequests = await page.evaluate(() => window.__reportRequests.filter(item => item.params.date_from === '2026-07-01'));
   expect(julyRequests.map(item => item.path).sort()).toEqual(['reports/data/', 'reports/summary/']);
   expect(julyRequests.every(item => item.params.date_to === '2026-07-31')).toBe(true);
   await expect(page.locator('#reportPeriodLabel')).toContainText('July 2026');
+  await expect(page.locator('#complaintActiveFilterCount')).toHaveText('1');
 
   const requestsBeforePie = await page.evaluate(() => window.__reportRequests.length);
+  await page.locator('#complaintChartPrevious').click();
+  await page.locator('#complaintReportCharts').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 2');
+  await page.locator('#complaintReportCharts').evaluate(node => {
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [{ clientX: 100, clientY: 100 }] });
+    node.dispatchEvent(start);
+    const end = new Event('touchend', { bubbles: true });
+    Object.defineProperty(end, 'changedTouches', { value: [{ clientX: 200, clientY: 105 }] });
+    node.dispatchEvent(end);
+  });
+  await expect(page.locator('#complaintChartPosition')).toHaveText('1 of 2');
   await page.locator('[data-category-chart="pie"]').click();
   await expect(page.locator('[data-category-chart="pie"]')).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => window.__reportRequests.length)).toBe(requestsBeforePie);
+  await page.locator('[data-complaint-chart-display="list"]').click();
+  await expect(page.locator('[data-complaint-chart-slide]:visible')).toHaveCount(2);
+  await expect(page.locator('#complaintChartPagination')).toBeHidden();
+  await page.locator('[data-complaint-chart-display="carousel"]').click();
+  await expect(page.locator('[data-complaint-chart-slide]:visible')).toHaveCount(1);
+  await page.locator('#complaintChartNext').click();
   const dataRequestsBeforeGrouping = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
   await page.locator('#reportGranularity').selectOption('week');
   await expect.poll(() => page.evaluate(() => window.__reportRequests.some(item => item.path === 'reports/summary/' && item.params.granularity === 'week'))).toBe(true);
@@ -1171,9 +1208,13 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
 
   const dataRequestsBeforeRace = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
   await page.evaluate(() => { window.__reportDataDelays = [250, 10]; });
+  await page.locator('#openComplaintReportFilters').click();
   await page.locator('select[name="status"]').selectOption('open');
+  await page.locator('#globalApplyFiltersBtn').click();
   await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 1);
+  await page.locator('#openComplaintReportFilters').click();
   await page.locator('select[name="status"]').selectOption('closed');
+  await page.locator('#globalApplyFiltersBtn').click();
   await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 2);
   await expect.poll(() => page.evaluate(() => window.__reportAborted)).toBe(1);
   await expect(page.locator('.ag-overlay-loading-center:visible')).toHaveCount(0);
@@ -1190,6 +1231,19 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
     expect(overflow.grid).toBeGreaterThan(0);
     expect(overflow.backVisible).toBe(true);
   }
+  await page.setViewportSize({ width: 320, height: 650 });
+  await page.locator('#openComplaintReportFilters').click();
+  await page.locator('#reportDateMode').selectOption('custom');
+  await expect(page.locator('#reportCustomDates')).toBeVisible();
+  expect(await page.locator('#complaintReportFilterSheet').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  expect(await page.locator('#complaintReportFilterSheet').evaluate(node => node.getBoundingClientRect().height <= window.innerHeight)).toBe(true);
+  await expect(page.locator('#globalApplyFiltersBtn')).toBeVisible();
+  await page.evaluate(() => window.__backHandler());
+  await expect(page.locator('#complaintReportFilterOverlay')).toBeHidden();
+  await expect(page.locator('#globalView')).toBeVisible();
+  await page.locator('#openComplaintReportFilters').click();
+  await expect(page.locator('#reportDateMode')).toHaveValue('month');
+  await page.locator('#closeComplaintReportFilters').click();
   await page.emulateMedia({ colorScheme: 'light' });
   const lightSurface = await page.locator('#complaintReportGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color'));
   await page.emulateMedia({ colorScheme: 'dark' });
