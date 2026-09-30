@@ -10,32 +10,22 @@ const performanceMarkup = template.split("{% if active_screen == 'performance' %
 
 function payload(query) {
   const params = new URLSearchParams(query.split('?')[1] || '');
-  const metric = params.get('metric') || 'outcome';
   const view = params.get('view') || 'people';
   const page = Number(params.get('page') || 1);
-  const selected = {
-    score: 83.2, completed: 24, accepted: 23, reworked: 1,
-    within: 18, near: 3, over: 3, ranked: true,
-    stages: [{ label: 'JBL visit', completed: 24 }],
-  };
+  const selected = { score: 83, points: 83, cases: 24, visits: 24,
+    milestones: [{ key: 'jbl_visit_completed', label: 'JBL visit', count: 24 }] };
   return { ok: true, data: {
-    period: '2026-09', period_kind: 'month', metric, view, role: 'JBL_OFFICER',
+    period: '2026-09', period_kind: 'month', view,
     branch: params.get('branch') || '', product: params.get('product') || '',
-    roles: [{ value: 'JBL_OFFICER', label: 'JBL Officer' }],
-    filter_options: { branches: ['Embu', 'Nakuru'], products: ['HB'], by_role: {
-      JBL_OFFICER: { branches: ['Embu', 'Nakuru'], products: ['HB'],
-        products_by_branch: { Embu: ['HB'], Nakuru: ['HB'] } },
-    } },
-    personal: { outcome: selected, tat: { ...selected, score: 76.1 } },
-    personal_missing_target: 2, slice: selected,
-    business_context: { visits: 24, to_credit: 20, final_approved: 15, payment_finalized: 10 },
-    people_visible: true, final: false, minimum_ranked_sample: 20,
+    filter_options: { branches: ['Embu', 'Nakuru'], products: ['HB'],
+      products_by_branch: { Embu: ['HB'], Nakuru: ['HB'] } },
+    personal: selected, slice: selected,
+    people_visible: true, final: false,
     page, pages: 2, total: 20,
     rows: Array.from({ length: 10 }, (_, index) => ({
       rank: (page - 1) * 10 + index + 1,
       label: index === 0 ? 'A very long staff name that must wrap without moving the score' : `Staff ${index + 1}`,
-      completed: 24, success_rate: 91.7, score: 83.2,
-      accepted: 23, reworked: 1, within: 18, near: 3, over: 3,
+      cases: 24, visits: 24, points: 83, score: 83,
       movement: index === 0 ? { direction: 'up', places: 2 } : { direction: 'none', places: 0 },
     })),
   } };
@@ -66,6 +56,8 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
         showToast: message => { throw new Error(message); },
       }));
       await expect(page.locator('.portal-performance-row')).toHaveCount(10);
+      await expect(page.locator('.portal-performance-own-cell')).toHaveCount(3);
+      await expect(page.locator('#portal-performance-metrics')).toHaveCount(0);
       await expect(page.locator('.portal-performance-rank').first()).toHaveText('1');
       await expect(page.locator('.portal-performance-movement').first()).toHaveText('↑2');
       const layout = await page.evaluate(() => {
@@ -81,6 +73,8 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       await page.screenshot({ path: testInfo.outputPath(`portal-performance-${width}-${theme}.png`), fullPage: true });
       await page.locator('#portal-performance-filter').click();
       await expect(page.locator('#portal-performance-filters')).toHaveAttribute('aria-hidden', 'false');
+      await page.locator('#portal-performance-period').fill('2026-05');
+      await expect(page.locator('#portal-performance-month-display')).toHaveText('May 2026');
       if (width === 320) {
         await page.waitForTimeout(250);
         await page.screenshot({ path: testInfo.outputPath(`portal-performance-filters-${theme}.png`) });

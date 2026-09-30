@@ -24,7 +24,7 @@ from core.models import (
     ProductAlias,
     RequisitionBatch,
 )
-from core.services.invoice_parser import ingest_invoice_upload_batch
+from core.services.invoice_parser import InvoiceDuplicateUploadError, ingest_invoice_upload_batch, ignore_invoice, restore_invoice
 from core.services.invoice_identity import ensure_identity_review, identity_gate
 from core.services.jawabu_approvals import invalidate_material_approvals, record_approval
 from core.services.jawabu_validation import format_repayment_day, parse_repayment_day
@@ -306,7 +306,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             client_request_id='retry-123',
         )
         second = ingest_invoice_upload_batch(
-            pdf_bytes=b'%PDF-1.4-retried',
+            pdf_bytes=b'%PDF-1.4',
             filename='invoices.pdf',
             uploaded_by='Tester',
             order_number='ORDER-001',
@@ -317,6 +317,80 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(InvoiceUploadBatch.objects.count(), 1)
         storage.return_value.upload.assert_called_once()
         parse_pdf.assert_called_once()
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_upload_request_id_cannot_replay_different_pdf(self, storage, parse_pdf):
+        from core.services.invoice_parser import InvoiceUploadRequestConflictError
+
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        ingest_invoice_upload_batch(pdf_bytes=b'%PDF-1.4 first', filename='invoice.pdf', client_request_id='same-key')
+        with self.assertRaises(InvoiceUploadRequestConflictError):
+            ingest_invoice_upload_batch(pdf_bytes=b'%PDF-1.4 changed', filename='invoice.pdf', client_request_id='same-key')
+        storage.return_value.upload.assert_called_once()
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_same_pdf_hash_is_rejected_before_second_drive_upload(self, storage, parse_pdf):
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        group = GroupSheetConfiguration.objects.get(group_id='-100payment-documents-test')
+        first = ingest_invoice_upload_batch(
+            pdf_bytes=b'%PDF-1.4 same', filename='first.pdf', group_configuration=group,
+        )
+        with self.assertRaises(InvoiceDuplicateUploadError) as raised:
+            ingest_invoice_upload_batch(
+                pdf_bytes=b'%PDF-1.4 same', filename='renamed.pdf', group_configuration=group,
+            )
+        self.assertEqual(raised.exception.batch.pk, first.pk)
+        self.assertEqual(InvoiceUploadBatch.objects.count(), 1)
+        storage.return_value.upload.assert_called_once()
+        parse_pdf.assert_called_once()
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_failed_drive_upload_releases_hash_and_request_for_retry(self, storage, parse_pdf):
+        from core.services.invoice_parser import InvoiceUploadStorageError
+
+        storage.return_value.upload.side_effect = [
+            RuntimeError('Drive unavailable'), ('drive-id', 'https://drive.test/pdf'),
+        ]
+        group = GroupSheetConfiguration.objects.get(group_id='-100payment-documents-test')
+        values = {
+            'pdf_bytes': b'%PDF-1.4 retry', 'filename': 'invoice.pdf',
+            'group_configuration': group, 'client_request_id': 'retry-after-drive-error',
+        }
+        with self.assertRaises(InvoiceUploadStorageError):
+            ingest_invoice_upload_batch(**values)
+        first = InvoiceUploadBatch.objects.get()
+        self.assertEqual(first.content_sha256, '')
+        self.assertEqual(first.client_request_id, '')
+        second = ingest_invoice_upload_batch(**values)
+        self.assertEqual(second.drive_file_id, 'drive-id')
+        self.assertEqual(storage.return_value.upload.call_count, 2)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_shared_invoice_pdf_moves_to_ignored_only_after_all_pages_ignored(self, storage):
+        batch = self.invoice_batch()
+        first = batch.invoices.get()
+        second = ParsedInvoice.objects.create(batch=batch, page=2, status='unmatched')
+        files = storage.return_value.service.files.return_value
+        files.get.return_value.execute.side_effect = [
+            {'parents': ['original-folder']}, {'parents': ['ignored-folder']},
+        ]
+        storage.return_value.ensure_child_folder.return_value = 'ignored-folder'
+
+        ignore_invoice(first, actor='Tester', note='Duplicate page')
+        files.update.assert_not_called()
+        ignore_invoice(second, actor='Tester', note='Duplicate page')
+        self.assertEqual(files.update.call_args.kwargs['addParents'], 'ignored-folder')
+        batch.refresh_from_db()
+        self.assertEqual(batch.metadata['original_drive_parent'], 'original-folder')
+        self.assertEqual(batch.metadata['ignored_drive_parent'], 'ignored-folder')
+
+        restore_invoice(first, actor='Tester')
+        self.assertEqual(files.update.call_args.kwargs['addParents'], 'original-folder')
+        batch.refresh_from_db()
+        self.assertNotIn('ignored_drive_parent', batch.metadata)
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -388,6 +462,24 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(len(data['invoice_batch_ids']), 2)
         self.assertEqual(InvoiceUploadBatch.objects.count(), 2)
         self.assertEqual(ParsedInvoice.objects.count(), 2)
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_reuploading_identical_pdf_reports_duplicate_without_new_receipt(self, storage, parse_pdf):
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        with patch('core.api.portal_views._portal_import_group_ids', return_value=None):
+            first = self.client.post(reverse('portal_invoice_pool_upload'), {
+                'file': SimpleUploadedFile('first.pdf', b'%PDF-1.4 same', content_type='application/pdf'),
+            })
+            repeated = self.client.post(reverse('portal_invoice_pool_upload'), {
+                'file': SimpleUploadedFile('second.pdf', b'%PDF-1.4 same', content_type='application/pdf'),
+            })
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json()['status'], 'duplicate')
+        self.assertEqual(repeated.json()['total_uploaded'], 0)
+        self.assertEqual(InvoiceUploadBatch.objects.count(), 1)
+        storage.return_value.upload.assert_called_once()
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -733,6 +825,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIn('Duplicate PDF page', invoice.review_notes)
         self.assertTrue(invoice.events.filter(action='ignored', note='Duplicate PDF page').exists())
         self.assertEqual(batch.unmatched_count, 0)
+        inbox = self.client.get(reverse('portal_invoice_pool'), {'workspace': 'inbox'}).json()
+        self.assertNotIn(str(invoice.pk), {item['id'] for item in inbox['invoices']})
 
     def test_manual_invoice_restore_endpoint_moves_ignored_invoice_back_to_unmatched(self):
         batch = self.invoice_batch()

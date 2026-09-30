@@ -9,6 +9,7 @@ class PortalRecognitionPeriodSnapshot(models.Model):
     group_configuration_id = models.BigIntegerField(db_comment='Owning Portal group configuration identifier.')
     period_kind = models.CharField(max_length=8, db_comment='Month, quarter, or year.')
     period_key = models.CharField(max_length=12, db_comment='Canonical calendar period key.')
+    score_policy_version = models.PositiveSmallIntegerField(default=1, db_comment='Immutable scoring policy used for these facts.')
     facts = models.JSONField(db_comment='Frozen attributed action facts; never returned directly to a client.')
     captured_at = models.DateTimeField(auto_now_add=True, db_comment='When the settled period was first captured.')
 
@@ -16,8 +17,8 @@ class PortalRecognitionPeriodSnapshot(models.Model):
         db_table = 'portal_recognition_period_snapshot'
         db_table_comment = 'Immutable settled Portal performance facts; current grants still govern visibility.'
         constraints = [models.UniqueConstraint(
-            fields=['group_configuration_id', 'period_kind', 'period_key'],
-            name='unique_portal_recognition_period_snapshot',
+            fields=['group_configuration_id', 'period_kind', 'period_key', 'score_policy_version'],
+            name='unique_portal_recognition_versioned_period',
         )]
 
     def save(self, *args, **kwargs):

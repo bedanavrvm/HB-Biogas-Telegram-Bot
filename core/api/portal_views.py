@@ -2174,9 +2174,7 @@ def portal_performance(request):
         data = portal_recognition_payload(
             user, access=access, period=str(request.GET.get('period') or ''),
             period_kind=str(request.GET.get('period_kind') or 'month'),
-            metric=str(request.GET.get('metric') or 'outcome'),
             view=str(request.GET.get('view') or 'people'),
-            role=str(request.GET.get('role') or ''),
             branch=str(request.GET.get('branch') or ''),
             product=str(request.GET.get('product') or ''),
             page=request.GET.get('page') or 1,
@@ -6734,6 +6732,8 @@ def portal_invoice_pool_upload(request):
         validated_files.append((pdf_index, pdf_file))
 
     from core.services.invoice_parser import (
+        InvoiceDuplicateUploadError,
+        InvoiceUploadRequestConflictError,
         InvoiceUploadStorageError,
         auto_match_invoice_batch,
         ingest_invoice_upload_batch,
@@ -6743,6 +6743,8 @@ def portal_invoice_pool_upload(request):
     batches = []
     auto_matched = []
     manual_review = []
+    duplicate_files = []
+    request_conflicts = []
     uploaded_by = _portal_sender_from_request(request)
     for pdf_index, pdf_file in validated_files:
         filename = getattr(pdf_file, 'name', '') or 'hb_invoices.pdf'
@@ -6779,6 +6781,15 @@ def portal_invoice_pool_upload(request):
                     'reason': 'No valid HomeBiogas invoice was parsed from this file.',
                 })
             batches.append(batch)
+        except InvoiceDuplicateUploadError as exc:
+            duplicate_files.append({
+                'filename': filename,
+                'existing_filename': exc.batch.original_filename,
+                'invoice_batch_id': str(exc.batch.pk),
+            })
+        except InvoiceUploadRequestConflictError as exc:
+            failures.append({'filename': filename, 'error': str(exc)})
+            request_conflicts.append(filename)
         except InvoiceUploadStorageError as exc:
             logger.exception('Invoice PDF storage failed for filename=%s', filename)
             failures.append({'filename': filename, 'error': 'Invoice PDF could not be stored in Google Drive.'})
@@ -6787,7 +6798,13 @@ def portal_invoice_pool_upload(request):
             failures.append({'filename': filename, 'error': 'Invoice PDF could not be parsed.'})
 
     if not batches:
-        status = 502 if any('Google Drive' in item['error'] for item in failures) else 500
+        if duplicate_files and not failures:
+            return JsonResponse({
+                'ok': True, 'status': 'duplicate', 'total_uploaded': 0,
+                'total_failed': 0, 'total_duplicates': len(duplicate_files),
+                'duplicate_files': duplicate_files, 'batches': [],
+            })
+        status = 409 if request_conflicts else 502 if any('Google Drive' in item['error'] for item in failures) else 500
         return JsonResponse({
             'ok': False,
             'error': failures[0]['error'] if failures else 'Invoice upload failed.',
@@ -6813,10 +6830,12 @@ def portal_invoice_pool_upload(request):
         'receipt_batch': serialize_receipt_batch(receipt, include_items=True),
         'receipt_replayed': receipt_replayed,
         'drive_url': first_batch.drive_url,
-        'status': 'partial' if failures else 'parsed',
+        'status': 'partial' if failures or duplicate_files else 'parsed',
         'order_number': order_number,
         'total_uploaded': len(batches),
         'total_failed': len(failures),
+        'total_duplicates': len(duplicate_files),
+        'duplicate_files': duplicate_files,
         'total_pages': total_pages,
         'total_parsed': total_parsed,
         'auto_matched_count': len(auto_matched),
@@ -6963,6 +6982,7 @@ def _serialize_parsed_invoice(
     payment_readiness_by_order: dict | None = None,
     *,
     include_duplicate_summary: bool = False,
+    duplicate_request=None,
 ) -> dict:
     farmer = invoice.matched_farmer
     order_number = invoice.matched_order_number or (farmer.order_number if farmer else '')
@@ -7033,7 +7053,7 @@ def _serialize_parsed_invoice(
     else:
         data['identity'] = None
     if include_duplicate_summary:
-        data['duplicate_count'] = _invoice_duplicate_count(invoice)
+        data['duplicate_count'] = _invoice_duplicate_count(invoice, duplicate_request)
     return data
 
 
@@ -7131,31 +7151,52 @@ def _invoice_duplicate_reasons(invoice, candidate, phone_digits: str) -> list[st
     return reasons
 
 
-def _invoice_duplicate_count(invoice) -> int:
+def _scoped_invoice_duplicates(queryset, request):
+    """Keep duplicate signals within complete invoice-view grants."""
+    if request is None:
+        return queryset
+    from core.services.workflow_access import scope_workflow_queryset
+
+    return scope_workflow_queryset(
+        queryset, getattr(request, 'portal_user', None), 'jawabu_portal',
+        'portal.invoice.view', access=getattr(request, 'portal_access', None),
+        branch_field='matched_farmer__branch',
+        product_field='matched_farmer__product__code',
+        group_field='batch__group_configuration__group_id',
+    )
+
+
+def _invoice_duplicate_count(invoice, request=None) -> int:
     from core.models import ParsedInvoice
 
     query, _phone_digits = _invoice_duplicate_query(invoice)
     if not query.children:
         return 0
-    return ParsedInvoice.objects.filter(query).exclude(pk=invoice.pk).count()
+    return _scoped_invoice_duplicates(
+        ParsedInvoice.objects.filter(query, batch__group_configuration_id=invoice.batch.group_configuration_id)
+        .exclude(pk=invoice.pk).exclude(status='ignored'), request,
+    ).count()
 
 
-def _invoice_duplicate_candidates(invoice) -> list[dict]:
+def _invoice_duplicate_candidates(invoice, request=None) -> list[dict]:
     from core.models import ParsedInvoice
 
     query, phone_digits = _invoice_duplicate_query(invoice)
     if not query.children:
         return []
 
-    candidates = (
-        ParsedInvoice.objects
-        .select_related('batch', 'matched_farmer')
-        .filter(query)
-        .exclude(pk=invoice.pk)
-        .order_by('-created_at')[:8]
-    )
+    candidates = _scoped_invoice_duplicates(
+        ParsedInvoice.objects.select_related('batch', 'matched_farmer').filter(
+            query, batch__group_configuration_id=invoice.batch.group_configuration_id,
+        )
+        .exclude(pk=invoice.pk).exclude(status='ignored'), request,
+    ).order_by('-created_at')[:8]
     rows = []
     for candidate in candidates:
+        if request is not None and _portal_read_access_error(
+            request, candidate.matched_farmer, capability='portal.invoice.view',
+        ) is not None:
+            continue
         reasons = _invoice_duplicate_reasons(invoice, candidate, phone_digits)
         serialized = _serialize_parsed_invoice(candidate)
         serialized['duplicate_reasons'] = reasons
@@ -7202,7 +7243,7 @@ def portal_invoice_pool(request):
             Q(status__in=['draft', 'unmatched', 'ambiguous'])
             | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
             | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
-        ).distinct()
+        ).exclude(status='ignored').distinct()
     elif workspace in {'matched', 'ignored'}:
         invoices = invoices.filter(status=workspace)
     elif status:
@@ -7224,7 +7265,7 @@ def portal_invoice_pool(request):
     if review == 'duplicates':
         review_filtered = [
             invoice for invoice in invoices[:300]
-            if _invoice_duplicate_count(invoice) > 0
+            if _invoice_duplicate_count(invoice, request) > 0
         ]
     elif review in {'payment_blocked', 'payment_ready'}:
         from core.services.payment_documents import payment_readiness
@@ -7312,7 +7353,7 @@ def portal_invoice_pool(request):
         'summary': summary,
         'batches': [_serialize_invoice_batch(batch) for batch in batches],
         'invoices': [
-            _serialize_parsed_invoice(invoice, readiness_by_order, include_duplicate_summary=True)
+            _serialize_parsed_invoice(invoice, readiness_by_order, include_duplicate_summary=True, duplicate_request=request)
             for invoice in paged_invoices
         ],
         'pagination': invoice_pagination,
@@ -7528,7 +7569,7 @@ def portal_invoice_detail(request, invoice_id: str):
         'batch': _serialize_invoice_batch(invoice.batch),
         'source_pdf_url': invoice.batch.drive_url,
         'events': [_serialize_invoice_event(event) for event in events],
-        'duplicates': _invoice_duplicate_candidates(invoice),
+        'duplicates': _invoice_duplicate_candidates(invoice, request),
         'raw_payload': invoice.raw_payload or {},
     })
 
@@ -8415,8 +8456,17 @@ def portal_invoice_ignore(request, invoice_id: str):
     if role_error:
         return role_error
 
-    invoice = ignore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
-    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+    try:
+        invoice = ignore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+    invoice.batch.refresh_from_db(fields=['metadata'])
+    return JsonResponse({
+        'ok': True, 'invoice': _serialize_parsed_invoice(invoice),
+        'drive_archive_warning': (invoice.batch.metadata or {}).get('drive_archive_error', ''),
+        'drive_archived': bool((invoice.batch.metadata or {}).get('ignored_drive_parent')),
+        'shared_pdf': invoice.batch.invoices.exclude(status='ignored').exists(),
+    })
 
 
 @csrf_exempt
@@ -8437,7 +8487,11 @@ def portal_invoice_restore(request, invoice_id: str):
         return role_error
 
     invoice = restore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
-    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+    invoice.batch.refresh_from_db(fields=['metadata'])
+    return JsonResponse({
+        'ok': True, 'invoice': _serialize_parsed_invoice(invoice),
+        'drive_archive_warning': (invoice.batch.metadata or {}).get('drive_archive_error', ''),
+    })
 
 
 @csrf_exempt

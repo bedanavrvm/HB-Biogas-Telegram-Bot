@@ -10,7 +10,8 @@ from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
-from core.models import AccessGrant, JawabuFarmerMaster, JawabuPipelineEvent, TatTrackerCase
+from core.models import AccessGrant, DocumentPhysicalSignoff, JawabuFarmerMaster, JawabuPipelineEvent, RequisitionBatch, TatTrackerCase
+from hb_operations.models import HomeBiogasAction, HomeBiogasActionEvent
 from core.services.workflow_recognition import (
     MINIMUM_RANKED_SAMPLE,
     ON_TIME_SLA_STATES,
@@ -22,7 +23,7 @@ from core.services.workflow_recognition import (
     portal_performance_payload,
     tat_recognition_payload,
 )
-from core.services.portal_recognition import _aggregate as portal_aggregate, portal_recognition_payload
+from core.services.portal_recognition import _aggregate as portal_aggregate, _event_milestone as portal_event_milestone, portal_recognition_payload
 
 
 class TatRecognitionMovementTests(TestCase):
@@ -215,43 +216,46 @@ class PortalPerformanceRedesignTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username='portal-performance-owner', is_active=True, is_superuser=True,
         )
+        AccessGrant.objects.create(user=self.user, workflow='jawabu_portal', role='JBL_OFFICER', active=True)
 
-    def fact(self, index, *, person_id=None, branch='Embu', tat_state='', accepted=True):
+    def fact(self, index, *, branch='Embu', stage='jbl_visit_completed'):
         return {
-            'case_id': str(index), 'person_id': str(person_id or self.user.pk),
-            'person': 'Portal Officer', 'role': 'JBL_OFFICER', 'stage': 'jbl_visit_completed',
-            'stage_label': 'JBL visit', 'branch': branch, 'product': 'HB',
-            'accepted': accepted, 'tat_state': tat_state,
+            'case_id': str(index), 'person_id': str(self.user.pk),
+            'person': 'Portal Officer', 'stage': stage, 'branch': branch, 'product': 'HB',
         }
 
-    def test_one_person_across_branches_and_missing_targets_excluded_from_tat(self):
-        facts = [self.fact(index, branch='Embu' if index % 2 else 'Nakuru',
-                           tat_state='within' if index <= 10 else '') for index in range(1, 21)]
-        outcome = portal_aggregate(facts, metric='outcome', key_name='person')
-        tat = portal_aggregate(facts, metric='tat', key_name='person')
-        self.assertEqual(len(outcome), 1)
-        self.assertEqual(outcome[0]['rank'], 1)
-        self.assertEqual(outcome[0]['completed'], 20)
-        self.assertEqual(tat[0]['completed'], 10)
-        self.assertIsNone(tat[0]['rank'])
+    def test_hb_events_use_event_type_not_the_foreign_key_named_action(self):
+        from types import SimpleNamespace
+        parent = SimpleNamespace(pk='action-id')
+        self.assertEqual(portal_event_milestone(SimpleNamespace(
+            action=parent, event_type='order.released_to_hb', new_values={},
+        )), 'order.released_to_hb')
+        self.assertEqual(portal_event_milestone(SimpleNamespace(
+            action=parent, event_type='installation.progressed',
+            new_values={'installation_status': 'installed'},
+        )), 'installation_completed')
+        self.assertEqual(portal_event_milestone(SimpleNamespace(
+            action=parent, event_type='commissioning.completed',
+            new_values={'commissioning_status': 'commissioned'},
+        )), 'commissioning_completed')
 
-    def test_rework_does_not_penalize_valid_rejection_and_tat_is_separate(self):
-        facts = [self.fact(index, accepted=index != 20, tat_state='over' if index > 10 else 'near')
-                 for index in range(1, 21)]
-        outcome = portal_aggregate(facts, metric='outcome', key_name='person')[0]
-        tat = portal_aggregate(facts, metric='tat', key_name='person')[0]
-        self.assertEqual((outcome['accepted'], outcome['reworked']), (19, 1))
-        self.assertEqual((tat['near'], tat['over']), (10, 10))
-        self.assertNotEqual(outcome['score'], tat['score'])
+    def test_one_person_across_branches_is_one_row_and_points_are_additive(self):
+        facts = [self.fact(index, branch='Embu' if index % 2 else 'Nakuru') for index in range(1, 21)]
+        facts += [self.fact(index, stage='credit_decision_recorded') for index in range(1, 6)]
+        people = portal_aggregate(facts, key_name='person')
+        branches = portal_aggregate(facts, key_name='branch')
+        self.assertEqual(len(people), 1)
+        self.assertEqual((people[0]['points'], people[0]['cases'], people[0]['visits']), (25, 20, 20))
+        self.assertEqual(sum(row['points'] for row in branches), 25)
 
-    def test_empty_period_returns_two_personal_results_and_no_named_rows_when_restricted(self):
+    def test_empty_period_has_no_score_or_named_rows_when_restricted(self):
         result = portal_recognition_payload(self.user, period='2026-09', include_people=False)
         self.assertEqual(result['view'], 'branches')
-        self.assertEqual(result['personal'], {'outcome': None, 'tat': None})
+        self.assertIsNone(result['personal'])
         self.assertEqual(result['rows'], [])
         self.assertEqual(result['pages'], 1)
 
-    def test_audited_visit_is_counted_once_without_inventing_a_tat_target(self):
+    def test_rejected_audited_visit_counts_once_and_approved_credit_adds_a_point(self):
         farmer = JawabuFarmerMaster.objects.create(customer_name='Portal result', branch='Embu')
         for day in (4, 5):
             JawabuPipelineEvent.objects.create(
@@ -260,18 +264,101 @@ class PortalPerformanceRedesignTests(TestCase):
                 occurred_at=timezone.make_aware(datetime(2026, 9, day, 10)),
                 new_values={'status': 'Rejected by JBL'},
             )
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='credit_decision_recorded', stage_key='credit',
+            actor='Analyst', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 9, 7, 10)),
+            new_values={'decision': 'Approved'},
+        )
         result = portal_recognition_payload(self.user, period='2026-09', include_people=True)
-        self.assertEqual(result['personal']['outcome']['completed'], 1)
-        self.assertEqual(result['personal']['outcome']['accepted'], 1)
-        self.assertIsNone(result['personal']['tat'])
-        self.assertEqual(result['personal_missing_target'], 1)
+        self.assertEqual(result['personal']['points'], 2)
+        self.assertEqual(result['personal']['visits'], 1)
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='returned_for_rework', stage_key='credit',
+            actor='Reviewer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 9, 8, 10)),
+        )
+        corrected = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(corrected['personal']['points'], 1)
         JawabuPipelineEvent.objects.create(
             farmer=farmer, action='returned_for_rework', stage_key='jbl_visit',
             actor='Reviewer', actor_user=self.user,
-            occurred_at=timezone.make_aware(datetime(2026, 9, 6, 10)),
+            occurred_at=timezone.make_aware(datetime(2026, 9, 9, 10)),
         )
-        corrected = portal_recognition_payload(self.user, period='2026-09', include_people=True)
-        self.assertEqual(corrected['personal']['outcome']['reworked'], 1)
+        self.assertEqual(portal_recognition_payload(
+            self.user, period='2026-09', include_people=True,
+        )['personal']['points'], 1)
+
+    def test_each_milestone_belongs_to_its_own_month(self):
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Cross-month result', branch='Embu')
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+            actor='Portal Officer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 8, 29, 10)),
+        )
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='credit_decision_recorded', stage_key='credit',
+            actor='Analyst', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 9, 2, 10)),
+            new_values={'decision': 'Exemption Approved'},
+        )
+        august = portal_recognition_payload(self.user, period='2026-08', include_people=True)
+        september = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(august['personal']['points'], 1)
+        self.assertEqual(september['personal']['points'], 1)
+        self.assertEqual(september['personal']['visits'], 0)
+
+    def test_technical_visit_does_not_steal_officer_case_credit(self):
+        technician = get_user_model().objects.create_user(username='technical-visitor', is_active=True)
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Officer-owned case', branch='Embu')
+        for day, actor in ((1, technician), (2, self.user)):
+            JawabuPipelineEvent.objects.create(
+                farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+                actor=actor.get_username(), actor_user=actor,
+                occurred_at=timezone.make_aware(datetime(2026, 9, day, 10)),
+            )
+        result = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(result['personal']['points'], 1)
+        self.assertEqual(result['rows'][0]['label'], self.user.get_username())
+
+    def test_signed_order_installation_and_commissioning_add_case_points(self):
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Installed case', branch='Embu')
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+            actor='Officer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 9, 1, 10)),
+        )
+        batch = RequisitionBatch.objects.create(
+            order_number='1801', version=1, farmer_ids=[str(farmer.pk)], farmer_count=1,
+            filename='order.xlsx', file_content=b'workbook',
+        )
+        signoff = DocumentPhysicalSignoff.objects.create(
+            document_type='requisition', requisition_batch=batch, source_version=1,
+            source_filename='order.xlsx', source_content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            source_checksum='a' * 64, source_file_content=b'workbook',
+            scan_filename='signed.pdf', scan_content_type='application/pdf',
+            scan_size=4, scan_checksum='b' * 64, scan_file_content=b'scan',
+            status=DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED, attested_complete=True,
+            uploaded_by=self.user, approved_by=self.user,
+        )
+        action = HomeBiogasAction.objects.create(
+            farmer=farmer, source_requisition_batch=batch, source_signoff=signoff,
+            source_order_number='1801', source_requisition_version=1,
+        )
+        for day, event_type, values in (
+            (2, 'order.released_to_hb', {}),
+            (3, 'installation.progressed', {'installation_status': 'installed'}),
+            (4, 'commissioning.completed', {'commissioning_status': 'commissioned'}),
+        ):
+            event = HomeBiogasActionEvent.objects.create(
+                action=action, event_type=event_type, revision=day, new_values=values,
+            )
+            HomeBiogasActionEvent.objects.filter(pk=event.pk).update(
+                created_at=timezone.make_aware(datetime(2026, 9, day, 10)),
+            )
+        result = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(result['personal']['points'], 4)
+        self.assertEqual(result['personal']['milestones'][-1]['count'], 1)
 
     def test_settled_snapshot_does_not_rewrite_after_later_rework(self):
         from portal_recognition.models import PortalRecognitionPeriodSnapshot
@@ -283,7 +370,8 @@ class PortalPerformanceRedesignTests(TestCase):
         )
         first = portal_recognition_payload(self.user, period='2020-08', include_people=True)
         self.assertTrue(first['final'])
-        self.assertEqual(first['personal']['outcome']['accepted'], 1)
+        self.assertEqual(first['personal']['points'], 1)
+        self.assertEqual(first['score_policy_version'], 2)
         self.assertEqual(PortalRecognitionPeriodSnapshot.objects.count(), 1)
         JawabuPipelineEvent.objects.create(
             farmer=farmer, action='returned_for_rework', stage_key='jbl_visit',
@@ -291,12 +379,14 @@ class PortalPerformanceRedesignTests(TestCase):
             occurred_at=timezone.make_aware(datetime(2020, 8, 7, 10)),
         )
         second = portal_recognition_payload(self.user, period='2020-08', include_people=True)
-        self.assertEqual(second['personal']['outcome']['accepted'], 1)
+        self.assertEqual(second['personal']['points'], 1)
         self.assertEqual(second['captured_at'], first['captured_at'])
 
     def test_portal_performance_grant_does_not_borrow_another_branch(self):
         viewer = get_user_model().objects.create_user(username='embu-performance-viewer', is_active=True)
         AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='BUSINESS_ADMIN',
+                                   branch='EMBU', active=True)
+        AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='JBL_OFFICER',
                                    branch='EMBU', active=True)
         for branch in ('EMBU', 'NAKURU'):
             farmer = JawabuFarmerMaster.objects.create(customer_name=f'{branch} case', branch=branch)
@@ -306,7 +396,7 @@ class PortalPerformanceRedesignTests(TestCase):
                 occurred_at=timezone.make_aware(datetime(2026, 9, 6, 10)),
             )
         result = portal_recognition_payload(viewer, period='2026-09', include_people=True)
-        self.assertEqual(result['personal']['outcome']['completed'], 1)
+        self.assertEqual(result['personal']['points'], 1)
         self.assertEqual(result['filter_options']['branches'], ['EMBU'])
 
 

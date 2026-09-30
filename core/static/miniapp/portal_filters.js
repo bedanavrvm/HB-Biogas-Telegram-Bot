@@ -47,8 +47,21 @@
 
   function displayDate(value) {
     const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (match) return `${match[3]}-${match[2]}-${match[1]}`;
-    return /^\d{2}-\d{2}-\d{4}$/.test(String(value || '')) ? String(value) : '';
+    const parts = match || String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!parts) return '';
+    const year = match ? Number(parts[1]) : Number(parts[3]);
+    const month = Number(parts[2]);
+    const day = match ? Number(parts[3]) : Number(parts[1]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+      ? `${String(day).padStart(2, '0')}-${new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(date)}-${year}` : '';
+  }
+
+  function syncDateDisplays(form) {
+    form?.querySelectorAll('[data-portal-date-filter]').forEach(input => {
+      const display = input.parentElement?.querySelector('[data-portal-date-display]');
+      if (display) display.textContent = displayDate(input.value) || 'Choose date';
+    });
   }
 
   function isoDate(value) {
@@ -217,6 +230,7 @@
     });
     if (form?.elements.ordering) form.elements.ordering.value = filters.ordering || '';
     ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { if (form?.elements[key]) form.elements[key].value = isoDate(filters[key]) || ''; });
+    syncDateDisplays(form);
     updatePresentation(root, queueKey);
     if (boundRoots.has(root)) return;
     boundRoots.add(root);
@@ -263,6 +277,7 @@
         if (control && normalized) control.value = normalized;
       });
       if (invalidDate) return;
+      syncDateDisplays(form);
       state().pages[queueKey] = 1;
       updatePresentation(root, queueKey);
       persist(queueKey);
@@ -277,6 +292,7 @@
       ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { filters[key] = ''; });
       clearTimeout(changeTimer);
       form?.reset();
+      syncDateDisplays(form);
       state().pages[queueKey] = 1;
       updatePresentation(root, queueKey);
       persist(queueKey);

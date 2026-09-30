@@ -208,7 +208,7 @@
       const orderReferenceAlert = invoice.order_reference_alert || null;
       const secondaryActions = [
         canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
-        canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
+        canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].filter(Boolean).join('');
       const reviewReason = orderReferenceAlert ? ''
@@ -502,13 +502,16 @@
       canWriteInvoices() ? '<button type="button" class="invoice-record-action invoice-parsed-edit-toggle" title="Edit parsed fields" aria-label="Edit parsed fields"><i data-lucide="pencil" aria-hidden="true"></i><span>Edit fields</span></button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
       canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-record-action invoice-detail-unmatch-action" title="Change applicant match" aria-label="Change applicant match"><i data-lucide="user-round-search" aria-hidden="true"></i><span>Change match</span></button>' : '',
-      canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="invoice-record-action invoice-detail-ignore-action" title="Ignore invoice" aria-label="Ignore invoice"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Ignore</span></button>' : '',
+      canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="invoice-record-action invoice-detail-ignore-action" title="Ignore invoice" aria-label="Ignore invoice"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Ignore</span></button>' : '',
       canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-record-action invoice-detail-restore-action" title="Restore invoice" aria-label="Restore invoice"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore</span></button>' : '',
     ].join('');
     const duplicateHtml = duplicates.length
       ? duplicates.map(function (dup) {
         const reasons = (dup.duplicate_reasons || []).join(', ') || 'Possible duplicate';
-        return '<div class="batch-client-row"><div class="name">Invoice ' + escapeHtml(dup.invoice_no || '-') + '</div><div class="meta">' + escapeHtml(reasons) + ' | ' + escapeHtml(dup.customer_name || '-') + ' | ' + escapeHtml(dup.status || '-') + '</div></div>';
+        const remove = canWriteInvoices() && !['matched', 'ignored'].includes(dup.status)
+          ? '<button type="button" class="invoice-duplicate-remove" data-duplicate-ignore="' + escapeHtml(dup.id) + '" aria-label="Remove duplicate invoice ' + escapeHtml(dup.invoice_no || '') + '" title="Remove duplicate from active invoices"><i data-lucide="trash-2" aria-hidden="true"></i></button>'
+          : '';
+        return '<div class="batch-client-row invoice-duplicate-row"><div><div class="name">Invoice ' + escapeHtml(dup.invoice_no || '-') + '</div><div class="meta">' + escapeHtml(reasons) + ' | ' + escapeHtml(dup.customer_name || '-') + ' | ' + escapeHtml(dup.status || '-') + '</div></div>' + remove + '</div>';
       }).join('')
       : '<div class="empty-state"><div class="es-title">No likely duplicates</div><div class="es-sub">Checked invoice no, ID, and phone.</div></div>';
     const eventHtml = events.length
@@ -619,6 +622,13 @@
     });
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
+    target.querySelectorAll('[data-duplicate-ignore]').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        if (await ignoreInvoice(button.dataset.duplicateIgnore, { duplicateOf: invoice.invoice_no || invoice.id })) {
+          await loadDetail(invoice.id);
+        }
+      });
+    });
     target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
     target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
@@ -951,9 +961,10 @@
     load(state.page);
   }
 
-  async function ignoreInvoice(invoiceId) {
-    const values = await openInvoiceWorkflowSheet('Ignore invoice', '<div class="form-row"><label>Reason</label><textarea name="note" rows="3" required></textarea></div>', 'Ignore invoice');
-    if (!values) return;
+  async function ignoreInvoice(invoiceId, { duplicateOf = '' } = {}) {
+    const defaultNote = duplicateOf ? 'Duplicate of invoice ' + duplicateOf + '.' : '';
+    const values = await openInvoiceWorkflowSheet(duplicateOf ? 'Remove duplicate' : 'Ignore invoice', '<p>The invoice will leave the active list and remain available under Ignored for audit or restore.</p><div class="form-row"><label>Reason</label><textarea name="note" rows="3" required>' + escapeHtml(defaultNote) + '</textarea></div>', duplicateOf ? 'Remove duplicate' : 'Ignore invoice');
+    if (!values) return false;
     const note = values.note;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/ignore/', {
       method: 'POST',
@@ -961,10 +972,20 @@
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Could not ignore invoice.', 'error');
-      return;
+      return false;
     }
-    deps.showToast('Invoice ignored.', 'success');
+    const archiveWarning = response.data?.drive_archive_warning;
+    const sharedPdf = response.data?.shared_pdf;
+    deps.showToast(
+      archiveWarning || (sharedPdf
+        ? 'Invoice ignored. Its PDF also contains active invoices, so the shared file stays in Drive.'
+        : response.data?.drive_archived
+          ? (duplicateOf ? 'Duplicate removed from active invoices and its PDF filed under Ignored.' : 'Invoice ignored and its PDF filed under Ignored.')
+          : 'Invoice ignored. The source PDF location needs review.'),
+      archiveWarning ? 'warning' : 'success',
+    );
     load(state.page);
+    return true;
   }
 
   async function restoreInvoice(invoiceId) {
@@ -979,7 +1000,7 @@
       deps.showToast(response.data?.message || response.data?.error || 'Could not restore invoice.', 'error');
       return;
     }
-    deps.showToast('Invoice restored.', 'success');
+    deps.showToast(response.data?.drive_archive_warning || 'Invoice restored.', response.data?.drive_archive_warning ? 'warning' : 'success');
     load(state.page);
   }
 
@@ -1367,6 +1388,14 @@
           deps.showToast(data.error || 'Invoice upload failed.', 'error');
           return;
         }
+        const duplicateFiles = Array.isArray(data.duplicate_files) ? data.duplicate_files : [];
+        if (data.status === 'duplicate') {
+          if (resultBox) resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status"><strong>No new file was uploaded.</strong><p>The same PDF is already in this invoice group.</p><ul class="mini-list">' + duplicateFiles.map(function (item) {
+            return '<li>' + escapeHtml(item.filename || 'PDF') + ' matches ' + escapeHtml(item.existing_filename || 'an earlier upload') + '.</li>';
+          }).join('') + '</ul></div>';
+          deps.showToast('This PDF is already uploaded. No duplicate was created.', 'warning');
+          return;
+        }
         if (fileInput) fileInput.value = '';
         const dropzone = document.getElementById('invoice-pool-dropzone');
         dropzone?.classList.remove('has-selection');
@@ -1381,6 +1410,7 @@
           const matched = Number(data.auto_matched_count || 0);
           const review = Number(data.manual_review_count || data.unmatched_count || 0);
           const failures = Array.isArray(data.failures) ? data.failures : [];
+          const duplicateRows = duplicateFiles;
           const reviewRows = Array.isArray(data.manual_review) ? data.manual_review : [];
           const matchedRows = Array.isArray(data.auto_matched) ? data.auto_matched : [];
           const receipt = data.receipt_batch || {};
@@ -1400,6 +1430,7 @@
             + (matchedRows.length ? '<h4>Auto-matched</h4>' + list(matchedRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.customer_name || 'Unknown customer'); }) : '')
             + (reviewRows.length ? '<h4>Manual review</h4>' + list(reviewRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.reason || 'Review required'); }) : '')
             + (failures.length ? '<h4>Failed files</h4>' + list(failures, function (item) { return (item.filename || 'PDF') + ': ' + (item.error || 'Upload failed'); }) : '')
+            + (duplicateRows.length ? '<h4>Already uploaded</h4>' + list(duplicateRows, function (item) { return (item.filename || 'PDF') + ' matches ' + (item.existing_filename || 'an earlier upload') + '; no new Drive file or invoice was created.'; }) : '')
             + (receipt.id ? '<div class="invoice-receipt-next"><strong>Invoice delivery recorded</strong><span>' + escapeHtml(receipt.total_count || 0) + ' invoice row(s) stay together for payment.</span>'
               + (receiptPayable.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div><button type="button" class="btn btn-primary invoice-receipt-create-payment">Create payment batch</button>' : '')
               + (receiptPayable.some(function (item) { return item.status === 'name_change'; }) ? '<span class="invoice-receipt-hint">An ID correction is still pending for this draft.</span>' : '')

@@ -21,8 +21,8 @@ const recognitionMarkup = `<main class="tat-app"><section id="recognitionView" c
   <section id="tatRecognitionOverall" class="recognition-overall"></section>
   <div id="tatRecognitionToolbar" class="recognition-toolbar"><div id="tatRecognitionViews" class="recognition-view-toggle"><button type="button" data-recognition-view="people">People</button><button type="button" data-recognition-view="branches">Branches</button></div><button id="tatRecognitionFilterButton" type="button">Filter</button></div>
   <div id="tatRecognitionActiveFilters" class="recognition-active-filters" hidden></div><section id="tatRecognitionSlice" class="recognition-slice" hidden></section>
-  <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button">Back to standings</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
-  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section><section id="tatPersonalRecognition" class="recognition-personal"></section>
+  <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button" aria-label="Back to standings">←</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
+  <section id="tatPersonalRecognition" class="recognition-personal"></section><section id="tatRecognitionBreakdown" class="recognition-breakdown"></section>
   <section id="tatRecognitionStageDetail" class="recognition-stage-detail" hidden><header><button id="tatRecognitionStagesBack" type="button">Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" hidden><button id="tatRecognitionStagePrevious">Previous</button><span id="tatRecognitionStagePage"></span><button id="tatRecognitionStageNext">Next</button></nav></section>
   <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><h2 id="tatRecognitionStandingsTitle"></h2><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" hidden><button id="tatRecognitionPrevious">Previous</button><span id="tatRecognitionPage"></span><button id="tatRecognitionNext">Next</button></nav></section>
   <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>How rankings work</summary><div id="tatRecognitionTechnicalContent"></div></details>
@@ -53,6 +53,13 @@ const basePayload = {
   standings: { dimension: 'people', rows: [], current_user_row: null, page: 1, pages: 1, total: 0, page_size: 10, has_competition: false, eligible_count: 0 },
   people_visible: false, technical_details_visible: false, methodology: null,
 };
+
+test('hidden no-graphs notice does not appear beside available graphs', async ({ page }) => {
+  await page.setContent('<main><p id="tatNoInsights" class="chart-empty-static" hidden>No report graphs are available for your access.</p><article id="tatTrendPanel">Workload graph</article></main>');
+  await page.addStyleTag({ path: asset('tat_tracker.css') });
+  await expect(page.locator('#tatNoInsights')).toBeHidden();
+  await expect(page.locator('#tatTrendPanel')).toBeVisible();
+});
 
 const peopleRows = Array.from({ length: 5 }, (_, index) => ({
   label: `Peer ${index + 1}`, role: 'BRO', branch: index % 2 ? 'Nakuru' : 'Embu',
@@ -282,7 +289,7 @@ test('score effects are labelled and single-role stage details stay secondary', 
   await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-negative')).toContainText('Over target');
   await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-neutral')).toContainText('No target');
   await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(0);
-  await expect(page.locator('#tatRecognitionAllStages')).toHaveText('All stages (2)');
+  await expect(page.locator('#tatRecognitionAllStages')).toContainText('Stage contributions (2)');
 });
 
 test('branch standings show disjoint within, near and over counts', async ({ page }) => {
@@ -315,7 +322,7 @@ for (const width of [320, 360, 390, 430]) {
     }));
     await mount(page, { ...basePayload, view: 'personal', stage_contributions });
     await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(0);
-    await expect(page.locator('#tatRecognitionAllStages')).toHaveText('All stages (15)');
+    await expect(page.locator('#tatRecognitionAllStages')).toContainText('Stage contributions (15)');
     await expect(page.locator('#tatRecognitionBreakdown .recognition-data-checks > div')).toHaveCount(4);
     if (width === 390 && process.env.TAT_RECOGNITION_SCREENSHOT) {
       await page.screenshot({ path: testInfo.outputPath('recognition-summary.png'), fullPage: true });

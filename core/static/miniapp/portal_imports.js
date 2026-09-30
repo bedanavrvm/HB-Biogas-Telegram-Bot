@@ -117,16 +117,24 @@
     }
     const formData = new FormData();
     formData.set('file', fileInput.files[0]);
+    const uploadStatus = form.querySelector('[data-sysup-upload-status]');
+    const dropzone = form.querySelector('.invoice-upload-dropzone');
+    if (uploadStatus) uploadStatus.textContent = `Uploading ${fileInput.files[0].name}…`;
+    if (dropzone) dropzone.dataset.uploadState = 'uploading';
     setLoading(submit, true, 'Staging');
     feedback('Validating and staging the source file…', 'info');
     try {
       const result = await api.postForm(`/imports/${encodeURIComponent(kind)}/stage/`, formData, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'The import was not staged.');
       fileInput.value = '';
+      if (dropzone) dropzone.dataset.uploadState = 'uploaded';
+      if (uploadStatus) uploadStatus.textContent = 'Uploaded. Review the staged rows below.';
       feedback(result.data.replayed ? 'This retry reopened the existing staged import.' : 'Import staged for review. Archiving its source to Drive…', 'success');
       await load({ silent: true });
       if (result.data.archive_operation_id) await attemptDriveArchive(result.data.archive_operation_id, { silent: true });
     } catch (error) {
+      if (dropzone) dropzone.dataset.uploadState = 'error';
+      if (uploadStatus) uploadStatus.textContent = 'Upload failed. Your selected file is ready to retry.';
       feedback(error.message || 'The import could not be staged.', 'error');
     } finally {
       setLoading(submit, false);
@@ -273,9 +281,13 @@
     form.dataset.bound = 'true';
     const input = form.querySelector('input[type="file"]');
     const label = form.querySelector('.invoice-upload-dropzone span');
+    const uploadStatus = form.querySelector('[data-sysup-upload-status]');
     input?.addEventListener('change', function () {
       const file = input.files?.[0];
       if (label) label.textContent = file ? file.name : 'Tap to select system export';
+      const dropzone = form.querySelector('.invoice-upload-dropzone');
+      if (dropzone) dropzone.dataset.uploadState = file ? 'selected' : '';
+      if (uploadStatus) uploadStatus.textContent = file ? `${file.name} selected. Tap Upload for review.` : 'Choose a file to continue.';
       feedback(file ? `${file.name} is ready to upload.` : 'Choose a SysUp source file.', file ? 'info' : 'error');
     });
     form.addEventListener('submit', function (event) {

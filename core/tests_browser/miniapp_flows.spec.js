@@ -404,6 +404,11 @@ test('Portal filter sheet matches compact mobile controls with one search clear'
   await expect(page.locator('[data-portal-search-clear]')).toBeHidden();
   await page.locator('[data-portal-filter-trigger]').click();
   await expect(page.locator('[data-portal-filter-sheet]')).toBeVisible();
+  await page.locator('[name="jbl_visit_date_from"]').fill('2026-05-12');
+  await expect(page.locator('[name="jbl_visit_date_from"]').locator('xpath=preceding-sibling::*[@data-portal-date-display]')).toHaveText('12-May-2026');
+  const doneButton = page.locator('.portal-queue-tools .miniapp-sheet-actions [data-miniapp-sheet-close]');
+  await expect(doneButton).toHaveText('Done');
+  expect(await doneButton.evaluate(button => getComputedStyle(button).color)).toBe('rgb(255, 255, 255)');
   expect(await page.locator('[data-portal-filter-sheet]').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('portal-filters-mobile.png'),fullPage:true});
   await page.locator('[data-miniapp-sheet-close]').first().click();
@@ -450,7 +455,7 @@ test('Invoice record stays compact and editable on a 360px mobile viewport', asy
         data: {
           ok: true, invoice, batch: { original_filename: 'invoice-10031.pdf' },
           events: [{ action: 'parsed', actor: 'Operations', created_at: '2026-09-16' }],
-          duplicates: [], source_pdf_url: 'https://miniapp.test/invoice.pdf',
+          duplicates: [{ id: 'invoice-2', invoice_no: '10031', customer_name: 'JOHN MAINA NDIRANGU', status: 'unmatched', duplicate_reasons: ['Same invoice no'] }], source_pdf_url: 'https://miniapp.test/invoice.pdf',
         },
       }),
       portalApi: { postJson: async () => ({ ok: true, data: { ok: true } }) },
@@ -464,6 +469,8 @@ test('Invoice record stays compact and editable on a 360px mobile viewport', asy
   await expect(page.locator('.invoice-parsed-grid')).toContainText('National ID');
   await expect(page.locator('.invoice-parsed-grid')).toContainText('Check basis');
   await expect(page.locator('.invoice-identity-comparison')).toBeVisible();
+  await expect(page.locator('[data-duplicate-ignore="invoice-2"]')).toBeVisible();
+  expect(await page.locator('.invoice-parsed-grid .invoice-detail-field .name').first().evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
   expect(await page.locator('#invoice-detail-page').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
 
   await page.locator('.invoice-parsed-edit-toggle').click();
@@ -1301,6 +1308,32 @@ test('Restored JBL location survives a late older location-options response', as
   } }));
   await expect(page.locator('#jbl-county')).toHaveValue('NAKURU');
   await expect(page.locator('#jbl-sub-county')).toHaveValue('NAIVASHA');
+});
+
+test('Create and visit hides case history and empty existing-case summary', async ({ page }) => {
+  await page.setContent('<body class="portal-app"><main id="content"><div class="sheet-overlay" id="sheet-overlay"><div id="sheet-navigation"><button id="sheet-back"><span></span></button></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section><a id="case360-toggle">Case History</a></div><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div></main></body>');
+  for (const file of ['base.css', 'portal.css']) await page.addStyleTag({ path: asset(file) });
+  await page.addScriptTag({ path: asset('portal_farmer_sheet.js') });
+  await page.evaluate(() => {
+    const state = {
+      capabilities: new Set(['portal.jbl_lead.create', 'portal.jbl_visit.write', 'portal.case.read']),
+      metaStatuses: ['Rescheduled'], metaCounties: ['Meru'],
+      metaLocationCatalog: { counties: [{ code: 'MERU', name: 'Meru' }] },
+      businessDate: '2026-09-29',
+    };
+    window.PortalMiniAppFarmerSheet.init({
+      el: id => document.getElementById(id), state, tg: {},
+      escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'),
+      fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: () => {},
+      apiFetch: async () => ({ ok: true, data: { ok: true, counties: [], sub_counties: [] } }),
+    });
+    window.PortalMiniAppFarmerSheet.openNewJblLeadSheet();
+  });
+  await expect(page.locator('#sheet-name')).toHaveText('Create and visit');
+  await expect(page.locator('#sheet-info')).toBeHidden();
+  await expect(page.locator('.sheet-quick-actions')).toBeHidden();
+  await expect(page.locator('#case360-toggle')).toBeHidden();
+  await expect(page.locator('#jbl-new-lead-name')).toBeVisible();
 });
 
 test('Portal review cells copy their actual value on hold without copying controls', async ({ page }) => {

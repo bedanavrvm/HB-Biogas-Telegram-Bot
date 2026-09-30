@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=72">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=73">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -123,9 +123,9 @@
       <div id="tatRecognitionToolbar" class="recognition-toolbar"><div id="tatRecognitionViews" class="recognition-view-toggle" role="group" aria-label="Standings view"><button type="button" class="active" data-recognition-view="people" aria-pressed="true">People</button><button type="button" data-recognition-view="branches" aria-pressed="false">Branches</button></div><button id="tatRecognitionFilterButton" type="button" class="secondary recognition-filter-button" aria-haspopup="dialog" aria-controls="tatRecognitionControlsOverlay">Filter</button></div>
       <div id="tatRecognitionActiveFilters" class="recognition-active-filters" aria-label="Applied standings filters" hidden></div>
       <section id="tatRecognitionSlice" class="recognition-slice" aria-label="Selected part of your work" hidden></section>
-      <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button" class="secondary">Back to standings</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
-      <section id="tatRecognitionBreakdown" class="recognition-breakdown" aria-label="Score breakdown"></section>
+      <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button" class="secondary" aria-label="Back to standings">←</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
       <section id="tatPersonalRecognition" class="recognition-personal" aria-label="Your result for the selected period"></section>
+      <section id="tatRecognitionBreakdown" class="recognition-breakdown" aria-label="Score breakdown"></section>
       <section id="tatRecognitionStageDetail" class="recognition-stage-detail" aria-label="All stage contributions" hidden><header><button id="tatRecognitionStagesBack" type="button" class="secondary" aria-label="Back to my result">← Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" aria-label="Stage contribution pages" hidden><button id="tatRecognitionStagePrevious" type="button" class="secondary">Previous</button><span id="tatRecognitionStagePage">Page 1 of 1</span><button id="tatRecognitionStageNext" type="button" class="secondary">Next</button></nav></section>
       <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><h2 id="tatRecognitionStandingsTitle">People</h2><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" aria-label="Recognition pages" hidden><button id="tatRecognitionPrevious" type="button" class="secondary">Previous</button><span id="tatRecognitionPage">Page 1 of 1</span><button id="tatRecognitionNext" type="button" class="secondary">Next</button></nav></section>
       <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>How rankings work</summary><div id="tatRecognitionTechnicalContent"></div></details>
@@ -479,6 +479,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=111"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=112"></script>
 </body>
 </html>

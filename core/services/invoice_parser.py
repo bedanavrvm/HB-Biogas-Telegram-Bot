@@ -1,12 +1,13 @@
 import re
 import logging
+import hashlib
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 from pypdf import PdfReader
 from django.utils import timezone
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 
 from core.models import (
@@ -25,6 +26,18 @@ logger = logging.getLogger(__name__)
 
 class InvoiceUploadStorageError(RuntimeError):
     pass
+
+
+class InvoiceDuplicateUploadError(ValueError):
+    """The same PDF is already retained in this group's invoice history."""
+
+    def __init__(self, batch: InvoiceUploadBatch):
+        self.batch = batch
+        super().__init__(f'This PDF was already uploaded as {batch.original_filename or "an invoice file"}.')
+
+
+class InvoiceUploadRequestConflictError(ValueError):
+    """An idempotency key was reused for different upload contents."""
 
 
 class InvoiceMatchEligibilityError(ValueError):
@@ -683,15 +696,46 @@ def ingest_invoice_upload_batch(
     safe_name = Path(filename or 'hb_invoices.pdf').name or 'hb_invoices.pdf'
     if not safe_name.lower().endswith('.pdf'):
         raise ValueError('Only PDF files are supported.')
+    content_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     client_request_id = str(client_request_id or '').strip()[:128]
     if client_request_id:
         existing = InvoiceUploadBatch.objects.filter(client_request_id=client_request_id).first()
         if existing:
+            if existing.group_configuration_id != getattr(group_configuration, 'pk', None):
+                raise InvoiceUploadRequestConflictError('This upload request was already used in another invoice group.')
             if str(existing.order_number or '').strip() != str(order_number or '').strip():
                 raise ValueError('This upload request ID was already used for another order.')
+            if existing.content_sha256 and existing.content_sha256 != content_sha256:
+                raise InvoiceUploadRequestConflictError('This upload request was already used for a different PDF. Select the intended file and retry.')
             return existing
 
+    duplicate = InvoiceUploadBatch.objects.filter(
+        group_configuration=group_configuration, content_sha256=content_sha256,
+    ).first()
+    if duplicate:
+        raise InvoiceDuplicateUploadError(duplicate)
+
     received_at = timezone.now()
+    try:
+        with transaction.atomic():
+            batch = InvoiceUploadBatch.objects.create(
+                group_configuration=group_configuration,
+                original_filename=safe_name,
+                content_type=content_type or 'application/pdf',
+                size=len(pdf_bytes),
+                content_sha256=content_sha256,
+                uploaded_by=uploaded_by,
+                client_request_id=client_request_id,
+                order_number=str(order_number or '').strip(),
+                status='uploaded',
+            )
+    except IntegrityError as exc:
+        duplicate = InvoiceUploadBatch.objects.filter(
+            group_configuration=group_configuration, content_sha256=content_sha256,
+        ).first()
+        if duplicate:
+            raise InvoiceDuplicateUploadError(duplicate) from exc
+        raise
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
 
@@ -707,21 +751,18 @@ def ingest_invoice_upload_batch(
             record_key=order_number or safe_name,
         )
     except Exception as exc:
+        batch.status = 'parse_failed'
+        batch.error = 'Google Drive upload failed.'
+        # No file was accepted; allow a corrected retry to reserve this hash.
+        batch.content_sha256 = ''
+        batch.client_request_id = ''
+        batch.save(update_fields=['status', 'error', 'content_sha256', 'client_request_id', 'updated_at'])
         logger.error("Invoice PDF Drive upload failed: %s", exc, exc_info=True)
         raise InvoiceUploadStorageError(str(exc)) from exc
 
-    batch = InvoiceUploadBatch.objects.create(
-        group_configuration=group_configuration,
-        original_filename=safe_name,
-        content_type=content_type or 'application/pdf',
-        size=len(pdf_bytes),
-        uploaded_by=uploaded_by,
-        client_request_id=client_request_id,
-        order_number=str(order_number or '').strip(),
-        drive_file_id=drive_file_id,
-        drive_url=drive_url,
-        status='uploaded',
-    )
+    batch.drive_file_id = drive_file_id
+    batch.drive_url = drive_url
+    batch.save(update_fields=['drive_file_id', 'drive_url', 'updated_at'])
 
     try:
         invoices, total_pages = parse_invoice_pdf_bytes(pdf_bytes)
@@ -1402,14 +1443,18 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
 def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        note_text = str(note or '').strip()
-        actor_text = str(actor or 'portal').strip()
-        invoice.status = 'ignored'
-        invoice.review_notes = f"Ignored by {actor_text}." + (f" {note_text}" if note_text else '')
-        invoice.revision += 1
-        invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
-        record_invoice_event(invoice, 'ignored', actor=actor_text, note=note_text)
-        refresh_invoice_batch_counts(invoice.batch)
+        if invoice.status == 'matched':
+            raise ValueError('This invoice is matched. Change its match before ignoring it.')
+        if invoice.status != 'ignored':
+            note_text = str(note or '').strip()
+            actor_text = str(actor or 'portal').strip()
+            invoice.status = 'ignored'
+            invoice.review_notes = f"Ignored by {actor_text}." + (f" {note_text}" if note_text else '')
+            invoice.revision += 1
+            invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
+            record_invoice_event(invoice, 'ignored', actor=actor_text, note=note_text)
+            refresh_invoice_batch_counts(invoice.batch)
+    sync_ignored_invoice_pdf_location(invoice.batch_id)
     return invoice
 
 
@@ -1426,7 +1471,58 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
         invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
         record_invoice_event(invoice, 'restored', actor=actor_text, note=note_text)
         refresh_invoice_batch_counts(invoice.batch)
+    sync_ignored_invoice_pdf_location(invoice.batch_id)
     return invoice
+
+
+def sync_ignored_invoice_pdf_location(batch_id) -> dict:
+    """Move only an entirely ignored PDF into a recoverable Drive subfolder.
+
+    A PDF can contain multiple invoices. Never move or delete its shared source
+    while any parsed page is still active. The Django ignore remains canonical
+    if Drive is unavailable; a later ignore/restore retries the move.
+    """
+    with transaction.atomic():
+        batch = InvoiceUploadBatch.objects.select_for_update().get(pk=batch_id)
+        metadata = dict(batch.metadata or {})
+        archived_parent = str(metadata.get('ignored_drive_parent') or '')
+        original_parent = str(metadata.get('original_drive_parent') or '')
+        all_ignored = batch.invoices.exists() and not batch.invoices.exclude(status='ignored').exists()
+        if not batch.drive_file_id or (all_ignored and archived_parent) or (not all_ignored and not archived_parent):
+            return {'archived': bool(archived_parent), 'shared_pdf': not all_ignored}
+        try:
+            from core.services.order_approval import GoogleDriveMediaStorage
+            storage = GoogleDriveMediaStorage()
+            drive = storage.service.files()
+            current = drive.get(fileId=batch.drive_file_id, fields='parents', supportsAllDrives=True).execute()
+            current_parent = next(iter(current.get('parents') or []), '')
+            if not current_parent:
+                raise ValueError('The invoice PDF has no accessible Drive parent.')
+            next_metadata = dict(metadata)
+            if all_ignored:
+                destination = storage.ensure_child_folder(current_parent, 'Ignored')
+                next_metadata['original_drive_parent'] = current_parent
+                next_metadata['ignored_drive_parent'] = destination
+            else:
+                if not original_parent:
+                    raise ValueError('The invoice PDF original Drive folder is unavailable.')
+                destination = original_parent
+                next_metadata.pop('ignored_drive_parent', None)
+                next_metadata.pop('original_drive_parent', None)
+            drive.update(
+                fileId=batch.drive_file_id, addParents=destination,
+                removeParents=current_parent, fields='id,parents', supportsAllDrives=True,
+            ).execute()
+            next_metadata.pop('drive_archive_error', None)
+            batch.metadata = next_metadata
+            batch.save(update_fields=['metadata', 'updated_at'])
+            return {'archived': all_ignored, 'shared_pdf': False}
+        except Exception:
+            logger.exception('Invoice PDF folder update failed for batch_id=%s', batch_id)
+            metadata['drive_archive_error'] = 'The PDF is still in its previous Drive folder. Retry the invoice action or ask IT to repair its location.'
+            batch.metadata = metadata
+            batch.save(update_fields=['metadata', 'updated_at'])
+            return {'archived': bool(archived_parent), 'error': metadata['drive_archive_error']}
 
 
 def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:

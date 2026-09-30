@@ -7964,6 +7964,7 @@ class InvoiceUploadBatch(models.Model):
     size = models.PositiveIntegerField(default=0)
     uploaded_by = models.CharField(max_length=255, blank=True, default='')
     client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    content_sha256 = models.CharField(max_length=64, blank=True, default='', db_comment='SHA-256 of the original invoice PDF; duplicate uploads are rejected within one Portal group.')
     order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
@@ -7990,6 +7991,11 @@ class InvoiceUploadBatch(models.Model):
                 fields=['client_request_id'],
                 condition=~models.Q(client_request_id=''),
                 name='unique_invoice_upload_client_request',
+            ),
+            models.UniqueConstraint(
+                fields=['group_configuration', 'content_sha256'],
+                condition=~models.Q(content_sha256=''),
+                name='unique_group_invoice_pdf_hash',
             ),
         ]
         verbose_name = 'Invoice upload batch'

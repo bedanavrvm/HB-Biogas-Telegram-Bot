@@ -343,6 +343,10 @@
     const input = form.querySelector('[data-farmup-file]'); validateFarmupFile(input);
     const filename = input.files[0].name;
     const button = form.querySelector('button[type="submit"]'); setLoading(button, true, 'Uploading');
+    const fileControl = input.closest('.farmup-file-control, .invoice-upload-dropzone');
+    if (fileControl) fileControl.dataset.uploadState = 'uploading';
+    const status = form.querySelector('[data-farmup-upload-status]');
+    if (status) status.textContent = `Uploading ${filename}…`;
     try {
       const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-stage'));
       const result = await api.postForm('/farmup/stage/', body, tg);
@@ -354,6 +358,10 @@
       try { if (!routeToReview(result.data.batch.id)) { await load({silent:true}); await openBatch(result.data.batch.id); } }
       catch (error) { feedback(`CSV uploaded successfully, but its review could not open. Refresh to retry. ${error.message || ''}`, 'error'); }
       if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true);
+    } catch (error) {
+      if (fileControl) fileControl.dataset.uploadState = 'error';
+      if (status) status.textContent = 'Upload failed. Your selected CSV is ready to retry.';
+      throw error;
     } finally { setLoading(button, false); }
   }
   async function uploadVersion(form) {

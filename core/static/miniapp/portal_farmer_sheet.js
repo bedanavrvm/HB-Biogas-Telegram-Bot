@@ -794,13 +794,13 @@
     }
     const headerState = el('sheet-header-state');
     if (headerState) {
-      headerState.textContent = mode === 'deferred' ? 'Paused' : isOperationalDetail ? 'Autosave on' : '';
+      headerState.textContent = isNewLead ? '' : mode === 'deferred' ? 'Paused' : isOperationalDetail ? 'Autosave on' : '';
       headerState.dataset.state = '';
     }
     const avatar = el('sheet-avatar');
     if (avatar) {
-      avatar.hidden = !isOperationalDetail;
-      avatar.textContent = isOperationalDetail ? farmerInitials(farmer.customer_name) : '';
+      avatar.hidden = !isOperationalDetail || isNewLead;
+      avatar.textContent = isOperationalDetail && !isNewLead ? farmerInitials(farmer.customer_name) : '';
     }
     const headerStatus = el('sheet-header-status');
     if (headerStatus) {
@@ -810,15 +810,16 @@
         final_review: farmer.final_decision || 'Under Review',
         deferred: farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
       };
-      headerStatus.hidden = !isOperationalDetail;
-      headerStatus.textContent = isOperationalDetail ? statusByMode[mode] : '';
+      headerStatus.hidden = !isOperationalDetail || isNewLead;
+      headerStatus.textContent = isOperationalDetail && !isNewLead ? statusByMode[mode] : '';
     }
     if (el('sheet-close')) el('sheet-close').hidden = isOperationalDetail;
 
     const infoFields = summaryFields(farmer, mode);
 
     const mediaCount = Number(farmer.jbl_media_count || 0);
-    el('sheet-info').innerHTML = infoFields.map(([label, value]) => {
+    el('sheet-info').hidden = isNewLead;
+    el('sheet-info').innerHTML = isNewLead ? '' : infoFields.map(([label, value]) => {
       const isJblStatus = label === 'JBL Status' && mode === 'credit';
       const statusClass = mode === 'jbl_visit' && isJblStatus ? ' info-row-status' : isJblStatus ? ' info-row-credit-status' : '';
       return `<li class="info-row${statusClass}"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${isJblStatus ? `<span class="visit-status-pill">${value}</span>` : value}</span></li>`;
@@ -845,6 +846,8 @@
     const historySource = {jbl_visit:'jbl',credit:'credit',final_review:'final',deferred:'deferred',requisition:'requisition'}[mode] || 'all';
     caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/?from=${historySource}`;
     caseToggle.hidden = isNewLead || !hasCapability('portal.case.read');
+    const quickActions = document.querySelector('.sheet-quick-actions');
+    if (quickActions) quickActions.hidden = isNewLead;
     caseToggle.onclick = event => {
       if (window.PortalCaseNavigation?.canOpen?.(caseToggle.href)) {
         event.preventDefault();

@@ -1717,7 +1717,7 @@
     if (!signoff.can_upload) {
       return `<section class="physical-signoff physical-signoff-muted"><div><strong>Awaiting signed &amp; stamped scan</strong><span>${role}</span></div></section>`;
     }
-    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>Attach signed &amp; stamped scan</strong><small>${role} The original Excel stays unchanged.</small></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">Upload signed scan</button></div></details>`;
+    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>Attach signed &amp; stamped scan</strong><small>${role} The original Excel stays unchanged.</small></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">Upload signed scan</button></div></details>`;
   }
 
   function priorPhysicalSignoffsMarkup(document) {
@@ -2569,6 +2569,8 @@
       const formData = new FormData();
       formData.append('signed_scan', file);
       formData.append('attested_complete', 'true');
+      const status = card?.querySelector('.history-signed-scan-status');
+      if (status) status.textContent = `Uploading ${file.name}…`;
       setButtonLoading(uploadSignedScanButton, true, 'Uploading...');
       portalApi.postForm(
         `/document-signoffs/${encodeURIComponent(uploadSignedScanButton.dataset.documentType || '')}/${encodeURIComponent(uploadSignedScanButton.dataset.documentId || '')}/upload/`,
@@ -2576,9 +2578,10 @@
         tg,
       ).then(async result => {
         if (!result.ok && !result.data?.pending_retry) throw new Error(result.data?.error || 'Could not store the signed scan.');
+        if (status) status.textContent = result.data?.pending_retry ? 'Signed scan saved. Drive upload needs retry.' : 'Signed scan uploaded.';
         showToast(result.data?.pending_retry ? 'Signed scan retained; its Drive upload needs a retry.' : 'Signed and stamped scan retained.', result.data?.pending_retry ? 'error' : 'success');
         await loadHistory(historyKind);
-      }).catch(error => showToast(error.message || 'Could not store the signed scan.', 'error'))
+      }).catch(error => { if (status) status.textContent = 'Upload failed. The selected file is still ready to retry.'; showToast(error.message || 'Could not store the signed scan.', 'error'); })
         .finally(() => setButtonLoading(uploadSignedScanButton, false));
       return;
     }
@@ -2624,6 +2627,14 @@
   });
 
   document.addEventListener('change', event => {
+    if (event.target.matches('.history-signed-scan')) {
+      const file = event.target.files?.[0];
+      const card = event.target.closest('.history-document-card');
+      const status = card?.querySelector('.history-signed-scan-status');
+      const title = event.target.closest('.invoice-upload-dropzone')?.querySelector('strong');
+      if (status) status.textContent = file ? `${file.name} selected. Confirm the scan, then upload.` : 'Choose a file to continue.';
+      if (title) title.textContent = file ? file.name : 'Tap to choose signed PDF or image';
+    }
     if (event.target.matches('#portal-preference-compact-cards')) {
       document.body.classList.toggle('portal-compact-cards', Boolean(event.target.checked));
     }
