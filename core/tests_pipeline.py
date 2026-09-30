@@ -2544,6 +2544,47 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.context['filter_options']['county'], ['Kiambu', 'Nakuru'])
         self.assertEqual(response.context['filter_options']['branch'], ['Naivasha', 'Ruiru'])
 
+    def test_portal_credit_filter_choices_only_include_populated_queue_locations(self):
+        JawabuFarmerMaster.objects.create(
+            customer_name='Credit queue farmer', national_id='61112222',
+            primary_phone='254711122222', sign_date='24-June-2026',
+            county='Nakuru', branch='Naivasha', status='active',
+            jbl_visit_date=date(2026, 7, 1),
+            jbl_visit_status='Visited, Awaiting Credit Analysis',
+        )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Not in credit queue', national_id='63334444',
+            primary_phone='254733344444', sign_date='24-June-2026',
+            county='Embu', branch='Embu', status='active',
+        )
+
+        response = self.client.get(reverse('portal_credit_queue'), {'county': 'Kiambu'})
+
+        self.assertEqual(response.status_code, 200)
+        options = response.json()['filter_options']
+        # County/branch selections are omitted when constructing the available
+        # choices, but locations without any credit-stage cases stay hidden.
+        self.assertEqual(options['county'], ['Nakuru'])
+        self.assertEqual(options['branch'], ['Naivasha'])
+
+    def test_portal_date_filter_controls_are_compact_and_non_scrollable(self):
+        template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'partials' / 'queue_tools.html'
+        stylesheet = Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal.css'
+        template_source = template.read_text(encoding='utf-8')
+        css_source = stylesheet.read_text(encoding='utf-8')
+
+        self.assertIn('data-portal-filter-group="hbg_visit_date"', template_source)
+        self.assertIn('data-portal-filter-group="jbl_visit_date"', template_source)
+        self.assertIn('grid-template-columns:repeat(2,minmax(0,1fr))', css_source)
+        self.assertIn('max-width:100%; min-width:0', css_source)
+
+    def test_portal_home_work_rows_do_not_repeat_the_portal_label(self):
+        script = Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal.js'
+        source = script.read_text(encoding='utf-8')
+
+        self.assertIn("item.workflow !== 'Portal'", source)
+        self.assertNotIn("item.workflow || 'Portal'", source)
+
     def test_portal_card_queues_search_before_ten_item_pagination(self):
         for index in range(12):
             JawabuFarmerMaster.objects.create(

@@ -3656,7 +3656,7 @@ body.portal-app input[type="search"]::-webkit-search-decoration { -webkit-appear
 .portal-queue-tools .miniapp-sheet-header button svg { width:18px; height:18px; }
 .portal-queue-tools .miniapp-sheet-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:12px; }
 .portal-queue-tools .miniapp-sheet-body label { gap:5px; color:var(--text-muted); font-size:11px; font-weight:650; }
-.portal-queue-tools .miniapp-sheet-body label:last-of-type { grid-column:1/-1; }
+.portal-queue-tools .miniapp-sheet-body > label:last-of-type { grid-column:1/-1; }
 .portal-queue-tools .miniapp-sheet-body select { min-height:42px; padding:8px 10px; border-color:var(--border-color); border-radius:8px; background:var(--bg-base); color:var(--text-primary); font-size:12px; }
 .portal-queue-tools .miniapp-sheet-actions { grid-column:1/-1; position:sticky; bottom:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:2px -12px -12px; padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px)); }
 .portal-queue-tools .miniapp-sheet-actions .btn { width:100%; min-height:42px; font-size:12px; }
@@ -3964,14 +3964,14 @@ body.portal-app :is(#content, .sheet-overlay) :is(.danger, .destructive, .btn-da
 .portal-filter-options > div { display:flex; flex-wrap:wrap; gap:5px; max-height:190px; overflow:auto; }
 body.portal-app .portal-filter-options label { display:flex; flex:1 1 calc(50% - 5px); align-items:center; gap:6px; min-width:0; min-height:32px; font-size:12px; padding:5px 7px; border:1px solid var(--border-color); border-radius:7px; cursor:pointer; }
 body.portal-app .portal-filter-options input[type=checkbox] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--brand-primary); }
-.portal-filter-date-inputs { gap:8px!important; }
-body.portal-app .portal-filter-date-inputs label { display:flex; flex:1 1 calc(50% - 4px); flex-direction:column; align-items:stretch; gap:4px; min-width:0; min-height:0; padding:0; border:0; cursor:default; }
-body.portal-app .portal-filter-date-inputs input[type=date] { box-sizing:border-box; width:100%; min-width:0; min-height:38px; }
-.portal-filter-date-control { position:relative; display:flex; align-items:center; width:100%; min-height:38px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); color:var(--text-primary); }
+.portal-filter-date-inputs { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; width:100%; min-width:0; }
+body.portal-app .portal-filter-date-inputs label { display:flex; flex-direction:column; align-items:stretch; gap:4px; width:100%; min-width:0; min-height:0; padding:0; border:0; cursor:default; }
+body.portal-app .portal-filter-date-inputs input[type=date] { box-sizing:border-box; width:100%; max-width:100%; min-width:0; min-height:38px; }
+.portal-filter-date-control { position:relative; display:flex; align-items:center; width:100%; max-width:100%; min-width:0; min-height:38px; overflow:hidden; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); color:var(--text-primary); }
 .portal-filter-date-control svg,.portal-performance-month-control svg { flex:0 0 16px; width:16px; height:16px; margin-right:9px; fill:none; stroke:var(--brand-primary); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
 .portal-filter-date-control:focus-within,.portal-performance-month-control:focus-within { outline:2px solid var(--brand-primary); outline-offset:2px; }
 .portal-filter-date-control [data-portal-date-display] { flex:1; min-width:0; padding-left:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:700; }
-body.portal-app .portal-filter-date-control input[type=date] { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+body.portal-app .portal-filter-date-control input[type=date] { position:absolute; inset:0; box-sizing:border-box; width:100%; max-width:100%; min-width:0; height:100%; padding:0; border:0; opacity:0; overflow:hidden; appearance:none; -webkit-appearance:none; cursor:pointer; }
 .portal-filter-options label:has(input:checked) { background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); border-color:var(--brand-primary); }
 .payment-case-mode-readonly{display:inline-flex;width:max-content;padding:3px 7px;border-radius:999px;background:var(--bg-muted);color:var(--text-secondary);font-size:10px;font-weight:700}
 body.portal-app .sheet-overlay .case360-toggle { display:flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); text-decoration:none; margin-top:10px; }
@@ -4111,7 +4111,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 /* Nested Portal workspaces reuse the same compact control language as queues. */
 .invoice-list-toolbar.portal-queue-tools { display:grid; align-items:initial; gap:.65rem; margin:0 0 9px; }
 .invoice-list-toolbar .miniapp-sheet-body { display:grid; grid-template-columns:1fr; gap:10px; }
-.invoice-list-toolbar .miniapp-sheet-body label:last-of-type { grid-column:1; }
+.invoice-list-toolbar .miniapp-sheet-body > label:last-of-type { grid-column:1; }
 .invoice-list-toolbar .miniapp-sheet-actions { grid-column:1; }
 
 /* Filter actions stay against the viewport edge even when only one filter

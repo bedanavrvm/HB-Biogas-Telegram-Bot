@@ -8015,6 +8015,7 @@ class ParsedInvoice(models.Model):
         ('ambiguous', 'Ambiguous'),
         ('ignored', 'Ignored'),
         ('superseded', 'Superseded'),
+        ('deleted', 'Deleted'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -8081,6 +8082,7 @@ class ParsedInvoiceEvent(models.Model):
         ('unmatched', 'Unmatched'),
         ('ignored', 'Ignored'),
         ('restored', 'Restored'),
+        ('deleted', 'Deleted'),
         ('note', 'Note'),
     ]
 

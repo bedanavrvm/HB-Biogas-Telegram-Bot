@@ -3429,24 +3429,34 @@ def portal_jbl_queue(request):
 
 def _jbl_queue_filter_options(request):
     """Choices from the full authorized queue, never just the visible page."""
+    return _portal_queue_filter_options(request, 'jbl')
+
+
+def _portal_queue_filter_options(request, queue_key: str):
+    """Choices from the full authorized queue, excluding the location filters."""
     params = request.GET.copy()
     params.pop('county', None)
     params.pop('branch', None)
-    qs, _config = _portal_queue_queryset('jbl', request, params=params)
-    counties, branches = set(), set()
-    has_hbg_date = False
-    for county, branch, hbg_date in qs.values_list('county', 'branch', 'hbg_visit_date'):
-        if str(county or '').strip():
-            counties.add(str(county).strip())
-        if str(branch or '').strip():
-            branches.add(str(branch).strip())
-        has_hbg_date = has_hbg_date or bool(hbg_date)
+    qs, _config = _portal_queue_queryset(queue_key, request, params=params)
+    if qs is None:
+        return {'county': [], 'branch': [], 'status': [], 'has_hbg_visit_date': False, 'has_jbl_visit_date': False}
+    if queue_key == 'requisition':
+        from core.services.requisition_partners import PARTNER_ECO, PARTNER_HB, fulfillment_partner_for_farmer
+        partner = str(params.get('partner') or PARTNER_HB).strip().upper()
+        if partner in {PARTNER_HB, PARTNER_ECO}:
+            scoped_ids = [farmer.pk for farmer in qs.only('id', 'county', 'hb_sales_person')
+                          if fulfillment_partner_for_farmer(farmer) == partner]
+            qs = qs.filter(pk__in=scoped_ids)
+    counties = {str(value).strip() for value in qs.values_list('county', flat=True).distinct() if str(value or '').strip()}
+    branches = {str(value).strip() for value in qs.values_list('branch', flat=True).distinct() if str(value or '').strip()}
+    has_hbg_date = qs.filter(hbg_visit_date__isnull=False).exists()
+    has_jbl_date = qs.filter(jbl_visit_date__isnull=False).exists()
     return {
         'county': sorted(counties, key=str.casefold),
         'branch': sorted(branches, key=str.casefold),
         'status': [],
         'has_hbg_visit_date': has_hbg_date,
-        'has_jbl_visit_date': False,
+        'has_jbl_visit_date': has_jbl_date,
     }
 
 @csrf_exempt
@@ -3473,6 +3483,7 @@ def portal_my_visits(request):
         'queue': 'my_visits',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'my_visits'),
     })
 
 
@@ -3509,7 +3520,7 @@ def portal_queue_fragment(request, queue_key: str):
         'empty_sub': config['empty_sub'],
         'can_requisition_write': _portal_capability_error(request, 'portal.requisition.write') is None,
         'calculated_at': timezone.now().isoformat(),
-        'filter_options': _jbl_queue_filter_options(request) if queue_key == 'jbl' else None,
+        'filter_options': _portal_queue_filter_options(request, queue_key),
     })
 
 
@@ -4748,6 +4759,7 @@ def portal_credit_queue(request):
         'queue': 'credit',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'credit'),
     })
 
 
@@ -4871,6 +4883,7 @@ def portal_final_review_queue(request):
         'review_stage': stage,
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'final'),
     })
 
 
@@ -5054,6 +5067,7 @@ def portal_requisition_queue(request):
         'partner_counts': partner_counts,
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'requisition'),
     })
 
 
@@ -5111,6 +5125,7 @@ def portal_all_cases(request):
         'calculated_at': timezone.now().isoformat(),
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'all'),
     })
 
 
@@ -5137,6 +5152,7 @@ def portal_deferred(request):
         'queue': 'deferred',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _portal_queue_filter_options(request, 'deferred'),
     })
 
 
@@ -7174,7 +7190,7 @@ def _invoice_duplicate_count(invoice, request=None) -> int:
         return 0
     return _scoped_invoice_duplicates(
         ParsedInvoice.objects.filter(query, batch__group_configuration_id=invoice.batch.group_configuration_id)
-        .exclude(pk=invoice.pk).exclude(status='ignored'), request,
+        .exclude(pk=invoice.pk).exclude(status__in=['ignored', 'deleted']), request,
     ).count()
 
 
@@ -7189,7 +7205,7 @@ def _invoice_duplicate_candidates(invoice, request=None) -> list[dict]:
         ParsedInvoice.objects.select_related('batch', 'matched_farmer').filter(
             query, batch__group_configuration_id=invoice.batch.group_configuration_id,
         )
-        .exclude(pk=invoice.pk).exclude(status='ignored'), request,
+        .exclude(pk=invoice.pk).exclude(status__in=['ignored', 'deleted']), request,
     ).order_by('-created_at')[:8]
     rows = []
     for candidate in candidates:
@@ -7202,6 +7218,53 @@ def _invoice_duplicate_candidates(invoice, request=None) -> list[dict]:
         serialized['duplicate_reasons'] = reasons
         rows.append(serialized)
     return rows
+
+
+def _invoice_duplicate_ids(queryset, request=None) -> set:
+    """Find duplicate invoice rows in one scoped queryset using bounded DB reads."""
+    from django.db.models import Q
+    from core.models import ParsedInvoice
+
+    rows = list(queryset.values(
+        'id', 'batch__group_configuration_id', 'invoice_no', 'customer_id', 'customer_phone',
+    ))
+    if not rows:
+        return set()
+    groups = {row['batch__group_configuration_id'] for row in rows}
+    group_scope = Q()
+    for group_id in groups:
+        group_scope |= Q(batch__group_configuration_id=group_id) if group_id else Q(batch__group_configuration__isnull=True)
+    peers = _scoped_invoice_duplicates(
+        ParsedInvoice.objects.filter(group_scope)
+        .exclude(status__in=['ignored', 'deleted'])
+        .values('id', 'batch__group_configuration_id', 'invoice_no', 'customer_id', 'customer_phone'),
+        request,
+    )
+    keys_by_group = {}
+    for peer in peers.iterator(chunk_size=1000):
+        group = peer['batch__group_configuration_id']
+        keys = keys_by_group.setdefault(group, {'invoice': {}, 'customer': {}, 'phone': {}})
+        invoice_no = str(peer['invoice_no'] or '').strip().casefold()
+        customer_id = str(peer['customer_id'] or '').strip().casefold()
+        phone_digits = re.sub(r'\D', '', peer['customer_phone'] or '')[-9:]
+        if invoice_no:
+            keys['invoice'].setdefault(invoice_no, set()).add(peer['id'])
+        if customer_id:
+            keys['customer'].setdefault(customer_id, set()).add(peer['id'])
+        if phone_digits:
+            keys['phone'].setdefault(phone_digits, set()).add(peer['id'])
+
+    duplicates = set()
+    for row in rows:
+        keys = keys_by_group.get(row['batch__group_configuration_id'], {})
+        invoice_no = str(row['invoice_no'] or '').strip().casefold()
+        customer_id = str(row['customer_id'] or '').strip().casefold()
+        phone_digits = re.sub(r'\D', '', row['customer_phone'] or '')[-9:]
+        if ((invoice_no and keys.get('invoice', {}).get(invoice_no, set()) - {row['id']})
+                or (customer_id and keys.get('customer', {}).get(customer_id, set()) - {row['id']})
+                or (phone_digits and keys.get('phone', {}).get(phone_digits, set()) - {row['id']})):
+            duplicates.add(row['id'])
+    return duplicates
 
 
 @require_http_methods(["GET"])
@@ -7220,7 +7283,7 @@ def portal_invoice_pool(request):
     review = str(request.GET.get('review') or '').strip()
     workspace = str(request.GET.get('workspace') or '').strip().lower()
 
-    invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').all()
+    invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').exclude(status='deleted')
     staff_branches = [
         str(value).strip() for value in getattr(request, 'portal_access', {}).get('branches', [])
         if str(value).strip()
@@ -7243,7 +7306,7 @@ def portal_invoice_pool(request):
             Q(status__in=['draft', 'unmatched', 'ambiguous'])
             | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
             | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
-        ).exclude(status='ignored').distinct()
+        ).exclude(status__in=['ignored', 'deleted']).distinct()
     elif workspace in {'matched', 'ignored'}:
         invoices = invoices.filter(status=workspace)
     elif status:
@@ -7262,11 +7325,10 @@ def portal_invoice_pool(request):
     invoices = invoices.order_by('-created_at')
 
     review_filtered = None
+    duplicate_ids = set()
     if review == 'duplicates':
-        review_filtered = [
-            invoice for invoice in invoices[:300]
-            if _invoice_duplicate_count(invoice, request) > 0
-        ]
+        duplicate_ids = _invoice_duplicate_ids(invoices, request)
+        review_filtered = list(invoices.filter(pk__in=duplicate_ids).order_by('-created_at'))
     elif review in {'payment_blocked', 'payment_ready'}:
         from core.services.payment_documents import payment_readiness
         matched_invoices = [
@@ -7357,6 +7419,8 @@ def portal_invoice_pool(request):
             for invoice in paged_invoices
         ],
         'pagination': invoice_pagination,
+        'duplicate_ids': sorted(str(invoice_id) for invoice_id in duplicate_ids)
+        if review == 'duplicates' and request.GET.get('include_duplicate_ids') == '1' else [],
         'filters': {
             'status': status,
             'search': search,
@@ -7529,6 +7593,8 @@ def portal_invoice_detail(request, invoice_id: str):
         invoice = ParsedInvoice.objects.select_related('batch', 'matched_farmer').get(pk=invoice_id)
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+    if invoice.status == 'deleted':
+        return JsonResponse({'ok': False, 'error': 'This invoice was removed from review.'}, status=404)
 
     access_error = _portal_read_access_error(request, invoice.matched_farmer, capability='portal.invoice.view')
     if access_error:
@@ -7721,7 +7787,9 @@ def _json_body(request) -> dict:
 def portal_invoice_match(request, invoice_id: str):
     """Manually link a parsed invoice to the correct farmer/order record."""
     from core.models import JawabuFarmerMaster, ParsedInvoice
-    from core.services.invoice_parser import InvoiceMatchEligibilityError, manually_match_invoice
+    from core.services.invoice_parser import (
+        InvoiceMatchEligibilityError, manually_match_invoice, sync_ignored_invoice_pdf_location,
+    )
 
     body = _json_body(request)
     farmer_id = str(body.get('farmer_id') or '').strip()
@@ -7748,10 +7816,19 @@ def portal_invoice_match(request, invoice_id: str):
         return JsonResponse({'ok': False, 'error': 'Manual invoice matching failed. Retry or contact an administrator.'}, status=500)
 
     farmer.refresh_from_db()
+    drive_archive_warning = ''
+    if invoice.status == 'matched':
+        try:
+            sync_result = sync_ignored_invoice_pdf_location(invoice.batch_id)
+            drive_archive_warning = str(sync_result.get('error') or '')
+        except Exception:
+            logger.exception('Could not restore matched invoice source PDF batch_id=%s', invoice.batch_id)
+            drive_archive_warning = 'The invoice was matched, but its source PDF could not be moved out of Ignored.'
     return JsonResponse({
         'ok': True,
         'invoice': _serialize_parsed_invoice(invoice),
         'publication': _portal_publication_payload(farmer),
+        'drive_archive_warning': drive_archive_warning,
     })
 
 
@@ -8465,7 +8542,7 @@ def portal_invoice_ignore(request, invoice_id: str):
         'ok': True, 'invoice': _serialize_parsed_invoice(invoice),
         'drive_archive_warning': (invoice.batch.metadata or {}).get('drive_archive_error', ''),
         'drive_archived': bool((invoice.batch.metadata or {}).get('ignored_drive_parent')),
-        'shared_pdf': invoice.batch.invoices.exclude(status='ignored').exists(),
+        'shared_pdf': invoice.batch.invoices.exclude(status__in=['ignored', 'deleted']).exists(),
     })
 
 
@@ -8486,6 +8563,9 @@ def portal_invoice_restore(request, invoice_id: str):
     if role_error:
         return role_error
 
+    if invoice.status == 'deleted':
+        return JsonResponse({'ok': False, 'error': 'This duplicate was deleted from review and cannot be restored.'}, status=409)
+
     invoice = restore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
     invoice.batch.refresh_from_db(fields=['metadata'])
     return JsonResponse({
@@ -8499,13 +8579,13 @@ def portal_invoice_restore(request, invoice_id: str):
 def portal_invoice_bulk_action(request):
     """Apply safe review actions to selected invoice records."""
     from core.models import ParsedInvoice
-    from core.services.invoice_parser import ignore_invoice, restore_invoice
+    from core.services.invoice_parser import delete_duplicate_invoice, ignore_invoice, restore_invoice, sync_ignored_invoice_pdf_location
 
     body = _json_body(request)
     action = str(body.get('action') or '').strip().lower()
     invoice_ids = [str(item).strip() for item in (body.get('invoice_ids') or []) if str(item).strip()]
     note = str(body.get('note') or '').strip()
-    if action not in {'ignore', 'restore'}:
+    if action not in {'ignore', 'restore', 'delete_duplicates'}:
         return JsonResponse({'ok': False, 'error': 'Unsupported bulk invoice action.'}, status=400)
     if not invoice_ids:
         return JsonResponse({'ok': False, 'error': 'Select at least one invoice.'}, status=400)
@@ -8519,12 +8599,22 @@ def portal_invoice_bulk_action(request):
         role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
         if role_error:
             return role_error
+    duplicate_ids = set()
+    if action == 'delete_duplicates':
+        duplicate_ids = _invoice_duplicate_ids(
+            ParsedInvoice.objects.filter(
+                pk__in=invoice_ids, status__in=['draft', 'unmatched', 'ambiguous'],
+                matched_farmer__isnull=True,
+            ),
+            request,
+        )
     changed = []
     skipped = []
+    affected_batch_ids = set()
     for invoice in invoices:
         if action == 'ignore':
-            if invoice.status == 'matched':
-                skipped.append({'id': str(invoice.id), 'reason': 'matched invoices are not bulk ignored'})
+            if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
+                skipped.append({'id': str(invoice.id), 'reason': 'only invoices in review can be ignored'})
                 continue
             changed.append(ignore_invoice(invoice, actor=actor, note=note or 'Bulk ignored.'))
         elif action == 'restore':
@@ -8532,6 +8622,28 @@ def portal_invoice_bulk_action(request):
                 skipped.append({'id': str(invoice.id), 'reason': 'only ignored invoices can be restored'})
                 continue
             changed.append(restore_invoice(invoice, actor=actor, note=note or 'Bulk restored.'))
+        elif action == 'delete_duplicates':
+            if invoice.status not in {'draft', 'unmatched', 'ambiguous'} or invoice.matched_farmer_id:
+                skipped.append({'id': str(invoice.id), 'reason': 'only unmatched invoices can be deleted'})
+                continue
+            if invoice.id not in duplicate_ids:
+                skipped.append({'id': str(invoice.id), 'reason': 'invoice is not a detected duplicate'})
+                continue
+            try:
+                changed.append(delete_duplicate_invoice(invoice, actor=actor))
+                affected_batch_ids.add(invoice.batch_id)
+            except ValueError as exc:
+                skipped.append({'id': str(invoice.id), 'reason': str(exc)})
+
+    drive_warnings = []
+    drive_archived_count = 0
+    shared_pdf_count = 0
+    for batch_id in affected_batch_ids:
+        result = sync_ignored_invoice_pdf_location(batch_id)
+        drive_archived_count += int(bool(result.get('archived')))
+        shared_pdf_count += int(bool(result.get('shared_pdf')))
+        if result.get('error'):
+            drive_warnings.append(result['error'])
 
     found_ids = {str(invoice.id) for invoice in invoices}
     for invoice_id in invoice_ids:
@@ -8542,9 +8654,13 @@ def portal_invoice_bulk_action(request):
         'ok': True,
         'action': action,
         'changed_count': len(changed),
+        'deleted_count': len(changed) if action == 'delete_duplicates' else 0,
         'skipped_count': len(skipped),
         'skipped': skipped,
         'invoices': [_serialize_parsed_invoice(invoice) for invoice in changed[:25]],
+        'drive_warnings': drive_warnings,
+        'drive_archived_count': drive_archived_count,
+        'shared_pdf_count': shared_pdf_count,
     })
 
 

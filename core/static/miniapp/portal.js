@@ -654,7 +654,7 @@
       section.hidden = !items.length;
       list.innerHTML = items.map(render).join('');
     };
-    const homeRow = item => `<a class="portal-home-row dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Case')}</strong><small>${escapeHtml(item.detail || '')}</small><small>${escapeHtml([item.context, item.workflow || 'Portal'].filter(Boolean).join(' · '))}</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`;
+    const homeRow = item => `<a class="portal-home-row dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Case')}</strong><small>${escapeHtml(item.detail || '')}</small>${[item.context, item.workflow && item.workflow !== 'Portal' ? item.workflow : ''].filter(Boolean).length ? `<small>${escapeHtml([item.context, item.workflow && item.workflow !== 'Portal' ? item.workflow : ''].filter(Boolean).join(' · '))}</small>` : ''}</span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`;
     setSection('portal-home-actions', 'portal-home-actions-list', actions, homeRow);
     setSection('portal-home-health', 'portal-home-health-list', health, item => {
       const retry = item.action?.type === 'publication_retry' && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
@@ -662,8 +662,8 @@
       if (item.action?.type === 'publication_wake') return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sheet sync')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume sync')}</button></article>`;
       return homeRow(item);
     });
-    setSection('portal-home-queues', 'portal-home-queues-list', queues, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.workflow || 'Portal')} · ${escapeHtml(item.count)} awaiting action</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
-    setSection('portal-home-shortcuts', 'portal-home-shortcuts-list', shortcuts, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.workflow || 'Portal')} workspace</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
+    setSection('portal-home-queues', 'portal-home-queues-list', queues, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${item.workflow && item.workflow !== 'Portal' ? `${escapeHtml(item.workflow)} · ` : ''}${escapeHtml(item.count)} awaiting action</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
+    setSection('portal-home-shortcuts', 'portal-home-shortcuts-list', shortcuts, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong>${item.workflow && item.workflow !== 'Portal' ? `<small>${escapeHtml(item.workflow)} workspace</small>` : ''}</span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
     const oversight = home.oversight ? (dashboard.pipeline_distribution || []).filter(item => item.count) : [];
     setSection('portal-home-overview', 'portal-home-overview-list', oversight, item => `<div class="portal-home-row"><span><strong>${escapeHtml(item.label)}</strong><small>Visible in your scope</small></span><b>${escapeHtml(item.count)}</b></div>`);
     const caughtUp = el('portal-home-caught-up');
@@ -1016,9 +1016,9 @@
       }
 
       const farmers = data.farmers || [];
-      if (qKey === 'jbl') {
+      if (data.filter_options) {
         state.queueFilterOptions ||= {};
-        state.queueFilterOptions.jbl = data.filter_options || null;
+        state.queueFilterOptions[qKey] = data.filter_options;
       }
       if (qKey === 'requisition') {
         const counts = data.partner_counts || {};

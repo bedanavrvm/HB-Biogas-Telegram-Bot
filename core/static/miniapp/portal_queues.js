@@ -49,7 +49,7 @@
     appendSearch(params, state, queueKey);
     if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
     if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
-    if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state, queueKey);
+    if (queueKey !== 'batches') appendCommonFilters(params, state, queueKey);
     return cfg.endpoint + '?' + params.toString();
   }
 
@@ -78,13 +78,13 @@
       // replace the current queue (or leave its current loader behind).
       if (deps.isCurrent && !deps.isCurrent()) return false;
       list.innerHTML = html;
-      if (queueKey === 'jbl' && deps.state) {
-        const options = list.querySelector('#portal-jbl-filter-options');
+      if (deps.state) {
+        const options = list.querySelector('#portal-jbl-filter-options, #portal-queue-filter-options');
         try {
           deps.state.queueFilterOptions ||= {};
-          deps.state.queueFilterOptions.jbl = options ? JSON.parse(options.textContent) : null;
+          deps.state.queueFilterOptions[queueKey] = options ? JSON.parse(options.textContent) : null;
         } catch (_) {
-          deps.state.queueFilterOptions.jbl = null;
+          deps.state.queueFilterOptions[queueKey] = null;
         }
       }
       const count = list.querySelector('[data-portal-result-count]');

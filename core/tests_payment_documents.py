@@ -24,7 +24,10 @@ from core.models import (
     ProductAlias,
     RequisitionBatch,
 )
-from core.services.invoice_parser import InvoiceDuplicateUploadError, ingest_invoice_upload_batch, ignore_invoice, restore_invoice
+from core.services.invoice_parser import (
+    InvoiceDuplicateUploadError, ingest_invoice_upload_batch,
+    ignore_invoice, manually_match_invoice, restore_invoice,
+)
 from core.services.invoice_identity import ensure_identity_review, identity_gate
 from core.services.jawabu_approvals import invalidate_material_approvals, record_approval
 from core.services.jawabu_validation import format_repayment_day, parse_repayment_day
@@ -391,6 +394,43 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(files.update.call_args.kwargs['addParents'], 'original-folder')
         batch.refresh_from_db()
         self.assertNotIn('ignored_drive_parent', batch.metadata)
+
+    def test_ignored_invoice_can_still_be_matched(self):
+        farmer = self.farmer()
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+        invoice.status = 'ignored'
+        invoice.save(update_fields=['status', 'updated_at'])
+
+        matched = manually_match_invoice(invoice, farmer, actor='Tester')
+
+        self.assertEqual(matched.status, 'matched')
+        self.assertEqual(matched.matched_farmer_id, farmer.pk)
+        self.assertTrue(matched.events.filter(action='matched', actor='Tester').exists())
+
+    @patch('core.services.invoice_parser.sync_ignored_invoice_pdf_location', return_value={'archived': True})
+    def test_bulk_delete_removes_selected_duplicate_invoices_from_operational_pool(self, _sync_drive):
+        first_batch = self.invoice_batch()
+        first = first_batch.invoices.get()
+        second_batch = self.invoice_batch()
+        second = second_batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_bulk_action'),
+            data=json.dumps({'action': 'delete_duplicates', 'invoice_ids': [str(first.pk), str(second.pk)]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['deleted_count'], 2)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.status, second.status), ('deleted', 'deleted'))
+        self.assertTrue(first.events.filter(action='deleted').exists())
+        self.assertTrue(second.events.filter(action='deleted').exists())
+        inbox = self.client.get(reverse('portal_invoice_pool'), {'workspace': 'inbox'}).json()
+        self.assertNotIn(str(first.pk), {item['id'] for item in inbox['invoices']})
+        self.assertNotIn(str(second.pk), {item['id'] for item in inbox['invoices']})
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

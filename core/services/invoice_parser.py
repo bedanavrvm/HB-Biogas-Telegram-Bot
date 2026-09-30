@@ -1250,17 +1250,18 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
         # proposed_farmer is nullable; joining it into a FOR UPDATE query
         # produces a PostgreSQL outer-join lock failure.
         invoices = list(batch.invoices.select_for_update())
-        unresolved = [item for item in invoices if item.status != 'ignored' and (not item.proposed_farmer_id or not item.invoice_no or not item.invoice_date)]
+        skipped_statuses = {'ignored', 'deleted'}
+        unresolved = [item for item in invoices if item.status not in skipped_statuses and (not item.proposed_farmer_id or not item.invoice_no or not item.invoice_date)]
         if unresolved:
             raise ValueError('Every invoice must have an invoice number, valid date, and farmer match, or be marked ignored.')
-        farmer_ids = [item.proposed_farmer_id for item in invoices if item.status != 'ignored']
+        farmer_ids = [item.proposed_farmer_id for item in invoices if item.status not in skipped_statuses]
         if len(farmer_ids) != len(set(farmer_ids)):
             raise ValueError('Two invoices in this batch propose the same farmer. Resolve the duplicate before confirming.')
         farmers = {f.id: f for f in JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids)}
         for farmer in farmers.values():
             require_official_requisition(farmer, lock=True)
         for invoice in invoices:
-            if invoice.status == 'ignored':
+            if invoice.status in skipped_statuses:
                 continue
             farmer = farmers[invoice.proposed_farmer_id]
             farmer.invoice_number = invoice.invoice_no
@@ -1360,6 +1361,8 @@ def refresh_invoice_batch_counts(batch: InvoiceUploadBatch) -> InvoiceUploadBatc
 def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored'}:
+            raise InvoiceMatchEligibilityError('invoice_not_matchable', 'This invoice is no longer available for matching.')
         farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
         eligibility = require_official_requisition(farmer, lock=True)
         _apply_invoice_to_farmer(farmer, invoice)
@@ -1443,8 +1446,8 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
 def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        if invoice.status == 'matched':
-            raise ValueError('This invoice is matched. Change its match before ignoring it.')
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored'}:
+            raise ValueError('This invoice can no longer be ignored from the review queue.')
         if invoice.status != 'ignored':
             note_text = str(note or '').strip()
             actor_text = str(actor or 'portal').strip()
@@ -1475,54 +1478,78 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
     return invoice
 
 
-def sync_ignored_invoice_pdf_location(batch_id) -> dict:
-    """Move only an entirely ignored PDF into a recoverable Drive subfolder.
+def delete_duplicate_invoice(invoice: ParsedInvoice, *, actor: str = '') -> ParsedInvoice:
+    """Remove a duplicate from every operational queue without erasing its audit history."""
+    actor_text = str(actor or 'portal').strip()
+    with transaction.atomic():
+        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
+            raise ValueError('Only an unmatched duplicate invoice can be deleted.')
+        if invoice.matched_farmer_id:
+            raise ValueError('A matched invoice cannot be deleted. Unmatch it first.')
+        invoice.status = 'deleted'
+        invoice.review_notes = f'Duplicate deleted by {actor_text}.'
+        invoice.revision += 1
+        invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
+        record_invoice_event(
+            invoice,
+            'deleted',
+            actor=actor_text,
+            note='Duplicate removed from invoice review. Audit history retained.',
+            metadata={'source': 'duplicate_cleanup', 'batch_id': str(invoice.batch_id), 'page': invoice.page},
+        )
+        refresh_invoice_batch_counts(invoice.batch)
+    return invoice
 
-    A PDF can contain multiple invoices. Never move or delete its shared source
-    while any parsed page is still active. The Django ignore remains canonical
-    if Drive is unavailable; a later ignore/restore retries the move.
+
+def sync_ignored_invoice_pdf_location(batch_id) -> dict:
+    """Move a PDF into or out of Ignored based on all of its invoice pages.
+
+    A PDF can contain multiple invoices. Never move its shared source while any
+    parsed page is still active. Django invoice decisions remain canonical if
+    Drive is unavailable; a later ignore, restore, or match retries the move.
     """
     with transaction.atomic():
         batch = InvoiceUploadBatch.objects.select_for_update().get(pk=batch_id)
         metadata = dict(batch.metadata or {})
         archived_parent = str(metadata.get('ignored_drive_parent') or '')
         original_parent = str(metadata.get('original_drive_parent') or '')
-        all_ignored = batch.invoices.exists() and not batch.invoices.exclude(status='ignored').exists()
-        if not batch.drive_file_id or (all_ignored and archived_parent) or (not all_ignored and not archived_parent):
-            return {'archived': bool(archived_parent), 'shared_pdf': not all_ignored}
-        try:
-            from core.services.order_approval import GoogleDriveMediaStorage
-            storage = GoogleDriveMediaStorage()
-            drive = storage.service.files()
-            current = drive.get(fileId=batch.drive_file_id, fields='parents', supportsAllDrives=True).execute()
-            current_parent = next(iter(current.get('parents') or []), '')
-            if not current_parent:
-                raise ValueError('The invoice PDF has no accessible Drive parent.')
-            next_metadata = dict(metadata)
-            if all_ignored:
-                destination = storage.ensure_child_folder(current_parent, 'Ignored')
-                next_metadata['original_drive_parent'] = current_parent
-                next_metadata['ignored_drive_parent'] = destination
-            else:
-                if not original_parent:
-                    raise ValueError('The invoice PDF original Drive folder is unavailable.')
-                destination = original_parent
-                next_metadata.pop('ignored_drive_parent', None)
-                next_metadata.pop('original_drive_parent', None)
-            drive.update(
-                fileId=batch.drive_file_id, addParents=destination,
-                removeParents=current_parent, fields='id,parents', supportsAllDrives=True,
-            ).execute()
-            next_metadata.pop('drive_archive_error', None)
-            batch.metadata = next_metadata
-            batch.save(update_fields=['metadata', 'updated_at'])
-            return {'archived': all_ignored, 'shared_pdf': False}
-        except Exception:
-            logger.exception('Invoice PDF folder update failed for batch_id=%s', batch_id)
-            metadata['drive_archive_error'] = 'The PDF is still in its previous Drive folder. Retry the invoice action or ask IT to repair its location.'
-            batch.metadata = metadata
-            batch.save(update_fields=['metadata', 'updated_at'])
-            return {'archived': bool(archived_parent), 'error': metadata['drive_archive_error']}
+    all_ignored = batch.invoices.exists() and not batch.invoices.exclude(status__in=['ignored', 'deleted']).exists()
+    if not batch.drive_file_id or (all_ignored and archived_parent) or (not all_ignored and not archived_parent):
+        return {'archived': bool(archived_parent), 'shared_pdf': not all_ignored}
+    try:
+        from core.services.order_approval import GoogleDriveMediaStorage
+        storage = GoogleDriveMediaStorage()
+        drive = storage.service.files()
+        current = drive.get(fileId=batch.drive_file_id, fields='parents', supportsAllDrives=True).execute()
+        current_parent = next(iter(current.get('parents') or []), '')
+        if not current_parent:
+            raise ValueError('The invoice PDF has no accessible Drive parent.')
+        next_metadata = dict(metadata)
+        if all_ignored:
+            destination = storage.ensure_child_folder(current_parent, 'Ignored')
+            next_metadata['original_drive_parent'] = current_parent
+            next_metadata['ignored_drive_parent'] = destination
+        else:
+            if not original_parent:
+                raise ValueError('The invoice PDF original Drive folder is unavailable.')
+            destination = original_parent
+            next_metadata.pop('ignored_drive_parent', None)
+            next_metadata.pop('original_drive_parent', None)
+        drive.update(
+            fileId=batch.drive_file_id, addParents=destination,
+            removeParents=current_parent, fields='id,parents', supportsAllDrives=True,
+        ).execute()
+        next_metadata.pop('drive_archive_error', None)
+        batch.metadata = next_metadata
+        batch.save(update_fields=['metadata', 'updated_at'])
+        return {'archived': all_ignored, 'shared_pdf': False}
+    except Exception:
+        logger.exception('Invoice PDF folder update failed for batch_id=%s', batch_id)
+        metadata['drive_archive_error'] = 'The PDF is still in its previous Drive folder. Retry the invoice action or ask IT to repair its location.'
+        batch.metadata = metadata
+        batch.save(update_fields=['metadata', 'updated_at'])
+        return {'archived': bool(archived_parent), 'error': metadata['drive_archive_error']}
 
 
 def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:

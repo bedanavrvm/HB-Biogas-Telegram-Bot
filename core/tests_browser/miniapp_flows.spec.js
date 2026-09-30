@@ -622,6 +622,33 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
   expect(await dimensions()).toMatchObject({ body: 390, content: 390, sheet: 390, live: '390px', stable: '390px' });
 });
 
+test('Portal filters show populated queue locations and keep visit date controls within mobile width', async ({page})=>{
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8')
+    .replace(/\{% if queue_key == 'all' %\}[^]*?\{% endif %\}/g,'').replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
+  await page.setViewportSize({width:320,height:700});
+  await page.setContent(`<body class="portal-app"><main id="content"><div style="padding:12px">${template}</div></main></body>`);
+  for(const file of ['base.css','components.css','portal.css']) await page.addStyleTag({path:asset(file)});
+  await loadUtilities(page);
+  await page.addScriptTag({path:asset('components.js')});
+  await page.addScriptTag({path:asset('portal_filters.js')});
+  await page.evaluate(()=>{
+    const state={activePage:'credit',pages:{credit:1},searches:{},filtersByQueue:{},queueFilterOptions:{credit:{county:['Kiambu'],branch:['Ruiru'],status:[],has_hbg_visit_date:true,has_jbl_visit_date:true}},metaCounties:['Kiambu','Nakuru','Embu'],metaBranches:['Ruiru','Naivasha']};
+    window.PortalMiniAppFilters.init({state,queueConfig:{credit:{}},loadQueue:()=>{}});
+    window.PortalMiniAppFilters.setupQueueTools('credit');
+  });
+  expect(await page.locator('[data-portal-filter-options="county"] input').evaluateAll(nodes=>nodes.map(node=>node.value))).toEqual(['Kiambu']);
+  expect(await page.locator('[data-portal-filter-options="branch"] input').evaluateAll(nodes=>nodes.map(node=>node.value))).toEqual(['Ruiru']);
+  await page.locator('[data-portal-filter-trigger]').click();
+  const dimensions=await page.evaluate(()=>({
+    viewport:document.documentElement.clientWidth,
+    document:document.documentElement.scrollWidth,
+    controls:Array.from(document.querySelectorAll('.portal-filter-date-control')).map(node=>Math.round(node.getBoundingClientRect().width)),
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.controls).toHaveLength(4);
+  expect(Math.max(...dimensions.controls)).toBeLessThan(150);
+});
+
 test('Portal queue controls filter the full list and keep search data ephemeral', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.route('http://miniapp.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal controls</title>' }));

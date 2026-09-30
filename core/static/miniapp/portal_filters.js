@@ -199,13 +199,12 @@
       const base = serverOptions && key !== 'status' ? (serverOptions[key] || [])
         : key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : Object.keys(statusLabels).map(value => ({value, label: statusLabels[value]}));
       const selected = listValue(filters[key]);
-      const current = new Set([...(available?.[key] || []), ...selected]);
-      // Once staff have selected a value, retain the complete permitted list for
-      // that group. Otherwise selecting one county/status would hide every
-      // other choice and make a multi-select filter impossible to adjust.
-      const options = serverOptions && key !== 'status'
-        ? Array.from(new Set([...base.map(optionValue), ...selected]))
-        : available && !selected.length ? base.filter(option => current.has(optionValue(option))) : base;
+      const populated = ['county', 'branch'].includes(key) ? available?.[key] : null;
+      // County/branch values are supplied by this authorized queue with both
+      // location selections omitted, so staff can revise multi-selects without
+      // seeing locations that have no records in the current queue context.
+      const current = new Set([...(populated || []), ...selected]);
+      const options = populated ? base.filter(option => current.has(optionValue(option))) : base;
       const group = form?.querySelector('[data-portal-filter-group="' + key + '"]');
       if (group && key !== 'status') group.hidden = options.length === 0 && selected.length === 0;
       const signature = JSON.stringify(options.map(option => [optionValue(option), optionLabel(option)]));
