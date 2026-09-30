@@ -712,6 +712,45 @@
     });
   }
 
+  function confirmInvoiceAction(title, message, confirmLabel) {
+    return new Promise(function (resolve) {
+      const previousFocus = document.activeElement;
+      const overlay = document.createElement('div');
+      overlay.className = 'invoice-action-confirm-overlay';
+      overlay.innerHTML = [
+        '<section class="invoice-action-confirm" role="dialog" aria-modal="true" aria-labelledby="invoice-action-confirm-title">',
+        '<h2 id="invoice-action-confirm-title">' + escapeHtml(title) + '</h2>',
+        '<p>' + escapeHtml(message) + '</p>',
+        '<div class="invoice-action-confirm-buttons"><button type="button" class="btn btn-secondary" data-confirm-cancel>Cancel</button>',
+        '<button type="button" class="btn btn-primary" data-confirm-yes>' + escapeHtml(confirmLabel) + '</button></div>',
+        '</section>',
+      ].join('');
+      document.body.appendChild(overlay);
+      let settled = false;
+      function close(confirmed) {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKeydown);
+        overlay.remove();
+        previousFocus?.focus?.();
+        resolve(confirmed);
+      }
+      function onKeydown(event) {
+        if (event.key === 'Escape') close(false);
+        if (event.key === 'Tab') {
+          const buttons = Array.from(overlay.querySelectorAll('button'));
+          if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1].focus(); }
+          else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0].focus(); }
+        }
+      }
+      overlay.querySelector('[data-confirm-cancel]').addEventListener('click', function () { close(false); });
+      overlay.querySelector('[data-confirm-yes]').addEventListener('click', function () { close(true); });
+      overlay.addEventListener('click', function (event) { if (event.target === overlay) close(false); });
+      document.addEventListener('keydown', onKeydown);
+      overlay.querySelector('[data-confirm-cancel]').focus();
+    });
+  }
+
   async function startInvoiceNameChange(invoice) {
     const identity = invoice.identity || {};
     const values = await openInvoiceWorkflowSheet('Request corrected invoice', [
@@ -946,12 +985,10 @@
   }
 
   async function unmatchInvoice(invoiceId) {
-    const values = await openInvoiceWorkflowSheet('Unmatch invoice', '<p>This removes the current link and clears it from the applicant record where applicable.</p><div class="form-row"><label>Audit note</label><textarea name="note" rows="3"></textarea></div>', 'Unmatch invoice');
-    if (!values) return;
-    const note = values.note || '';
+    if (!await confirmInvoiceAction('Unmatch invoice?', 'This removes the invoice-to-applicant link and clears the applicant invoice fields where applicable.', 'Unmatch invoice')) return;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/unmatch/', {
       method: 'POST',
-      body: JSON.stringify({ note: note }),
+      body: JSON.stringify({}),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Could not unmatch invoice.', 'error');
@@ -962,13 +999,14 @@
   }
 
   async function ignoreInvoice(invoiceId, { duplicateOf = '' } = {}) {
-    const defaultNote = duplicateOf ? 'Duplicate of invoice ' + duplicateOf + '.' : '';
-    const values = await openInvoiceWorkflowSheet(duplicateOf ? 'Remove duplicate' : 'Ignore invoice', '<p>The invoice will leave the active list and remain available under Ignored for audit or restore.</p><div class="form-row"><label>Reason</label><textarea name="note" rows="3" required>' + escapeHtml(defaultNote) + '</textarea></div>', duplicateOf ? 'Remove duplicate' : 'Ignore invoice');
-    if (!values) return false;
-    const note = values.note;
+    const title = duplicateOf ? 'Remove duplicate invoice?' : 'Ignore invoice?';
+    const message = duplicateOf
+      ? 'This duplicate will leave the active list and remain available under Ignored. The original invoice is unchanged.'
+      : 'This invoice will leave the active list and remain available under Ignored, where it can be restored.';
+    if (!await confirmInvoiceAction(title, message, duplicateOf ? 'Remove duplicate' : 'Ignore invoice')) return false;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/ignore/', {
       method: 'POST',
-      body: JSON.stringify({ note: note }),
+      body: JSON.stringify(duplicateOf ? { note: 'Duplicate removed; duplicate of invoice ' + duplicateOf + '.' } : {}),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Could not ignore invoice.', 'error');
@@ -989,12 +1027,10 @@
   }
 
   async function restoreInvoice(invoiceId) {
-    const values = await openInvoiceWorkflowSheet('Restore invoice', '<div class="form-row"><label>Audit note</label><textarea name="note" rows="3"></textarea></div>', 'Restore invoice');
-    if (!values) return;
-    const note = values.note || '';
+    if (!await confirmInvoiceAction('Restore invoice?', 'This invoice will return to the invoice review list.', 'Restore invoice')) return;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/restore/', {
       method: 'POST',
-      body: JSON.stringify({ note: note }),
+      body: JSON.stringify({}),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Could not restore invoice.', 'error');
@@ -1008,12 +1044,15 @@
     const ids = Array.from(state.selectedIds);
     if (!ids.length) return deps.showToast('Select at least one invoice first.', 'error');
     const label = action === 'restore' ? 'restore' : 'ignore';
-    const values = await openInvoiceWorkflowSheet((label === 'restore' ? 'Restore' : 'Ignore') + ' selected invoices', '<p>' + escapeHtml(ids.length) + ' invoice(s) will be updated. Matching is never performed in bulk.</p><div class="form-row"><label>Audit note</label><textarea name="note" rows="3"' + (label === 'ignore' ? ' required' : '') + '></textarea></div>', label === 'restore' ? 'Restore selected' : 'Ignore selected');
-    if (!values) return;
-    const note = values.note || '';
+    const confirmed = await confirmInvoiceAction(
+      (label === 'restore' ? 'Restore' : 'Ignore') + ' selected invoices?',
+      ids.length + ' invoice(s) will be ' + (label === 'restore' ? 'returned to review.' : 'moved to Ignored. Matching is never performed in bulk.'),
+      label === 'restore' ? 'Restore selected' : 'Ignore selected',
+    );
+    if (!confirmed) return;
     const response = await deps.apiFetch('/invoice-pool/bulk-action/', {
       method: 'POST',
-      body: JSON.stringify({ action: action, invoice_ids: ids, note: note }),
+      body: JSON.stringify({ action: action, invoice_ids: ids }),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Bulk action failed.', 'error');
