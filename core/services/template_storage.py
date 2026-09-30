@@ -19,7 +19,7 @@ class TemplateStorageError(RuntimeError):
     pass
 
 
-def canonical_template_filename(category: str, filename: str) -> str:
+def canonical_template_filename(category: str, filename: str, *, partner: str = '') -> str:
     """Return the stable Drive name for a known template family.
 
     Django may append a random suffix to a repeated FileField upload. That
@@ -29,6 +29,13 @@ def canonical_template_filename(category: str, filename: str) -> str:
     """
     name = Path(str(filename or '')).name
     if str(category or '').strip().casefold() == 'requisition':
+        # HB and Eco-conserve templates are separate contracts. Historically
+        # both were forced to one Drive name, so uploading either partner's
+        # workbook overwrote the other partner's Drive file and left two DB
+        # rows pointing at the same bytes. Keep the legacy filename for HB,
+        # and give Eco-conserve its own stable Drive identity.
+        if str(partner or '').strip().upper() == 'ECOCONSERVE':
+            return 'Eco-conserve_Requisition_Form_Reconciled.xlsx'
         return REQUISITION_TEMPLATE_FILENAME
     return name or 'template.xlsx'
 
@@ -91,11 +98,11 @@ class GoogleDriveTemplateStorage:
 
     def upload_template(
         self, data: bytes, *, filename: str, category: str,
-        mime_type: str = WORKBOOK_MIME_TYPE,
+        mime_type: str = WORKBOOK_MIME_TYPE, partner: str = '',
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
-        filename = canonical_template_filename(category, filename)
+        filename = canonical_template_filename(category, filename, partner=partner)
         folder_id = self._template_folder(category)
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime_type, resumable=False)
         files = self.service.files()
@@ -110,7 +117,7 @@ class GoogleDriveTemplateStorage:
                     fileId=current['id'],
                     body={
                         'name': filename,
-                        'description': f'JBL {category} template; latest upload {uploaded_at}',
+                        'description': f'JBL {category} template ({partner or "shared"}); latest upload {uploaded_at}',
                     },
                     media_body=media,
                     fields='id, webViewLink',
@@ -136,7 +143,7 @@ class GoogleDriveTemplateStorage:
                 body={
                     'name': filename,
                     'parents': [folder_id],
-                    'description': f'JBL {category} template; latest upload {timezone.now().isoformat()}',
+                    'description': f'JBL {category} template ({partner or "shared"}); latest upload {timezone.now().isoformat()}',
                 },
                 media_body=media,
                 fields='id, webViewLink',
@@ -199,6 +206,7 @@ def upload_template_record_to_drive(
             filename=filename,
             category=category,
             mime_type=mime_type,
+            partner=getattr(template, 'fulfillment_partner', ''),
         )
     except Exception as exc:
         template.drive_file_id = ''

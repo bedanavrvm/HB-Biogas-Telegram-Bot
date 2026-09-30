@@ -18,6 +18,15 @@ from core.services.workbook_preview import serialize_workbook_preview
 
 
 class RequisitionTemplateGenerationTests(TestCase):
+    def test_partner_template_lookup_never_falls_back_to_another_partner(self):
+        from core.services.requisition import requisition_template_for_partner
+
+        with patch('core.models.RequisitionTemplate') as model:
+            model.objects.filter.return_value.order_by.return_value.first.return_value = None
+            self.assertIsNone(requisition_template_for_partner('HB'))
+
+        model.objects.filter.assert_called_once_with(fulfillment_partner='HB', is_active=True)
+
     def test_same_named_requisition_template_keeps_only_latest_active(self):
         first = RequisitionTemplate.objects.create(name='JBL Requisition Form', is_active=True)
         latest = RequisitionTemplate.objects.create(name='jbl requisition form', is_active=True)
@@ -57,12 +66,42 @@ class RequisitionTemplateGenerationTests(TestCase):
         model_admin = RequisitionTemplateAdmin(RequisitionTemplate, admin.site)
 
         with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
-            with patch('core.services.template_storage.upload_template_record_to_drive') as drive_upload:
+            with patch(
+                'core.services.template_storage.upload_template_record_to_drive',
+                return_value=(True, ''),
+            ) as drive_upload, patch.object(model_admin, 'message_user'):
                 model_admin.save_model(request, template, form, change=True)
 
         drive_upload.assert_called_once()
         self.assertEqual(drive_upload.call_args.kwargs['data'], replacement_bytes)
         self.assertEqual(drive_upload.call_args.kwargs['filename'], 'revised-template.xlsx')
+
+    def test_admin_can_resync_existing_partner_templates_to_drive(self):
+        from core.admin import RequisitionTemplateAdmin
+
+        hb = RequisitionTemplate.objects.create(
+            name='HB layout', fulfillment_partner='HB', is_active=True,
+        )
+        eco = RequisitionTemplate.objects.create(
+            name='Eco layout', fulfillment_partner='ECOCONSERVE', is_active=True,
+        )
+        request = RequestFactory().post('/')
+        request.user = SimpleNamespace(is_active=True, is_staff=True, is_superuser=True)
+        model_admin = RequisitionTemplateAdmin(RequisitionTemplate, admin.site)
+
+        with patch(
+            'core.services.template_storage.upload_template_record_to_drive',
+            return_value=(True, ''),
+        ) as drive_upload, patch.object(model_admin, 'message_user'):
+            model_admin.resync_selected_to_drive(
+                request, RequisitionTemplate.objects.filter(pk__in=[hb.pk, eco.pk]),
+            )
+
+        self.assertEqual(drive_upload.call_count, 2)
+        self.assertEqual(
+            {call.args[0].fulfillment_partner for call in drive_upload.call_args_list},
+            {'HB', 'ECOCONSERVE'},
+        )
 
     def farmer(self, **overrides):
         data = {

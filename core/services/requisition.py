@@ -116,13 +116,8 @@ def requisition_template_for_partner(partner: str):
         fulfillment_partner=partner,
         is_active=True,
     ).order_by('-updated_at', '-created_at').first()
-    # Existing deployments have only the legacy JBL template. It remains the
-    # HB template during the hard cutover, but Eco-conserve must be explicitly
-    # configured rather than silently using JBL branding.
-    if template is None and partner == PARTNER_HB:
-        template = RequisitionTemplate.objects.filter(
-            is_active=True,
-        ).order_by('-updated_at', '-created_at').first()
+    # Template selection must remain partner-specific. In particular, never
+    # let an HB order silently use an Eco-conserve workbook (or vice versa).
     return template
 
 

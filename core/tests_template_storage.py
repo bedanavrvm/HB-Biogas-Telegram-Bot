@@ -45,6 +45,35 @@ class _DriveService:
 
 
 class GoogleDriveTemplateStorageTests(SimpleTestCase):
+    def test_hb_and_eco_requisition_uploads_have_separate_drive_files(self):
+        service = _DriveService([
+            {
+                'id': 'legacy-hb-template',
+                'name': 'JBL_Requisition_Form_Reconciled.xlsx',
+                'modifiedTime': '2026-09-29T10:00:00Z',
+            },
+        ])
+        storage = GoogleDriveTemplateStorage.__new__(GoogleDriveTemplateStorage)
+        storage._media_storage = SimpleNamespace(service=service, parent_folder_id='root')
+        storage._template_folder = lambda category: 'templates-requisition'
+
+        hb_id, _ = storage.upload_template(
+            b'hb workbook', filename='HB Order Layout.xlsx', category='Requisition', partner='HB',
+        )
+        eco_id, _ = storage.upload_template(
+            b'eco workbook', filename='Eco-conserve Order Layout.xlsx', category='Requisition',
+            partner='ECOCONSERVE',
+        )
+
+        self.assertEqual(hb_id, 'legacy-hb-template')
+        self.assertEqual(eco_id, 'new-file')
+        self.assertEqual(len(service.resource.create_calls), 1)
+        self.assertEqual(
+            service.resource.create_calls[0]['body']['name'],
+            'Eco-conserve_Requisition_Form_Reconciled.xlsx',
+        )
+        self.assertEqual(service.resource.update_calls[0]['fileId'], 'legacy-hb-template')
+
     def test_replaces_newest_same_name_and_trashes_older_duplicates(self):
         service = _DriveService([
             {'id': 'newest-template', 'name': 'JBL_Requisition_Form_Reconciled.xlsx', 'modifiedTime': '2026-07-27T10:00:00Z'},

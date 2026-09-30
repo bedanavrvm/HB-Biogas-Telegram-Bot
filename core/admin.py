@@ -7179,7 +7179,9 @@ class RequisitionTemplateAdmin(ModelAdmin):
     list_filter_submit = True
     list_fullwidth = True
     list_display = ('name', 'fulfillment_partner', 'version_status', 'is_active', 'template_download', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
-    list_editable = ('is_active',)
+    # Activation is saved through the model form so RequisitionTemplate.save()
+    # can enforce one active template per fulfilment partner. Changelist bulk
+    # edits bypass model save hooks and could leave ambiguous active versions.
     readonly_fields = (
         'original_filename', 'content_type', 'size', 'checksum',
         'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
@@ -7188,6 +7190,32 @@ class RequisitionTemplateAdmin(ModelAdmin):
 
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
     list_filter = ('fulfillment_partner', 'is_active')
+    actions = ('resync_selected_to_drive',)
+
+    @admin.action(description='Resync selected requisition templates to Google Drive')
+    def resync_selected_to_drive(self, request, queryset):
+        from core.services.template_storage import upload_template_record_to_drive
+
+        uploaded = 0
+        failures = []
+        for template in queryset.iterator():
+            ok, error = upload_template_record_to_drive(template, category='Requisition')
+            if ok:
+                uploaded += 1
+            else:
+                failures.append(f'{template.name}: {error}')
+        if uploaded:
+            self.message_user(
+                request,
+                f'{uploaded} requisition template(s) resynced to partner-specific Drive files.',
+                level=messages.SUCCESS,
+            )
+        if failures:
+            self.message_user(
+                request,
+                'Some templates could not be resynced: ' + '; '.join(failures[:5]),
+                level=messages.ERROR,
+            )
 
     def get_urls(self):
         custom_urls = [
@@ -7256,12 +7284,24 @@ class RequisitionTemplateAdmin(ModelAdmin):
         super().save_model(request, obj, form, change)
         if replacement or not obj.drive_file_id:
             from core.services.template_storage import upload_template_record_to_drive
-            upload_template_record_to_drive(
+            uploaded, error = upload_template_record_to_drive(
                 obj,
                 category='Requisition',
                 data=replacement_bytes,
                 filename=replacement_name,
             )
+            if uploaded:
+                self.message_user(
+                    request,
+                    f'{obj.get_fulfillment_partner_display()} template uploaded to Google Drive and is available for download.',
+                    level=messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f'Template saved in Django, but the Drive upload failed: {error}',
+                    level=messages.ERROR,
+                )
 
 
 @admin.register(PaymentDocumentTemplate)
