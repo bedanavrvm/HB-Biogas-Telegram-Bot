@@ -2353,11 +2353,11 @@ class JblPipelineApiTestCase(TestCase):
         for source, label in (
             ('dashboard', 'Back to Home'),
             ('jbl', 'Back to JBL Visit'),
-            ('my_visits', 'Back to My Submitted Visits'),
+            ('my_visits', 'Back to My Visits'),
             ('credit', 'Back to Credit Analysis'),
-            ('final', 'Back to Final Approval'),
-            ('requisition', 'Back to Order Preparation'),
-            ('deferred', 'Back to Deferred &amp; Reappraisal'),
+            ('final', 'Back to Order Approval'),
+            ('requisition', 'Back to Prepare Orders'),
+            ('deferred', 'Back to Revisit Cases'),
             ('all', 'Back to All Cases'),
             ('payments', 'Back to Payment Preparation'),
         ):

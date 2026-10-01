@@ -151,8 +151,8 @@ def _import_review_home(user, access, capabilities):
 
     actions, queues = [], []
     for capability, kind, label, screen in (
-        ('portal.farmup.view', 'farmers', 'FarmUp worklists to review', 'farmup'),
-        ('portal.imports.view', 'system_export', 'SysUp imports to review', 'imports'),
+        ('portal.farmup.view', 'farmers', 'Monthly farmer lists to review', 'farmup'),
+        ('portal.imports.view', 'system_export', 'Customer updates to review', 'imports'),
     ):
         if capability not in capabilities:
             continue
@@ -177,7 +177,7 @@ def _import_review_home(user, access, capabilities):
             continue
         queues.append({
             'key': screen, 'label': label, 'count': count,
-            'urgent_count': 0, 'workflow': 'FarmUp' if kind == 'farmers' else 'SysUp',
+            'urgent_count': 0, 'workflow': 'Monthly list (FarmUp)' if kind == 'farmers' else 'Customer updates (SysUp)',
             'url': reverse('portal_screen', kwargs={'screen': screen}),
         })
         for batch in queryset.order_by('created_at')[:3]:
@@ -186,7 +186,7 @@ def _import_review_home(user, access, capabilities):
                 'label': batch.source_filename or label,
                 'detail': 'Review staged rows',
                 'context': f'{batch.total_rows} rows',
-                'workflow': 'FarmUp' if kind == 'farmers' else 'SysUp',
+                'workflow': 'Monthly list (FarmUp)' if kind == 'farmers' else 'Customer updates (SysUp)',
                 'severity': 'action',
                 'url': (
                     reverse('portal_farmup_review_screen', kwargs={'batch_id': batch.pk})
@@ -306,10 +306,10 @@ def dashboard_payload(user, *, access=None) -> dict:
         if sheet_health['queued'] and not sheet_health['healthy']:
             attention.append({
                 'key': 'portal_sheet_scheduler_stale',
-                'label': 'Portal Sheet sync needs attention',
-                'detail': f"{sheet_health['queued']} Sheet update(s) are waiting. Sync resumes while Portal is open; failed updates can be retried from their worklist or case.",
+                'label': 'Google Sheet updates need attention',
+                'detail': f"{sheet_health['queued']} updates are waiting. They resume in the background; failed updates can be retried from the related list or case.",
                 'count': sheet_health['queued'], 'severity': 'urgent',
-                'action': {'type': 'publication_wake', 'label': 'Resume sync'},
+                'action': {'type': 'publication_wake', 'label': 'Resume updates'},
                 'url': '',
             })
         failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
@@ -591,7 +591,7 @@ def dashboard_payload(user, *, access=None) -> dict:
     scope_label = (
         ', '.join(branch_values) if branch_values and not case_scope.get('global_branch')
         else 'All authorized branches'
-    ) if user is None else 'Tasks within your access'
+    ) if user is None else 'Work assigned to you'
     active_total = sum(item['count'] for item in queues if item['key'] != 'deferred')
     pipeline = [
         {

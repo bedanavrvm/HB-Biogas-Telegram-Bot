@@ -10,9 +10,8 @@
   <section id="page-dashboard" class="page{% if active_screen == 'dashboard' %} active{% endif %}">
     <div class="dashboard-intro">
       <div>
-        <p class="eyebrow">Your work</p>
         <h2>Home</h2>
-        <p class="meta"><span id="dashboard-scope">Your authorized scope</span> · <span id="dashboard-as-of">Refreshing</span></p>
+        <p class="meta"><span id="dashboard-scope">Work available to you</span> · <span id="dashboard-as-of">Refreshing</span></p>
       </div>
       <button type="button" class="dashboard-refresh-button" id="dashboard-refresh" aria-label="Refresh dashboard" title="Refresh dashboard"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </div>
@@ -24,7 +23,7 @@
       </div>
     </div>
     <section id="portal-home-health" class="portal-home-section" aria-labelledby="portal-home-health-title" hidden>
-      <h3 id="portal-home-health-title">System health</h3><div id="portal-home-health-list" class="portal-home-list"></div>
+      <h3 id="portal-home-health-title">System issues</h3><div id="portal-home-health-list" class="portal-home-list"></div>
     </section>
     <section id="portal-home-actions" class="portal-home-section" aria-labelledby="portal-home-actions-title" hidden>
       <h3 id="portal-home-actions-title">Needs your action</h3><div id="portal-home-actions-list" class="portal-home-list"></div>
@@ -34,13 +33,13 @@
       <a id="portal-home-next" class="btn btn-secondary" href="{% url 'portal_screen' screen='settings' %}">Open Settings</a>
     </section>
     <section id="portal-home-queues" class="portal-home-section" aria-labelledby="portal-home-queues-title" hidden>
-      <h3 id="portal-home-queues-title">Work queues</h3><div id="portal-home-queues-list" class="portal-home-list"></div>
+      <h3 id="portal-home-queues-title">Waiting for you</h3><div id="portal-home-queues-list" class="portal-home-list"></div>
     </section>
     <section id="portal-home-shortcuts" class="portal-home-section" aria-labelledby="portal-home-shortcuts-title" hidden>
-      <h3 id="portal-home-shortcuts-title">Workspaces</h3><div id="portal-home-shortcuts-list" class="portal-home-list"></div>
+      <h3 id="portal-home-shortcuts-title">More tasks</h3><div id="portal-home-shortcuts-list" class="portal-home-list"></div>
     </section>
     <section id="portal-home-overview" class="portal-home-section" aria-labelledby="portal-home-overview-title" hidden>
-      <h3 id="portal-home-overview-title">Pipeline in your scope</h3><div id="portal-home-overview-list" class="portal-home-list"></div>
+      <h3 id="portal-home-overview-title">Case progress</h3><div id="portal-home-overview-list" class="portal-home-list"></div>
     </section>
     <div id="dashboard-legacy" hidden>
     <div id="dash-counts" class="count-grid portal-initially-hidden" hidden>
@@ -137,7 +136,7 @@
 
   {% if active_screen == 'performance' %}
   <section id="page-performance" class="page active" data-required-capability="portal.performance.view">
-    <header class="portal-performance-header"><div><p class="eyebrow">Portal</p><h1>Performance</h1><p id="portal-performance-period-label" class="meta"></p></div><button id="portal-performance-filter" type="button" class="secondary" aria-haspopup="dialog" aria-controls="portal-performance-filters">Filter</button></header>
+    <header class="portal-performance-header"><div><h1>Performance</h1><p id="portal-performance-period-label" class="meta"></p></div><button id="portal-performance-filter" type="button" class="secondary" aria-haspopup="dialog" aria-controls="portal-performance-filters">Filter</button></header>
     <div id="portal-performance-active-filters" class="portal-performance-chips" hidden></div>
     <section class="portal-performance-own" aria-label="Your result"><div class="portal-performance-own-heading"><h2>Your points</h2><button id="portal-performance-details-open" type="button" class="portal-performance-detail-link">Score details <span aria-hidden="true">›</span></button></div><div id="portal-performance-own-metrics" class="portal-performance-own-metrics"></div><div id="portal-performance-slice" class="portal-performance-slice" hidden></div></section>
     <div class="portal-performance-standing-heading"><div><h2 id="portal-performance-standing-title">Standings</h2><p id="portal-performance-comparison" class="meta"></p></div><div id="portal-performance-views" class="portal-performance-switch" role="group" aria-label="Standing view"><button type="button" data-performance-view="people" aria-pressed="true">People</button><button type="button" data-performance-view="branches" aria-pressed="false">Branches</button></div></div>
@@ -152,8 +151,8 @@
   <section id="page-hb-actions" class="page active" data-required-capability="portal.hb_action.view">
     {% if hb_action_farmer_id %}
     <header class="hb-action-detail-header">
-      <a class="case-history-back" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action" title="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to HB Action</span></a>
-      <div><p class="eyebrow">HB Action</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
+      <a class="case-history-back" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to Install & Commission" title="Back to Install & Commission"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Install & Commission</span></a>
+      <div><p class="eyebrow">Install & Commission</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
       <button type="button" class="hb-action-edit-toggle" id="hb-action-edit-toggle" aria-label="Edit completed record" aria-pressed="false" title="Correct this record" hidden><i data-lucide="pencil" aria-hidden="true"></i></button>
     </header>
     <div id="hb-action-detail-loading" class="empty-state"><div class="spinner-inline"></div></div>
@@ -200,11 +199,11 @@
       <details class="hb-action-history"><summary>Activity history <span id="hb-action-history-count"></span></summary><div id="hb-action-history-list"></div></details>
     </div>
     {% else %}
-    <header class="portal-queue-header"><div><p class="eyebrow">Post-order work</p><h1>HB Action</h1><p class="meta">Installation and commissioning after an accepted signed order</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh HB Action" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
+    <header class="portal-queue-header"><div><h1>Install & Commission</h1><p class="meta">Track installations and commissioning</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh Install & Commission" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
     <nav class="hb-action-tabs" role="tablist" aria-label="HomeBiogas work queue"><button type="button" role="tab" data-hb-queue="installation" aria-selected="true" class="active">Installation</button><button type="button" role="tab" data-hb-queue="commissioning" aria-selected="false">Commissioning</button></nav>
-    <section class="portal-queue-tools hb-action-list-toolbar" aria-label="HB Action search">
+    <section class="portal-queue-tools hb-action-list-toolbar" aria-label="Install & Commission search">
       <div class="portal-queue-tools-primary">
-        <label class="portal-queue-search" for="hb-actions-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Search name, case, phone or order" aria-label="Search HB Action" autocomplete="off" enterkeyhint="search"></label>
+        <label class="portal-queue-search" for="hb-actions-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Search name, case, phone or order" aria-label="Search installations and commissioning" autocomplete="off" enterkeyhint="search"></label>
       </div>
     </section>
     <div id="hb-action-counts" class="hb-action-counts" aria-label="Installation status filters"></div>
@@ -235,7 +234,7 @@
   {% if active_screen == 'my_visits' %}
   <section id="page-my_visits" class="page{% if active_screen == 'my_visits' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>My Submitted Visits</h1><p class="meta">Your latest JBL visit submissions and their current progress</p></div>
+      <div><h1>My Visits</h1><p class="meta">Your latest visit submissions and their progress</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="my_visits" aria-label="Refresh my visits" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     {% include "portal/partials/queue_tools.html" with queue_key="my_visits" queue_label="submitted visits" %}
@@ -279,8 +278,8 @@
   {% if active_screen == 'requisition' %}
   <section id="page-requisition" class="page{% if active_screen == 'requisition' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
-      <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+      <div><h1>Prepare Orders</h1><p class="meta">Assign an order number to approved cases</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh order queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <nav class="portal-segmented-tabs" id="requisition-partner-tabs" aria-label="Order fulfilment partner">
       <button type="button" class="active" data-requisition-partner="HB" aria-pressed="true">HB <span id="requisition-partner-count-hb">0</span></button>
@@ -297,11 +296,11 @@
       <div class="batch-form">
         <div class="form-row inline">
           <div class="field-group">
-            <label for="batch-order-num">Official order number</label>
+            <label for="batch-order-num">Order number</label>
             <input type="text" id="batch-order-num" value="Assigned on preview" readonly aria-readonly="true">
           </div>
           <div class="field-group">
-            <label for="batch-req-date">Requisition Date</label>
+            <label for="batch-req-date">Order date</label>
             <input type="date" id="batch-req-date">
           </div>
           <button type="button" class="btn btn-primary batch-generate-button" id="btn-generate-requisition" data-required-capability="portal.requisition.finalize">
@@ -419,9 +418,9 @@
   {% if active_screen == 'payments' or active_screen == 'payment_approvals' %}
   <section id="page-{{ active_screen }}" class="page active">
     {% if not payment_batch_id %}
-    <header class="portal-queue-header"><div><h1>{% if active_screen == 'payment_approvals' %}Payment Approval{% else %}Payment Preparation{% endif %}</h1><p class="meta">{% if active_screen == 'payment_approvals' %}Review submitted cases and generate approved workbooks{% else %}Payment batches start from received invoice deliveries{% endif %}</p></div><div class="payment-header-actions"><button type="button" class="queue-refresh-button" id="payments-refresh" aria-label="Refresh payments" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>{% if active_screen == 'payments' %}<button type="button" class="btn btn-primary" id="payments-receive-invoices" data-required-capability="portal.invoice.write">Receive invoices</button>{% endif %}</div></header>
+    <header class="portal-queue-header"><div><h1>{% if active_screen == 'payment_approvals' %}Payment Review{% else %}Payment Preparation{% endif %}</h1><p class="meta">{% if active_screen == 'payment_approvals' %}Review payment batches{% else %}Build payment batches from received invoices{% endif %}</p></div><div class="payment-header-actions"><button type="button" class="queue-refresh-button" id="payments-refresh" aria-label="Refresh payments" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>{% if active_screen == 'payments' %}<button type="button" class="btn btn-primary" id="payments-receive-invoices" data-required-capability="portal.invoice.write">Receive invoices</button>{% endif %}</div></header>
     {% if active_screen == 'payments' %}<section id="payments-receipts-panel" class="payment-receipts-panel" data-required-capability="portal.payment.prepare"><header><h2>Invoice deliveries</h2></header><div id="payments-receipts-list" class="payment-receipts-list"><div class="empty-state compact"><div class="spinner-inline"></div></div></div></section>{% endif %}
-    <nav class="portal-invoice-tabs payment-batch-filters" aria-label="Payment batch status">{% if active_screen == 'payment_approvals' %}<button type="button" class="active" data-payment-batch-filter="in_review"><span>Awaiting review</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="in_review" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="review_complete"><span>Ready to generate</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="review_complete" aria-hidden="true">0</span></button>{% else %}<button type="button" class="active" data-payment-batch-filter="open"><span>Open</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="open" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="completed"><span>Completed</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="completed" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="cancelled"><span>Cancelled</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="cancelled" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="all"><span>All</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="all" aria-hidden="true">0</span></button>{% endif %}</nav>
+    <nav class="portal-invoice-tabs payment-batch-filters" aria-label="Payment batch status">{% if active_screen == 'payment_approvals' %}<button type="button" class="active" data-payment-batch-filter="in_review"><span>Needs review</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="in_review" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="review_complete"><span>Ready</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="review_complete" aria-hidden="true">0</span></button>{% else %}<button type="button" class="active" data-payment-batch-filter="open"><span>Open</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="open" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="completed"><span>Completed</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="completed" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="cancelled"><span>Cancelled</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="cancelled" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="all"><span>All</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="all" aria-hidden="true">0</span></button>{% endif %}</nav>
     <div id="payments-batches" class="payment-batch-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
     {% else %}
     <section id="payments-detail" class="payment-detail" aria-busy="true">
@@ -468,7 +467,7 @@
   {% if active_screen == 'deferred' %}
   <section id="page-deferred" class="page{% if active_screen == 'deferred' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>Deferred / Reappraisal Required</h1><p class="meta">Rejected by JBL, credit declined, or on hold</p></div>
+      <div><h1>Revisit Cases</h1><p class="meta">Cases returned for follow-up</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="deferred" aria-label="Refresh deferred cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     {% include "portal/partials/queue_tools.html" with queue_key="deferred" queue_label="deferred cases" %}
@@ -498,8 +497,8 @@
   {% if active_screen == 'batches' %}
   <section id="page-batches" class="page{% if active_screen == 'batches' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>Requisition Batches</h1><p class="meta">Generated order batches and archives</p></div>
-      <button type="button" class="queue-refresh-button" data-queue-refresh="batches" aria-label="Refresh requisition batches" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+      <div><h1>Order Archive</h1><p class="meta">Generated order batches</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="batches" aria-label="Refresh order batches" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="batches-list" class="farmer-list">
       <div class="empty-state">
@@ -564,7 +563,7 @@
     <div id="portal-farmup-feedback" aria-live="polite"></div>
     <section id="portal-farmup-review" class="portal-import-review" aria-live="polite"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading FarmUp worklist…</div></div></section>
     {% else %}
-    <header class="farmup-intake-heading"><h1>FarmUp intake</h1><p class="meta">Reconcile the monthly farmer worklist before it enters the Portal.</p><div id="farmup-pending-badge" class="farmup-pending-badge" hidden aria-live="polite"></div></header>
+    <header class="farmup-intake-heading"><h1>Monthly farmer list</h1><p class="meta">Review this month’s list before adding cases.</p><div id="farmup-pending-badge" class="farmup-pending-badge" hidden aria-live="polite"></div></header>
     <form id="portal-farmup-upload" class="portal-import-upload portal-farmup-upload">
       <div class="farmup-upload-heading"><div><span class="settings-eyebrow">Monthly worklist</span><h2>Upload a fresh CSV</h2></div><span class="farmup-upload-format">CSV</span></div>
       <div class="farmup-upload-controls">
@@ -574,7 +573,7 @@
           <button type="submit" class="btn btn-primary"><i data-lucide="upload" aria-hidden="true"></i><span>Upload</span></button>
         </div>
       </div>
-      <p class="farmup-upload-help">Rows are reviewed before they are committed. Sheet synchronization follows separately.</p>
+      <p class="farmup-upload-help">Review rows here. Google Sheet updates happen in the background.</p>
       <p class="farmup-upload-status" data-farmup-upload-status role="status" aria-live="polite"></p>
     </form>
     <div id="portal-farmup-feedback" aria-live="polite"></div>
@@ -591,8 +590,8 @@
   {% if active_screen == 'imports' %}
   <section id="page-imports" class="page{% if active_screen == 'imports' %} active{% endif %}" data-required-capability="portal.imports.view">
     <header>
-      <h1>Import History</h1>
-      <p class="meta">Upload system exports and review staged records.</p>
+      <h1>Customer system updates</h1>
+      <p class="meta">Upload and review customer updates (SysUp).</p>
     </header>
     <div class="portal-import-upload-grid">
       <form class="portal-import-upload" data-import-kind="sysup">
@@ -664,7 +663,7 @@
       <div id="portal-approval-delegation-content" aria-live="polite"></div>
     </details>
     <section class="portal-settings-card portal-settings-about">
-      <div class="portal-settings-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Portal access</h2><p>Sign-in is verified through Telegram. Security, assignment, approval, and overdue alerts remain mandatory.</p></div>
+      <div class="portal-settings-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Account and support</h2><p>Sign-in is verified through Telegram. Security, assignment, approval, and overdue alerts remain on.</p></div>
       <div class="portal-settings-about-row"><span>App release</span><strong id="portal-settings-release">Current release</strong></div>
       <p class="field-help">Need a profile, role, branch, or access correction? Contact a JBL administrator.</p>
     </section>
@@ -749,8 +748,8 @@
     <div class="sheet-header">
       <div class="sheet-heading-row">
         <div>
-          <h2>Preview Requisition Batch</h2>
-          <p class="sheet-sub" id="requisition-preview-sub">Review selected clients before generation</p>
+          <h2>Preview order batch</h2>
+          <p class="sheet-sub" id="requisition-preview-sub">Review selected cases before generation</p>
         </div>
         <button type="button" id="requisition-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
@@ -764,7 +763,7 @@
     </div>
     <div class="sheet-footer">
       <button class="btn" id="requisition-preview-cancel" type="button">Back</button>
-      <button class="primary" id="requisition-preview-confirm" type="button">Finalize Order</button>
+      <button class="primary" id="requisition-preview-confirm" type="button">Finalize order</button>
     </div>
   </div>
 </div>

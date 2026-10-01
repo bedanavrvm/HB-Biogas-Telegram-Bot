@@ -9,20 +9,20 @@ PORTAL_NAV_ITEMS = (
     ('dashboard', 'Home', 'house', 'portal.dashboard.view'),
     ('performance', 'Performance', 'trophy', 'portal.performance.view'),
     ('jbl', 'Visit Queue', 'map-pinned', 'portal.jbl_queue.view'),
-    ('my_visits', 'My Submitted Visits', 'clipboard-check', 'portal.jbl_followup.view'),
+    ('my_visits', 'My Visits', 'clipboard-check', 'portal.jbl_followup.view'),
     ('credit', 'Credit Analysis', 'shield-check', 'portal.credit_queue.view'),
     ('final', 'Order Approval', 'badge-check', 'portal.final_review.view'),
-    ('payment_approvals', 'Payment Approval', 'circle-dollar-sign', 'portal.payment.review'),
-    ('requisition', 'Order Preparation', 'shopping-bag', 'portal.requisition.view'),
-    ('deferred', 'Deferred & Reappraisal', 'clock', 'portal.deferred.view'),
+    ('payment_approvals', 'Payment Review', 'circle-dollar-sign', 'portal.payment.review'),
+    ('requisition', 'Prepare Orders', 'shopping-bag', 'portal.requisition.view'),
+    ('deferred', 'Revisit Cases', 'clock', 'portal.deferred.view'),
     ('all', 'All Cases', 'database', 'portal.case.read'),
-    ('batches', 'Finalized Orders', 'layers', 'portal.batches.view'),
-    ('hb_actions', 'HB Action', 'wrench', 'portal.hb_action.view'),
-    ('invoices', 'Invoice Review', 'receipt-text', 'portal.invoice.view'),
+    ('batches', 'Order Archive', 'layers', 'portal.batches.view'),
+    ('hb_actions', 'Install & Commission', 'wrench', 'portal.hb_action.view'),
+    ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payment Preparation', 'banknote', 'portal.payment.view'),
     ('history', 'Document Archive', 'archive', 'portal.documents.view'),
-    ('farmup', 'FarmUp Worklists', 'file-up', 'portal.farmup.view'),
-    ('imports', 'Import History', 'upload', 'portal.imports.view'),
+    ('farmup', 'Monthly List (FarmUp)', 'file-up', 'portal.farmup.view'),
+    ('imports', 'Customer Updates (SysUp)', 'upload', 'portal.imports.view'),
     ('reports', 'Reports', 'chart-no-axes-combined', 'portal.reports.view'),
 )
 
@@ -35,7 +35,7 @@ PIPELINE_STAGES = (
     ('approval', 'Approval', 'badge-check', ('final', 'payment_approvals')),
     ('fulfilment', 'Fulfilment', 'package-check', ('requisition', 'batches')),
     ('finance', 'Finance', 'banknote', ('invoices', 'payments', 'history')),
-    ('homebiogas', 'HB Action', 'wrench', ('hb_actions',)),
+    ('homebiogas', 'Install & Commission', 'wrench', ('hb_actions',)),
 )
 
 PORTAL_SCREEN_PRESENTATION = {
@@ -50,7 +50,7 @@ PORTAL_SCREEN_PRESENTATION = {
     'payment_approvals': {'hub': 'pipeline', 'stage': 'approval', 'group': 'Pipeline · Approval', 'order': 1},
     'requisition': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 0},
     'batches': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 1},
-    'hb_actions': {'hub': 'pipeline', 'stage': 'homebiogas', 'group': 'Pipeline · HB Action', 'order': 0},
+    'hb_actions': {'hub': 'pipeline', 'stage': 'homebiogas', 'group': 'Pipeline · Install & Commission', 'order': 0},
     'invoices': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 0},
     'payments': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 1},
     'history': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 2},
@@ -63,7 +63,7 @@ PORTAL_SCREEN_PRESENTATION = {
 
 PORTAL_NAV_GROUP_ORDER = (
     'Home', 'Pipeline · Intake', 'Pipeline · Field Visit', 'Pipeline · Credit',
-    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · HB Action', 'Cases', 'More',
+    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · Install & Commission', 'Cases', 'More',
 )
 
 PORTAL_HUBS = (

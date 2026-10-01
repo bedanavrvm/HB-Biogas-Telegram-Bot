@@ -658,8 +658,8 @@
     setSection('portal-home-actions', 'portal-home-actions-list', actions, homeRow);
     setSection('portal-home-health', 'portal-home-health-list', health, item => {
       const retry = item.action?.type === 'publication_retry' && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
-      if (retry) return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sync issue')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></article>`;
-      if (item.action?.type === 'publication_wake') return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sheet sync')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume sync')}</button></article>`;
+      if (retry) return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Google Sheet update')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry update')}</button></article>`;
+      if (item.action?.type === 'publication_wake') return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Google Sheet update')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume updates')}</button></article>`;
       return homeRow(item);
     });
     setSection('portal-home-queues', 'portal-home-queues-list', queues, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${item.workflow && item.workflow !== 'Portal' ? `${escapeHtml(item.workflow)} · ` : ''}${escapeHtml(item.count)} awaiting action</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
@@ -695,7 +695,7 @@
       attention: (dashboard.attention || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
       ready_for_order: c.requisition_queue || 0,
     };
-    if (el('dashboard-scope')) el('dashboard-scope').textContent = dashboard.scope?.label || 'Your authorized scope';
+    if (el('dashboard-scope')) el('dashboard-scope').textContent = dashboard.scope?.label || 'Work available to you';
     if (el('dashboard-as-of')) el('dashboard-as-of').textContent = dashboard.as_of ? `Updated ${fmtDateTime(dashboard.as_of)}` : 'Current data';
     const overviewTarget = el('dashboard-overview');
     if (overviewTarget) {
@@ -714,9 +714,9 @@
         const retry = item.action?.type === 'publication_retry'
           && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
         if (retry) {
-          return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></div></article>`;
+          return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Google Sheet update')}</strong><span>${escapeHtml(item.detail || item.severity || 'Review needed')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry update')}</button></div></article>`;
         }
-        if (item.action?.type === 'publication_wake') return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Sheet sync')}</strong><span>${escapeHtml(item.detail || '')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume sync')}</button></div></article>`;
+        if (item.action?.type === 'publication_wake') return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Google Sheet update')}</strong><span>${escapeHtml(item.detail || '')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume updates')}</button></div></article>`;
         return `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`;
       }).join('');
     }
@@ -794,7 +794,7 @@
     if (!event.target.closest('[data-publication-wake]')) return;
     event.preventDefault();
     portalApi.wakePublicationPump?.();
-    showToast('Sheet sync will continue in the background while Portal is open.', 'success');
+    showToast('Google Sheet updates will continue in the background.', 'success');
   });
   document.addEventListener('click', async event => {
     const button = event.target.closest('[data-publication-retry]');
@@ -803,7 +803,7 @@
     let operationIds = [];
     try { operationIds = JSON.parse(button.dataset.publicationOperationIds || '[]'); } catch (_) { operationIds = []; }
     if (!operationIds.length) {
-      showToast('No sheet synchronization operation is available to retry.', 'error');
+      showToast('No Google Sheet update is available to retry.', 'error');
       return;
     }
     button.disabled = true;
@@ -820,9 +820,9 @@
       }
       needsAttention = needsAttention || Boolean(result.data?.needs_attention);
     }
-    if (failedMessage) showToast(`Sheet sync was not retried: ${failedMessage}`, 'error');
-    else if (needsAttention) showToast('Sheet sync still needs attention. Review the case before retrying.', 'warning');
-    else showToast('Sheet synchronization retry queued.', 'success');
+    if (failedMessage) showToast(`Google Sheet update was not retried: ${failedMessage}`, 'error');
+    else if (needsAttention) showToast('Google Sheet update still needs attention. Review the related case before retrying.', 'warning');
+    else showToast('Google Sheet update retry queued.', 'success');
     await loadDashboard({ force: true });
     loadPortalNotifications();
   });
@@ -1319,7 +1319,7 @@
           btn.textContent = 'Retry storage';
           return;
         }
-        showToast('Requisition workbook stored successfully.', 'success');
+        showToast('Order workbook saved successfully.', 'success');
         await loadQueue('batches', state.pages.batches || 1);
       });
     });
@@ -1983,7 +1983,7 @@
   function renderPortalHealth(target, health, canManageMaintenance = false) {
     const labels = {
       database: 'Database',
-      requisition_template: 'Requisition template',
+      requisition_template: 'Order template',
       payment_template: 'Payment template',
       order_storage: 'Order storage',
       payment_storage: 'Payment storage',

@@ -70,7 +70,7 @@
     const list = node('portal-import-list');
     if (!list) return;
     if (!importState.batches.length) {
-      list.innerHTML = '<div class="empty-state"><div class="es-title">No staged SysUp imports</div><div class="es-sub">Stage a system export above to review its source rows here.</div></div>';
+      list.innerHTML = '<div class="empty-state"><div class="es-title">No customer updates to review</div><div class="es-sub">Upload a customer update file to review its rows here.</div></div>';
       return;
     }
     list.innerHTML = importState.batches.map(batch => {

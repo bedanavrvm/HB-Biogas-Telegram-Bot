@@ -1217,11 +1217,11 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False,
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
 
     if not farmer_ids:
-        return None, JsonResponse({'ok': False, 'code': 'order_selection_required', 'error': 'Select at least one customer in Order Preparation.', 'field_errors': {'farmer_ids': 'Select at least one customer.'}}, status=400)
+        return None, JsonResponse({'ok': False, 'code': 'order_selection_required', 'error': 'Select at least one case in Prepare Orders.', 'field_errors': {'farmer_ids': 'Select at least one case.'}}, status=400)
     if not order_number:
         return None, JsonResponse({'ok': False, 'code': 'order_number_required', 'error': 'Preview this order again to assign its order number.'}, status=400)
     if not requisition_date_raw:
-        return None, JsonResponse({'ok': False, 'code': 'order_date_required', 'error': 'Choose the requisition date in Order Preparation.', 'field_errors': {'requisition_date': 'Choose the requisition date.'}}, status=400)
+        return None, JsonResponse({'ok': False, 'code': 'order_date_required', 'error': 'Choose the order date in Prepare Orders.', 'field_errors': {'requisition_date': 'Choose the order date.'}}, status=400)
 
     try:
         requisition_date = _date.fromisoformat(requisition_date_raw)
@@ -1233,7 +1233,7 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False,
 
     farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
     if len(farmers) != len(farmer_ids):
-        return None, JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A selected customer is no longer available. Refresh Order Preparation and select the customers again.'}, status=404)
+        return None, JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A selected case is no longer available. Refresh Prepare Orders and select the cases again.'}, status=404)
 
     farmers, batch = _merge_requisition_farmers(farmers, order_number, farmer_ids)
     access_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.view')
@@ -1564,15 +1564,15 @@ def portal_case_history_detail(request, farmer_id: str):
     source_labels = {
         'dashboard': 'Home',
         'jbl': 'JBL Visit',
-        'my_visits': 'My Submitted Visits',
+        'my_visits': 'My Visits',
         'credit': 'Credit Analysis',
         'final': 'Order Approval',
-        'requisition': 'Order Preparation',
-        'deferred': 'Deferred & Reappraisal',
+        'requisition': 'Prepare Orders',
+        'deferred': 'Revisit Cases',
         'all': 'All Cases',
         'payments': 'Payment Preparation',
-        'payment_approvals': 'Payment Approval',
-        'hb_actions': 'HB Action',
+        'payment_approvals': 'Payment Review',
+        'hb_actions': 'Install & Commission',
     }
     if source not in source_labels:
         source = 'all'
@@ -5414,7 +5414,7 @@ def _active_requisition_sequence(request, partner: str):
                 return SimpleNamespace(pk=0, revision=0, next_number=legacy_number, partner=partner, legacy=True), None
         return None, JsonResponse({'ok': False, 'error': 'IT must configure the official order number before a requisition can be previewed.', 'code': 'sequence_not_initialized'}, status=409)
     if len(rows) > 1:
-        return None, JsonResponse({'ok': False, 'code': 'order_group_ambiguous', 'error': 'More than one group is available for this order. Ask IT to set the correct group for your Order Preparation access.'}, status=409)
+        return None, JsonResponse({'ok': False, 'code': 'order_group_ambiguous', 'error': 'More than one group is available for this order. Ask IT to check your Prepare Orders access.'}, status=409)
     return rows[0], None
 
 
@@ -5906,7 +5906,7 @@ def portal_requisition_preview(request):
         from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner
         preview_farmers = list(JawabuFarmerMaster.objects.filter(id__in=preview_ids))
         if len(preview_farmers) != len(preview_ids):
-            raise ValueError('A selected customer is no longer available. Refresh Order Preparation and select the customers again.')
+            raise ValueError('A selected case is no longer available. Refresh Prepare Orders and select the cases again.')
         partner = require_single_fulfillment_partner(preview_farmers)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         return JsonResponse({'ok': False, 'code': 'order_partner_invalid', 'error': str(exc) or 'Select at least one customer.'}, status=400)
@@ -6085,7 +6085,7 @@ def portal_requisition_finalize(request):
         return JsonResponse({'ok': False, 'error': 'This preview expired. Preview the selected cases again.', 'code': 'preview_expired'}, status=409)
     actor_id = str(getattr(getattr(request, 'portal_user', None), 'pk', '') or '')
     if str(signed.get('user_id') or '') != actor_id:
-        return JsonResponse({'ok': False, 'code': 'order_preview_wrong_user', 'error': 'This preview belongs to another user. Open Order Preparation and create your own preview.'}, status=403)
+        return JsonResponse({'ok': False, 'code': 'order_preview_wrong_user', 'error': 'This preview belongs to another user. Open Prepare Orders and create your own preview.'}, status=403)
     request_id = _portal_request_id(request, body)
     if not request_id:
         return JsonResponse({'ok': False, 'code': 'order_request_required', 'error': 'Refresh the Portal and preview the order again before finalizing.'}, status=400)
@@ -6107,13 +6107,13 @@ def portal_requisition_finalize(request):
     existing = RequisitionBatch.objects.filter(generation_request_id=request_id).first()
     if existing:
         if existing.finalization_payload_digest and existing.finalization_payload_digest != payload_digest:
-            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to a different order preview. Check Batches, then return to Order Preparation and preview again.'}, status=409)
+            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to a different order preview. Check Order Archive, then return to Prepare Orders and preview again.'}, status=409)
         if not existing.finalization_payload_digest and (
             existing.membership_digest != membership_digest
             or str(existing.order_number) != str(signed.get('order_number'))
             or (existing.requisition_date.isoformat() if existing.requisition_date else '') != str(signed.get('requisition_date'))
         ):
-            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to different order details. Check Batches, then return to Order Preparation and preview again.'}, status=409)
+            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to different order details. Check Order Archive, then return to Prepare Orders and preview again.'}, status=409)
         farmers = _farmers_for_batch(existing.order_number, existing.farmer_ids)
         scope_error = _portal_farmers_scope_error(
             request, farmers, capability='portal.requisition.finalize',
@@ -6135,7 +6135,7 @@ def portal_requisition_finalize(request):
                 return JsonResponse({'ok': False, 'error': 'The official order number changed. Preview again.', 'code': 'sequence_changed'}, status=409)
             farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids).order_by('id'))
             if len(farmers) != len(farmer_ids):
-                return JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A previewed customer is no longer available. Refresh Order Preparation and select the customers again.'}, status=409)
+                return JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A previewed case is no longer available. Refresh Prepare Orders and select the cases again.'}, status=409)
             scope_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize')
             if scope_error:
                 return scope_error

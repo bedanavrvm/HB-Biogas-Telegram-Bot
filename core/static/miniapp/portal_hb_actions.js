@@ -65,7 +65,7 @@
     const response = await deps.portalApi.apiFetch(`/hb-actions/?${params.toString()}`, {}, deps.tg);
     if (requestVersion !== listRequestVersion || requestQueue !== activeQueue) return;
     if (!response.ok || !response.data?.ok) {
-      target.innerHTML = `<div class="empty-state"><strong>HB Action could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
+      target.innerHTML = `<div class="empty-state"><strong>Install & Commission could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
       target.querySelector('[data-hb-retry]')?.addEventListener('click', loadList);
       return;
     }

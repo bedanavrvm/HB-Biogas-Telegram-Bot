@@ -129,11 +129,11 @@
   }
   function publicationBadge(batch) {
     const status = batch.publication?.status;
-    if (status === 'synced') return '<span class="badge badge-green">Sheet synced</span>';
-    if (status === 'needs_attention') return `<button type="button" class="badge badge-orange farmup-sync-status" data-batch-id="${escapeHtml(batch.id)}">${batch.publication?.identity_review ? 'Identity review needed' : 'Sheet needs retry'}</button>`;
+    if (status === 'synced') return '<span class="badge badge-green">Sheet updated</span>';
+    if (status === 'needs_attention') return `<button type="button" class="badge badge-orange farmup-sync-status" data-batch-id="${escapeHtml(batch.id)}">${batch.publication?.identity_review ? 'Identity review needed' : 'Sheet update needs retry'}</button>`;
     if (status === 'pending') {
       const due = batch.publication?.next_retry_at;
-      const progress = `${Number(batch.publication.synced || 0)}/${Number(batch.publication.total || 0)} Sheet synced`;
+      const progress = `${Number(batch.publication.synced || 0)}/${Number(batch.publication.total || 0)} Sheet updates`;
       const ahead = Number(batch.publication.ahead_count || 0);
       return `<button type="button" class="badge badge-blue farmup-sync-status" data-batch-id="${escapeHtml(batch.id)}">${escapeHtml(progress)}${ahead ? ` · ${ahead} ahead` : ''}</button> <span class="badge badge-blue"${due ? ` data-sheet-retry-at="${escapeHtml(due)}"` : ''}>${due ? 'Retry timing' : 'Queued'}</span>`;
     }
@@ -146,21 +146,21 @@
     receipt.hidden = !publication.status || publication.status === 'not_required';
     if (receipt.hidden) return;
     receipt.textContent = publication.status === 'synced'
-      ? `${publication.synced || 0} Sheet update(s) synchronized.`
+      ? `${publication.synced || 0} Google Sheet update(s) complete.`
       : publication.status === 'needs_attention'
-        ? `${publication.needs_attention || 0} current Sheet sync${publication.needs_attention === 1 ? '' : 's'} need attention.${publication.identity_review ? ` ${publication.identity_review} need identity review before retry.` : ''} Portal data is saved.`
-        : `Portal data is saved. ${publication.synced || 0}/${publication.total || 0} Sheet updates synced.${publication.ahead_count ? ` ${publication.ahead_count} earlier update${publication.ahead_count === 1 ? ' is' : 's are'} ahead. ` : ' '}Updates continue while any Portal screen is open; you can leave this worklist.`;
+        ? `${publication.needs_attention || 0} Google Sheet update${publication.needs_attention === 1 ? '' : 's'} need attention.${publication.identity_review ? ` ${publication.identity_review} need identity review before retry.` : ''} Portal data is saved.`
+        : `Portal data is saved. ${publication.synced || 0}/${publication.total || 0} Google Sheet updates complete.${publication.ahead_count ? ` ${publication.ahead_count} earlier update${publication.ahead_count === 1 ? ' is' : 's are'} ahead. ` : ' '}Updates continue in the background; you can leave this worklist.`;
   }
   function updatePublicationRetryTimers() {
     document.querySelectorAll('[data-sheet-retry-at]').forEach(element => {
       const due = Date.parse(element.dataset.sheetRetryAt || '');
-      if (!Number.isFinite(due)) { element.textContent = 'Sheet sync queued'; return; }
+      if (!Number.isFinite(due)) { element.textContent = 'Sheet update queued'; return; }
       const remaining = Math.max(0, Math.ceil((due - Date.now()) / 1000));
-      if (!remaining) { element.textContent = 'Retry eligible now'; return; }
+      if (!remaining) { element.textContent = 'Retry available now'; return; }
       element.textContent = remaining >= 60
-        ? `Retry eligible in ${Math.ceil(remaining / 60)} min`
-        : `Retry eligible in ${remaining} sec`;
-      element.title = 'This is the earliest retry time, not a guaranteed completion time.';
+        ? `Retry in about ${Math.ceil(remaining / 60)} min`
+        : `Retry in about ${remaining} sec`;
+      element.title = 'Estimated earliest retry time; completion may take longer.';
     });
   }
   function renderBatches() {
@@ -308,10 +308,10 @@
     const tools = `<div class="farmup-toolbar"><label class="farmup-search-field"><i aria-hidden="true">${icon('search')}</i><input id="farmup-search" type="search" value="${escapeHtml(search)}" placeholder="Search rows, names or IDs" aria-label="Search FarmUp rows"></label><div class="farmup-toolbar-actions"><div class="farmup-mode-toggle" role="group" aria-label="Review layout"><button type="button" data-farmup-mode="table" aria-label="Table review" title="Table review">${icon('table-2')}</button><button type="button" data-farmup-mode="carousel" aria-label="Swipe review" title="Swipe review">${icon('gallery-horizontal')}</button></div><button class="btn btn-secondary ${needsReviewOnly ? 'active' : ''}" id="farmup-review-filter" aria-pressed="${needsReviewOnly}">Needs review</button><details class="farmup-bulk-actions"><summary aria-label="More row actions" title="More row actions">${icon('sliders-horizontal')}</summary><div><button type="button" id="farmup-select-all">${icon('list-checks')} Select eligible</button><button type="button" id="farmup-clear-all">${icon('pause')} Hold all</button><button type="button" id="farmup-exclude-selected">${icon('circle-minus')} Exclude selected</button><button type="button" id="farmup-restore-excluded">${icon('undo-2')} Restore exclusions</button></div></details></div></div>`;
     const review = active.mapping?.state === 'needs_mapping' ? '' : `${tools}<div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div id="farmup-grid-wrap" class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div><div id="farmup-carousel" class="farmup-carousel" hidden></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Selected rows commit now; other rows stay held.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
     const routeBack = Boolean(node('portal-screen')?.dataset.farmupBatchId);
-    target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to FarmUp worklists" title="Back to FarmUp worklists">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Repair Sheet</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
+    target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to monthly list" title="Back to monthly list">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'Monthly list')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'Monthly farmer list')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Find missing updates</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
     const actions = target.querySelector('.portal-import-review-heading .portal-import-actions');
     if (can('portal.publication.retry') && active.publication?.failed_operation_ids?.length) {
-      actions?.insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-secondary" id="farmup-retry-sync">Retry failed sync</button>`);
+      actions?.insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-secondary" id="farmup-retry-sync">Retry Sheet updates</button>`);
     }
     const repairButton = node('farmup-repair');
     if (repairButton) repairButton.textContent = 'Find missing updates';
@@ -367,7 +367,7 @@
   async function uploadVersion(form) {
     const input = form.querySelector('[data-farmup-file]'); validateFarmupFile(input);
     const button = form.querySelector('button[type="submit"]'); setLoading(button, true, 'Reconciling');
-    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-version')); const result = await api.postForm(`/farmup/${encodeURIComponent(active.id)}/versions/`, body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Updated FarmUp CSV could not be reconciled.'); utils.setCloseProtection?.('portal-farmup-file-selected', false); const message = result.data.replayed ? 'This version already exists. The current worklist was reopened.' : result.data.message; window.PortalAppShell?.showToast?.(message, 'success'); await load({silent:true}); await openBatch(result.data.batch.id); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
+    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-version')); const result = await api.postForm(`/farmup/${encodeURIComponent(active.id)}/versions/`, body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Updated farmer list could not be checked. Try again.'); utils.setCloseProtection?.('portal-farmup-file-selected', false); const message = result.data.replayed ? 'This version already exists. The current list was reopened.' : result.data.message; window.PortalAppShell?.showToast?.(message, 'success'); await load({silent:true}); await openBatch(result.data.batch.id); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
   }
   function submittedRows() { gridApi?.stopEditing(); return (active.rows || []).map(row => ({row_id:row.row_id, approved:Boolean(row.approved), disposition:row.disposition || (row.approved ? 'commit_now' : 'hold'), warning_acknowledged:Boolean(row.warning_acknowledged), update_acknowledged:Boolean(row.update_acknowledged), ...Object.fromEntries((active.editable_fields || editableFields).map(field => [field, row[field] || '']))})); }
   async function validateReview() {
@@ -391,7 +391,7 @@
       setLoading(button, true, 'Committing'); const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/commit/`, {revision_token:active.revision_token, rows:submittedRows(), client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed.');
-      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
+      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} added to Portal — ${receipt.created || 0} new, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Google Sheet update queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }
   async function repairSheet() {

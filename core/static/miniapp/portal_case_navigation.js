@@ -73,10 +73,10 @@
       if (backButton) {
         const sourceLabels = {
           dashboard: 'Back to Home',
-          payments: 'Back to Payment Preparation', payment_approvals: 'Back to Payment Approval', requisition: 'Back to Order Preparation',
+          payments: 'Back to Payment Preparation', payment_approvals: 'Back to Payment Review', requisition: 'Back to Prepare Orders',
           jbl: 'Back to JBL Visit', credit: 'Back to Credit Analysis',
-          final: 'Back to Order Approval', my_visits: 'Back to My Submitted Visits',
-          deferred: 'Back to Deferred & Reappraisal', all: 'Back to All Cases',
+          final: 'Back to Order Approval', my_visits: 'Back to My Visits',
+          deferred: 'Back to Revisit Cases', all: 'Back to All Cases',
         };
         const label = sourceLabels[originPage] || 'Back to previous screen';
         backButton.href = context.originUrl;
