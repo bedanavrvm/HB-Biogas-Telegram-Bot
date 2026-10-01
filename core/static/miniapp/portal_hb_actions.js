@@ -16,6 +16,32 @@
   let previewRequestVersion = 0;
   let previewHistoryActive = false;
   let listRequestVersion = 0;
+  let formProtection = null;
+  let notesProtection = null;
+
+  function signature(container, excludeNotes = false) {
+    return JSON.stringify([...container.querySelectorAll('input,select,textarea')]
+      .filter(control => !excludeNotes || !control.closest('#hb-commissioning-notes'))
+      .map(control => [control.id, control.type === 'checkbox' ? control.checked : control.value]));
+  }
+
+  function bindDetailProtection() {
+    const form = byId('hb-action-form');
+    const notes = byId('hb-commissioning-notes');
+    formProtection?.destroy(); notesProtection?.destroy();
+    formProtection = window.MiniAppUtils?.bindFormCloseProtection?.(form, 'hb-action-form', () => signature(form, true));
+    notesProtection = notes && window.MiniAppUtils?.bindFormCloseProtection?.(notes, 'hb-action-notes', () => signature(notes));
+  }
+
+  function savedDetail(action, scope) {
+    const form = byId('hb-action-form');
+    const preserved = [...form.querySelectorAll('input,select,textarea')].filter(control =>
+      scope === 'notes' ? !control.closest('#hb-commissioning-notes') : control.closest('#hb-commissioning-notes'))
+      .map(control => [control, control.value, control.checked]);
+    populateDetail(action); applyVisualDetailHierarchy(action);
+    preserved.forEach(([control, value, checked]) => { control.value = value; control.checked = checked; });
+    if (scope === 'notes') notesProtection?.markClean(); else formProtection?.markClean();
+  }
 
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
@@ -195,7 +221,8 @@
       (detail?.workstream === 'installation' && ['installed', 'closed'].includes(detail?.installation_status))
       || (detail?.workstream === 'commissioning' && detail?.commissioning_status === 'commissioned')
     );
-    const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
+    const installationLocked = detail?.workstream === 'installation' && detail?.commissioning_status === 'commissioned';
+    const editable = Boolean(permissions.write) && !installationLocked && (!completedMilestone || correctionMode);
     form.querySelectorAll('input,select,textarea').forEach(control => {
       if (!control.closest('#hb-commissioning-notes')) control.disabled = !editable;
     });
@@ -223,7 +250,7 @@
       reportDelay.disabled = !permissions.write;
     }
     const editToggle = byId('hb-action-edit-toggle');
-    if (editToggle) editToggle.hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
+    if (editToggle) editToggle.hidden = installationLocked || !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
   }
 
   function applyVisualDetailHierarchy(action) {
@@ -265,6 +292,7 @@
     if (payload.workstream === 'commissioning') {
       if (!payload.commissioning_date) return 'Choose the actual commissioning date.';
       if (payload.commissioning_date > today) return 'The actual commissioning date cannot be in the future.';
+      if (payload.commissioning_date < detail.installation_date) return 'Commissioning cannot be before installation.';
       return '';
     }
     if (payload.installation_status === 'open') return payload.installation_note ? '' : 'Add a short pending installation comment.';
@@ -273,7 +301,6 @@
     return '';
   }
   function dateDifferenceDays(later, earlier) { return Math.round((Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / 86400000); }
-  function addDays(value, days) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
   function confirmEarly(message) {
     return new Promise(resolve => { if (deps.tg?.showConfirm) deps.tg.showConfirm(message, resolve); else resolve(window.confirm(message)); });
   }
@@ -287,28 +314,21 @@
       if (!confirmed) return;
       payload.early_commissioning_acknowledged = true;
     }
-    if (payload.workstream === 'installation' && correctionMode && detail.commissioning_status === 'commissioned' && detail.commissioning_date && payload.installation_date) {
-      const correctedReadyOn = addDays(payload.installation_date, 21);
-      if (detail.commissioning_date < correctedReadyOn) {
-        const days = dateDifferenceDays(correctedReadyOn, detail.commissioning_date);
-        const confirmed = await confirmEarly(`The corrected installation date makes commissioning ${days} day${days === 1 ? '' : 's'} earlier than the standard readiness date. Continue?`);
-        if (!confirmed) return;
-        payload.early_commissioning_acknowledged = true;
-      }
-    }
     const button = byId('hb-action-save');
     deps.setButtonLoading?.(button, true, correctionMode ? 'Saving correction…' : 'Saving…');
     const endpoint = `/hb-actions/${encodeURIComponent(detail.farmer_id)}/${correctionMode ? 'correct' : 'transition'}/`;
-    const response = await deps.portalApi.postJson(endpoint, payload, deps.tg);
-    deps.setButtonLoading?.(button, false);
+    let response;
+    try { response = await deps.portalApi.postJson(endpoint, payload, deps.tg); }
+    catch (error) { deps.showToast(error.message || 'The record could not be saved. Try again.', 'error'); return; }
+    finally { deps.setButtonLoading?.(button, false); }
     if (!response.ok || !response.data?.ok) { deps.showToast(response.data?.error || 'The record could not be saved.', 'error'); return; }
     correctionMode = false;
+    formProtection?.markClean();
     if (payload.workstream === 'installation' && response.data.action.installation_status === 'installed') {
       deps.showToast('Installation saved. The case is now in the commissioning queue.', 'success');
       window.location.assign('/portal/s/hb-actions/?queue=commissioning'); return;
     }
-    populateDetail(response.data.action);
-    applyVisualDetailHierarchy(response.data.action);
+    savedDetail(response.data.action, 'form');
     deps.showToast(payload.workstream === 'commissioning' ? 'Commissioning recorded.' : (payload.installation_status === 'open' ? 'Delay update saved.' : 'Installation saved.'), 'success');
   }
 
@@ -321,11 +341,12 @@
     };
     const button = byId('hb-save-commissioning-notes');
     deps.setButtonLoading?.(button, true, 'Saving notes…');
-    const response = await deps.portalApi.postJson(`/hb-actions/${encodeURIComponent(detail.farmer_id)}/commissioning-notes/`, payload, deps.tg);
-    deps.setButtonLoading?.(button, false);
+    let response;
+    try { response = await deps.portalApi.postJson(`/hb-actions/${encodeURIComponent(detail.farmer_id)}/commissioning-notes/`, payload, deps.tg); }
+    catch (error) { deps.showToast(error.message || 'Notes could not be saved. Try again.', 'error'); return; }
+    finally { deps.setButtonLoading?.(button, false); }
     if (!response.ok || !response.data?.ok) { deps.showToast(response.data?.error || 'Notes could not be saved.', 'error'); return; }
-    populateDetail(response.data.action);
-    applyVisualDetailHierarchy(response.data.action);
+    savedDetail(response.data.action, 'notes');
     deps.showToast('Commissioning notes saved.', 'success');
   }
 
@@ -367,6 +388,7 @@
   }
 
   async function loadDetail(farmerId) {
+    if (formProtection?.isDirty() || notesProtection?.isDirty()) return;
     const requested = currentWorkstream(); const suffix = requested ? `?workstream=${encodeURIComponent(requested)}` : '';
     const response = await deps.portalApi.apiFetch(`/hb-actions/${encodeURIComponent(farmerId)}/${suffix}`, {}, deps.tg);
     if (!response.ok || !response.data?.ok) {
@@ -375,6 +397,7 @@
     options = response.data.options || {}; permissions = response.data.permissions || {};
     byId('hb-action-detail-loading').hidden = true; byId('hb-action-detail').hidden = false;
     populateDetail(response.data.action); applyVisualDetailHierarchy(response.data.action); window.lucide?.createIcons?.();
+    bindDetailProtection();
   }
   function init(injected) {
     deps = injected || {};

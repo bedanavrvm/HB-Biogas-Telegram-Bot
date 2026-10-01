@@ -314,6 +314,8 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
 
 
 def _validate_installation(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED:
+        raise HomeBiogasActionError('Installation is read-only after commissioning is complete.')
     if action.installation_status == HomeBiogasAction.INSTALLATION_CLOSED:
         raise HomeBiogasActionError('This legacy closed installation record is read-only.')
     target = _text(payload, 'installation_status', max_length=32)
@@ -323,14 +325,6 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
     }
     if not (correction and target == action.installation_status) and target not in allowed_targets.get(action.installation_status, set()):
         raise HomeBiogasActionError('That installation change is not available from the current status.')
-    if (
-        correction
-        and action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
-        and target != HomeBiogasAction.INSTALLATION_INSTALLED
-    ):
-        raise HomeBiogasActionError(
-            'Installation must remain Installed because commissioning is already complete.'
-        )
     readiness = _text(payload, 'readiness_status', max_length=24)
     comment = _text(payload, 'installation_note') or _text(payload, 'pending_installation_comment')
     planned_installation_date = _date_value(payload, 'planned_installation_date')
@@ -399,6 +393,11 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
         raise HomeBiogasActionError('Choose the actual commissioning date.')
     if commissioned_on > timezone.localdate():
         raise HomeBiogasActionError('The actual commissioning date cannot be in the future.')
+    if commissioned_on < action.installation_date:
+        raise HomeBiogasActionError(
+            f'Commissioning date {commissioned_on:%d-%m-%Y} cannot be before '
+            f'installation date {action.installation_date:%d-%m-%Y}.'
+        )
     ready_on = action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
     early_by_days = max(0, (ready_on - commissioned_on).days)
     acknowledged = str(payload.get('early_commissioning_acknowledged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
@@ -541,23 +540,6 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
             {**before, **payload, 'installation_status': payload.get('installation_status', action.installation_status)},
             correction=True,
         )
-        corrected_installation_date = corrected.get('installation_date')
-        if (
-            action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
-            and action.commissioning_date and corrected_installation_date
-        ):
-            ready_on = corrected_installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
-            early_by_days = max(0, (ready_on - action.commissioning_date).days)
-            acknowledged = str(payload.get('early_commissioning_acknowledged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
-            if early_by_days and not acknowledged:
-                raise HomeBiogasActionError(
-                    f'The corrected installation date makes commissioning {early_by_days} day{"s" if early_by_days != 1 else ""} earlier than the standard readiness date. Confirm this exception to continue.'
-                )
-            policy = {
-                'commissioning_ready_on': ready_on.isoformat(),
-                'early_commissioning_acknowledged': bool(early_by_days and acknowledged),
-                'early_by_days': early_by_days,
-            }
     else:
         corrected, policy = _validate_commissioning(action, {**before, **payload}, correction=True)
     for key, value in corrected.items():

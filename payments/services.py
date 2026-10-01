@@ -58,14 +58,19 @@ def _normalize_payment_mode(value) -> str:
     return mode
 
 
-def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> str:
-    """Bind a review to all values that can change the payment row or eligibility."""
-    return _digest({
+def payment_review_facts(farmer: JawabuFarmerMaster, payment_mode: str = '') -> dict:
+    """Bind new reviews to payment facts, not unrelated pipeline revisions.
+
+    Hard cutover: old hashes are not converted or automatically trusted.
+    Optimistic locking still uses workflow/batch revisions at write boundaries.
+    """
+    return {
         'farmer_id': str(farmer.pk),
         'payment_mode': str(payment_mode or '').strip().upper(),
-        'workflow_revision': farmer.workflow_revision,
+        'binding_policy': 'payment_facts_v2',
         'customer_no': farmer.customer_no,
         'customer_name': farmer.customer_name,
+        'national_id': farmer.national_id,
         'imab_customer_name': farmer.imab_customer_name,
         'primary_phone': farmer.primary_phone,
         'secondary_phone': farmer.secondary_phone,
@@ -88,7 +93,11 @@ def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> s
         'product_version_id': str(farmer.product_version_id or ''),
         'final_decision': farmer.final_decision,
         'final_decided_at': farmer.final_decided_at,
-    })
+    }
+
+
+def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> str:
+    return _digest(payment_review_facts(farmer, payment_mode))
 
 
 def _record(batch, action: str, *, actor=None, request_id: str = '', metadata=None):
@@ -119,6 +128,9 @@ def _replayed_batch(request_id: str, *, action: str, batch_id=None, metadata=Non
 
 
 def _active_memberships(batch):
+    cached = getattr(batch, '_prefetched_objects_cache', {}).get('case_memberships')
+    if cached is not None:
+        return sorted((item for item in cached if item.is_active), key=lambda item: item.added_at)
     return batch.case_memberships.filter(is_active=True).select_related('farmer', 'review').order_by('added_at')
 
 
@@ -538,6 +550,8 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
         metadata={
             'farmer_id': str(farmer_id), 'decision': decision, 'comment': comment,
             'generated_workbook_superseded': reopening_generated_workbook,
+            'review_binding_policy': 'payment_facts_v2',
+            'payment_review_facts': json.loads(json.dumps(payment_review_facts(membership.farmer, membership.payment_mode), cls=DjangoJSONEncoder)),
         },
     )
     return batch
@@ -748,6 +762,21 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
     counts = {'total': len(memberships), 'approved': 0, 'returned': 0, 'pending': 0, 'changed': 0}
     total = Decimal('0')
     mode_counts = {value: 0 for value, _label in PaymentBatchCase.MODE_CHOICES}
+    previous_facts = {}
+    if include_cases:
+        for metadata in batch.events.filter(action='case_reviewed').order_by('-created_at', '-pk').values_list('metadata', flat=True):
+            previous_facts.setdefault(metadata.get('farmer_id'), metadata.get('payment_review_facts') or {})
+    field_groups = {
+        'customer_no': 'Customer details', 'customer_name': 'Customer details', 'national_id': 'Customer details',
+        'imab_customer_name': 'Customer details', 'primary_phone': 'Contact details', 'secondary_phone': 'Contact details',
+        'branch': 'Branch / officer', 'system_branch': 'Branch / officer', 'loan_officer': 'Branch / officer',
+        'order_number': 'Order', 'invoice_number': 'Invoice', 'balance_due': 'Amount', 'discount': 'Amount',
+        'deposit_paid_hbg': 'Deposit', 'deposit_paid_jbl': 'Deposit', 'payment_mode': 'Payment mode',
+        'preferred_repayment_day': 'Repayment terms', 'preferred_repayment_source': 'Repayment terms',
+        'repayment_tenor_months': 'Repayment terms', 'repayment_tenor': 'Repayment terms',
+        'payment_product': 'Product', 'product_version_id': 'Product',
+        'final_decision': 'Final approval', 'final_decided_at': 'Final approval',
+    }
     for item in memberships:
         review = getattr(item, 'review', None)
         digest = case_payment_digest(item.farmer, item.payment_mode)
@@ -759,6 +788,9 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
         if item.farmer.balance_due is not None:
             total += item.farmer.balance_due
         if include_cases:
+            current_facts = json.loads(json.dumps(payment_review_facts(item.farmer, item.payment_mode), cls=DjangoJSONEncoder))
+            prior = previous_facts.get(str(item.farmer_id), {})
+            changed_fields = sorted({label for key, label in field_groups.items() if prior and prior.get(key) != current_facts.get(key)}) if changed else []
             cases.append({
                 'farmer_id': str(item.farmer_id),
                 'case_reference': display_case_reference(item.farmer),
@@ -778,6 +810,7 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
                 'decision': decision,
                 'comment': review.comment if review else '',
                 'changed_since_review': changed,
+                'changed_fields': changed_fields,
             })
     activity = []
     signed_scan_url = ''

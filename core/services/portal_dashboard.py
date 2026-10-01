@@ -629,10 +629,10 @@ def dashboard_payload(user, *, access=None) -> dict:
     home_queues.extend(import_queues)
     workspace_definitions = (
         ('portal.jbl_lead.create', 'Create lead', 'jbl', 'Field visit'),
-        ('portal.jbl_followup.view', 'My submitted visits', 'my_visits', 'Field visit'),
-        ('portal.payment.review', 'Payment approvals', 'payment_approvals', 'Payments'),
-        ('portal.farmup.view', 'FarmUp review', 'farmup', 'Intake'),
-        ('portal.imports.view', 'SysUp review', 'imports', 'Intake'),
+        ('portal.jbl_followup.view', 'My Visits', 'my_visits', 'Field visit'),
+        ('portal.payment.review', 'Payment Review', 'payment_approvals', 'Payments'),
+        ('portal.farmup.view', 'Monthly List (FarmUp)', 'farmup', 'Intake'),
+        ('portal.imports.view', 'Customer Updates (SysUp)', 'imports', 'Intake'),
         ('portal.invoice.view', 'Invoice review', 'invoices', 'Invoices'),
         ('portal.payment.prepare', 'Payment preparation', 'payments', 'Payments'),
         ('portal.documents.sign', 'Document sign-off', 'history', 'Documents'),

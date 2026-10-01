@@ -1,5 +1,24 @@
 # Known Gaps and Verified Workarounds
 
+## Portal usability and cross-workflow audit - 1-October-2026
+
+The audit's identified product defects have local fixes: background publication
+is non-blocking and timeout-bounded, payment reviews bind to payment facts,
+commissioning chronology is enforced, payment/HB edits have unsaved-leave
+protection, payment lists are paginated, and expanded names wrap. Final-review
+null handling was also corrected. Historical payment review digests have not
+been migrated or restored; affected old open reviews need an explicit new review.
+
+See [the audit report](docs/portal-usability-workflow-audit-2026-10-01.md) for
+reproductions, priorities and the repair evidence. The post-repair selection
+passed 318 backend tests on isolated SQLite, 84 browser tests and all nine Node
+test groups. The 51 local rendered-page samples had no document overflow or
+page exceptions; targeted interactions confirmed timeout lease release and
+preservation of a second unsaved payment comment. PostgreSQL parity is still
+unverified because local test credentials were unavailable. Live Telegram,
+Google integration and physical-device checks remain separate release checks;
+these results are not a claim that the entire repository suite passed.
+
 ## TAT credit assessment first release - 18-September-2026
 
 SPIN and Metropol reports are still produced manually outside this platform;

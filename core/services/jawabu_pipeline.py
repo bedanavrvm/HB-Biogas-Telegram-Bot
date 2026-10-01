@@ -436,8 +436,9 @@ def final_review_queue():
         & ~Q(final_decision__in=FINAL_DECISION_TERMINAL)
         | Q(workflow_state__in=[JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER], order_number='',
             _final_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED])
-    ).exclude(
-        _credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED],
+    ).filter(
+        Q(_credit_approval_status__isnull=True)
+        | ~Q(_credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED]),
     ).exclude(credit_decision='').exclude(imab_created='').exclude(customer_no='').order_by(
         'credit_decided_at', 'jbl_visit_date', 'customer_name',
     )

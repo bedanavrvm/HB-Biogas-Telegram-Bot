@@ -1,5 +1,25 @@
 # Changelog
 
+## Portal audit repairs - 1-October-2026
+
+- Background Sheet coordination no longer counts as a foreground save. Its
+  request times out after 20 seconds and releases the browser lease; canonical
+  saves and the existing durable queue remain unchanged. No cron was added.
+- New payment reviews bind to material payment facts, not the global case
+  revision. Real financial/identity changes still require review and supersede
+  generated workbooks. Existing historical digests are not migrated or restored.
+- Commissioning cannot precede installation, including acknowledged early
+  commissioning. Installation is permanently read-only in HB after commissioning.
+- Payment comments and HB forms/notes now use shared unsaved-leave protection.
+  Saving one comment preserves other unsaved comments; failed HB saves retain
+  input and restore the Save button.
+- Payment lists have scoped counts, payment-number search, 10-item pagination,
+  filter/page-aware Back links and stale-response protection. Expanded case names
+  wrap without shrinking the text.
+- Corrected final-review queue null handling for legacy approved credit records;
+  reconciled outdated test evidence fixtures and compact staff-facing labels.
+- No database migration, access-policy change or production external write.
+
 ## Portal payment detail density and case context - 21-September-2026
 
 - Rebuilt the payment-detail header and count strip to keep the batch total

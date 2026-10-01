@@ -358,6 +358,7 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(payload['approval_queue_status'], PaymentBatch.STATUS_IN_REVIEW)
         self.assertEqual(payload['cases'][0]['decision'], 'pending')
         self.assertEqual(payload['cases'][0]['comment'], 'Original review.')
+        self.assertEqual(payload['cases'][0]['changed_fields'], ['Amount'])
 
         batch = review_case(
             batch.id, farmer.id, decision='approved', comment='Re-reviewed new amount.',
@@ -365,6 +366,25 @@ class PaymentBatchServiceTests(TestCase):
         )
         self.assertEqual(batch.status, PaymentBatch.STATUS_REVIEW_COMPLETE)
         self.assertEqual(serialize_batch(batch)['approval_queue_status'], PaymentBatch.STATUS_REVIEW_COMPLETE)
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_unrelated_pipeline_revision_keeps_review_and_signable_workbook(self, _readiness):
+        farmer = self.farmer('73')
+        batch = self.add(self.batch(), farmer)
+        batch = submit_for_review(batch.pk, expected_revision=batch.revision)
+        batch = review_case(batch.pk, farmer.pk, decision='approved', comment='Confirmed.', expected_revision=batch.revision, actor=self.user)
+        document = PaymentDocument.objects.create(order_number='PAYMENT-73', payment_number='73',
+            status='awaiting_scan', version=1, file_content=b'synthetic workbook')
+        batch.current_document = document
+        batch.status = PaymentBatch.STATUS_AWAITING_SCAN
+        batch.save()
+        farmer.installation_status = 'Installed'
+        farmer.workflow_revision += 1
+        farmer.save(update_fields=['installation_status', 'workflow_revision'])
+        payload = serialize_batch(PaymentBatch.objects.get(pk=batch.pk))
+        self.assertFalse(payload['requires_re_review'])
+        self.assertEqual(payload['cases'][0]['decision'], 'approved')
+        self.assertEqual(source_artifact('payment', str(document.pk)).data, b'synthetic workbook')
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_changed_generated_payment_reopens_review_and_supersedes_workbook(self, _readiness):
@@ -579,6 +599,50 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(document.status, 'superseded')
 
 
+class PaymentListPaginationTests(TestCase):
+    def setUp(self):
+        self.group = GroupSheetConfiguration.objects.create(group_id='-100-page-tests', display_name='Synthetic pagination',
+            enabled=True, sheet_id='synthetic', workflow={'type': 'jawabu_homebiogas'})
+        self.user = get_user_model().objects.create_user(username='synthetic-page-user')
+
+    def listed(self, query='', denied_ids=()):
+        from core.api.portal_views import portal_payment_batches
+        request = RequestFactory().get('/api/portal/payments/batches/' + query)
+        request.portal_user = self.user
+        with patch('core.api.portal_views._portal_capability_error', return_value=None), \
+             patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.filter(group_configuration=self.group)), \
+             patch('core.api.portal_views._portal_payment_batch_scope_error', side_effect=lambda request, batch, **kwargs: object() if batch.pk in denied_ids else None):
+            return json.loads(portal_payment_batches(request).content)
+
+    def test_old_open_batch_is_not_hidden_by_one_hundred_completed_batches(self):
+        old = PaymentBatch.objects.create(group_configuration=self.group, status='draft')
+        PaymentBatch.objects.bulk_create([PaymentBatch(group_configuration=self.group, status='completed', payment_number=i+1) for i in range(101)])
+        result = self.listed('?status=open')
+        self.assertEqual([item['id'] for item in result['batches']], [str(old.pk)])
+        self.assertEqual(result['counts']['completed'], 101)
+        self.assertEqual(result['pagination']['total'], 1)
+        result = self.listed('?status=all&page=11')
+        self.assertEqual(result['pagination']['pages'], 11)
+        self.assertEqual(result['pagination']['total'], 102)
+        self.assertIn(str(old.pk), [item['id'] for item in result['batches']])
+
+    def test_scope_applies_before_counts_and_search(self):
+        allowed = PaymentBatch.objects.create(group_configuration=self.group, payment_number=501)
+        denied = PaymentBatch.objects.create(group_configuration=self.group, payment_number=502)
+        result = self.listed('?status=all', denied_ids=(denied.pk,))
+        self.assertEqual(result['counts']['all'], 1)
+        self.assertEqual(result['pagination']['total'], 1)
+        self.assertEqual(self.listed('?search=501')['batches'][0]['id'], str(allowed.pk))
+        self.assertEqual(self.listed('?search=invalid')['batches'], [])
+
+    def test_approval_view_requires_review_capability(self):
+        from core.api.portal_views import portal_payment_batches
+        request = RequestFactory().get('/api/portal/payments/batches/?view=approval')
+        with patch('core.api.portal_views._portal_capability_error', return_value=JsonResponse({'ok':False}, status=403)) as check:
+            self.assertEqual(portal_payment_batches(request).status_code, 403)
+            check.assert_called_once_with(request, 'portal.payment.review')
+
+
 class PaymentWorkflowContractTests(TestCase):
     def test_batch_preview_is_read_only_and_uses_saved_rows_after_generation(self):
         from core.api.portal_views import portal_payment_batch_preview
@@ -603,7 +667,7 @@ class PaymentWorkflowContractTests(TestCase):
             )
         request = RequestFactory().get('/api/portal/payments/batches/preview/')
         request.portal_user = user
-        readiness = {'ready': [{'row': {'name': 'Preview Customer', 'order_no': 'ORDER-1', 'payment_mode': 'CASH', 'loan_amount': Decimal('1000')}}], 'blocked': []}
+        readiness = {'ready': [{'farmer_id': str(farmer.pk), 'row': {'name': 'Preview Customer', 'order_no': 'ORDER-1', 'payment_mode': 'CASH', 'loan_amount': Decimal('1000')}}], 'blocked': []}
         with patch('core.api.portal_views._portal_capability_error', return_value=None), \
              patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.all()), \
              patch('core.api.portal_views._portal_payment_batch_scope_error', return_value=None), \

@@ -145,6 +145,12 @@
         return originalFetch.apply(this, args);
       }
       const requestUrl = new URL(url, window.location.href);
+      // Durable publication is coordination, not an unsaved staff action.
+      // Leaving the document must not depend on a Google request completing.
+      if (requestUrl.origin === window.location.origin
+          && requestUrl.pathname === '/api/portal/publication/pump/') {
+        return originalFetch.apply(this, args);
+      }
       // Only field-recovery drafts are safe during the in-memory Portal
       // inspection detour. Invoice edits and workflow submissions still block.
       const portalDraft = requestUrl.origin === window.location.origin
@@ -175,26 +181,34 @@
     return JSON.stringify(entries);
   }
 
-  function bindFormCloseProtection(form, reason) {
+  function bindFormCloseProtection(form, reason, readSignature) {
     if (!form) return { markClean: function () {}, markDirty: function () {}, isDirty: function () { return false; } };
-    let baseline = formSignature(form);
+    const signature = () => readSignature ? readSignature() : formSignature(form);
+    let baseline = signature();
     function sync() {
-      setCloseProtection(reason, formSignature(form) !== baseline);
+      setCloseProtection(reason, signature() !== baseline);
     }
     function markClean() {
-      baseline = formSignature(form);
+      baseline = signature();
       setCloseProtection(reason, false);
     }
     function markDirty() {
       setCloseProtection(reason, true);
     }
     function isDirty() {
-      return formSignature(form) !== baseline;
+      return signature() !== baseline;
     }
     form.addEventListener('input', sync);
     form.addEventListener('change', sync);
-    form.addEventListener('reset', function () { window.setTimeout(markClean, 0); });
-    return { markClean: markClean, markDirty: markDirty, isDirty: isDirty };
+    const onReset = () => window.setTimeout(markClean, 0);
+    form.addEventListener('reset', onReset);
+    function destroy() {
+      form.removeEventListener('input', sync);
+      form.removeEventListener('change', sync);
+      form.removeEventListener('reset', onReset);
+      setCloseProtection(reason, false);
+    }
+    return { markClean, markDirty, isDirty, destroy };
   }
 
   function initTelegram(options) {

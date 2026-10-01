@@ -51,7 +51,7 @@
     try {
       const key = requestId({});
       const response = await fetchWithTimeout(apiBase() + '/publication/pump/', {
-        method: 'POST', timeoutMs: 0,
+        method: 'POST', timeoutMs: REQUEST_TIMEOUT_MS,
         headers: {'Content-Type': 'application/json', ...initDataHeader(publicationTg), 'X-Request-ID': key, 'Idempotency-Key': key},
         body: JSON.stringify({client_request_id: key}),
       });

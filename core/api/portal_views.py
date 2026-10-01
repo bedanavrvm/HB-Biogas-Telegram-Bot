@@ -5448,10 +5448,9 @@ def _portal_payment_batch_queryset(request):
 
 def _portal_payment_batch_scope_error(request, batch, *, capability):
     """Require every current case in a batch to remain inside actor scope."""
-    farmers = [
-        membership.farmer
-        for membership in batch.case_memberships.filter(is_active=True).select_related('farmer')
-    ]
+    cached = getattr(batch, '_prefetched_objects_cache', {}).get('case_memberships')
+    memberships = cached if cached is not None else batch.case_memberships.select_related('farmer')
+    farmers = [membership.farmer for membership in memberships if membership.is_active]
     return _portal_farmers_scope_error(request, farmers, capability=capability)
 
 
@@ -5502,25 +5501,44 @@ def _invoice_domain_error_response(request, exc):
 @require_http_methods(['GET', 'POST'])
 def portal_payment_batches(request):
     """List monitored payment batches or create one compact editable draft."""
-    capability = 'portal.payment.view' if request.method == 'GET' else 'portal.payment.prepare'
+    view = str(request.GET.get('view') or 'preparation')
+    capability = ('portal.payment.review' if view == 'approval' else 'portal.payment.view') if request.method == 'GET' else 'portal.payment.prepare'
     access_error = _portal_capability_error(request, capability)
     if access_error:
         return access_error
     from payments.models import PaymentBatch
     from payments.services import PaymentBatchError, create_batch, serialize_batch
     if request.method == 'GET':
+        if view not in {'preparation', 'approval'}:
+            return JsonResponse({'ok': False, 'error': 'Choose a valid payment view.'}, status=400)
         queryset = _portal_payment_batch_queryset(request)
-        status = str(request.GET.get('status') or '').strip()
-        if status:
-            values = [value for value in status.split(',') if value in dict(PaymentBatch.STATUS_CHOICES)]
-            if values:
-                queryset = queryset.filter(status__in=values)
+        search = str(request.GET.get('search') or '').strip()
+        if search:
+            queryset = queryset.filter(payment_number=int(search)) if search.isdecimal() and len(search) <= 18 else queryset.none()
         batches = [
             _serialize_portal_payment_batch(request, item, include_cases=False)
-            for item in queryset.order_by('-created_at')[:100]
-            if _portal_payment_batch_scope_error(request, item, capability='portal.payment.view') is None
+            for item in queryset.order_by('-created_at', '-pk')
+            if _portal_payment_batch_scope_error(request, item, capability=capability) is None
         ]
-        return JsonResponse({'ok': True, 'batches': batches, 'count': len(batches)})
+        counts = {key: 0 for key in ('open', 'completed', 'cancelled', 'all', 'in_review', 'review_complete')}
+        for item in batches:
+            counts['all'] += 1
+            state = item['approval_queue_status'] if view == 'approval' else item['status']
+            if state in counts:
+                counts[state] += 1
+            if item['status'] not in {'completed', 'cancelled'}:
+                counts['open'] += 1
+        status = str(request.GET.get('status') or ('in_review' if view == 'approval' else 'all')).strip()
+        allowed_statuses = {'in_review', 'review_complete'} if view == 'approval' else {'open', 'all', *dict(PaymentBatch.STATUS_CHOICES)}
+        if status not in allowed_statuses:
+            return JsonResponse({'ok': False, 'error': 'Choose a valid payment status.'}, status=400)
+        batches = [item for item in batches if (
+            item['approval_queue_status'] == status if view == 'approval'
+            else status == 'all' or (item['status'] not in {'completed', 'cancelled'} if status == 'open' else item['status'] == status)
+        )]
+        start, end, pagination = _pagination_window(request, len(batches), page_size=10)
+        return JsonResponse({'ok': True, 'batches': batches[start:end], 'count': len(batches[start:end]),
+                             'pagination': pagination, 'counts': counts})
     body = _portal_request_data(request)
     group = _portal_payment_group(request, str(body.get('group_id') or '').strip())
     if not group:

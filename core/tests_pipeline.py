@@ -11,6 +11,24 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
+from pypdf import PdfWriter
+from PIL import Image
+
+
+def synthetic_laf(pages=2, filename='laf.pdf'):
+    content = BytesIO()
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=595, height=842)
+    writer.add_metadata({'/Subject': 'Synthetic visit evidence ' * 220})
+    writer.write(content)
+    return SimpleUploadedFile(filename, content.getvalue(), content_type='application/pdf')
+
+
+def synthetic_visit_photo():
+    content = BytesIO()
+    Image.new('RGB', (800, 600), 'blue').save(content, format='JPEG')
+    return SimpleUploadedFile('visit.jpg', content.getvalue(), content_type='image/jpeg')
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -51,6 +69,12 @@ class JblPipelineServiceTestCase(TestCase):
     """Test suite for the jawabu_pipeline service queue and write functions."""
 
     def setUp(self):
+        from core.services.group_config import GroupRegistry
+        # Registry process state is not rolled back with Django's test database.
+        # Prevent another workflow's cached configuration leaking into this suite.
+        original_registry = GroupRegistry._instance
+        GroupRegistry._instance = None
+        self.addCleanup(setattr, GroupRegistry, '_instance', original_registry)
         # Create standard test config
         self.config = GroupSheetConfiguration.objects.create(
             group_id='-1003701615384',
@@ -107,6 +131,7 @@ class JblPipelineServiceTestCase(TestCase):
             credit_decision='Approved',
             imab_created='Yes',
             customer_no='15118',
+            workflow_state='final_review',
             status='active',
         )
 
@@ -897,7 +922,7 @@ class JblPipelineServiceTestCase(TestCase):
 
     def test_forward_visit_requires_missing_evidence_before_drive_upload(self):
         """A missing multipart category must never leave an orphaned upload."""
-        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        laf = synthetic_laf()
 
         with patch('core.services.jawabu_pipeline.append_jbl_media_uploads') as mock_upload:
             ok, error, result = complete_jbl_visit(
@@ -915,7 +940,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertFalse(ok)
         self.assertIn('JBL visit photo', error)
         self.assertFalse(result['evidence_saved'])
-        self.assertEqual(result['missing_evidence'], ['JBL_VISIT_PHOTO'])
+        self.assertEqual(result['missing_evidence'], ['CLIENT_ID', 'JBL_VISIT_PHOTO'])
         mock_upload.assert_not_called()
 
     @patch('core.services.jawabu_pipeline.log_jbl_visit')
@@ -939,12 +964,12 @@ class JblPipelineServiceTestCase(TestCase):
             },
         )
         mock_log_visit.return_value = (True, '')
-        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
-        photo = SimpleUploadedFile('visit.jpg', b'x' * 5000, content_type='image/jpeg')
+        laf = synthetic_laf()
+        photo = synthetic_visit_photo()
 
         ok, error, result = complete_jbl_visit(
             self.farmer_stage1,
-            categorized_files={'LAF': [laf], 'JBL_VISIT_PHOTO': [photo]},
+            categorized_files={'CLIENT_ID': [synthetic_laf(1, 'client-id.pdf')], 'LAF': [laf], 'JBL_VISIT_PHOTO': [photo]},
             visit_date=date(2026, 6, 28),
             officer='Officer Joe',
             visit_status='Visited, Awaiting Credit Analysis',
@@ -968,7 +993,7 @@ class JblPipelineServiceTestCase(TestCase):
         initial_revision = self.farmer_stage1.workflow_revision
         self.farmer_stage1.workflow_revision = initial_revision + 1
         self.farmer_stage1.save(update_fields=['workflow_revision', 'updated_at'])
-        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        laf = synthetic_laf()
         content_hash, _size = hash_uploaded_file(laf)
         attachment = MediaAttachment.objects.create(
             group_id=self.config.group_id,
@@ -1007,7 +1032,7 @@ class JblPipelineServiceTestCase(TestCase):
         from core.models import MediaAttachment
         from core.services.order_approval import hash_uploaded_file
 
-        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        laf = synthetic_laf()
         content_hash, _size = hash_uploaded_file(laf)
         attachment = MediaAttachment.objects.create(
             group_id=self.config.group_id,
@@ -1027,11 +1052,17 @@ class JblPipelineServiceTestCase(TestCase):
         )
         group_config = SimpleNamespace(group_id=self.config.group_id)
 
+        def stored_with_case_link(**kwargs):
+            # The uploader now creates a case-linked row before returning.
+            attachment.jawabu_farmer = kwargs['jawabu_farmer']
+            attachment.save(update_fields=['jawabu_farmer'])
+            return uploaded
+
         with (
             patch('core.services.jawabu_pipeline._jawabu_group_config', return_value=group_config),
             patch(
                 'core.services.order_approval.store_uploaded_files_for_order',
-                return_value=uploaded,
+                side_effect=stored_with_case_link,
             ) as mock_store,
             patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet', return_value=True),
             patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet', return_value=True),
@@ -1083,7 +1114,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertFalse(ok)
         self.assertIn('created in IMAB', error)
         self.farmer_stage2.refresh_from_db()
-        self.assertEqual(self.farmer_stage2.credit_decision, 'Pending')
+        self.assertEqual(self.farmer_stage2.credit_decision, '')
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
@@ -1099,9 +1130,9 @@ class JblPipelineServiceTestCase(TestCase):
             sender='analyst_1',
         )
         self.assertFalse(ok)
-        self.assertIn('initial credit state', error)
+        self.assertIn("Invalid credit decision: 'Pending'", error)
         self.farmer_stage2.refresh_from_db()
-        self.assertEqual(self.farmer_stage2.credit_decision, 'Pending')
+        self.assertEqual(self.farmer_stage2.credit_decision, '')
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
@@ -1321,8 +1352,9 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         self.assertNotIn('hx-get=', card_markup)
         self.assertIn('id="dashboard-refresh" aria-label="Refresh dashboard"', source)
-        self.assertIn('id="jbl-search-clear" aria-label="Clear JBL queue search"', source)
-        self.assertIn('class="queue-search-icon" data-lucide="search"', source)
+        self.assertIn('include "portal/partials/queue_tools.html" with queue_key="jbl"', source)
+        queue_tools = (Path(__file__).resolve().parent / 'templates' / 'portal' / 'partials' / 'queue_tools.html').read_text(encoding='utf-8')
+        self.assertIn('data-portal-queue-search="{{ queue_key }}"', queue_tools)
         self.assertNotIn('id="dash-scope"', source)
 
     def test_jbl_visit_form_uses_hybrid_numeric_date_and_native_picker(self):
@@ -1364,7 +1396,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('No preview', script)
         self.assertIn("feltShutter = window.MiniAppUtils.impactWithFallback('medium', 35)", script)
         self.assertIn('if (!feltShutter) playJblShutterClick()', script)
-        self.assertIn('object-fit:contain; object-position:center;', stylesheet)
+        self.assertIn('object-fit:cover; object-position:center;', stylesheet)
         self.assertNotIn("window.MiniAppUtils?.haptic?.('success')", script)
         self.assertIn('id="media-viewer-close" class="sheet-close-button" aria-label="Close client media"><i data-lucide="x"', template)
         self.assertIn("headerStatus.textContent = message || 'Autosave on'", script)
@@ -1855,7 +1887,18 @@ class PortalMiniAppAuthTestCase(TestCase):
         AccessGrant.objects.filter(
             user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN',
         ).update(role='CREDIT_ANALYST')
-        drifted = self.client.get(reverse('portal_workspace'), **headers)
+        # IT still authorizes final review; changing the adjacent business grant
+        # alone must not revoke the view. Remove final from the current options
+        # to exercise actual saved-view availability drift independently.
+        from core.api.portal_views import _portal_workspace_options
+        options_without_final = _portal_workspace_options
+        def drifted_options(request, actor):
+            options = options_without_final(request, actor)
+            options['screens'] = [value for value in options['screens'] if value != 'final']
+            options['queues'] = [value for value in options['queues'] if value != 'final']
+            return options
+        with patch('core.api.portal_views._portal_workspace_options', side_effect=drifted_options):
+            drifted = self.client.get(reverse('portal_workspace'), **headers)
         self.assertEqual(drifted.status_code, 200)
         data = drifted.json()['data']
         self.assertIsNone(data['startup_view'])

@@ -344,14 +344,14 @@ class HomeBiogasActionServiceTests(TestCase):
         corrected, _operations, _replayed = correct_action(
             action.pk, actor=self.user, request_id='correct-1', expected_revision=3,
             payload={
-                'workstream': 'installation', 'installation_date': (installed_on - timedelta(days=1)).isoformat(),
+                'workstream': 'commissioning', 'commissioning_date': (installed_on + timedelta(days=22)).isoformat(),
             },
         )
-        self.assertEqual(corrected.installation_date, installed_on - timedelta(days=1))
+        self.assertEqual(corrected.commissioning_date, installed_on + timedelta(days=22))
         event = HomeBiogasActionEvent.objects.get(request_id='correct-1')
         self.assertEqual(event.reason, '')
         self.assertEqual(event.actor, self.user)
-        self.assertNotEqual(event.previous_values['installation_date'], event.new_values['installation_date'])
+        self.assertNotEqual(event.previous_values['commissioning_date'], event.new_values['commissioning_date'])
 
     def test_early_commissioning_requires_explicit_acknowledgement(self):
         action = self.release()
@@ -382,6 +382,18 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(completed.commissioning_status, 'commissioned')
         event = HomeBiogasActionEvent.objects.get(request_id='commission-early-accepted')
         self.assertTrue(event.new_values['early_commissioning_acknowledged'])
+
+    def test_commissioned_installation_rejects_api_and_service_corrections(self):
+        action = self.release()
+        installed_on = timezone.localdate() - timedelta(days=30)
+        action, _, _ = transition_action(action.pk, actor=self.user, request_id='lock-install', expected_revision=1,
+            payload={'workstream':'installation', 'installation_status':'installed', 'installation_date':installed_on.isoformat()})
+        action, _, _ = transition_action(action.pk, actor=self.user, request_id='lock-commission', expected_revision=2,
+            payload={'workstream':'commissioning', 'commissioning_date':timezone.localdate().isoformat()})
+        with self.assertRaisesMessage(HomeBiogasActionError, 'read-only after commissioning'):
+            correct_action(action.pk, actor=self.user, request_id='locked-edit', expected_revision=3,
+                payload={'workstream':'installation', 'installation_date':(installed_on - timedelta(days=1)).isoformat()})
+        self.assertFalse(action.events.filter(request_id='locked-edit').exists())
 
     def test_commissioning_notes_keep_delay_and_additional_context_separate(self):
         action = self.release()

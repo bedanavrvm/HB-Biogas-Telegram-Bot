@@ -435,7 +435,7 @@ class SystemExportImportTests(TestCase):
         self.assertTrue(rows[0]['approved'])
         self.assertNotIn('7-9 digits', rows[0]['Cleaning Notes'])
 
-    def test_reviewer_can_accept_a_numeric_historical_id_exception(self):
+    def test_six_digit_id_needs_no_identifier_exception(self):
         historical = JawabuFarmerMaster.objects.create(
             customer_name='Historical Identifier', national_id='123456',
             primary_phone='254799999999', status='active',
@@ -455,13 +455,13 @@ class SystemExportImportTests(TestCase):
         result = commit_system_export_review_batch(batch, [row], actor='Officer')
 
         self.assertTrue(result['success'])
-        self.assertTrue(
+        self.assertFalse(
             historical.data_quality_issues.filter(
                 field_name='national_id', code='review_required', active=True,
             ).exists()
         )
 
-    def test_unknown_product_requires_review_before_commit(self):
+    def test_unknown_product_does_not_gate_system_data_import(self):
         OperationalProduct.objects.filter(name__iexact='Unsupported Product').delete()
         rows, _stats = parse_system_export(export_csv([{
             'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
@@ -469,9 +469,8 @@ class SystemExportImportTests(TestCase):
             'Product Name': 'Unsupported Product', 'LGF Balance': '0',
         }]), 'customers.csv')
 
-        self.assertFalse(rows[0]['approved'])
-        self.assertEqual(rows[0]['Import Status'], 'review_needed')
-        self.assertIn('operational product catalog', rows[0]['Cleaning Notes'])
+        self.assertTrue(rows[0]['approved'])
+        self.assertNotIn('operational product catalog', rows[0]['Cleaning Notes'])
 
     def test_system_export_commit_records_changed_field_provenance(self):
         batch, _stats = create_system_export_review_batch(

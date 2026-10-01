@@ -20,7 +20,7 @@ PORTAL_NAV_ITEMS = (
     ('hb_actions', 'Install & Commission', 'wrench', 'portal.hb_action.view'),
     ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payment Preparation', 'banknote', 'portal.payment.view'),
-    ('history', 'Document Archive', 'archive', 'portal.documents.view'),
+    ('history', 'Document History', 'archive', 'portal.documents.view'),
     ('farmup', 'Monthly List (FarmUp)', 'file-up', 'portal.farmup.view'),
     ('imports', 'Customer Updates (SysUp)', 'upload', 'portal.imports.view'),
     ('reports', 'Reports', 'chart-no-axes-combined', 'portal.reports.view'),

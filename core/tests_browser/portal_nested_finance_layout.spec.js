@@ -15,6 +15,45 @@ async function assertNoHorizontalOverflow(page, width) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 }
 
+test('background publication never blocks leaving but foreground saves do', async ({ page }) => {
+  await page.route('http://127.0.0.1:8007/portal/**', route => route.fulfill({body: '<body></body>', contentType: 'text/html'}));
+  await page.goto('http://127.0.0.1:8007/portal/s/payments/');
+  await page.evaluate(() => {
+    window.Telegram = {WebApp: {ready() {}, expand() {}, enableClosingConfirmation() {}, disableClosingConfirmation() {}}};
+    window.fetch = () => new Promise(resolve => { window.finishSyntheticRequest = resolve; });
+  });
+  await page.addScriptTag({path: asset('utils.js')});
+  await page.evaluate(() => {
+    MiniAppUtils.initTelegram();
+    window.pendingSyntheticRequest = fetch('/api/portal/publication/pump/', {method: 'POST'});
+  });
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(true);
+  await page.evaluate(async () => { finishSyntheticRequest({ok: true}); await pendingSyntheticRequest; });
+  await page.evaluate(() => { window.pendingSyntheticRequest = fetch('/api/portal/payments/batches/', {method: 'POST'}); });
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(false);
+  await page.evaluate(async () => { finishSyntheticRequest({ok: true}); await pendingSyntheticRequest; });
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(true);
+});
+
+test('independent unnamed comments stay protected until their own save or disposal', async ({ page }) => {
+  await page.setContent('<section id="first"><textarea></textarea></section><section id="second"><textarea></textarea></section>');
+  await page.addScriptTag({path: asset('utils.js')});
+  await page.evaluate(() => {
+    for (const id of ['first', 'second']) {
+      const container = document.getElementById(id);
+      window[id + 'Guard'] = MiniAppUtils.bindFormCloseProtection(container, id, () => container.querySelector('textarea').value);
+    }
+  });
+  await page.locator('#first textarea').fill('First unsaved comment');
+  await page.locator('#second textarea').fill('Second unsaved comment');
+  await page.evaluate(() => firstGuard.markClean());
+  expect(await page.evaluate(() => secondGuard.isDirty())).toBe(true);
+  page.on('dialog', dialog => dialog.dismiss());
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('http://127.0.0.1:8007/portal/'))).toBe(false);
+  await page.evaluate(() => secondGuard.destroy());
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('http://127.0.0.1:8007/portal/'))).toBe(true);
+});
+
 test('mobile notification bell stays fixed and payment approval tabs retain native navigation', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><header class="app-shell-header"><button class="shell-menu-button">Menu</button><div class="shell-title"><h1>Pipeline Portal</h1></div><button id="portal-notification-button" class="portal-notification-button"><span hidden>0</span></button><div class="shell-actor"><span>Active</span></div></header><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id=""><section id="page-payments" class="page active"><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="in_review"><span>Awaiting review</span><span class="count-pill" data-payment-batch-count="in_review">0</span></button><button data-payment-batch-filter="review_complete"><span>Ready to generate</span><span class="count-pill" data-payment-batch-count="review_complete">0</span></button></nav><div id="payments-batches"></div></section></div></main></body>`);
@@ -41,9 +80,9 @@ test('mobile notification bell stays fixed and payment approval tabs retain nati
   await expect(page.locator('[data-payment-batch-count="in_review"]')).toHaveText('1');
   await expect(page.locator('[data-payment-batch-count="review_complete"]')).toHaveText('0');
   const card = page.locator('.payment-batch-card');
-  await expect(card).toHaveAttribute('href', '/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/');
+  await expect(card).toHaveAttribute('href', '/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/?status=in_review&page=1&search=');
   await card.click();
-  expect(await page.evaluate(() => window.__paymentDestination)).toBe('/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/');
+  expect(await page.evaluate(() => window.__paymentDestination)).toBe('/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/?status=in_review&page=1&search=');
   await assertNoHorizontalOverflow(page, 320);
 });
 
@@ -92,7 +131,7 @@ test('changed generated payment exposes re-review but not stale signing controls
   });
   await page.locator('.payment-current-case > summary').click();
   await expect(page.locator('.payment-current-case > summary')).toContainText('Needs re-review');
-  await expect(page.locator('.payment-case-warning')).toContainText('Head of Rural must review again');
+  await expect(page.locator('.payment-case-warning')).toContainText('Payment details changed');
   await expect(page.locator('.payment-review-label')).toContainText('Update prior comment for re-review');
   await expect(page.locator('.payment-review-comment')).toHaveValue('Prior approval.');
   await expect(page.locator('.payment-approve')).toBeVisible();
@@ -293,7 +332,7 @@ test('an empty payment detail route exposes one compact build step at 320px', as
       setButtonLoading() {}, showToast() {}, openPortalLink() {},
       apiFetch: async (url, options = {}) => {
         if (url === '/payments/batches/' && options.method === 'POST') return { ok: true, data: { ok: true, batch: emptyBatch } };
-        if (url === '/payments/batches/') return { ok: true, data: { ok: true, batches: [emptyBatch] } };
+        if (url.startsWith('/payments/batches/?')) return { ok: true, data: { ok: true, batches: [emptyBatch] } };
         if (url.startsWith('/payments/batches/batch-1/')) return { ok: true, data: { ok: true, batch: emptyBatch } };
         if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, ready: [{farmer_id: 'farmer-1', customer_name: 'Jane Wanjiku', national_id: '12345678', row: {hb_invoice_amount: '1000', repayment_dates: '10TH'}}], blocked: [], pending_review: [] } };
         return { ok: false, data: { ok: false, error: 'Unexpected test request' } };
@@ -325,7 +364,7 @@ test('an empty payment detail route exposes one compact build step at 320px', as
     window.PortalAppShell = { navigateUrl(url) { window.__paymentBackDestination = url; } };
   });
   await page.locator('#payments-detail-back').click();
-  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/');
+  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/?status=open&page=1&search=');
   await assertNoHorizontalOverflow(page, 320);
 });
 
@@ -342,7 +381,7 @@ test('payment detail keeps approved case facts compact and available at 320px', 
     const batch = {
       id: 'batch-2', payment_number: 24, status: 'completed', status_label: 'Completed', payment_mode_summary: 'Loan - Jawabu', total_amount: '54000', revision: 2,
       counts: { total: 1, approved: 1, returned: 0, pending: 0 }, activity: [],
-      cases: [{ farmer_id: 'case-2', case_reference: 'JBL-24', customer_name: 'Jane Wanjiku', national_id: '12345678', primary_phone: '254712345678', branch: 'Embu Central', loan_officer: 'Mary Officer', invoice_number: 'INV-24', order_number: 'ORD-24', amount: '54000', preferred_repayment_date: '10TH', payment_mode: 'LOAN-JAWABU', payment_mode_label: 'Loan - Jawabu', decision: 'approved', comment: '', changed_since_review: false }],
+      cases: [{ farmer_id: 'case-2', case_reference: 'JBL-24', customer_name: 'Jane Wanjiku Synthetic Customer With A Deliberately Long Name', national_id: '12345678', primary_phone: '254712345678', branch: 'Embu Central', loan_officer: 'Mary Officer', invoice_number: 'INV-24', order_number: 'ORD-24', amount: '54000', preferred_repayment_date: '10TH', payment_mode: 'LOAN-JAWABU', payment_mode_label: 'Loan - Jawabu', decision: 'approved', comment: '', changed_since_review: false }],
     };
     window.PortalMiniAppPayments.init({
       el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
@@ -360,6 +399,9 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await page.locator('.payment-approved-cases > summary').click();
   await expect(page.locator('.payment-approved-case-list')).toContainText('Jane Wanjiku');
   await page.locator('.payment-approved-case-list .payment-current-case > summary').click();
+  const fullName = page.locator('.payment-approved-case-list .payment-case-title strong');
+  await expect(fullName).toHaveCSS('white-space', 'normal');
+  expect(await fullName.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   await expect(page.locator('.payment-approved-case-list')).toContainText('ID 12345678');
   await expect(page.locator('.payment-approved-case-list')).toContainText('254712345678');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');
@@ -404,7 +446,7 @@ test('a payment detail load failure keeps Back available with a specific retry m
   await expect(page.locator('#payments-detail-feedback')).toContainText('You do not have access to this payment batch.');
   await expect(page.locator('#payments-detail-retry')).toBeVisible();
   await page.locator('#payments-detail-back').click();
-  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/');
+  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/?status=open&page=1&search=');
   await assertNoHorizontalOverflow(page, 320);
 });
 

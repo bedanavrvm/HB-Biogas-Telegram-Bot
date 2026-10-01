@@ -4963,6 +4963,9 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 #page-invoices .invoice-card-alert { display:flex; margin-top:5px; font-size:11px; line-height:1.3; white-space:normal; overflow-wrap:anywhere; }
 #page-invoices .invoice-card-alert svg { flex:none; width:14px; height:14px; }
 @media (max-width:380px) { .payment-batch-card-foot { flex-wrap:wrap; gap:2px 7px; } }
+.payment-current-case[open] .payment-case-title strong {
+  white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere;
+}
 @media print {
   .payment-preview-switch,.payment-preview-cases { display:none !important; }
   .payment-print-scroll[hidden] { display:block !important; }

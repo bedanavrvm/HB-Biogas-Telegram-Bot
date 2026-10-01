@@ -17,6 +17,12 @@
   let previewRequestVersion = 0;
   let previewHistoryActive = false;
   let previewTrigger = null;
+  const reviewProtections = new Map();
+  let batchPage = 1;
+  let batchSearch = '';
+  let batchPagination = null;
+  let batchCounts = null;
+  let listLoadVersion = 0;
 
   function el(id) { return deps.el(id); }
   function escape(value) { return deps.escapeHtml(value == null ? '' : value); }
@@ -26,8 +32,10 @@
   function active() { return ['payments', 'payment_approvals'].includes(screen()); }
   function approvalMode() { return screen() === 'payment_approvals'; }
   function detailBatchId() { return root()?.dataset.paymentBatchId || ''; }
-  function inboxUrl() { return approvalMode() ? '/portal/s/approvals/payments/' : '/portal/s/payments/'; }
-  function detailUrl(id) { return `${inboxUrl()}${encodeURIComponent(id)}/`; }
+  function listParams() { return new URLSearchParams({status: batchFilter, page: String(batchPage), search: batchSearch}); }
+  function inboxPath() { return approvalMode() ? '/portal/s/approvals/payments/' : '/portal/s/payments/'; }
+  function inboxUrl() { return `${inboxPath()}?${listParams()}`; }
+  function detailUrl(id) { return `${inboxPath()}${encodeURIComponent(id)}/?${listParams()}`; }
   function money(value) {
     const number = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(number) ? `KES ${number.toLocaleString('en-KE', {maximumFractionDigits: 2})}` : 'KES 0';
@@ -51,6 +59,10 @@
   }
 
   function renderBatchTabCounts() {
+    if (batchCounts) {
+      Object.entries(batchCounts).forEach(([key, count]) => setBatchTabCount(key, count));
+      return;
+    }
     const count = key => batches.filter(item => (approvalMode() ? approvalQueueStatus(item) : item.status) === key).length;
     if (approvalMode()) {
       setBatchTabCount('in_review', count('in_review'));
@@ -107,6 +119,8 @@
     target.innerHTML = visible.length
       ? visible.map(batchCard).join('')
       : `<div class="empty-state"><div class="es-title">${approvalMode() ? 'No payment approvals waiting' : 'No payment batches'}</div><div class="es-sub">${approvalMode() ? 'Submitted batches appear here for the authorised approval role.' : 'Create a batch when invoice-matched cases are ready.'}</div></div>`;
+    if (!visible.length && batchSearch) target.innerHTML = '<div class="empty-state"><div class="es-title">No matching payments</div><div class="es-sub">Try another payment number.</div></div>';
+    window.MiniAppComponents?.bindPagination?.({container: el('payments-pagination'), pagination: batchPagination || {}, onPage: value => { batchPage = value; load(); }});
   }
 
   async function load(options) {
@@ -114,15 +128,23 @@
     normalizeBatchFilter();
     const routeBatchId = detailBatchId();
     if (routeBatchId) return openBatch(routeBatchId, options);
+    const version = ++listLoadVersion;
+    if (window.location.pathname.startsWith('/portal/')) window.history.replaceState(window.history.state, '', `${inboxPath()}?${listParams()}`);
     const target = el('payments-batches');
     if (target && !options?.quiet) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     try {
-      const response = await deps.apiFetch('/payments/batches/');
+      const response = await deps.apiFetch(`/payments/batches/?${listParams()}&view=${approvalMode() ? 'approval' : 'preparation'}`);
+      if (version !== listLoadVersion || !active() || detailBatchId()) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load payment batches.');
       batches = response.data.batches || [];
+      batchCounts = response.data.counts || null;
+      batchPagination = response.data.pagination || null;
+      batchPage = Number(batchPagination?.page || batchPage);
+      if (window.location.pathname.startsWith('/portal/')) window.history.replaceState(window.history.state, '', `${inboxPath()}?${listParams()}`);
       if (el('payments-batches')) renderBatches();
       if (!approvalMode()) await loadReceiptBatches({quiet: options?.quiet});
     } catch (error) {
+      if (version !== listLoadVersion || !active() || detailBatchId()) return;
       if (target) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Could not load payment batches.')}</div>`;
     }
   }
@@ -335,7 +357,7 @@
       || (activeBatch.status === 'awaiting_scan' && activeBatch.requires_re_review)
     );
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
-    const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed — Head of Rural must review again</span>' : '';
+    const warning = item.changed_since_review ? `<span class="payment-case-warning">${escape(item.changed_fields?.length ? `${item.changed_fields.join(', ')} changed` : 'Payment details changed')} — review again</span>` : '';
     const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.changed_since_review ? 'Needs re-review' : item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
     const customerName = escape(item.customer_name || 'Unnamed customer');
     const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
@@ -363,6 +385,12 @@
 
   function renderDetail() {
     if (!activeBatch) return;
+    const unsaved = new Map();
+    for (const [id, protection] of reviewProtections) {
+      if (protection.isDirty()) unsaved.set(id, protection.input.value);
+      protection.destroy();
+    }
+    reviewProtections.clear();
     const detailRoot = document.getElementById('payments-detail');
     const required = {
       title: detailRoot?.querySelector('#payments-detail-title'),
@@ -398,6 +426,16 @@
       actionableCases.length ? actionableCases.map(caseRow).join('') : '',
       approvedCases.length ? `<details class="payment-approved-cases"><summary><span>Approved</span><b>${escape(approvedCases.length)}</b></summary><div class="payment-approved-case-list">${approvedCases.map(item => caseRow(item, {compact: true})).join('')}</div></details>` : '',
     ].join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
+    required.cases.querySelectorAll('[data-payment-case]').forEach(card => {
+      const input = card.querySelector('.payment-review-comment');
+      if (!input) return;
+      const id = card.dataset.paymentCase;
+      const protection = window.MiniAppUtils?.bindFormCloseProtection?.(card, `payment-review:${id}`, () => input.value);
+      if (!protection) return;
+      protection.input = input;
+      reviewProtections.set(id, protection);
+      if (unsaved.has(id)) { input.value = unsaved.get(id); protection.markDirty(); }
+    });
     if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;
     const heldItems = activeBatch.held_items || [];
     const heldTarget = el('payments-held-items');
@@ -526,11 +564,13 @@
     try {
       response = await request(path, 'POST', {...body, revision: activeBatch.revision});
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The payment batch could not be updated.');
+      const reviewedCase = path.match(/\/cases\/([^/]+)\/review\/$/);
+      if (reviewedCase) reviewProtections.get(decodeURIComponent(reviewedCase[1]))?.markClean();
       activeBatch = response.data.batch;
       renderDetail();
       if (!approvalMode() && !activeBatch.receipt_batch_id) await loadCandidates({quiet: true});
-      const list = await deps.apiFetch('/payments/batches/');
-      if (list.ok && list.data?.ok) { batches = list.data.batches || []; renderBatchTabCounts(); }
+      const list = await deps.apiFetch(`/payments/batches/?${listParams()}&view=${approvalMode() ? 'approval' : 'preparation'}`);
+      if (list.ok && list.data?.ok) { batches = list.data.batches || []; batchCounts = list.data.counts || null; renderBatchTabCounts(); }
       return true;
     } catch (error) {
       const message = error.message || 'The payment batch could not be updated.';
@@ -728,6 +768,10 @@
       }
     });
     document.addEventListener('input', event => {
+      if (event.target.id === 'payments-batch-search') {
+        batchSearch = event.target.value.trim(); batchPage = 1;
+        clearTimeout(searchTimer); searchTimer = setTimeout(() => load(), 300); return;
+      }
       if (event.target.id !== 'payments-search') return;
       clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCandidates(), 300);
     });
@@ -740,7 +784,7 @@
         return navigatePayment(url);
       }
       const batchFilterButton = target.closest('[data-payment-batch-filter]');
-      if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; return renderBatches(); }
+      if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; batchPage = 1; return load(); }
       if (target.closest('#payments-refresh')) return load();
       if (target.closest('#payments-receive-invoices')) return navigatePayment('/portal/s/invoices/upload/');
       if (target.closest('.payment-open-receipt')) return openReceipt(target.closest('.payment-open-receipt').dataset.paymentReceipt);
@@ -784,6 +828,14 @@
     });
   }
 
-  function init(initialDeps) { deps = initialDeps; bind(); }
+  function init(initialDeps) {
+    deps = initialDeps;
+    const params = new URLSearchParams(window.location.search);
+    batchFilter = params.get('status') || (approvalMode() ? 'in_review' : 'open');
+    batchPage = Math.max(1, parseInt(params.get('page'), 10) || 1);
+    batchSearch = params.get('search') || '';
+    if (el('payments-batch-search')) el('payments-batch-search').value = batchSearch;
+    bind();
+  }
   window.PortalMiniAppPayments = {init, load, loadSequence};
 })();
