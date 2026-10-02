@@ -61,6 +61,12 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.locator('#commentForm button[type="submit"]').click();
   await expect(page.locator('#activityList')).toContainText('Technician will visit tomorrow.');
   await expect(page.locator('#activityList .history-affiliation')).toHaveText(['HB', 'JBL']);
+  const badgeColors = await page.locator('#activityList .history-affiliation').evaluateAll(nodes => nodes.map(node => {
+    const rgb = getComputedStyle(node).color.match(/\d+/g).map(Number);
+    return { red: rgb[0], green: rgb[1] };
+  }));
+  expect(badgeColors[0].red).toBeGreaterThan(badgeColors[0].green);
+  expect(badgeColors[1].green).toBeGreaterThan(badgeColors[1].red);
   await expect(page.locator('#activityList .history-item').filter({hasText:'Technician will visit tomorrow.'})).toHaveCount(1);
   await expect(page.locator('#detailStatus')).toHaveText('OPEN');
   await expect(page.locator('#complaintResolutionComment')).toHaveValue('');

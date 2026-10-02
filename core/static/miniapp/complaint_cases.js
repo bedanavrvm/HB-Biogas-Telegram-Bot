@@ -903,9 +903,10 @@
       else if (item.status === 'Open') action = 'Complaint recorded by';
       else if (item.status === 'Review Needed') action = 'More information requested by';
       const content = document.createElement('div');
-      const affiliation = ['JBL', 'HB'].includes(item.actor_affiliation) ? item.actor_affiliation : 'Staff';
+      const affiliation = ['JBL', 'HB'].includes(item.actor_affiliation) ? item.actor_affiliation : 'Role unknown';
       const heading = document.createElement('div'); heading.className = 'history-heading';
-      heading.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('span', affiliation, `history-affiliation history-affiliation-${affiliation.toLowerCase()}`));
+      const affiliationClass = affiliation === 'Role unknown' ? 'unknown' : affiliation.toLowerCase();
+      heading.append(textNode('strong', `${action} ${item.updated_by || 'Unknown actor'}`), textNode('span', affiliation, `history-affiliation history-affiliation-${affiliationClass}`));
       content.append(heading, textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
       row.append(iconNode(item.status === 'Closed' ? 'circle-check' : 'history', 'item-icon'), content);
       node.appendChild(row);

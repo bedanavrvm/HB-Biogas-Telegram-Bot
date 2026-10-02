@@ -1,5 +1,11 @@
 # Changelog
 
+## Complaint history role colours - 2 October 2026
+
+- HB history badges are red and JBL badges green, with readable light/dark
+  theme colours. Unattributed legacy actions show Role unknown rather than Staff;
+  actor names remain visible. No historical roles are guessed or rewritten.
+
 ## Complaints unified history - 2 October 2026
 
 - Comment now has the same heading structure as Resolve, with voice input and
