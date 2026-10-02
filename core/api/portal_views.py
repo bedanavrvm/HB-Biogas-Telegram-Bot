@@ -4179,9 +4179,16 @@ def portal_publication_pump(request):
     ).first()
     circuit_paused = bool(circuit and circuit.next_probe_at and circuit.next_probe_at > timezone.now()
                           and circuit.status == IntegrationCircuitState.STATUS_OPEN)
+    from django.utils.dateparse import parse_datetime
+    retry_at = circuit.next_probe_at if circuit_paused else parse_datetime(status.get('next_retry_at') or '')
+    poll_after = 60 if not status['queued'] else 5 if status['due'] and not circuit_paused else (
+        min(600, max(5, int((retry_at - timezone.now()).total_seconds()) + 1)) if retry_at else 20
+    )
     return JsonResponse({
         'ok': True, 'queued': status['queued'], 'changed': changed,
-        'poll_after_seconds': 60 if not status['queued'] else (60 if circuit_paused else 5 if status['due'] else 20),
+        'poll_after_seconds': poll_after,
+        'next_retry_at': retry_at.isoformat() if retry_at else None,
+        'running': status.get('running', 0),
     })
 
 
@@ -5389,7 +5396,8 @@ def portal_requisition_numbering(request):
         row.updated_by = getattr(request, 'portal_user', None)
         row.adjustment_reason = reason
         row.save()
-        OrderSequenceEvent.objects.create(
+        from requisitions.services import record_sequence_event
+        record_sequence_event(
             sequence=row, action='adjusted', number_before=number_before,
             number_after=row.next_number, revision_after=row.revision,
             actor=getattr(request, 'portal_user', None), reason=reason, request_id=request_id,
@@ -5515,29 +5523,32 @@ def portal_payment_batches(request):
         search = str(request.GET.get('search') or '').strip()
         if search:
             queryset = queryset.filter(payment_number=int(search)) if search.isdecimal() and len(search) <= 18 else queryset.none()
-        batches = [
-            _serialize_portal_payment_batch(request, item, include_cases=False)
-            for item in queryset.order_by('-created_at', '-pk')
-            if _portal_payment_batch_scope_error(request, item, capability=capability) is None
-        ]
-        counts = {key: 0 for key in ('open', 'completed', 'cancelled', 'all', 'in_review', 'review_complete')}
-        for item in batches:
-            counts['all'] += 1
-            state = item['approval_queue_status'] if view == 'approval' else item['status']
-            if state in counts:
-                counts[state] += 1
-            if item['status'] not in {'completed', 'cancelled'}:
-                counts['open'] += 1
+        from payments.services import payment_queue_queryset, payment_queue_counts
+        from core.services.portal_permissions import scope_portal_case_queryset
+        from core.models import JawabuFarmerMaster
+        access = getattr(request, 'portal_access', None)
+        allowed_cases = scope_portal_case_queryset(
+            JawabuFarmerMaster.objects.all(), getattr(request, 'portal_user', None), capability, access=access,
+        ).values('pk') if access is not None else None
+        # Drop prefetches until after filtering/counting and database pagination.
+        queryset = payment_queue_queryset(queryset.prefetch_related(None), approved_farmer_ids=allowed_cases)
+        counts = payment_queue_counts(queryset, approval=view == 'approval')
         status = str(request.GET.get('status') or ('in_review' if view == 'approval' else 'all')).strip()
         allowed_statuses = {'in_review', 'review_complete'} if view == 'approval' else {'open', 'all', *dict(PaymentBatch.STATUS_CHOICES)}
         if status not in allowed_statuses:
             return JsonResponse({'ok': False, 'error': 'Choose a valid payment status.'}, status=400)
-        batches = [item for item in batches if (
-            item['approval_queue_status'] == status if view == 'approval'
-            else status == 'all' or (item['status'] not in {'completed', 'cancelled'} if status == 'open' else item['status'] == status)
-        )]
-        start, end, pagination = _pagination_window(request, len(batches), page_size=10)
-        return JsonResponse({'ok': True, 'batches': batches[start:end], 'count': len(batches[start:end]),
+        if view == 'approval':
+            queryset = queryset.filter(approval_queue_state=status)
+        elif status == 'open':
+            queryset = queryset.exclude(status__in=['completed', 'cancelled'])
+        elif status != 'all':
+            queryset = queryset.filter(status=status)
+        start, end, pagination = _pagination_window(request, queryset.count(), page_size=10)
+        page = queryset.order_by('-created_at', '-pk')[start:end].prefetch_related(
+            'case_memberships__farmer', 'case_memberships__review',
+        )
+        batches = [_serialize_portal_payment_batch(request, item, include_cases=False) for item in page]
+        return JsonResponse({'ok': True, 'batches': batches, 'count': len(batches),
                              'pagination': pagination, 'counts': counts})
     body = _portal_request_data(request)
     group = _portal_payment_group(request, str(body.get('group_id') or '').strip())
@@ -6182,7 +6193,8 @@ def portal_requisition_finalize(request):
                 if not ok:
                     raise ValueError(assignment_error)
             checksum = hashlib.sha256(xlsx_bytes).hexdigest()
-            batch = RequisitionBatch.objects.create(
+            from requisitions.services import retain_finalized_requisition, record_sequence_event
+            batch = retain_finalized_requisition(
                 group_configuration=sequence.group_configuration,
                 fulfillment_partner=partner, requisition_template=template,
                 order_number=order_number, generation_request_id=request_id, version=1,
@@ -6200,7 +6212,7 @@ def portal_requisition_finalize(request):
             sequence.updated_by = getattr(request, 'portal_user', None)
             sequence.adjustment_reason = f'Consumed by finalized order {order_number}'
             sequence.save()
-            OrderSequenceEvent.objects.create(
+            record_sequence_event(
                 sequence=sequence, action='consumed', number_before=int(signed_sequence_number),
                 number_after=sequence.next_number, revision_after=sequence.revision,
                 actor=getattr(request, 'portal_user', None),
@@ -6618,6 +6630,11 @@ def portal_upload_batch_invoices(request):
     pdf_file = request.FILES.get('file')
     if not pdf_file:
         return JsonResponse({'ok': False, 'error': 'No file uploaded under key "file".'}, status=400)
+    from core.services.invoice_processing_limits import validate_invoice_delivery
+    try:
+        validate_invoice_delivery([pdf_file])
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=413)
         
     if not str(pdf_file.name or '').lower().endswith('.pdf'):
         return JsonResponse({'ok': False, 'error': 'Only PDF files are supported.'}, status=400)
@@ -6746,6 +6763,12 @@ def portal_invoice_pool_upload(request):
     if not pdf_files:
         return JsonResponse({'ok': False, 'error': 'No file uploaded under key "file".'}, status=400)
 
+    from core.services.invoice_processing_limits import validate_invoice_delivery
+    try:
+        validate_invoice_delivery(pdf_files)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
     max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
     max_bytes = max_mb * 1024 * 1024
     order_number = str(request.POST.get('order_number') or '').strip()
@@ -6780,8 +6803,12 @@ def portal_invoice_pool_upload(request):
     duplicate_files = []
     request_conflicts = []
     uploaded_by = _portal_sender_from_request(request)
+    delivery_deadline = time.monotonic() + 35
     for pdf_index, pdf_file in validated_files:
         filename = getattr(pdf_file, 'name', '') or 'hb_invoices.pdf'
+        if time.monotonic() >= delivery_deadline:
+            failures.append({'filename': filename, 'error': 'Not processed in this upload. Upload the remaining files as a smaller delivery.'})
+            continue
         try:
             batch = ingest_invoice_upload_batch(
                 pdf_bytes=pdf_file.read(),
@@ -7527,9 +7554,9 @@ def portal_create_and_complete_jbl_lead(request):
             if JawabuFarmerMaster.objects.filter(national_id=national_id, status='active').exists():
                 return JsonResponse({'ok': False, 'error': 'A case already exists for this National ID. Open that case to log the visit.', 'code': 'existing_national_id', 'field_errors': {'national_id': 'This customer already has a case.'}}, status=409)
             try:
-                customer = JawabuCustomer.objects.create(national_id=national_id, primary_phone=phone)
-                farmer = JawabuFarmerMaster.objects.create(
-                    customer=customer, group_configuration=owner_group, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
+                from core.services.jawabu_pipeline import create_portal_visit_lead
+                farmer = create_portal_visit_lead(
+                    group_configuration=owner_group, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
                     customer_name=name, national_id=national_id, primary_phone=phone, lead_name=name, lead_national_id=national_id,
                     lead_primary_phone=phone, lead_source_reference='JBL office', lead_source='JAWABU',
                     deposit_paid_hbg=deposit_paid_hbg, hb_sales_person=hb_sales_person,

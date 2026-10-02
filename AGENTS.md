@@ -215,6 +215,7 @@ Key modules:
 - `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
 - `request_throttling.py` — database-backed focused abuse limits using only keyed identity/network digests; never applies to Telegram webhook retries
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
+- `invoice_processing_limits.py` — shared invoice delivery/page/time budgets; `scripts/invoice_pdf_worker.py` isolates parsing and native preview rendering with a parent-enforced timeout. Retain invoice hash, Drive acceptance checkpoint and attempt ownership when resuming an interrupted upload.
 - `durable_jobs.py` — aggregate health and privacy-safe heartbeat evidence for database-leased complaint-import and TAT-repair runners
 - `production_release.py` — read-only migration-plan inspection, immutable release attribution, and durable secret-free release evidence
 - `origination_production.py` — enabled Origination signing/conditional-approval production readiness projection

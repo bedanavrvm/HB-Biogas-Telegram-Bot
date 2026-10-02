@@ -1,5 +1,30 @@
 # Changelog
 
+## Portal engineering remediation - 1-October-2026
+
+- Locked integration claims now recheck terminal state, retry deadlines and
+  remaining budget. Unique attempt tokens fence late successes/failures and
+  publication failure evidence. The execution lease is shared with queue selection.
+- New Sheet reservations bind to group/spreadsheet/tab, preserving FIFO inside
+  each destination without holding up unrelated Master/Eco work. Changed targets
+  supersede the old reservation rather than writing under the wrong FIFO claim.
+- Assisted publication exposes its next retry and respects circuit cooldowns.
+  Canonical saves remain independent of Google; no cron or hosted worker was added.
+- Invoice retries resume retained Drive files and unfinished content hashes.
+  New uploads carry a stable Drive recovery marker; ambiguous legacy acceptance
+  requires reconciliation rather than an unsafe duplicate upload. Parsed rows,
+  events and completion checkpoint are committed together.
+- PDF parsing/preview use disposable, time-limited local processes. Delivery
+  count/bytes, parser pages, preview pixel allocations and delivery continuation
+  have explicit limits and actionable failure messages.
+- Payment authorization, queue filtering and counts precede database pagination;
+  only ten batches are serialized. Exact stale review digests remain actionable.
+- Fixed direct-dependency/domain discovery and the five architecture-gate
+  mutations; extended domain lint/coverage and added disposable PostgreSQL CI
+  locking/upgrade tests. Pinned the installed psycopg version without upgrading it.
+- EQ-06 invoice diagnostic privacy and EQ-11 broad maintainability cleanup were
+  explicitly excluded. See the remediation plan for verification and rollout limits.
+
 ## Portal audit repairs - 1-October-2026
 
 - Background Sheet coordination no longer counts as a foreground save. Its

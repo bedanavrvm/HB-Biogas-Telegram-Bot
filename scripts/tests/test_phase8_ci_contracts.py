@@ -12,6 +12,20 @@ class RouteGovernanceContractTests(unittest.TestCase):
 
 
 class CoverageQualityContractTests(unittest.TestCase):
+    def test_windows_coverage_paths_match_git_paths(self):
+        payload = {'meta': {'branch_coverage': True}, 'files': {
+            'payments\\services.py': {'executed_branches': [[10, 11]], 'missing_branches': []},
+        }}
+        self.assertEqual(quality_errors(payload, {}, {'payments/services.py': {10}}), [])
+
+    def test_bounded_domains_are_counted_and_changed_lines_are_checked(self):
+        details = {'summary': {'covered_lines': 2, 'num_statements': 4,
+                               'covered_branches': 1, 'num_branches': 2}}
+        report = aggregate({'files': {'payments/services.py': details, 'hb_operations/services.py': details}})
+        self.assertEqual(report['payments']['line_percent'], 50.0)
+        self.assertEqual(report['hb_operations']['branch_percent'], 50.0)
+        diff = '+++ b/payments/services.py\n@@ -1,0 +2,2 @@\n+x\n+y\n'
+        self.assertEqual(added_lines(diff), {'payments/services.py': {2, 3}})
     def test_added_service_lines_are_parsed_from_zero_context_diff(self):
         diff = '\n'.join([
             '+++ b/core/services/example.py',

@@ -2180,6 +2180,12 @@ class JblPipelineApiTestCase(TestCase):
     """Test suite for the portal Mini App API endpoints."""
 
     def setUp(self):
+        # These unit tests mock PdfReader pages. Exercise the parsing body in
+        # process; worker timeout/isolation is tested separately with real PDFs.
+        from core.services.invoice_parser import _parse_invoice_pdf_bytes
+        parser_boundary = patch('core.services.invoice_parser.parse_invoice_pdf_bytes', side_effect=_parse_invoice_pdf_bytes)
+        parser_boundary.start()
+        self.addCleanup(parser_boundary.stop)
         self.farmer = JawabuFarmerMaster.objects.create(
             customer_name='Pipeline test farmer',
             national_id='99999999',

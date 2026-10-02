@@ -1,6 +1,11 @@
 import re
 import logging
 import hashlib
+import uuid
+import json
+import subprocess
+import sys
+from datetime import timedelta
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
@@ -657,8 +662,28 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
 
 
 def parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
+    """Isolate native PDF extraction from request workers with a hard deadline."""
+    from core.services.invoice_processing_limits import MAX_PARSE_SECONDS
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'scripts.invoice_pdf_worker'], input=pdf_bytes,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=MAX_PARSE_SECONDS,
+            cwd=Path(__file__).resolve().parents[2], check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError('This PDF took too long to read. Split it into smaller invoice files and retry.') from exc
+    if result.returncode:
+        raise ValueError('This invoice PDF could not be read. Check that it is unlocked, valid and no more than 200 pages.')
+    payload = json.loads(result.stdout)
+    return payload['invoices'], payload['pages']
+
+
+def _parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
     """Parse invoice records from a PDF without tying them to an order."""
     reader = PdfReader(BytesIO(pdf_bytes))
+    from core.services.invoice_processing_limits import MAX_PDF_PAGES
+    if len(reader.pages) > MAX_PDF_PAGES:
+        raise ValueError('Split this PDF into files of at most 200 pages.')
     invoices = []
     for page_number, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
@@ -693,13 +718,20 @@ def ingest_invoice_upload_batch(
     """
     if not pdf_bytes:
         raise ValueError('Invoice PDF is empty.')
+    from core.services.invoice_processing_limits import MAX_SOURCE_BYTES
+    if len(pdf_bytes) > MAX_SOURCE_BYTES:
+        raise ValueError('Invoice PDF exceeds 8 MB. Split it into smaller files.')
     safe_name = Path(filename or 'hb_invoices.pdf').name or 'hb_invoices.pdf'
     if not safe_name.lower().endswith('.pdf'):
         raise ValueError('Only PDF files are supported.')
     content_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     client_request_id = str(client_request_id or '').strip()[:128]
+    resume_key = hashlib.sha256(client_request_id.encode()).hexdigest() if client_request_id else ''
+    existing = None
     if client_request_id:
-        existing = InvoiceUploadBatch.objects.filter(client_request_id=client_request_id).first()
+        existing = InvoiceUploadBatch.objects.filter(
+            Q(client_request_id=client_request_id) | Q(**{f'metadata__resume_requests__{resume_key}': True}),
+        ).first()
         if existing:
             if existing.group_configuration_id != getattr(group_configuration, 'pk', None):
                 raise InvoiceUploadRequestConflictError('This upload request was already used in another invoice group.')
@@ -707,18 +739,22 @@ def ingest_invoice_upload_batch(
                 raise ValueError('This upload request ID was already used for another order.')
             if existing.content_sha256 and existing.content_sha256 != content_sha256:
                 raise InvoiceUploadRequestConflictError('This upload request was already used for a different PDF. Select the intended file and retry.')
-            return existing
+            if existing.status not in {'uploaded', 'parse_failed'}:
+                return existing
 
     duplicate = InvoiceUploadBatch.objects.filter(
         group_configuration=group_configuration, content_sha256=content_sha256,
     ).first()
-    if duplicate:
-        raise InvoiceDuplicateUploadError(duplicate)
+    if duplicate and not (client_request_id and duplicate.client_request_id == client_request_id):
+        if duplicate.status in {'uploaded', 'parse_failed'} and str(duplicate.order_number or '').strip() == str(order_number or '').strip():
+            existing = duplicate
+        else:
+            raise InvoiceDuplicateUploadError(duplicate)
 
     received_at = timezone.now()
     try:
         with transaction.atomic():
-            batch = InvoiceUploadBatch.objects.create(
+            batch = existing if existing else InvoiceUploadBatch.objects.create(
                 group_configuration=group_configuration,
                 original_filename=safe_name,
                 content_type=content_type or 'application/pdf',
@@ -736,40 +772,65 @@ def ingest_invoice_upload_batch(
         if duplicate:
             raise InvoiceDuplicateUploadError(duplicate) from exc
         raise
+    with transaction.atomic():
+        batch = InvoiceUploadBatch.objects.select_for_update().get(pk=batch.pk)
+        metadata = dict(batch.metadata or {})
+        if existing and not batch.drive_file_id and not metadata.get('processing_token'):
+            raise InvoiceUploadRequestConflictError('This older upload has no recovery checkpoint. Ask IT to reconcile its Drive file before retrying.')
+        if metadata.get('processing_until') and metadata['processing_until'] > timezone.now().isoformat():
+            raise InvoiceUploadRequestConflictError('This invoice file is still processing. Wait a moment, then retry the same file.')
+        token = uuid.uuid4().hex
+        resume_requests = dict(metadata.get('resume_requests') or {})
+        if resume_key and batch.client_request_id != client_request_id:
+            if resume_key not in resume_requests and len(resume_requests) >= 32:
+                raise InvoiceUploadRequestConflictError('This upload has too many retry keys. Ask IT to reconcile it.')
+            resume_requests[resume_key] = True
+        metadata['resume_requests'] = resume_requests
+        metadata.update(processing_token=token, processing_until=(timezone.now() + timedelta(minutes=3)).isoformat(),
+                        processing_stage='parsing' if batch.drive_file_id else 'uploading')
+        batch.metadata = metadata
+        batch.save(update_fields=['metadata', 'updated_at'])
+    received_at = batch.created_at
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
-
-        drive_file_id, drive_url = GoogleDriveMediaStorage().upload(
-            pdf_bytes,
-            filename=safe_name,
-            mime_type=content_type or 'application/pdf',
-            id_number='invoice_pool',
-            received_at=received_at,
-            group_config=group_config,
-            workflow_key='Jawabu/Invoices',
-            record_type='Order' if order_number else 'Unassigned',
-            record_key=order_number or safe_name,
-        )
+        from core.services.external_resilience import external_call_budget
+        with external_call_budget(15):
+            drive_file_id, drive_url = (batch.drive_file_id, batch.drive_url) if batch.drive_file_id else GoogleDriveMediaStorage().upload(
+                pdf_bytes,
+                filename=safe_name,
+                mime_type=content_type or 'application/pdf',
+                id_number='invoice_pool',
+                received_at=received_at,
+                group_config=group_config,
+                workflow_key='Jawabu/Invoices',
+                record_type='Order' if order_number else 'Unassigned',
+                record_key=order_number or safe_name,
+                attempt_budget=1, recover_uncertain=True,
+            )
     except Exception as exc:
         batch.status = 'parse_failed'
         batch.error = 'Google Drive upload failed.'
-        # No file was accepted; allow a corrected retry to reserve this hash.
-        batch.content_sha256 = ''
-        batch.client_request_id = ''
-        batch.save(update_fields=['status', 'error', 'content_sha256', 'client_request_id', 'updated_at'])
+        # Acceptance may be uncertain. Retain the hash and use the stable Drive
+        # operation marker on retry instead of blindly creating another file.
+        _finish_invoice_attempt(batch, token, failed=True)
         logger.error("Invoice PDF Drive upload failed: %s", exc, exc_info=True)
         raise InvoiceUploadStorageError(str(exc)) from exc
 
     batch.drive_file_id = drive_file_id
     batch.drive_url = drive_url
-    batch.save(update_fields=['drive_file_id', 'drive_url', 'updated_at'])
+    with transaction.atomic():
+        current = InvoiceUploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if current.metadata.get('processing_token') != token:
+            raise InvoiceUploadRequestConflictError('A newer upload attempt is processing this invoice. Refresh its result.')
+        batch.metadata = {**current.metadata, 'processing_stage': 'parsing'}
+        batch.save(update_fields=['drive_file_id', 'drive_url', 'metadata', 'updated_at'])
 
     try:
         invoices, total_pages = parse_invoice_pdf_bytes(pdf_bytes)
     except Exception as exc:
         batch.status = 'parse_failed'
         batch.error = str(exc)
-        batch.save(update_fields=['status', 'error', 'updated_at'])
+        _finish_invoice_attempt(batch, token, failed=True)
         raise
 
     parsed_rows = []
@@ -795,6 +856,28 @@ def ingest_invoice_upload_batch(
             status='draft',
             raw_payload=inv,
         ))
+    return _commit_invoice_parse(batch, parsed_rows, total_pages, uploaded_by, safe_name, drive_file_id, token)
+
+
+def _finish_invoice_attempt(batch, token, *, failed=False):
+    with transaction.atomic():
+        current = InvoiceUploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if current.metadata.get('processing_token') != token:
+            return
+        current.metadata = {**current.metadata, 'processing_until': '', 'processing_stage': 'retry_needed' if failed else 'completed'}
+        current.status = batch.status
+        current.error = batch.error
+        current.save(update_fields=['metadata', 'status', 'error', 'updated_at'])
+
+
+@transaction.atomic
+def _commit_invoice_parse(batch, parsed_rows, total_pages, uploaded_by, safe_name, drive_file_id, token):
+    current = InvoiceUploadBatch.objects.select_for_update().get(pk=batch.pk)
+    if current.metadata.get('processing_token') != token:
+        raise InvoiceUploadRequestConflictError('A newer upload attempt is processing this invoice. Refresh its result.')
+    batch = current
+    if batch.invoices.exists():
+        raise InvoiceUploadRequestConflictError('This invoice has existing partial results. Ask IT to reconcile them before retrying.')
     if parsed_rows:
         ParsedInvoice.objects.bulk_create(parsed_rows)
         ParsedInvoiceEvent.objects.bulk_create([
@@ -817,11 +900,14 @@ def ingest_invoice_upload_batch(
     batch.total_parsed = len(parsed_rows)
     batch.unmatched_count = len(parsed_rows)
     batch.status = 'awaiting_confirmation' if parsed_rows else 'needs_review'
+    batch.error = ''
     if not parsed_rows:
         batch.error = 'No valid HomeBiogas invoices found in the PDF.'
     batch.save(update_fields=[
         'total_pages', 'total_parsed', 'unmatched_count', 'status', 'error', 'updated_at',
     ])
+    _finish_invoice_attempt(batch, token)
+    batch.refresh_from_db()
     return batch
 
 

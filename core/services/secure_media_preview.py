@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 import base64
+import math
+import time
+import json
+import subprocess
+import sys
+from pathlib import Path
 from html import escape as html_escape
 from io import BytesIO
 
@@ -10,9 +16,37 @@ PDF_PREVIEW_MAX_SOURCE_BYTES = 16 * 1024 * 1024
 PDF_PREVIEW_MAX_PAGES = 8
 PDF_PREVIEW_MAX_RENDERED_BYTES = 10 * 1024 * 1024
 PDF_PREVIEW_SCALE = 1.25
+PDF_PREVIEW_MAX_PAGE_PIXELS = 12_000_000
+PDF_PREVIEW_MAX_TOTAL_PIXELS = 40_000_000
+PDF_PREVIEW_MAX_SECONDS = 15
 
 
 def pdf_preview_html(
+    content: bytes, filename: str, *, password: str | None = None,
+    show_filename: bool = True, show_single_page_caption: bool = True,
+) -> bytes:
+    """Keep native PDF rendering out of the web worker with a hard deadline."""
+    if not content or len(content) > PDF_PREVIEW_MAX_SOURCE_BYTES:
+        raise ValueError('This PDF is too large for an in-app preview.')
+    options = json.dumps({'filename': filename, 'password': password,
+                          'show_filename': show_filename, 'show_single_page_caption': show_single_page_caption})
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'scripts.invoice_pdf_worker', 'preview'],
+            cwd=Path(__file__).resolve().parents[2],
+            input=options.encode() + b'\n' + content, capture_output=True,
+            timeout=PDF_PREVIEW_MAX_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError('This PDF took too long to preview. Download it instead.') from exc
+    if result.returncode:
+        raise ValueError('This PDF could not be previewed safely. Download it instead.')
+    if len(result.stdout) > PDF_PREVIEW_MAX_RENDERED_BYTES * 2:
+        raise ValueError('This PDF is too detailed for an in-app preview.')
+    return result.stdout
+
+
+def _pdf_preview_html(
     content: bytes,
     filename: str,
     *,
@@ -27,20 +61,39 @@ def pdf_preview_html(
     import pypdfium2 as pdfium
 
     document = pdfium.PdfDocument(content, password=password or None)
-    total_pages = len(document)
-    if not total_pages:
-        raise ValueError('This PDF has no pages to preview.')
-    page_count = min(total_pages, PDF_PREVIEW_MAX_PAGES)
     rendered_bytes = 0
+    total_pixels = 0
+    started = time.monotonic()
     page_images: list[str] = []
     try:
+        total_pages = len(document)
+        if not total_pages:
+            raise ValueError('This PDF has no pages to preview.')
+        page_count = min(total_pages, PDF_PREVIEW_MAX_PAGES)
         for page_index in range(page_count):
+            if time.monotonic() - started > PDF_PREVIEW_MAX_SECONDS:
+                raise ValueError('This PDF is too detailed for an in-app preview. Download it instead.')
             page = document[page_index]
-            bitmap = page.render(scale=PDF_PREVIEW_SCALE)
-            image = bitmap.to_pil().convert('RGB')
-            output = BytesIO()
-            image.save(output, format='JPEG', quality=82, optimize=True)
-            encoded = output.getvalue()
+            bitmap = image = None
+            try:
+                width, height = page.get_size()
+                if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+                    raise ValueError('This PDF has invalid page dimensions.')
+                pixels = math.ceil(width * PDF_PREVIEW_SCALE) * math.ceil(height * PDF_PREVIEW_SCALE)
+                total_pixels += pixels
+                if pixels > PDF_PREVIEW_MAX_PAGE_PIXELS or total_pixels > PDF_PREVIEW_MAX_TOTAL_PIXELS:
+                    raise ValueError('This PDF is too detailed for an in-app preview. Download it instead.')
+                bitmap = page.render(scale=PDF_PREVIEW_SCALE)
+                image = bitmap.to_pil().convert('RGB')
+                with BytesIO() as output:
+                    image.save(output, format='JPEG', quality=82, optimize=True)
+                    encoded = output.getvalue()
+            finally:
+                if image is not None:
+                    image.close()
+                if bitmap is not None:
+                    bitmap.close()
+                page.close()
             rendered_bytes += len(encoded)
             if rendered_bytes > PDF_PREVIEW_MAX_RENDERED_BYTES:
                 raise ValueError('This PDF is too detailed for an in-app preview.')

@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from scripts.check_settings_env_parity import env_keys, settings_keys
-from scripts.check_dependency_parity import normalize, requirement_contracts, requirement_packages
+from scripts.check_dependency_parity import normalize, requirement_contracts, requirement_packages, runtime_imports, parity_errors
 
 
 class SettingsEnvironmentParserTests(unittest.TestCase):
@@ -21,6 +21,12 @@ class SettingsEnvironmentParserTests(unittest.TestCase):
 
 
 class DependencyParserTests(unittest.TestCase):
+    def test_first_party_domains_are_not_external_dependencies(self):
+        imports = runtime_imports()
+        self.assertFalse({'payments', 'hb_operations', 'requisitions', 'credit_assessments',
+                          'portal_recognition', 'tat_recognition', 'qa_tracker'} & imports)
+        self.assertIn('cryptography', imports)
+        self.assertEqual(parity_errors(), [])
     def test_normalizes_distribution_names_and_extras(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / 'requirements.txt'

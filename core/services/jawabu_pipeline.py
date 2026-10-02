@@ -2294,7 +2294,7 @@ def sync_farmer_to_master_sheet(
             'detail': str(detail or '')[:255],
         })
 
-    group_config = _jawabu_group_config()
+    group_config = _jawabu_group_config(farmer)
 
     if not group_config:
         logger.warning("No group configuration found for sync of farmer %s", farmer.id)
@@ -2743,11 +2743,44 @@ def sync_farmer_to_master_sheet(
 
 
 
-def _jawabu_group_config():
+@transaction.atomic
+def create_portal_visit_lead(*, national_id, primary_phone, **case_values):
+    """Retain the paired canonical identity/intake inside the caller's save."""
+    from core.models import JawabuCustomer
+    customer = JawabuCustomer.objects.create(national_id=national_id, primary_phone=primary_phone)
+    return JawabuFarmerMaster.objects.create(
+        customer=customer, national_id=national_id, primary_phone=primary_phone, **case_values,
+    )
+
+
+def _jawabu_group_config(farmer=None):
     """Return the enabled Jawabu workflow group config, if one exists."""
     from core.models import GroupSheetConfiguration
     from core.services.group_config import GroupConfig, GroupRegistry
     from core.services.jawabu import is_jawabu_workflow
+
+    if farmer is not None:
+        db_config = getattr(farmer, 'group_configuration', None)
+        if db_config is not None:
+            return GroupConfig(
+                group_id=db_config.group_id, sheet_id=db_config.sheet_id,
+                sheet_name=db_config.sheet_name or '', enabled=db_config.enabled,
+                workflow=db_config.workflow,
+            ) if db_config.enabled else None
+        candidates = list(GroupSheetConfiguration.objects.filter(enabled=True).filter(
+            Q(workflow__type__in=['jawabu', 'jawabu_homebiogas']) | Q(workflow__master_sync_enabled=True)
+        )[:2])
+        if len(candidates) > 1:
+            return None  # A legacy unbound case must not borrow another group's destination.
+        if candidates:
+            db_config = candidates[0]
+            return GroupConfig(group_id=db_config.group_id, sheet_id=db_config.sheet_id,
+                               sheet_name=db_config.sheet_name or '', enabled=True, workflow=db_config.workflow)
+        registry_candidates = [config for config in GroupRegistry.get_instance().list_groups().values()
+                               if config.enabled and is_jawabu_workflow(config)]
+        if len(registry_candidates) > 1:
+            return None
+        return registry_candidates[0] if registry_candidates else None
 
     for config in GroupRegistry.get_instance().list_groups().values():
         if is_jawabu_workflow(config):
@@ -2800,7 +2833,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
     )
     from core.services.sheet_publication import aliases_for
 
-    group_config = _jawabu_group_config()
+    group_config = _jawabu_group_config(farmer)
     if not group_config:
         return False
     workflow = getattr(group_config, 'workflow', None) or {}

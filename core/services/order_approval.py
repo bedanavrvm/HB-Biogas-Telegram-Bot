@@ -2186,6 +2186,7 @@ class GoogleDriveMediaStorage:
             from googleapiclient.discovery import build
             from google_auth_httplib2 import AuthorizedHttp
             import httplib2
+            from core.services.external_resilience import budget_google_http
 
             creds = Credentials.from_service_account_file(
                 getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'),
@@ -2193,7 +2194,7 @@ class GoogleDriveMediaStorage:
             )
             self._service = build(
                 'drive', 'v3',
-                http=AuthorizedHttp(creds, http=httplib2.Http(timeout=self.request_timeout)),
+                http=AuthorizedHttp(creds, http=budget_google_http(httplib2.Http(timeout=self.request_timeout), self.request_timeout)),
                 cache_discovery=False,
             )
         return self._service
@@ -2210,6 +2211,7 @@ class GoogleDriveMediaStorage:
         record_type: str = '',
         record_key: str = '',
         attempt_budget: int | None = None,
+        recover_uncertain: bool = False,
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
         from core.services.external_resilience import execute_operation, reserve_operation
@@ -2247,12 +2249,29 @@ class GoogleDriveMediaStorage:
             source_model=str(record_type or 'media'),
             source_id=str(record_key or id_number)[:128],
             operation_payload=(folder_id, filename, content_fingerprint),
-            metadata={'mime_type': str(mime_type)[:255], 'record_type': str(record_type)[:80]},
+            metadata={'mime_type': str(mime_type)[:255], 'record_type': str(record_type)[:80],
+                      **({'recovery_marker_version': 1} if recover_uncertain else {})},
         )
 
         created_holder = {}
+        if recover_uncertain and operation.attempts and operation.status != 'succeeded' and not (operation.metadata or {}).get('recovery_marker_version'):
+            raise ValueError('This older upload has uncertain Drive acceptance. Ask IT to reconcile it before retrying.')
+        recovery_key = hashlib.sha256(operation.deduplication_key.encode()).hexdigest()
+        if recover_uncertain:
+            metadata['appProperties'] = {'jbl_operation': recovery_key}
 
         def create_file():
+            if recover_uncertain:
+                found = self.service.files().list(
+                    q=f"trashed = false and '{folder_id}' in parents and appProperties has {{ key='jbl_operation' and value='{recovery_key}' }}",
+                    fields='files(id,webViewLink)', pageSize=2, supportsAllDrives=True, includeItemsFromAllDrives=True,
+                ).execute().get('files', [])
+                if not isinstance(found, list):
+                    raise ValueError('Drive recovery could not be verified. Retry when Drive is available.')
+                if found:
+                    if len(found) != 1:
+                        raise ValueError('This upload has conflicting recovery records. Ask IT to reconcile it.')
+                    return found[0]
             try:
                 stream.seek(0)
             except (AttributeError, OSError):

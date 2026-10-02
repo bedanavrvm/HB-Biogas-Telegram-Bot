@@ -7,6 +7,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-engineering-checks-only-not-a-production-secret
+      DATABASE_URL: sqlite:///ci-test.sqlite3
 
     steps:
       - name: Check out repository
@@ -44,7 +48,7 @@ jobs:
         run: python scripts/check_dependency_vulnerabilities.py
 
       - name: Run narrow Python correctness lint
-        run: ruff check config core scripts
+        run: ruff check config core scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker
 
       - name: Check migrations
         env:
@@ -91,7 +95,7 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
           coverage erase
-          coverage run --branch --source=core manage.py test
+          coverage run --branch --source=core,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker manage.py test
           coverage json -o coverage.json
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
@@ -127,3 +131,38 @@ jobs:
             cp "$script" "/tmp/${script%.gs}.js"
             node --check "/tmp/${script%.gs}.js"
           done
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jbl_test_runner
+          POSTGRES_PASSWORD: ci-disposable-test-password
+          POSTGRES_DB: jbl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jbl_test_runner -d jbl_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-postgres-only-not-a-production-secret
+      DJANGO_SETTINGS_MODULE: config.settings_test_postgres
+      TEST_DATABASE_URL: postgresql://jbl_test_runner:ci-disposable-test-password@127.0.0.1:5432/jbl_test
+      DATABASE_URL: sqlite:///unused-ci.sqlite3
+      GOOGLE_SERVICE_ACCOUNT_JSON: ""
+      GOOGLE_APPLICATION_CREDENTIALS: ""
+      SENTRY_DSN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Fresh schema and production-shaped tests
+        run: |
+          python manage.py migrate --noinput
+          python manage.py makemigrations --check --dry-run
+          python manage.py test core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions --noinput --verbosity 1

@@ -610,8 +610,7 @@ class PaymentListPaginationTests(TestCase):
         request = RequestFactory().get('/api/portal/payments/batches/' + query)
         request.portal_user = self.user
         with patch('core.api.portal_views._portal_capability_error', return_value=None), \
-             patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.filter(group_configuration=self.group)), \
-             patch('core.api.portal_views._portal_payment_batch_scope_error', side_effect=lambda request, batch, **kwargs: object() if batch.pk in denied_ids else None):
+             patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.filter(group_configuration=self.group).exclude(pk__in=denied_ids)):
             return json.loads(portal_payment_batches(request).content)
 
     def test_old_open_batch_is_not_hidden_by_one_hundred_completed_batches(self):
@@ -641,6 +640,18 @@ class PaymentListPaginationTests(TestCase):
         with patch('core.api.portal_views._portal_capability_error', return_value=JsonResponse({'ok':False}, status=403)) as check:
             self.assertEqual(portal_payment_batches(request).status_code, 403)
             check.assert_called_once_with(request, 'portal.payment.review')
+
+    def test_only_ten_batches_are_serialized_from_large_history(self):
+        from core.api.portal_views import _serialize_portal_payment_batch
+        PaymentBatch.objects.bulk_create([
+            PaymentBatch(group_configuration=self.group, status='completed', payment_number=i + 1)
+            for i in range(1000)
+        ])
+        with patch('core.api.portal_views._serialize_portal_payment_batch', wraps=_serialize_portal_payment_batch) as serialize:
+            result = self.listed('?status=all')
+        self.assertEqual(result['pagination']['total'], 1000)
+        self.assertEqual(len(result['batches']), 10)
+        self.assertEqual(serialize.call_count, 10)
 
 
 class PaymentWorkflowContractTests(TestCase):

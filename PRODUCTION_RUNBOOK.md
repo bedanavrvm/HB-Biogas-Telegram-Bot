@@ -1,5 +1,79 @@
 # Production Runbook
 
+## Portal recovery and upgrade contract (1 October 2026)
+
+- Supported release runtime: Python 3.12, Node 22 in CI (the declared Node range
+  remains >=20 and <25), PostgreSQL 16 in the disposable CI lane. Local Python
+  3.14/PostgreSQL 18 checks are supplementary, not proof of that release matrix.
+- Install from `requirements.txt` / `npm ci`; pip and Poetry direct contracts
+  must agree. Psycopg is pinned to the installed 3.3.4 version, not upgraded as
+  part of this patch. Vendored UI updates must retain the matching license and
+  rerun the existing mobile/browser tests. Dependabot checks pip, npm and Actions.
+- Before release, run dependency/architecture checks, migration checks and the
+  disposable PostgreSQL job. Keep full-suite failures visible; do not waive them
+  by using a passing focused selection. The expired dependency-audit exception
+  needs a separately reviewed resolution, not an automatic expiry extension.
+- Drain/restart old web workers together: older unfenced workers must not finish
+  operations after the new executor starts. This release uses existing metadata;
+  it adds no production schema migration or automatic data repair.
+
+### Publication operation and limits
+
+- Django saves reserve durable work and return without waiting for Google.
+  An authenticated, visible Portal session can advance eligible work. **No cron
+  is required, and no completion time is guaranteed after all clients close.**
+- FIFO is per configured group/spreadsheet/tab; shared Google pacing and the
+  circuit cooldown still apply. A changed destination reserves replacement work
+  rather than publishing under the old claim. Ambiguous unbound legacy cases
+  require configuration review, never an arbitrary first group.
+- Claims have a shared minimum 120-second recovery lease. Google calls have
+  individual timeouts and a composed publication budget of 20 seconds; this is
+  not permission to run unbounded user callbacks inside the shared executor.
+- The pump returns the retry deadline and backs off up to ten minutes during a
+  circuit cooldown. Next retry is the earliest opportunity, not a promised
+  completion time. Manual reviewed retries retain the exhausted operation.
+- Inspect `drain_portal_publications` without `--apply` first. An operator may
+  run `--apply --limit 5 --max-seconds 50` only with authority for that environment.
+  Do not reset operation attempts or erase failed evidence to make a queue green.
+
+### Interrupted invoices and PDF safety
+
+- Inspect unfinished uploads with
+  `python manage.py inventory_invoice_recovery --group-configuration-id <ID>`.
+  This command is read-only and never contacts Drive.
+- Retry the same source PDF. Known file checkpoints skip Drive upload; new
+  uncertain uploads look up their stable Drive marker before creating a file.
+  Active processing claims return a wait/retry conflict, not a false success.
+- Older uncertain uploads without a recovery marker or partially parsed legacy
+  rows need an explicit, reviewed reconciliation. Never blindly reupload, delete
+  their rows, clear their hash or discard their request identity.
+- Limits: 20 files / 32 MB per delivery; 8 MB per parser source; 200 PDF pages;
+  20-second disposable parser process. After 35 seconds the delivery stops
+  starting additional files; an already-started file may finish its own bounded
+  storage/parsing work. Submit remaining files as a smaller delivery.
+- Preview limits: 16 MB input, first eight pages, 12 million pixels per page,
+  40 million pixels total, 10 MB rendered JPEG data, 15-second disposable process.
+  Linux additionally caps child address space at 768 MB and CPU at 20 seconds.
+  Windows enforces wall time and pixel preflight, not the Linux address-space cap.
+  Preview failure offers download rather than attempting an unbounded render.
+
+### Restore drill and release decision
+
+1. Use an isolated localhost test database and synthetic data; never overwrite
+   production, reuse real Drive folders, or deliver Telegram messages.
+2. Record commit, Python/PostgreSQL versions, migration leaves and backup time.
+   Create a custom-format `pg_dump`, restore into a separately named test database,
+   and record the actual elapsed time and source/restore record comparisons.
+3. Verify scoped access, official sequence maxima/next values, case membership,
+   immutable signed-document/checksum references and audit-chain integrity.
+   Reconcile external acceptance conservatively before enabling outbound retries.
+4. Run a read-only workflow and the PostgreSQL lock/upgrade tests. Record exactly
+   which checks passed and which external resources were not exercised.
+5. Production restoration, historical repairs and data-loss acceptance require
+   fresh incident authority. A local synthetic drill does not establish the
+   production RPO/RTO targets below. Prefer reviewed forward fixes; never reverse
+   migrations or delete alleged orphan files automatically.
+
 This is the operational source of truth for releasing and maintaining the JBL/Jawabu workflow platform. Django owns workflow state; Google Sheets and Drive are integrations, not the database.
 
 ## Environment separation

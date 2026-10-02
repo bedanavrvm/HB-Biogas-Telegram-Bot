@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS = ROOT / 'requirements.txt'
 PYPROJECT = ROOT / 'pyproject.toml'
 IMPORT_TO_PACKAGE = {
+    'cryptography': 'cryptography',
     'PIL': 'pillow',
     'africastalking': 'africastalking',
     'dateutil': 'python-dateutil',
@@ -91,7 +92,8 @@ def poetry_contracts(path: Path = PYPROJECT) -> dict[str, tuple[str, tuple[str, 
 
 def runtime_imports() -> set[str]:
     imports = set()
-    paths = [ROOT / 'config', ROOT / 'core']
+    local = {path.name for path in ROOT.iterdir() if path.is_dir() and (path / '__init__.py').is_file()}
+    paths = [ROOT / name for name in sorted(local - {'scripts'})]
     for base in paths:
         for path in base.rglob('*.py'):
             relative = path.relative_to(ROOT)
@@ -103,7 +105,6 @@ def runtime_imports() -> set[str]:
                     imports.update(item.name.split('.', 1)[0] for item in node.names)
                 elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                     imports.add(node.module.split('.', 1)[0])
-    local = {'config', 'core'}
     return {
         name for name in imports
         if name not in sys.stdlib_module_names and name not in local

@@ -16,10 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COVERAGE = ROOT / 'coverage.json'
 DEFAULT_BASELINE = ROOT / 'scripts' / 'coverage_baseline.json'
 DEFAULT_REPORT = ROOT / 'coverage-subsystems.json'
+DOMAIN_PACKAGES = frozenset(
+    path.name for path in ROOT.iterdir()
+    if path.is_dir() and (path / 'apps.py').is_file() and (path / '__init__.py').is_file()
+)
 
 
 def subsystem(filename: str) -> str:
     path = filename.replace('\\', '/')
+    domain = path.split('/', 1)[0]
+    if domain in DOMAIN_PACKAGES and domain != 'core':
+        return domain
     if path.startswith('core/api/'):
         return 'api'
     if path.startswith('core/services/'):
@@ -38,7 +45,7 @@ def aggregate(payload: dict) -> dict:
         lambda: {'covered_lines': 0, 'num_statements': 0, 'covered_branches': 0, 'num_branches': 0},
     )
     for filename, details in payload.get('files', {}).items():
-        if not filename.replace('\\', '/').startswith('core/'):
+        if filename.replace('\\', '/').split('/', 1)[0] not in DOMAIN_PACKAGES:
             continue
         target = groups[subsystem(filename)]
         summary = details['summary']
@@ -63,7 +70,9 @@ def added_lines(diff_text: str) -> dict[str, set[int]]:
         if line.startswith('+++ b/'):
             filename = line[6:]
             continue
-        if not filename.startswith('core/services/') or not filename.endswith('.py'):
+        if not filename.endswith('.py') or not (
+            filename.startswith('core/services/') or filename.split('/', 1)[0] in DOMAIN_PACKAGES - {'core'}
+        ):
             continue
         match = re.match(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', line)
         if not match:
@@ -78,7 +87,8 @@ def changed_service_lines(base_ref: str) -> dict[str, set[int]]:
     if not base_ref:
         return {}
     result = subprocess.run(
-        ['git', 'diff', '--unified=0', '--diff-filter=AM', f'{base_ref}...HEAD', '--', 'core/services'],
+        ['git', 'diff', '--unified=0', '--diff-filter=AM', f'{base_ref}...HEAD', '--',
+         'core/services', *sorted(DOMAIN_PACKAGES - {'core'})],
         cwd=ROOT, check=False, capture_output=True, text=True,
     )
     if result.returncode:
@@ -97,7 +107,8 @@ def quality_errors(payload: dict, baseline: dict, changed: dict[str, set[int]]) 
         )
     if not payload.get('meta', {}).get('branch_coverage'):
         errors.append('Coverage must be collected with --branch.')
-    files = payload.get('files', {})
+    files = {filename.replace('\\', '/'): details
+             for filename, details in payload.get('files', {}).items()}
     for filename, lines in sorted(changed.items()):
         details = files.get(filename)
         if details is None:
@@ -138,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         options.baseline.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         print(f'Coverage baseline written to {options.baseline.relative_to(ROOT)}.')
         return 0
-    baseline = json.loads(options.baseline.read_text(encoding='utf-8'))
+    if not options.baseline.is_file():
+        print('Coverage baseline is missing. Collect the full suite and review --write-baseline before enforcing a total threshold.')
+        baseline = {}  # Changed-code and branch-collection gates still run.
+    else:
+        baseline = json.loads(options.baseline.read_text(encoding='utf-8'))
     try:
         changed = changed_service_lines(options.base_ref)
     except RuntimeError as exc:

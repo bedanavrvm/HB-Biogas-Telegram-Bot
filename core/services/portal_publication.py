@@ -9,13 +9,17 @@ from __future__ import annotations
 
 from typing import Any
 from datetime import timedelta
+import hashlib
+import json
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef, Value, CharField
+from django.db.models.functions import Coalesce
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from core.models import IntegrationOperation
-from core.services.external_resilience import ExternalOperationError, execute_operation, reserve_operation
+from core.services.external_resilience import ExternalOperationError, execute_operation, reserve_operation, operation_lease_seconds, external_call_budget
 
 
 MASTER_OPERATION = 'jawabu_master_publish'
@@ -24,26 +28,47 @@ SOURCE_MODEL = 'JawabuFarmerMaster'
 PORTAL_PUBLICATION_RUNNER = 'portal_sheet_publications'
 
 
+def _with_destination(queryset):
+    return queryset.annotate(destination_fifo_key=Coalesce(
+        KeyTextTransform('destination_key', 'metadata'), Value('__legacy__'), output_field=CharField(),
+    ))
+
+
+def _master_claim_in_order(operation):
+    if operation.operation_type != MASTER_OPERATION:
+        return True
+    key = (operation.metadata or {}).get('destination_key', '__legacy__')
+    return not _with_destination(IntegrationOperation.objects.filter(
+        integration=operation.integration, source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
+        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_RUNNING),
+    )).filter(destination_fifo_key=key).filter(
+        Q(created_at__lt=operation.created_at) | Q(created_at=operation.created_at, pk__lt=operation.pk)
+    ).exists()
+
+
 def queued_publication_operations():
     """Eligible work, preserving Master/Eco FIFO across all FarmUp worklists."""
     now = timezone.now()
-    lease_seconds = max(30, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3)
-    oldest_master_id = IntegrationOperation.objects.filter(
+    lease_seconds = operation_lease_seconds()
+    masters = _with_destination(IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
                     IntegrationOperation.STATUS_RUNNING),
-    ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
+    ))
+    older = masters.filter(destination_fifo_key=OuterRef('destination_fifo_key')).filter(
+        Q(created_at__lt=OuterRef('created_at')) | Q(created_at=OuterRef('created_at'), pk__lt=OuterRef('pk'))
+    )
     due = (Q(status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE))
            & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)))
     stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
                       last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
-    return IntegrationOperation.objects.filter(
+    return _with_destination(IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL,
         operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-    ).filter(due | stale_running).filter(
-        Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(pk=oldest_master_id)
+    )).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
+        Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(has_earlier=False)
     ).order_by('created_at', 'pk')
 
 
@@ -56,7 +81,13 @@ def publication_queue_status() -> dict[str, Any]:
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
                     IntegrationOperation.STATUS_RUNNING),
     )
-    return {'queued': active.count(), 'due': queued_publication_operations().exists()}
+    from django.db.models import Min, Count
+    timing = active.aggregate(next_retry=Min('next_retry_at'), oldest=Min('created_at'),
+                              running=Count('pk', filter=Q(status=IntegrationOperation.STATUS_RUNNING)))
+    return {'queued': active.count(), 'due': queued_publication_operations().exists(),
+            'running': timing['running'],
+            'next_retry_at': timing['next_retry'].isoformat() if timing['next_retry'] else None,
+            'oldest_queued_at': timing['oldest'].isoformat() if timing['oldest'] else None}
 
 
 def publication_scheduler_health(*, now=None) -> dict[str, Any]:
@@ -94,13 +125,13 @@ class PortalIdentityConflictError(PortalPublicationError):
     safe_error_code = 'identity_conflict'
 
 
-def _targets_for_farmer() -> list[str]:
+def _targets_for_farmer(farmer=None) -> list[str]:
     """Return enabled register targets without performing an external call."""
     # Imported lazily so pipeline services can reserve work without a module
     # import cycle during Django startup.
     from core.services.jawabu_pipeline import _jawabu_group_config
 
-    group_config = _jawabu_group_config()
+    group_config = _jawabu_group_config(farmer)
     if not group_config:
         return []
     workflow = getattr(group_config, 'workflow', None) or {}
@@ -114,6 +145,22 @@ def _targets_for_farmer() -> list[str]:
     ):
         targets.append(INTERNAL_ORDER_OPERATION)
     return targets
+
+
+def _destination_for_farmer(farmer, operation_type):
+    from core.services.jawabu_pipeline import _jawabu_group_config
+    from core.services.requisition_partners import PARTNER_ECO, fulfillment_partner_for_farmer
+    config = _jawabu_group_config(farmer)
+    if not config:
+        return None
+    workflow = config.workflow or {}
+    if operation_type == MASTER_OPERATION:
+        tab = (workflow.get('eco_conserve_sheet_name') or 'Eco-conserve') if fulfillment_partner_for_farmer(farmer) == PARTNER_ECO else (workflow.get('master_sheet_name') or 'Master Data')
+        sheet_id = workflow.get('master_sheet_id') or config.sheet_id
+    else:
+        tab = workflow.get('internal_order_sheet_name') or 'Orders'
+        sheet_id = workflow.get('internal_order_sheet_id')
+    return {'group_id': str(config.group_id), 'spreadsheet': str(sheet_id or ''), 'tab': str(tab)}
 
 
 def reserve_farmer_publication(
@@ -136,11 +183,12 @@ def reserve_farmer_publication(
     revision = int(getattr(farmer, 'workflow_revision', 0) or 0)
     operations = []
     namespace = str(deduplication_namespace or '').strip()
-    enabled_targets = _targets_for_farmer()
+    enabled_targets = _targets_for_farmer(farmer)
     requested_targets = list(operation_types) if operation_types is not None else enabled_targets
     for operation_type in requested_targets:
         if operation_type not in enabled_targets:
             continue
+        destination = _destination_for_farmer(farmer, operation_type)
         deduplication_key = (
             f'portal-publication:{namespace}:{farmer.pk}:{revision}:{operation_type}'
             if namespace else f'portal-publication:{farmer.pk}:{revision}:{operation_type}'
@@ -159,6 +207,8 @@ def reserve_farmer_publication(
                 'workflow_revision': revision, 'target': operation_type,
                 'required_capability': str(required_capability or 'portal.case.read'),
                 **dict(extra_metadata or {}),
+                **({'destination_key': hashlib.sha256(json.dumps(destination, sort_keys=True).encode()).hexdigest(),
+                    'destination': destination} if destination else {}),
             },
         )
         operations.append(operation)
@@ -282,7 +332,17 @@ def requeue_publication_after_review(
 
 def _record_master_failure_context(operation: IntegrationOperation, farmer, context: dict) -> None:
     """Persist safe field-level publication evidence for the staff retry view."""
-    metadata = dict(operation.metadata or {})
+    from django.db import transaction
+    # Never overwrite the live attempt token with this caller's older snapshot.
+    with transaction.atomic():
+        current = IntegrationOperation.objects.select_for_update().get(pk=operation.pk)
+        if current.status != IntegrationOperation.STATUS_RUNNING or not operation.metadata.get('attempt_token') or current.metadata.get('attempt_token') != operation.metadata.get('attempt_token'):
+            return
+        metadata = dict(current.metadata or {})
+        _save_master_failure_context(current, farmer, context, metadata)
+
+
+def _save_master_failure_context(operation, farmer, context, metadata):
     fields = sorted({str(value)[:120] for value in (context.get('field_names') or []) if str(value).strip()})
     metadata['failure_context'] = {
         'case_reference': str(getattr(farmer, 'case_reference_number', '') or ''),
@@ -316,21 +376,26 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         # A monthly FarmUp commit can reserve hundreds of rows. Never let a
         # later case take a lower Sheet row just because the earlier case is
         # paced, retrying, or currently owned by another worker.
-        oldest_id = IntegrationOperation.objects.filter(
-            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-            source_model=SOURCE_MODEL,
-            operation_type=MASTER_OPERATION,
-            status__in=(
-                IntegrationOperation.STATUS_PENDING,
-                IntegrationOperation.STATUS_RETRYABLE,
-                IntegrationOperation.STATUS_RUNNING,
-            ),
-        ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
-        if oldest_id != operation.pk:
+        if not _master_claim_in_order(operation):
             return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     if operation.next_retry_at and operation.next_retry_at > timezone.now():
         return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     operation_revision = int((operation.metadata or {}).get('workflow_revision') or 0)
+    reserved_destination = (operation.metadata or {}).get('destination')
+    current_destination = _destination_for_farmer(farmer, operation.operation_type)
+    if reserved_destination and reserved_destination != current_destination:
+        # Do not write a different target under the old target's FIFO claim.
+        # Reserve a fresh destination-bound operation, retaining this evidence.
+        replacement = reserve_farmer_publication(
+            farmer, deduplication_namespace=f'destination-change:{operation.pk}',
+            operation_types=[operation.operation_type],
+            required_capability=(operation.metadata or {}).get('required_capability', 'portal.case.read'),
+        )
+        if not replacement:
+            return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
+        result = execute_operation(operation, lambda: {'action': 'superseded_destination'}, attempt_budget=1,
+                                   claim_guard=_master_claim_in_order)
+        return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
     if operation_revision != int(farmer.workflow_revision or 0):
         # A newer canonical state will publish its own operation.  Completing
         # this one as superseded preserves the audit record without writing
@@ -341,17 +406,20 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
             attempt_budget=1,
             min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 5),
             paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+            claim_guard=_master_claim_in_order,
         )
         return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
 
     def publish_once():
         if operation.operation_type == MASTER_OPERATION:
             failure_context: dict[str, Any] = {}
-            completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context)
+            with external_call_budget(20):
+                completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context)
             if not completed:
                 _record_master_failure_context(operation, farmer, failure_context)
         else:
-            completed = sync_farmer_to_internal_order_sheet(farmer)
+            with external_call_budget(20):
+                completed = sync_farmer_to_internal_order_sheet(farmer)
         if not completed:
             if operation.operation_type == MASTER_OPERATION and failure_context.get('phase') == 'identity':
                 raise PortalIdentityConflictError('The Sheet row needs identity review.')
@@ -368,6 +436,7 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
             operation, publish_once, attempt_budget=1,
             min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 5),
             paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+            claim_guard=_master_claim_in_order,
         )
     except ExternalOperationError:
         operation.refresh_from_db()

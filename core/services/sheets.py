@@ -74,6 +74,15 @@ def _set_google_client_timeout(client) -> None:
     timeout = max(1, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
     try:
         client.http_client.timeout = timeout
+        session = client.http_client.session
+        if not getattr(session, '_portal_budget_wrapped', False):
+            request = session.request
+            def budgeted_request(*args, **kwargs):
+                from core.services.external_resilience import remaining_external_seconds
+                kwargs['timeout'] = remaining_external_seconds(timeout)
+                return request(*args, **kwargs)
+            session.request = budgeted_request
+            session._portal_budget_wrapped = True
     except (AttributeError, TypeError):
         logger.debug('This gspread client does not expose an HTTP timeout.')
 
@@ -332,8 +341,13 @@ class GoogleSheetsService:
             # Optional: Google Sheets API v4 for dropdown metadata
             if _google_sheets_api_available:
                 try:
+                    import httplib2
+                    from google_auth_httplib2 import AuthorizedHttp
+                    from core.services.external_resilience import budget_google_http
+                    timeout = max(1, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
                     self._sheets_api_service = build(
-                        'sheets', 'v4', credentials=creds
+                        'sheets', 'v4', http=AuthorizedHttp(creds, http=budget_google_http(httplib2.Http(timeout=timeout), timeout)),
+                        cache_discovery=False,
                     )
                     self._api_initialized = True
                     logger.debug(

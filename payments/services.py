@@ -888,6 +888,49 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
     }
 
 
+def payment_queue_queryset(queryset, *, approved_farmer_ids=None):
+    """Whole-batch authorization and exact review queue before pagination.
+
+    Only potentially stale settled reviews need digest reconciliation. Stream
+    these rather than loading all historical memberships and document blobs.
+    No state is mutated by a read.
+    """
+    from django.db.models import Exists, OuterRef, Q, Case, When, Value, CharField, F
+    active = PaymentBatchCase.objects.filter(batch_id=OuterRef('pk'), is_active=True)
+    if approved_farmer_ids is not None:
+        queryset = queryset.annotate(has_unscoped_case=Exists(
+            active.exclude(farmer_id__in=approved_farmer_ids),
+        )).filter(has_unscoped_case=False)
+    unsettled = active.filter(Q(review__isnull=True) | ~Q(review__decision=PaymentCaseReview.DECISION_APPROVED)
+                              | Q(review__reviewed_digest=''))
+    suspect = PaymentBatchCase.objects.filter(
+        batch_id__in=queryset.filter(status__in=[PaymentBatch.STATUS_REVIEW_COMPLETE, PaymentBatch.STATUS_AWAITING_SCAN]).values('pk'),
+        is_active=True, review__reviewed_digest__gt='',
+    ).select_related('farmer', 'review')
+    changed_batches = set()
+    for member in suspect.iterator(chunk_size=100):
+        if member.review.reviewed_digest != case_payment_digest(member.farmer, member.payment_mode):
+            changed_batches.add(member.batch_id)
+    return queryset.annotate(has_pending_review=Exists(unsettled)).annotate(approval_queue_state=Case(
+        When(Q(status__in=[PaymentBatch.STATUS_REVIEW_COMPLETE, PaymentBatch.STATUS_AWAITING_SCAN])
+             & (Q(has_pending_review=True) | Q(pk__in=changed_batches)), then=Value(PaymentBatch.STATUS_IN_REVIEW)),
+        default=F('status'), output_field=CharField(),
+    ))
+
+
+def payment_queue_counts(queryset, *, approval=False):
+    from django.db.models import Count, Q
+    keys = ('all', 'open', 'completed', 'cancelled', 'in_review', 'review_complete')
+    review_field = 'approval_queue_state' if approval else 'status'
+    counts = queryset.aggregate(
+        all=Count('pk'), open=Count('pk', filter=~Q(status__in=['completed', 'cancelled'])),
+        completed=Count('pk', filter=Q(status='completed')), cancelled=Count('pk', filter=Q(status='cancelled')),
+        in_review=Count('pk', filter=Q(**{review_field: 'in_review'})),
+        review_complete=Count('pk', filter=Q(**{review_field: 'review_complete'})),
+    )
+    return {key: counts[key] for key in keys}
+
+
 @transaction.atomic
 def complete_batch_for_document(document, *, actor=None, request_id=''):
     batch = PaymentBatch.objects.select_for_update().filter(current_document=document).first()

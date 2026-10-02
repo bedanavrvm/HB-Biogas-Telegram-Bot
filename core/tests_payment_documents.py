@@ -351,7 +351,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_failed_drive_upload_releases_hash_and_request_for_retry(self, storage, parse_pdf):
+    def test_failed_drive_upload_retains_hash_and_request_for_resumable_retry(self, storage, parse_pdf):
         from core.services.invoice_parser import InvoiceUploadStorageError
 
         storage.return_value.upload.side_effect = [
@@ -365,10 +365,13 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         with self.assertRaises(InvoiceUploadStorageError):
             ingest_invoice_upload_batch(**values)
         first = InvoiceUploadBatch.objects.get()
-        self.assertEqual(first.content_sha256, '')
-        self.assertEqual(first.client_request_id, '')
+        import hashlib
+        self.assertEqual(first.content_sha256, hashlib.sha256(values['pdf_bytes']).hexdigest())
+        self.assertEqual(first.client_request_id, values['client_request_id'])
         second = ingest_invoice_upload_batch(**values)
         self.assertEqual(second.drive_file_id, 'drive-id')
+        self.assertEqual(second.pk, first.pk)
+        self.assertEqual(InvoiceUploadBatch.objects.count(), 1)
         self.assertEqual(storage.return_value.upload.call_count, 2)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

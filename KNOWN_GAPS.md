@@ -1,5 +1,35 @@
 # Known Gaps and Verified Workarounds
 
+## Portal engineering remediation — 2 October 2026
+
+Local prevention/recovery changes cover EQ-01/02/03/04/05/07/08/09/10/12.
+EQ-06 (invoice diagnostic privacy) and EQ-11 (broad refactor) were excluded by
+the user and remain open. See the implementation table in
+[the remediation plan](docs/portal-engineering-remediation-plan-2026-10-01.md).
+
+Focused PostgreSQL verification now includes real separate-connection claims,
+fresh migrations and a representative prior payment schema upgrade. The earlier
+197-test PostgreSQL selection and final 199-test run passed.
+The 134 browser tests and nine Node groups passed. These are scoped results,
+not a full-repository pass. The interrupted coverage run has no completed
+verdict; its replacement focused run completed with bounded-domain reporting
+(22.52% overall, not full-suite coverage). A reviewed full-suite coverage
+baseline is still absent, and working-tree changed-branch gaps remain recorded
+in `remediation-working-tree-coverage.txt`.
+
+Existing full-suite failures were reproduced on unchanged HEAD. The existing
+unsafe Mini App route inventory gaps and the dependency exception that expired
+on 30 September still block full CI. They were not waived. Supported Python
+3.12/PostgreSQL 16 Linux CI execution, clean dependency installation, physical
+Telegram behavior, hosted capacity and an isolated backup restore drill remain
+release checks (local verification used Python 3.14/PostgreSQL 18 on Windows).
+
+Request-assisted publication does not guarantee progress when all clients are
+closed. Legacy invoice attempts with unknown Drive outcomes require reviewed
+reconciliation, not blind resend. Windows PDF workers have parent-enforced
+timeouts and render budgets, but not Linux `RLIMIT_AS` memory enforcement.
+Drain old workers at rollout; no production repairs or Google writes were made.
+
 ## Portal usability and cross-workflow audit - 1-October-2026
 
 The audit's identified product defects have local fixes: background publication

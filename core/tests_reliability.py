@@ -14,6 +14,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.db import transaction
+from django.utils import timezone
 from django.core.management import call_command
 from io import StringIO
 
@@ -186,7 +187,11 @@ class ExternalResilienceTests(TestCase):
                 raise TransientFailure('temporary')
             return {'id': 'safe-result'}
 
-        result = execute_operation(operation, action, sleeper=lambda _: None, random_value=lambda: 0)
+        def elapsed_sleep(_seconds):
+            # Advance persisted eligibility when replacing the real sleeper.
+            IntegrationOperation.objects.filter(pk=operation.pk).update(next_retry_at=timezone.now())
+
+        result = execute_operation(operation, action, sleeper=elapsed_sleep, random_value=lambda: 0)
         operation.refresh_from_db()
         self.assertEqual(len(calls), 2)
         self.assertEqual(result, {'id': 'safe-result'})
@@ -347,7 +352,9 @@ class PortalPublicationEndpointTests(TestCase):
         response = portal_publication_pump(self.factory.post('/api/portal/publication/pump/'))
         self.assertEqual(response.status_code, 200)
         body = json.loads(response.content)
-        self.assertEqual(body['poll_after_seconds'], 60)
+        self.assertGreaterEqual(body['poll_after_seconds'], 590)
+        self.assertLessEqual(body['poll_after_seconds'], 600)
+        self.assertEqual(body['next_retry_at'], retry_at.isoformat())
         self.assertNotIn(str(self.farmer.pk), response.content.decode())
         attempt.assert_called_once()
 

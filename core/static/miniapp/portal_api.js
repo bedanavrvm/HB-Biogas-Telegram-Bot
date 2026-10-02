@@ -57,7 +57,7 @@
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.ok) {
-        delayMs = Math.max(5000, Math.min(60000, Number(data.poll_after_seconds || 30) * 1000));
+        delayMs = Math.max(5000, Math.min(600000, Number(data.poll_after_seconds || 30) * 1000));
         if (data.changed) window.dispatchEvent(new CustomEvent('portal:publication-updated', {detail: {global: true}}));
       } else if (response.status === 401 || response.status === 403) {
         publicationStarted = false;
