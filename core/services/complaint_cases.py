@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
@@ -313,6 +313,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     for field_name, capability in (
         (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION, 'complaint.case.create'),
         (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE, 'complaint.case.close'),
+        (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT, 'complaint.case.comment'),
         (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON, 'complaint.case.reopen'),
     ):
         if actor_can(group_config, actor, capability):
@@ -354,6 +355,9 @@ def list_cases_page(
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
+    cases = cases.annotate(hb_comment_count=Count(
+        'case_updates', filter=Q(case_updates__source='mini_app_comment'),
+    ))
     cases = _filter_query(cases, query)
     if status in {'pending', 'active'}:
         cases = cases.exclude(complaint_status='Closed').order_by('timestamp', 'pk')
@@ -424,10 +428,12 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
         payload['sync_status'] = 'suspended'
     payload['raw_message'] = case.raw_message
     payload['resolution_details'] = case.resolution_details
+    payload['resolution_comments'] = [serialize_update(update) for update in
+                                      case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     updates = list(case.case_updates.all())
     payload['updates'] = [serialize_update(update) for update in updates]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
-    reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
+    reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source != 'mini_app_comment'), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
@@ -524,6 +530,87 @@ def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uplo
         {**fields, 'status': 'Closed'}, uploaded_files,
         required_capability='complaint.case.close',
     )
+
+
+def resolution_comments_text(case: ParsedMessage) -> str:
+    """Canonical append-only feedback; neither a resolution nor a transition."""
+    return '\n\n'.join(
+        f'{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}\n{update.resolution_text}'
+        for update in case.case_updates.filter(source='mini_app_comment').order_by('created_at', 'pk')
+    )
+
+
+def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    case = _case_for_group(group_config.group_id, case_id, actor=actor)
+    if not actor_can(group_config, actor, 'complaint.case.comment'):
+        raise ComplaintCaseError('Your role cannot add resolution comments.')
+    request_id = str(fields.get('client_request_id') or '').strip()
+    note = str(fields.get('comment_text') or '').strip()
+    if not request_id or len(request_id) > 128:
+        raise ComplaintCaseError('Refresh this case before saving; its retry identifier is missing or invalid.')
+    if not note or len(note) > 5000:
+        raise ComplaintCaseError('Add a resolution comment of 5,000 characters or fewer.')
+    digest = mutation_payload_hash({'action': 'commented', 'note': note, 'actor': str(actor.user.pk)})
+    control = ensure_case_control(case, group_config)
+    with transaction.atomic():
+        case = ParsedMessage.objects.select_for_update().get(pk=case.pk)
+        control = ComplaintCaseControl.objects.select_for_update().get(pk=control.pk)
+        existing = control.events.filter(request_id=request_id).first()
+        if existing:
+            if existing.action != 'commented' or existing.payload_hash != digest:
+                raise ComplaintCaseError('That retry identifier was already used for another action or comment.')
+            return case_detail(group_config, case_id, actor)
+        try:
+            expected_revision = int(fields.get('expected_revision'))
+        except (TypeError, ValueError):
+            raise ComplaintCaseError('Refresh this case before saving; its revision is missing.')
+        if control.revision != expected_revision:
+            raise ComplaintCaseConflict('This complaint changed. Review the latest details; your comment is retained.',
+                                        current_revision=control.revision)
+        if case.complaint_status == 'Closed':
+            raise ComplaintCaseError('This complaint is resolved. New comments can only be saved while it is open.')
+        from core.models import PortalVoiceTranscriptionAttempt
+        voice_field = PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT
+        voice = _validate_complaint_voice(fields=fields, actor=actor, group_config=group_config,
+                                          field_name=voice_field, case=case)
+        projection_enabled = complaint_sheet_projection_enabled(group_config)
+        before = control_snapshot(control, case)
+        update = CaseUpdate.objects.create(
+            parsed_message=case, group_id=case.group_id, updated_by=actor.name,
+            old_status=case.complaint_status, new_status=case.complaint_status,
+            resolution_text=note, raw_update_text='Complaint Cases Mini App comment',
+            source='mini_app_comment', client_request_id=request_id,
+            sync_status='pending' if projection_enabled else 'not_required',
+        )
+        control.revision += 1
+        control.sync_status = update.sync_status
+        control.sync_error = ''
+        control.save(update_fields=['revision', 'sync_status', 'sync_error', 'updated_at'])
+        ComplaintCaseEvent.objects.create(
+            case=control, revision=control.revision, action='commented', actor=actor.user,
+            actor_label=actor.name, request_id=request_id, payload_hash=digest,
+            before_values=before, after_values=control_snapshot(control, case), reason=note,
+        )
+        record_complaint_update(update, case, actor, action='complaint.case.commented')
+    if voice:
+        try:
+            _accept_complaint_voice(attempt_id=str(voice.pk), actor=actor, group_config=group_config,
+                                    field_name=voice_field, case=case, accepted_text=note)
+        except Exception:
+            logger.warning('Complaint comment voice cleanup pending: update=%s', update.pk)
+    if projection_enabled:
+        try:
+            synced = update_sheet_case(group_config, case, {'resolution_comments': resolution_comments_text(case)})
+        except Exception:
+            logger.exception('Complaint comment publication failed: update=%s', update.pk)
+            synced = False
+        update.sync_status = 'success' if synced else 'failed'
+        update.sync_error = '' if synced else 'Comment saved; Sheet publication is pending.'
+        update.save(update_fields=['sync_status', 'sync_error'])
+        ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
+            sync_status=update.sync_status, sync_error=update.sync_error,
+        )
+    return case_detail(group_config, case_id, actor)
 
 
 def reopen_case(group_config, actor, case_id: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -700,7 +787,9 @@ def create_complaint_case(
     control.sync_status = sync_status
     control.sync_error = sync_error
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
-    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+    ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
+        sync_status=control.sync_status, sync_error=control.sync_error, last_sync_at=control.last_sync_at,
+    )
     if create_update:
         create_update.sync_status = sync_status
         create_update.sync_error = sync_error
@@ -988,7 +1077,9 @@ def complete_review_details(
     control.sync_status = update.sync_status
     control.sync_error = update.sync_error
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
-    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+    ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
+        sync_status=control.sync_status, sync_error=control.sync_error, last_sync_at=control.last_sync_at,
+    )
     return case_detail(group_config, case_id, actor)
 
 
@@ -1232,7 +1323,9 @@ def apply_case_update(
     control.sync_status = update.sync_status
     control.sync_error = update.sync_error
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
-    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+    ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
+        sync_status=control.sync_status, sync_error=control.sync_error, last_sync_at=control.last_sync_at,
+    )
     return update
 
 
@@ -1338,6 +1431,7 @@ def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_detail
     updates = {
         'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
         'resolution_details': latest_resolution_text(case),
+        'resolution_comments': resolution_comments_text(case),
         'resolution_history': resolution_history_text(case),
         'days_open': max(0, int((ended_at - reported_at).total_seconds() // 86400)),
     }
@@ -1358,8 +1452,9 @@ def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]
         sheet_name=group_config.sheet_name,
         sheet_schema=group_config.sheet_schema_config,
     )
-    control = ensure_case_control(case, group_config)
-    return service.update_case_row(control.reference_number, updates)
+    ensure_case_control(case, group_config)
+    from core.services.complaint_publication import publish_case_snapshot
+    return publish_case_snapshot(group_config, case, service)
 
 
 def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> dict[str, Any]:
@@ -1376,6 +1471,7 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
             'REOPENED' if case.complaint_status == 'Reopened' else 'OPEN'
         ),
         'resolution_details': latest_resolution_text(case),
+        'resolution_comments': resolution_comments_text(case),
         'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
         'days_open': max(0, int(((
@@ -1396,7 +1492,9 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
     control.sync_status = 'success' if synced else 'failed'
     control.sync_error = '' if synced else 'Complaint register publication is still pending.'
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
-    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+    ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
+        sync_status=control.sync_status, sync_error=control.sync_error, last_sync_at=control.last_sync_at,
+    )
     ComplaintCaseEvent.objects.create(
         case=control, revision=control.revision, action='sync_retried', actor=actor.user,
         actor_label=actor.name, after_values={'sync_status': control.sync_status},
@@ -1479,7 +1577,7 @@ def append_resolution_note(existing: str, actor_name: str, note: str) -> str:
 
 def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
     entries = []
-    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).order_by('created_at', 'pk')
+    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source='mini_app_comment').order_by('created_at', 'pk')
     for update in updates:
         action = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
         local_time = timezone.localtime(update.created_at)
@@ -1775,6 +1873,8 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'risk_level': case.risk_level,
         'revision': control.revision,
         'customer_match_status': control.customer_match_status,
+        'hb_comment_count': (case.hb_comment_count if hasattr(case, 'hb_comment_count') else
+                             case.case_updates.filter(source='mini_app_comment').count()),
         'sync_status': control.sync_status,
         'sync_error': control.sync_error,
     }
@@ -1788,6 +1888,7 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
         'updated_by': update.updated_by,
         'created_at': format_datetime(update.created_at),
         'gps_link': update.gps_link,
+        'action': 'commented' if update.source == 'mini_app_comment' else '',
     }
 
 

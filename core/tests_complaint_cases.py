@@ -7,12 +7,14 @@ from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode
 from unittest.mock import patch
+from unittest import skipUnless
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ValidationError
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, TestCase, TransactionTestCase, override_settings
+from django.db import connection, close_old_connections
 from django.urls import reverse
 from django.utils import timezone
 
@@ -36,6 +38,8 @@ from core.models import (
     RawMessage,
     UserProfile,
     ComplianceAuditEvent,
+    ComplianceAuditChainState,
+    WorkflowRoleCapability,
 )
 from core.services.complaint_cases import (
     ComplaintCaseConflict,
@@ -51,6 +55,9 @@ from core.services.complaint_cases import (
     next_complaint_reference,
     reopen_case,
     resolve_case,
+    comment_case,
+    resolution_comments_text,
+    resolution_history_text,
     staff_actor_for_payload,
     update_case,
     ensure_case_control,
@@ -96,6 +103,16 @@ def complaint_location_fixture():
 
 class ComplaintCaseServiceTests(TestCase):
     def setUp(self):
+        # TransactionTestCase flushes migration-seeded policies. Keep these
+        # synthetic fixtures independent of test order and --keepdb history.
+        from core.services.workflow_capabilities import default_enabled_capability_keys
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
+        for role in ('OFFICER', 'MANAGER', 'HB_STAFF', 'IT'):
+            for key in default_enabled_capability_keys('complaint_cases', role):
+                WorkflowRoleCapability.objects.get_or_create(
+                    workflow='complaint_cases', role=role, capability_key=key,
+                    defaults={'enabled': True, 'effect': 'allow'},
+                )
         self.location_fields = complaint_location_fixture()
         self.group = GroupSheetConfiguration.objects.create(
             group_id='-100100', sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'}
@@ -171,6 +188,129 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(list_cases(self.config)[0]['reference_number'], cases[0]['reference_number'])
         sequence.refresh_from_db()
         self.assertEqual(sequence.next_number, next_number)
+
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_hb_comments_are_append_only_and_preserve_case_timing(self, publish):
+        control = ensure_case_control(self.case, self.config)
+        before = (self.case.complaint_status, self.case.resolution_details, self.case.date_resolved, control.sla_due_at)
+        fields = {'comment_text': 'Technician will call tomorrow.', 'expected_revision': control.revision, 'client_request_id': 'comment-one'}
+        first = comment_case(self.config, self.actor('300'), self.case.message_id, fields)
+        replay = comment_case(self.config, self.actor('300'), self.case.message_id, fields)
+        self.assertEqual(first['revision'], replay['revision'])
+        self.assertEqual(CaseUpdate.objects.filter(source='mini_app_comment').count(), 1)
+        second = comment_case(self.config, self.actor('300'), self.case.message_id, {**fields, 'comment_text': 'Parts ordered.', 'expected_revision': first['revision'], 'client_request_id': 'comment-two'})
+        self.case.refresh_from_db(); control.refresh_from_db()
+        self.assertEqual(before, (self.case.complaint_status, self.case.resolution_details, self.case.date_resolved, control.sla_due_at))
+        self.assertEqual(second['hb_comment_count'], 2)
+        self.assertEqual(second['resolution_comments'][0]['note'], 'Parts ordered.')
+        self.assertIn('HB Resolver', resolution_comments_text(self.case))
+        self.assertLess(resolution_comments_text(self.case).index('Technician'), resolution_comments_text(self.case).index('Parts'))
+        self.assertNotIn('Parts ordered.', resolution_history_text(self.case))
+        self.assertEqual(list_cases(self.config)[0]['hb_comment_count'], 2)
+        self.assertEqual(publish.call_count, 2)
+        with self.assertRaises(ComplaintCaseError):
+            comment_case(self.config, self.actor('300'), self.case.message_id, {**fields, 'comment_text': 'Different retry text'})
+
+    @patch('core.services.complaint_cases.update_sheet_case', side_effect=RuntimeError('synthetic unavailable Sheet'))
+    def test_comment_failure_preserves_local_save_and_rejects_stale_and_unauthorized(self, publish):
+        control = ensure_case_control(self.case, self.config)
+        fields = {'comment_text': 'Awaiting parts.', 'expected_revision': control.revision, 'client_request_id': 'comment-failure'}
+        for identity in ('100', '200'):
+            with self.assertRaises(ComplaintCaseError):
+                comment_case(self.config, self.actor(identity), self.case.message_id, fields)
+        with self.assertRaises(ComplaintCaseError):
+            comment_case(self.config, self.actor('300'), self.other_case.message_id, fields)
+        saved = comment_case(self.config, self.actor('300'), self.case.message_id, fields)
+        self.assertEqual(saved['sync_status'], 'failed')
+        self.assertEqual(saved['hb_comment_count'], 1)
+        with self.assertRaises(ComplaintCaseConflict):
+            comment_case(self.config, self.actor('300'), self.case.message_id, {**fields, 'client_request_id': 'stale-comment'})
+        self.case.complaint_status = 'Closed'; self.case.save(update_fields=['complaint_status'])
+        with self.assertRaises(ComplaintCaseError):
+            comment_case(self.config, self.actor('300'), self.case.message_id, {**fields, 'expected_revision': saved['revision'], 'client_request_id': 'closed-comment'})
+
+    @patch('core.services.complaint_cases.get_sheets_service')
+    def test_comment_publishes_full_canonical_snapshot(self, gateway):
+        gateway.return_value.update_case_row.return_value = True
+        control = ensure_case_control(self.case, self.config)
+        result = comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text': 'HB has seen this.', 'expected_revision': control.revision, 'client_request_id': 'snapshot-comment'})
+        self.assertEqual(result['sync_status'], 'success')
+        values = gateway.return_value.update_case_row.call_args.args[1]
+        self.assertEqual(values['status'], 'OPEN')
+        self.assertIn('HB has seen this.', values['resolution_comments'])
+        self.assertEqual(values['date_resolved'], '')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', MINIAPP_ALLOW_INSECURE_DEV_AUTH=False)
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_comment_api_authenticates_authorizes_and_replays(self, publish):
+        control = ensure_case_control(self.case, self.config)
+        url = reverse('complaint_cases_comment', args=[self.case.message_id])
+        fields = {'group_id': self.group.group_id, 'init_data': self.signed_init_data('300'), 'comment_text': 'Feedback only.', 'expected_revision': control.revision, 'client_request_id': 'api-comment'}
+        response = self.client.post(url, fields)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['case']['status'], 'OPEN')
+        self.assertEqual(self.client.post(url, fields).status_code, 200)
+        denied = self.client.post(url, {**fields, 'init_data': self.signed_init_data('100'), 'client_request_id': 'officer-comment'})
+        self.assertEqual(denied.status_code, 403)
+        stale = self.client.post(url, {**fields, 'client_request_id': 'stale-api-comment'})
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()['current_case']['hb_comment_count'], 1)
+
+    @patch('core.services.portal_voice._trash_drive_file')
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_comment_accepts_only_its_case_bound_voice_field(self, publish, trash_file):
+        actor = self.actor('300')
+        control = ensure_case_control(self.case, self.config)
+        attempt = PortalVoiceTranscriptionAttempt.objects.create(
+            user=actor.user, complaint_group=self.group, complaint_case=self.case,
+            field_name=PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT,
+            request_id='comment-voice', audio_hash='a' * 64, audio_size=12, status='transcribed',
+            transcript='Parts ordered.', drive_file_id='synthetic-comment-audio',
+            deletion_status='pending', expires_at=timezone.now() + timedelta(hours=1),
+        )
+        fields = {'comment_text': 'Parts ordered.', 'expected_revision': control.revision, 'client_request_id': 'voice-comment', 'voice_transcription_id': str(attempt.pk)}
+        attempt.field_name = PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE
+        attempt.save(update_fields=['field_name'])
+        with self.assertRaises(ComplaintCaseError):
+            comment_case(self.config, actor, self.case.message_id, fields)
+        attempt.field_name = PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT
+        attempt.save(update_fields=['field_name'])
+        result = comment_case(self.config, actor, self.case.message_id, fields)
+        attempt.refresh_from_db()
+        self.assertEqual(result['status'], 'OPEN')
+        self.assertEqual(attempt.status, 'accepted')
+        trash_file.assert_called_once_with('synthetic-comment-audio')
+
+    @patch('core.services.complaint_cases.get_sheets_service')
+    def test_new_comment_during_publication_is_in_followup_snapshot(self, gateway):
+        control = ensure_case_control(self.case, self.config)
+        actor = self.actor('300')
+        sent = []
+        def remote_write(reference, values):
+            sent.append(values)
+            if len(sent) == 1:
+                control.refresh_from_db()
+                comment_case(self.config, actor, self.case.message_id, {'comment_text': 'Newer feedback.', 'expected_revision': control.revision, 'client_request_id': 'newer-feedback'})
+            return True
+        gateway.return_value.update_case_row.side_effect = remote_write
+        result = comment_case(self.config, actor, self.case.message_id, {'comment_text': 'First feedback.', 'expected_revision': control.revision, 'client_request_id': 'first-feedback'})
+        self.assertEqual(len(sent), 2)
+        self.assertIn('Newer feedback.', sent[-1]['resolution_comments'])
+        self.assertEqual(result['hb_comment_count'], 2)
+        self.assertEqual(result['sync_status'], 'success')
+
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_comments_survive_resolution_and_do_not_impersonate_reopen_history(self, publish):
+        control = ensure_case_control(self.case, self.config)
+        first = comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text': 'Repair booked.', 'expected_revision': control.revision, 'client_request_id': 'before-resolution'})
+        closed = resolve_case(self.config, self.actor('300'), self.case.message_id, {'resolution_text': 'Burner replaced.', 'expected_revision': first['revision'], 'client_request_id': 'resolve-commented'}, [])
+        self.assertEqual(closed['hb_comment_count'], 1)
+        reopened = reopen_case(self.config, self.actor('200'), self.case.message_id, {'reason': 'Problem returned.', 'expected_revision': closed['revision'], 'client_request_id': 'reopen-commented'})
+        latest = comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text': 'Return visit booked.', 'expected_revision': reopened['revision'], 'client_request_id': 'after-reopen'})
+        self.assertEqual(latest['hb_comment_count'], 2)
+        self.assertEqual(latest['latest_reopen']['note'], 'Problem returned.')
+        self.assertEqual(latest['latest_resolution']['note'], 'Burner replaced.')
+        self.assertNotIn('Return visit booked.', resolution_history_text(self.case))
 
     def test_new_reference_preserves_the_unpadded_sequence_number(self):
         sequence, _ = ComplaintCaseSequence.objects.update_or_create(
@@ -1186,6 +1326,42 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(detail['sync_status'], 'success')
 
 
+class ComplaintCommentConcurrencyTests(TransactionTestCase):
+    setUp = ComplaintCaseServiceTests.setUp
+    create_case = ComplaintCaseServiceTests.create_case
+    actor = ComplaintCaseServiceTests.actor
+
+    @skipUnless(connection.vendor == 'postgresql', 'Requires PostgreSQL row locks')
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_comment_and_resolution_race_accepts_exactly_one_revision(self, publish):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        control = ensure_case_control(self.case, self.config)
+        actor = self.actor('300')
+        barrier = Barrier(2)
+        def save(action):
+            close_old_connections()
+            try:
+                barrier.wait(timeout=15)
+                fields = {'expected_revision': control.revision, 'client_request_id': f'race-{action}'}
+                if action == 'comment':
+                    return comment_case(self.config, actor, self.case.message_id, {**fields, 'comment_text': 'Still investigating.'})
+                return resolve_case(self.config, actor, self.case.message_id, {**fields, 'resolution_text': 'Repair complete.'}, [])
+            except ComplaintCaseConflict:
+                return 'conflict'
+            finally:
+                close_old_connections()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(save, action) for action in ('comment', 'resolve')]
+            results = [future.result(timeout=30) for future in futures]
+        self.assertEqual(results.count('conflict'), 1)
+        control.refresh_from_db(); self.case.refresh_from_db()
+        self.assertEqual(control.revision, 2)
+        self.assertEqual(CaseUpdate.objects.filter(parsed_message=self.case).count(), 1)
+        winner = next(result for result in results if result != 'conflict')
+        self.assertEqual(self.case.complaint_status, 'Closed' if winner['status'] == 'CLOSED' else 'Open')
+
+
 class ComplaintCaseGlobalRegisterTests(TestCase):
     def setUp(self):
         self.group_a = GroupSheetConfiguration.objects.create(
@@ -1337,7 +1513,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             'customer_name', 'customer_id', 'phone_number', 'secondary_phone_number',
             'county', 'constituency', 'village', 'reported_by',
             'branch_region', 'complaint_category', 'complaint_description',
-            'source', 'gps_link', 'attachments', 'resolution_details',
+            'source', 'gps_link', 'attachments', 'resolution_details', 'resolution_comments',
             'date_resolved', 'days_open', 'resolution_history_count',
         })
         forbidden = {
@@ -1484,7 +1660,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
             'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
             'Complaint Type', 'Complaint Description', 'GPS Link',
-            'Resolution Details', 'Date Resolved', 'Days Open', 'Resolution History',
+            'Resolution Details', 'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
         ))
         customer_column = rows[0].index('Customer Name')
         phone_column = rows[0].index('Primary Phone Number')
@@ -1497,7 +1673,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual({row[14] for row in rows[1:]}, {'Unit is not producing gas.'})
         self.assertTrue(all(isinstance(row[2], date) for row in rows[1:]))
         self.assertEqual({sheet.cell(row=index, column=3).number_format for index in (2, 3)}, {'dd-mmm-yyyy'})
-        self.assertEqual({sheet.cell(row=index, column=18).number_format for index in (2, 3)}, {'dd-mmm-yyyy'})
+        self.assertEqual({sheet.cell(row=index, column=19).number_format for index in (2, 3)}, {'dd-mmm-yyyy'})
         linked_row = next(index for index in (2, 3) if sheet.cell(row=index, column=2).value == 'CMP900001')
         self.assertEqual(sheet.cell(row=linked_row, column=16).hyperlink.target, 'https://maps.example/CMP900001')
         self.assertEqual(sheet['D2'].fill.fgColor.rgb, '00FEF3C7')

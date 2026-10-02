@@ -6824,12 +6824,14 @@ class PortalVoiceTranscriptionAttempt(models.Model):
     FIELD_FINAL_DECISION_COMMENT = 'final_decision_comment'
     FIELD_COMPLAINT_DESCRIPTION = 'complaint_description'
     FIELD_COMPLAINT_RESOLUTION_NOTE = 'complaint_resolution_note'
+    FIELD_COMPLAINT_RESOLUTION_COMMENT = 'complaint_resolution_comment'
     FIELD_COMPLAINT_REOPEN_REASON = 'complaint_reopen_reason'
     FIELD_CHOICES = [
         (FIELD_JBL_VISIT_COMMENT, 'JBL visit comment'),
         (FIELD_FINAL_DECISION_COMMENT, 'Final decision after-call comment'),
         (FIELD_COMPLAINT_DESCRIPTION, 'Complaint description'),
         (FIELD_COMPLAINT_RESOLUTION_NOTE, 'Complaint resolution note'),
+        (FIELD_COMPLAINT_RESOLUTION_COMMENT, 'Complaint resolution comment'),
         (FIELD_COMPLAINT_REOPEN_REASON, 'Complaint reopening reason'),
     ]
     STATUS_PROCESSING = 'processing'

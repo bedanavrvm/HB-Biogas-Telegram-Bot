@@ -10,6 +10,12 @@ respective service modules.
 
 ## Canonical staff access
 
+**Complaint resolution comment:** HB feedback saved while a complaint remains
+open. Comments retain their actor and timestamp separately from resolution
+details. Queue badges count all comments, not unread comments; saving feedback
+does not resolve the case or restart its SLA.
+
+
 | Term | Meaning |
 |---|---|
 | `User` | Django's canonical staff account. It is active for Telegram-only staff, with an unusable password unless Django Admin login is explicitly granted. |

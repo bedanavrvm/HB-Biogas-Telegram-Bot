@@ -1,5 +1,18 @@
 # Changelog
 
+## Complaint HB comments - 2-October-2026
+
+- HB staff can save timestamped resolution comments without closing a complaint,
+  including voice input. Queue badges show the total comments; officers can read
+  them. Comment and Resolve forms have separate drafts.
+- Resolution Comments follows Resolution Details in the complaint Sheet and
+  export. Insert that column in existing Sheets without replacing existing data.
+  Comments publish as a complete canonical history; retry cannot append duplicates.
+- Migration 0197 grants the separate comment capability to Complaint HB/IT and
+  updates voice choices. Refresh existing sessions after deployment. Rollback:
+  `python manage.py migrate core 0196_parsed_invoice_deleted_choices` then restore
+  the previous code; existing comment audit records remain stored.
+
 ## Portal engineering remediation - 1-October-2026
 
 - Locked integration claims now recheck terminal state, retry deadlines and

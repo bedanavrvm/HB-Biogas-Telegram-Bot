@@ -1,3 +1,12 @@
+.hb-comment-count { display:inline-flex; align-items:center; gap:4px; color:#b91c1c; background:#fee2e2; border-radius:999px; padding:3px 7px; font-size:12px; font-weight:700; }
+.hb-comment-count .lucide { width:14px; height:14px; }
+.hb-action-tabs { display:flex; gap:4px; padding:4px; border-radius:12px; background:var(--surface); }
+.hb-action-tabs button { flex:1; min-height:44px; border:0; }
+.hb-action-tabs button[aria-selected="true"] { background:var(--text); color:var(--surface); }
+.hb-comment { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 8px; }
+.hb-comment strong { overflow-wrap:anywhere; }
+.hb-comment p { grid-column:1 / -1; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+#commentForm .sticky-action { justify-content:flex-end; }
 :root {
   color-scheme: light;
   --bg: var(--tg-theme-bg-color, #f3f6f8);

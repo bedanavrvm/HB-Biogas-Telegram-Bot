@@ -95,6 +95,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.details.complete', 'complaint_cases', 'Complete missing complaint intake details', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.update', 'complaint_cases', 'Legacy complaint transition endpoint', 'Compatibility', _roles('MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.close', 'complaint_cases', 'Resolve complaints', 'Transitions', _roles('HB_STAFF'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.comment', 'complaint_cases', 'Add resolution comments', 'Cases', _roles('HB_STAFF'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.reopen', 'complaint_cases', 'Reopen complaints', 'Transitions', _roles('MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.source.view', 'complaint_cases', 'View confidential complaint source', 'Evidence', _roles('MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.evidence.view', 'complaint_cases', 'View complaint evidence', 'Evidence', _roles('OFFICER', 'MANAGER', 'HB_STAFF'), ('complaint.queue.view',)),

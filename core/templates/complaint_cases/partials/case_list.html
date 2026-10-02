@@ -10,7 +10,7 @@
       {% endif %}
       <p class="case-age">{{ case_item.age_label }}</p>
     </div>
-    <span class="status-pill {{ case_item.status|lower }}">{{ case_item.status }}</span>
+    <div class="status-stack"><span class="status-pill {{ case_item.status|lower }}">{{ case_item.status }}</span>{% if case_item.hb_comment_count %}<span class="hb-comment-count" aria-label="{{ case_item.hb_comment_count }} HB comments"><svg class="lucide" aria-hidden="true"><use href="#lucide-message-circle"></use></svg>{{ case_item.hb_comment_count }}</span>{% endif %}</div>
   </button>
 {% empty %}
   <p class="empty-state">No complaints match this view.</p>

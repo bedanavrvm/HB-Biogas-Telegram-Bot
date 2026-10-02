@@ -35,6 +35,7 @@ from core.services.complaint_cases import (
     reopen_case,
     record_evidence_preview,
     resolve_case,
+    comment_case,
     retry_case_sync,
     staff_actor_for_user,
     suggest_category,
@@ -290,6 +291,7 @@ def complaint_cases_voice_transcription(request):
     capability = {
         PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
         PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT: 'complaint.case.comment',
         PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON: 'complaint.case.reopen',
     }.get(field_name)
     if not capability:
@@ -525,6 +527,7 @@ def _global_target_actions(actor, item: dict) -> dict[str, bool]:
         return {'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False}
     return {
         'close': actor_can(target_config, target_actor, 'complaint.case.close'),
+        'comment': actor_can(target_config, target_actor, 'complaint.case.comment'),
         'reopen': actor_can(target_config, target_actor, 'complaint.case.reopen'),
         'complete_details': actor_can(target_config, target_actor, 'complaint.case.details.complete'),
         'sync_retry': (
@@ -908,6 +911,31 @@ def complaint_cases_resolve(request, case_id: str):
     except Exception as exc:
         return unexpected_miniapp_error(request, exc, workflow='complaints')
     return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint resolved.'})
+
+
+@csrf_exempt  # Verified Telegram initData, not cookie-based authentication.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_comment(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.comment', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        result = comment_case(group_config, actor, case_id, payload)
+    except ComplaintCaseConflict as exc:
+        return _conflict_response(group_config, actor, case_id, exc)
+    except ComplaintCaseError as exc:
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Comment saved.'})
 
 
 @csrf_exempt

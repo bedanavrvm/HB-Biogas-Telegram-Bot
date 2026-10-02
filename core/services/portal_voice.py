@@ -22,6 +22,7 @@ ALLOWED_FIELDS = {
     PortalVoiceTranscriptionAttempt.FIELD_FINAL_DECISION_COMMENT: 'portal.final_review.write',
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT: 'complaint.case.comment',
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON: 'complaint.case.reopen',
 }
 ALLOWED_MIME_TYPES = {
@@ -48,6 +49,7 @@ COMPLAINT_LANGUAGE_PROMPTS = {
 COMPLAINT_FIELDS = frozenset({
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION,
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE,
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT,
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON,
 })
 

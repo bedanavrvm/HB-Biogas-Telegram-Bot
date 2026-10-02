@@ -474,6 +474,12 @@
     const status = textNode('span', displayStatus(item.status), `status-pill ${statusKey}`);
     status.prepend(iconNode(resolved ? 'circle-check' : 'clock'));
     stack.appendChild(status);
+    if (item.hb_comment_count > 0) {
+      const badge = textNode('span', String(item.hb_comment_count), 'hb-comment-count');
+      badge.setAttribute('aria-label', `${item.hb_comment_count} HB comments`);
+      badge.prepend(iconNode('message-circle'));
+      stack.appendChild(badge);
+    }
     if (item.needs_details) stack.appendChild(textNode('span', 'Needs More Information', 'needs-details-pill'));
     return stack;
   }
@@ -646,9 +652,20 @@
     return ({ success: 'Synced', pending: 'Pending', failed: 'Failed', not_required: 'Not enabled', suspended: 'Not enabled' })[value] || value || 'Not recorded';
   }
 
+  function selectHbAction(action) {
+    if (voiceRecorder?.state === 'recording') { notify('Finish your recording before switching actions.'); return; }
+    state.hbAction = action;
+    const unavailable = $('hbActionTabs').hidden;
+    $('commentForm').hidden = unavailable || $('commentTab').hidden || action !== 'comment';
+    $('resolveForm').hidden = unavailable || $('resolveTab').hidden || action !== 'resolve';
+    $('commentTab').setAttribute('aria-selected', String(action === 'comment'));
+    $('resolveTab').setAttribute('aria-selected', String(action === 'resolve'));
+  }
+
   function renderDetail(item, preserveDraft) {
     if (!preserveDraft && state.currentCase?.case_id !== item.case_id) {
       resetVoiceField('complaint_resolution_note');
+      resetVoiceField('complaint_resolution_comment');
       resetVoiceField('complaint_reopen_reason');
     }
     state.currentCase = item;
@@ -673,17 +690,28 @@
       : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || 'Source unavailable'));
     $('detailSync').textContent = `Sheet Sync: ${syncLabel(item.sync_status)}`;
     renderHistory(item); renderEvidence(item.evidence || []); renderActivity(item.updates || []);
+    const comments = $('resolutionCommentsList'); comments.replaceChildren();
+    (item.resolution_comments || []).forEach(comment => {
+      const row = document.createElement('div'); row.className = 'hb-comment item';
+      row.append(textNode('strong', comment.updated_by || 'HB staff'), textNode('small', comment.created_at || '', 'muted'), textNode('p', comment.note));
+      comments.appendChild(row);
+    });
+    $('commentsPanel').hidden = !(item.resolution_comments || []).length;
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = !!item.global_read;
     const actions = item.global_read ? (item.actions || {}) : {
       close: can('complaint.case.close'), reopen: can('complaint.case.reopen'),
+      comment: can('complaint.case.comment'),
       complete_details: can('complaint.case.details.complete'),
     };
     $('completeDetailsForm').hidden = !item.needs_details || !actions.complete_details;
-    $('resolveForm').hidden = item.status === 'CLOSED' || !actions.close;
+    $('hbActionTabs').hidden = ['Closed', 'CLOSED', 'Resolved'].includes(item.stored_status || item.status) || !(actions.comment || actions.close);
+    $('commentTab').hidden = !actions.comment; $('resolveTab').hidden = !actions.close;
+    if (!preserveDraft) state.hbAction = actions.comment ? 'comment' : 'resolve';
+    selectHbAction(state.hbAction || 'comment');
     $('reopenForm').hidden = item.status !== 'CLOSED' || !actions.reopen;
     $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
-      $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
+      $('completeDetailsForm').reset(); $('resolveForm').reset(); $('commentForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
       const complete = $('completeDetailsForm').elements;
       complete.customer_phone.value = item.customer_phone || '';
@@ -888,7 +916,8 @@
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item history-item';
       let action = 'Updated by';
-      if (item.status === 'Closed') action = 'Resolved by';
+      if (item.action === 'commented') action = 'Comment by';
+      else if (item.status === 'Closed') action = 'Resolved by';
       else if (item.status === 'Reopened') action = 'Reopened by';
       else if (item.status === 'Open') action = 'Complaint recorded by';
       else if (item.status === 'Review Needed') action = 'More information requested by';
@@ -902,10 +931,10 @@
   function showConflict(error) {
     const current = error.payload?.current_case;
     if (!current) { presentError(error); return; }
-    const draft = $('resolveForm').elements.resolution_text.value || $('reopenForm').elements.reason.value || (current.needs_details ? 'Your entered complaint details remain in the form.' : '');
+    const draft = $('commentForm').elements.comment_text.value || $('resolveForm').elements.resolution_text.value || $('reopenForm').elements.reason.value || (current.needs_details ? 'Your entered complaint details remain in the form.' : '');
     current.group_id = state.currentCase.group_id; current.global_read = state.currentCase.global_read;
     state.currentCase = current; $('conflictMessage').textContent = error.message;
-    const resolution = current.latest_resolution;
+    const resolution = current.resolution_comments?.[0] || current.latest_resolution;
     $('conflictWinningNote').textContent = resolution ? `${resolution.note}\n— ${resolution.updated_by}, ${resolution.created_at}` : 'Review the latest complaint before trying again.';
     $('conflictDraft').textContent = draft || 'No draft text was entered.';
     $('copyConflictDraftBtn').disabled = !draft || draft.startsWith('Your entered complaint details');
@@ -930,19 +959,28 @@
     data.set('expected_revision', state.currentCase.revision);
     const writeKey = `transition:${action}:${state.currentCase.case_id}`;
     data.set('client_request_id', pendingWriteId(writeKey, 'complaint-transition'));
-    const voiceField = action === 'resolve' ? 'complaint_resolution_note' : 'complaint_reopen_reason';
+    const voiceField = action === 'comments' ? 'complaint_resolution_comment' : (action === 'resolve' ? 'complaint_resolution_note' : 'complaint_reopen_reason');
     if (acceptedVoiceAttempts[voiceField]?.id) data.set('voice_transcription_id', acceptedVoiceAttempts[voiceField].id);
     if (action === 'resolve') appendEvidence(data, 'resolve');
     const button = formNode.querySelector('button[type="submit"]');
-    state.submitting = true; setActionLoading(button, true, action === 'resolve' ? 'Resolving' : 'Reopening'); utils.setCloseProtection?.('complaint-operation', true);
+    state.submitting = true; setActionLoading(button, true, action === 'comments' ? 'Saving' : (action === 'resolve' ? 'Resolving' : 'Reopening')); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data, targetGroup);
       settleWrite(writeKey);
       resetVoiceField(voiceField, false);
-      response.case.group_id = targetGroup; notify(response.message); clearEvidence('resolve');
+      response.case.group_id = targetGroup; notify(response.message); if (action !== 'comments') clearEvidence('resolve');
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
-      if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
+      if (action === 'comments') {
+        response.case.global_read = state.currentCase.global_read;
+        response.case.actions = state.currentCase.actions;
+        renderDetail(response.case, true);
+        if (state.returnWorkspace === 'global') await refreshGlobal();
+      } else if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
       else { response.case.global_read = false; renderDetail(response.case); }
+      if (action === 'comments') {
+        $('commentForm').reset();
+        utils.setCloseProtection?.('complaint-transition-draft', !!$('resolveForm').elements.resolution_text.value || state.evidence.resolve.length > 0);
+      }
     } catch (error) { settleWrite(writeKey, error); if (error.status === 409) showConflict(error); else presentError(error, () => formNode.requestSubmit()); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
   }
@@ -1670,6 +1708,7 @@
         { headerName: 'Complaint Description', field: 'complaint_description', width: 280, sortable: false },
         { headerName: 'GPS Link', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
         { headerName: 'Resolution Details', field: 'resolution_details', width: 260, sortable: false },
+        { headerName: 'Resolution Comments', field: 'resolution_comments', width: 300, sortable: false },
         { headerName: 'Date Resolved', field: 'date_resolved', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
         { headerName: 'Resolution History', field: 'resolution_history_count', width: 145, sortable: false, valueFormatter: p => p.value ? `${p.value} ${p.value === 1 ? 'entry' : 'entries'}` : 'No history' },
@@ -1845,6 +1884,7 @@
     if (!$('createView').hidden) resetVoiceField('complaint_description');
     if (!$('detailView').hidden) {
       resetVoiceField('complaint_resolution_note'); resetVoiceField('complaint_reopen_reason');
+      resetVoiceField('complaint_resolution_comment');
     }
     if (!$('globalView').hidden) { setView('queueView'); loadCases(); return; }
     if (state.returnWorkspace === 'global') { setView('globalView'); refreshReport(); }
@@ -1966,7 +2006,7 @@
   $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
   $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
-  document.querySelectorAll('#createCaseForm input, #createCaseForm textarea, #createCaseForm select, #completeDetailsForm input, #completeDetailsForm select, #resolveForm textarea, #reopenForm textarea').forEach(input => input.addEventListener('input', () => {
+  document.querySelectorAll('#createCaseForm input, #createCaseForm textarea, #createCaseForm select, #completeDetailsForm input, #completeDetailsForm select, #resolveForm textarea, #commentForm textarea, #reopenForm textarea').forEach(input => input.addEventListener('input', () => {
     input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
   }));
   document.querySelectorAll('input[name="customer_id"]').forEach(input => input.addEventListener('input', () => validateCustomerId(input)));
@@ -1980,6 +2020,16 @@
   $('createCaseForm').addEventListener('submit', submitCreate);
   $('completeDetailsForm').addEventListener('submit', submitCompleteDetails);
   $('resolveForm').addEventListener('submit', event => submitTransition(event, 'resolve'));
+  $('commentForm').addEventListener('submit', event => submitTransition(event, 'comments'));
+  $('commentTab').addEventListener('click', () => { if (!state.submitting) selectHbAction('comment'); });
+  $('resolveTab').addEventListener('click', () => { if (!state.submitting) selectHbAction('resolve'); });
+  $('hbActionTabs').addEventListener('keydown', event => {
+    if (state.submitting || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [$('commentTab'), $('resolveTab')].filter(tab => !tab.hidden);
+    const index = tabs.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : (event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length);
+    event.preventDefault(); tabs[next]?.focus(); tabs[next]?.click();
+  });
   $('reopenForm').addEventListener('submit', event => submitTransition(event, 'reopen'));
   $('copyConflictDraftBtn').addEventListener('click', copyConflictDraft);
   $('errorBannerDismiss').addEventListener('click', clearPresentedError);
@@ -1992,7 +2042,7 @@
   $('reviewConflictBtn').addEventListener('click', () => state.currentCase.global_read ? openGlobalCase(state.currentCase.id) : openCase(state.currentCase.case_id));
   $('createCaseForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-create-draft', true));
   $('createCaseForm').addEventListener('change', () => utils.setCloseProtection?.('complaint-create-draft', true));
-  ['completeDetailsForm', 'resolveForm', 'reopenForm'].forEach(id => $(id).addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true)));
+  ['completeDetailsForm', 'resolveForm', 'commentForm', 'reopenForm'].forEach(id => $(id).addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true)));
   document.addEventListener('click', event => {
     const button = event.target.closest?.('button');
     if (button && !button.disabled) utils.haptic?.('light');

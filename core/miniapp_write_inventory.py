@@ -286,6 +286,12 @@ _add(
     domain_replay='Unique transition request plus expected revision and legal state transition',
 )
 _add(
+    'complaint_cases_comment',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.comment', scope=_COMPLAINT_SCOPE,
+    request_key_binding='complaint miniapp_write_response',
+    domain_replay='Unique comment request, payload binding, and expected case revision',
+)
+_add(
     'complaint_cases_sync_retry',
     authentication=_COMPLAINT_AUTH, capability='complaint.case.sync.retry', scope=_COMPLAINT_SCOPE,
     request_key_binding='complaint miniapp_write_response',

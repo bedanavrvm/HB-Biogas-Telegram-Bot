@@ -31,7 +31,7 @@ EXPECTED_HEADERS = [
     'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
     'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
     'Complaint Type', 'Complaint Description', 'GPS Link',
-    'Resolution Details', 'Date Resolved', 'Days Open', 'Resolution History',
+    'Resolution Details', 'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
 ]
 
 
@@ -95,24 +95,24 @@ class ComplaintRegisterCutoverTests(TestCase):
         self.assertIn('Days Open', schema.bot_writable_headers)
         self.assertIn('Days Open', schema.case_update_headers)
 
-    def test_projection_has_twenty_columns_and_full_resolution_history(self):
+    def test_projection_has_twenty_one_columns_and_full_resolution_history(self):
         schema = SheetSchema.from_config({'schema_version': 2})
         row = schema.row_for_message(self.case)
 
-        self.assertEqual(len(row), 20)
+        self.assertEqual(len(row), 21)
         self.assertEqual(row[1], 'CMP-897')
         self.assertEqual(row[3], 'REOPENED')
         self.assertEqual(row[6], '254700000001')
         self.assertEqual(row[7], '254700000002')
         self.assertEqual(row[8:12], ['Nakuru County', 'Nakuru East', 'Test Village', 'Nakuru'])
         self.assertEqual(row[12], 'Officer Example')
-        self.assertEqual(row[18], 0)
+        self.assertEqual(row[19], 0)
         self.assertTrue(row[16].startswith('Initial repair completed.\n'))
         self.assertIn('· Resolver One', row[16])
-        self.assertIn('Initial repair completed.\nCLOSED · ', row[19])
-        self.assertIn('· Resolver One', row[19])
-        self.assertIn('Customer reported the issue again.\nREOPENED · ', row[19])
-        self.assertIn('· Manager One', row[19])
+        self.assertIn('Initial repair completed.\nCLOSED · ', row[20])
+        self.assertIn('· Resolver One', row[20])
+        self.assertIn('Customer reported the issue again.\nREOPENED · ', row[20])
+        self.assertIn('· Manager One', row[20])
         self.assertNotIn('internal-uuid-like-id', row)
         self.assertNotIn('private source', row)
 

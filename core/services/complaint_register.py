@@ -8,15 +8,15 @@ from io import BytesIO
 from typing import Any
 from urllib.parse import urlparse
 
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, IntegerField, OuterRef, Subquery, Q, Value, When
 from django.db.models.functions import Coalesce, TruncDay, TruncMonth, TruncWeek, TruncYear
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from core.models import ComplaintCategory, GroupSheetConfiguration, ParsedMessage
+from core.models import CaseUpdate, ComplaintCategory, GroupSheetConfiguration, ParsedMessage
 from core.services.complaint_cases import (
     ComplaintCaseError, format_datetime, resolution_history_entries,
-    latest_resolution_text, resolution_history_text, serialize_update, sla_payload,
+    latest_resolution_text, resolution_comments_text, resolution_history_text, serialize_update, sla_payload,
 )
 
 
@@ -25,7 +25,7 @@ EXPORT_FIELDS = (
     'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
     'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
     'Complaint Type', 'Complaint Description', 'GPS Link', 'Resolution Details',
-    'Date Resolved', 'Days Open', 'Resolution History',
+    'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
 )
 
 SORT_FIELDS = {
@@ -81,8 +81,12 @@ def _projection_enabled(group_id: str, groups: dict[str, GroupSheetConfiguration
 def _base_queryset():
     # ComplaintCaseControl is the durable marker that a ParsedMessage belongs
     # to the Complaint Cases workflow; reads never create controls implicitly.
+    comment_counts = CaseUpdate.objects.filter(
+        parsed_message_id=OuterRef('pk'), source='mini_app_comment',
+    ).order_by().values('parsed_message_id').annotate(total=Count('pk')).values('total')
     return ParsedMessage.objects.filter(complaint_control__isnull=False).annotate(
         report_date=Coalesce('timestamp', 'created_at'),
+        hb_comment_count=Coalesce(Subquery(comment_counts), Value(0)),
     ).select_related(
         'complaint_control__category', 'complaint_control__branch_ref',
         'complaint_control__customer', 'complaint_control__assigned_to',
@@ -238,6 +242,7 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'gps_link': _safe_report_link(case.gps_link),
         'attachments': int(getattr(case, 'successful_attachment_count', 0) or 0),
         'resolution_details': case.resolution_details,
+        'resolution_comments': resolution_comments_text(case),
         'date_resolved': _report_datetime(case.date_resolved),
         'days_open': _days_open(case),
         'resolution_history_count': len(resolution_history_entries(case)),
@@ -427,6 +432,7 @@ def serialize_register_case(case: ParsedMessage, groups: dict[str, GroupSheetCon
         'reported_at': format_datetime(case.timestamp), 'recorded_at': format_datetime(case.created_at),
         'resolved_at': format_datetime(case.date_resolved), 'days_open': _days_open(case),
         'resolution_details': case.resolution_details, 'customer_match_status': control.customer_match_status,
+        'hb_comment_count': case.hb_comment_count,
         'sla': sla_payload(control, case), 'revision': control.revision,
         'sheet_projection_enabled': projection_enabled,
         'sync_status': _sync_state(case, groups),
@@ -516,7 +522,8 @@ def register_case(case_uuid: str) -> dict[str, Any]:
     if not case:
         raise ComplaintCaseError('Complaint case was not found.')
     payload = serialize_register_case(case, groups)
-    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']))
+    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source='mini_app_comment'))
+    payload['resolution_comments'] = [serialize_update(update) for update in case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
     reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
@@ -554,10 +561,10 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
             _export_upper(row['village']), _export_upper(row['branch_region']),
             _export_upper(row['reported_by']), _export_upper(row['complaint_category']),
             row['complaint_description'], row['gps_link'], latest_resolution_text(case),
-            _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
+            resolution_comments_text(case), _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
         )))
         sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'
-        sheet.cell(row=count + 1, column=18).number_format = 'dd-mmm-yyyy'
+        sheet.cell(row=count + 1, column=19).number_format = 'dd-mmm-yyyy'
         if row['gps_link']:
             gps_cell = sheet.cell(row=count + 1, column=16)
             gps_cell.hyperlink = row['gps_link']

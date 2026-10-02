@@ -15,6 +15,19 @@ The examples and screenshot labels in this guide must use training data only.
 Never place real customer names, phone numbers, national IDs, complaint text,
 or attachments in training screenshots.
 
+## HB feedback without closing a complaint
+
+- Open a complaint and choose **Comment**. Type a resolution comment or use
+  the microphone to review and insert dictated text, then tap **Save comment**.
+- The complaint stays open. The officer can read the saved comment, author and
+  time in **HB comments**. Use **Resolve** only when the complaint is resolved.
+- Switching between Comment and Resolve keeps both drafts. Saving a comment
+  clears only that comment, not an unfinished resolution note or its photos.
+- A small red comment badge on the queue shows the total HB comments saved.
+  It is not an unread count. Comments remain available after resolution/reopening.
+- If Sheet publication fails, the comment remains saved in the app. Authorized
+  staff can use the existing Sheet retry action to publish the complete history.
+
 ## Contents
 
 1. [What the Mini App does](#1-what-the-mini-app-does)
