@@ -430,8 +430,8 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
     payload['resolution_details'] = case.resolution_details
     payload['resolution_comments'] = [serialize_update(update) for update in
                                       case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
-    updates = list(case.case_updates.all())
-    payload['updates'] = [serialize_update(update) for update in updates]
+    updates = list(case.case_updates.order_by('-created_at', '-pk'))
+    payload['updates'] = complaint_history(case, updates)
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
     reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source != 'mini_app_comment'), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
@@ -535,7 +535,7 @@ def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uplo
 def resolution_comments_text(case: ParsedMessage) -> str:
     """Canonical append-only feedback; neither a resolution nor a transition."""
     return '\n\n'.join(
-        f'{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}\n{update.resolution_text}'
+        f'{update.resolution_text}\n{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}'
         for update in case.case_updates.filter(source='mini_app_comment').order_by('created_at', 'pk')
     )
 
@@ -1357,6 +1357,8 @@ def record_complaint_update(update: CaseUpdate, case: ParsedMessage, actor: Comp
         },
         metadata={
             'source': update.source,
+            'actor_role': actor.role,
+            'actor_affiliation': complaint_actor_affiliation(actor, update),
             'has_resolution_note': bool(update.resolution_text),
             'has_location': bool(update.gps_link),
         },
@@ -1822,7 +1824,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     control = ensure_case_control(case)
     resolved = case.complaint_status == 'Closed'
     source = (
-        {'type': 'officer', 'label': 'Recorded by an officer'}
+        {'type': 'officer', 'label': ''}
         if case.source == 'complaint_mini_app'
         else {'type': 'telegram', 'label': 'Telegram report'}
     )
@@ -1882,6 +1884,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
 
 def serialize_update(update: CaseUpdate) -> dict[str, Any]:
     return {
+        'id': str(update.pk),
         'old_status': update.old_status,
         'status': update.new_status,
         'note': update.resolution_text,
@@ -1890,6 +1893,49 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
         'gps_link': update.gps_link,
         'action': 'commented' if update.source == 'mini_app_comment' else '',
     }
+
+
+def complaint_actor_affiliation(actor: ComplaintCaseActor, update: CaseUpdate) -> str:
+    """Capture the role used for this action, not a later live grant."""
+    roles = set(actor.roles or (actor.role,))
+    if (update.source == 'mini_app_comment' or update.new_status == 'Closed') and 'HB_STAFF' in roles:
+        return 'HB'
+    if update.source in {'mini_app_create', 'mini_app_review_completion'} or update.new_status == 'Reopened':
+        if roles.intersection({'OFFICER', 'MANAGER'}):
+            return 'JBL'
+    return ''
+
+
+def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]:
+    """One read-only history with immutable affiliation and legacy evidence."""
+    from core.models import ComplianceAuditEvent
+
+    updates = list(updates if updates is not None else case.case_updates.order_by('-created_at', '-pk'))
+    events = ComplianceAuditEvent.objects.filter(
+        workflow='complaint_cases', source_model='CaseUpdate',
+        source_event_id__in=[str(update.pk) for update in updates],
+    ).values_list('source_event_id', 'metadata')
+    metadata = dict(events)
+    rows = []
+    for update in updates:
+        row = serialize_update(update)
+        evidence = metadata.get(str(update.pk), {})
+        if 'actor_affiliation' in evidence:
+            affiliation = evidence['actor_affiliation']
+        elif evidence.get('actor_role') == 'HB_STAFF':
+            affiliation = 'HB'
+        elif evidence.get('actor_role') in {'OFFICER', 'MANAGER'}:
+            affiliation = 'JBL'
+        else:
+            affiliation = ''
+        row['actor_affiliation'] = affiliation if affiliation in {'HB', 'JBL'} else ''
+        rows.append(row)
+    if case.resolution_details and not any(update.new_status == 'Closed' and update.source != 'mini_app_comment' for update in updates):
+        # Some imported complaints predate CaseUpdate; do not lose their note.
+        rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
+                     'note': case.resolution_details, 'updated_by': '',
+                     'created_at': format_datetime(case.date_resolved), 'actor_affiliation': ''})
+    return rows
 
 
 def serialize_evidence(evidence: ComplaintCaseEvidence) -> dict[str, Any]:

@@ -1,5 +1,26 @@
 # Changelog
 
+## Complaints unified history - 2 October 2026
+
+- Comment now has the same heading structure as Resolve, with voice input and
+  independent drafts preserved. Saving feedback still leaves the complaint open.
+- Removed the separate HB comments and Resolution History panels. Complaint
+  History retains feedback, resolution and reopening notes in one place,
+  including legacy resolution notes and authorized read-only register details.
+- New history actions retain an immutable JBL/HB affiliation in their existing
+  audit event. Older actions without reliable affiliation evidence show Staff;
+  changing live access grants does not relabel past actions.
+- Removed the redundant officer-source label. Sheet and export comments now
+  contain the comment first, followed by the Nairobi timestamp and actor.
+  Existing Sheet cells adopt this format on their next successful synchronization.
+- No migration, environment setting, or live Google/Telegram write is required.
+  Refresh existing Mini App sessions to load the versioned frontend assets.
+- Verified: 92 of 94 complaint PostgreSQL tests passed on a fresh synthetic
+  database; two stale National ID assertions remain documented in KNOWN_GAPS.
+  The browser regression passed at 320/360/390/430px, with inspected mobile,
+  dark and desktop screenshots. All nine Node groups, JS syntax and migration
+  drift checks passed.
+
 ## Portal compact controls and document cleanup - 2-October-2026
 
 - Performance filters and score details use compact, content-sized sheets with

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -42,6 +43,7 @@ from core.models import (
     WorkflowRoleCapability,
 )
 from core.services.complaint_cases import (
+    complaint_actor_affiliation,
     ComplaintCaseConflict,
     ComplaintCaseError,
     complete_review_details,
@@ -57,6 +59,7 @@ from core.services.complaint_cases import (
     resolve_case,
     comment_case,
     resolution_comments_text,
+    complaint_history,
     resolution_history_text,
     staff_actor_for_payload,
     update_case,
@@ -204,6 +207,9 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(second['hb_comment_count'], 2)
         self.assertEqual(second['resolution_comments'][0]['note'], 'Parts ordered.')
         self.assertIn('HB Resolver', resolution_comments_text(self.case))
+        self.assertTrue(resolution_comments_text(self.case).startswith('Technician will call tomorrow.\n'))
+        self.assertTrue(resolution_comments_text(self.case).endswith(' — HB Resolver'))
+        self.assertEqual([row['actor_affiliation'] for row in second['updates'] if row['action'] == 'commented'], ['HB', 'HB'])
         self.assertLess(resolution_comments_text(self.case).index('Technician'), resolution_comments_text(self.case).index('Parts'))
         self.assertNotIn('Parts ordered.', resolution_history_text(self.case))
         self.assertEqual(list_cases(self.config)[0]['hb_comment_count'], 2)
@@ -310,7 +316,39 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(latest['hb_comment_count'], 2)
         self.assertEqual(latest['latest_reopen']['note'], 'Problem returned.')
         self.assertEqual(latest['latest_resolution']['note'], 'Burner replaced.')
+        self.assertEqual([row['actor_affiliation'] for row in latest['updates']], ['HB', 'JBL', 'HB', 'HB'])
+        from core.services.complaint_register import register_case
+        self.assertEqual(register_case(str(self.case.pk))['updates'], latest['updates'])
         self.assertNotIn('Return visit booked.', resolution_history_text(self.case))
+
+    @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
+    def test_history_affiliation_survives_live_role_changes(self, publish):
+        control = ensure_case_control(self.case, self.config)
+        comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text':'Feedback.', 'expected_revision':control.revision, 'client_request_id':'affiliation-comment'})
+        AccessGrant.objects.filter(user=self.hb_staff, workflow='complaint_cases').update(role='OFFICER')
+        self.assertEqual(complaint_history(self.case)[0]['actor_affiliation'], 'HB')
+
+    def test_legacy_history_keeps_unknown_actor_and_resolution_note(self):
+        CaseUpdate.objects.create(parsed_message=self.case, group_id=self.case.group_id, updated_by='Legacy staff', old_status='', new_status='Open', resolution_text='Legacy report.', raw_update_text='legacy', source='telegram')
+        self.case.resolution_details = 'Original resolution without update record.'
+        self.case.date_resolved = timezone.now()
+        rows = complaint_history(self.case)
+        self.assertEqual(rows[0]['actor_affiliation'], '')
+        self.assertEqual(rows[-1]['note'], self.case.resolution_details)
+        self.assertEqual(rows[-1]['actor_affiliation'], '')
+
+    def test_mixed_role_history_identifies_the_action_not_the_primary_role(self):
+        actor = replace(self.actor('300'), role='OFFICER', roles=('OFFICER', 'HB_STAFF'))
+        update = CaseUpdate(source='mini_app_comment', new_status='Open')
+        self.assertEqual(complaint_actor_affiliation(actor, update), 'HB')
+        update.source = 'mini_app'
+        update.new_status = 'Closed'
+        self.assertEqual(complaint_actor_affiliation(actor, update), 'HB')
+        update.new_status = 'Reopened'
+        self.assertEqual(complaint_actor_affiliation(actor, update), 'JBL')
+        update.source = 'mini_app_create'
+        update.new_status = 'Open'
+        self.assertEqual(complaint_actor_affiliation(actor, update), 'JBL')
 
     def test_new_reference_preserves_the_unpadded_sequence_number(self):
         sequence, _ = ComplaintCaseSequence.objects.update_or_create(
@@ -1618,7 +1656,11 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(item['description'], 'Unit is not producing gas.')
         self.assertNotIn('raw_message', item)
         self.assertNotIn('evidence', item)
-        self.assertNotIn('updates', item)
+        self.assertIn('updates', item)
+        for update in item['updates']:
+            self.assertNotIn('raw_message', update)
+            self.assertNotIn('evidence', update)
+            self.assertIn('actor_affiliation', update)
         self.assertEqual(item['actions'], {
             'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False,
         })

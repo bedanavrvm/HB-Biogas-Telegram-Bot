@@ -1,5 +1,22 @@
 # Known Gaps and Verified Workarounds
 
+## Complaints unified history verification - 2 October 2026
+
+- Fresh PostgreSQL run: 94 tests, 92 passed, two failures. The local ignored
+  log is `test-results/complaint-history-postgres-fresh-final.txt`.
+- `test_customer_id_is_digits_only_and_preserves_leading_zeroes` expects
+  "numbers only" while the unchanged validator says "1 to 9 digits only".
+- `test_compact_two_state_workspace_has_only_supported_actions` expects the
+  old `[0-9]*` template pattern. HEAD already uses `[0-9]{1,9}`; later assertions
+  also contain outdated input labels and asset versions. These unrelated tests
+  were not weakened to obtain a green suite.
+- Browser feedback/draft/voice/queue regression, nine Node groups, JavaScript
+  syntax and migration checks passed. Screenshots were inspected. No live
+  Telegram or Google integration was exercised.
+- Old history without immutable affiliation evidence is labelled Staff, not
+  guessed from current grants. Existing Sheet comment cells change format on
+  their next successful synchronization, not through an automatic bulk rewrite.
+
 ## Portal compact controls verification - 2 October 2026
 
 The focused document-signoff/payment PostgreSQL suite passed 77 tests using

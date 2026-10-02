@@ -22,7 +22,7 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     const item = { case_id: 'synthetic-comment', id: 'synthetic-comment', reference_number: 'CMP-TEST',
       customer_name: 'Training customer', customer_phone: '0700000000', customer_id: '123456',
       description: 'Synthetic burner issue', status: 'OPEN', revision: 1, hb_comment_count: 0,
-      category: 'Product issue', branch: 'Training branch', resolution_comments: [], updates: [], evidence: [] };
+      category: 'Product issue', branch: 'Training branch', source_attribution: {type:'officer', label:'Recorded by an officer'}, resolution_comments: [], updates: [{note:'Complaint recorded.', updated_by:'Training officer', created_at:'02-Oct-2026 13:30', status:'Open', actor_affiliation:'JBL'}], evidence: [] };
     window.__commentWrites = [];
     const webApp = { initData, BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {} };
     window.Telegram = { WebApp: webApp };
@@ -41,6 +41,7 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
         window.__commentWrites.push({ path, text: data.get('comment_text'), revision: data.get('expected_revision') });
         item.revision++; item.hb_comment_count++;
         item.resolution_comments.unshift({ note: data.get('comment_text'), updated_by: 'Training HB', created_at: '02-Oct-2026 14:35', action: 'commented' });
+        item.updates.unshift({note:data.get('comment_text'), updated_by:'Training HB', created_at:'02-Oct-2026 14:35', action:'commented', status:'Open', actor_affiliation:'HB'});
         return { ok: true, case: { ...item }, message: 'Comment saved.' };
       },
     };
@@ -48,6 +49,9 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await page.locator('#caseList .case-row').click();
   await expect(page.locator('#commentForm')).toBeVisible();
+  await expect(page.locator('#commentForm h2')).toHaveText('Add Comment');
+  await expect(page.locator('#detailSource')).toBeHidden();
+  await expect(page.locator('#commentsPanel, #previousResolution')).toHaveCount(0);
   await expect(page.locator('#resolveForm')).toBeHidden();
   await expect(page.locator('[data-voice-field="complaint_resolution_comment"] .voice-input')).toBeVisible();
   await page.locator('#resolveTab').click();
@@ -55,7 +59,9 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.locator('#commentTab').click();
   await page.locator('#complaintResolutionComment').fill('Technician will visit tomorrow.');
   await page.locator('#commentForm button[type="submit"]').click();
-  await expect(page.locator('#commentsPanel')).toContainText('Technician will visit tomorrow.');
+  await expect(page.locator('#activityList')).toContainText('Technician will visit tomorrow.');
+  await expect(page.locator('#activityList .history-affiliation')).toHaveText(['HB', 'JBL']);
+  await expect(page.locator('#activityList .history-item').filter({hasText:'Technician will visit tomorrow.'})).toHaveCount(1);
   await expect(page.locator('#detailStatus')).toHaveText('OPEN');
   await expect(page.locator('#complaintResolutionComment')).toHaveValue('');
   await page.locator('#resolveTab').click();
@@ -66,11 +72,14 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const buttons = await page.locator('#hbActionTabs button').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
     expect(Math.abs(buttons[0] - buttons[1])).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath(`hb-comments-${width}.png`), fullPage: true });
   }
   await page.screenshot({ path: testInfo.outputPath('hb-comments-mobile.png'), fullPage: true });
   await page.evaluate(() => document.documentElement.dataset.miniappColorScheme = 'dark');
   await expect(page.locator('#commentForm')).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('hb-comments-dark.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('hb-comments-dark.png'), fullPage: true, animations: 'disabled' });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('hb-comments-desktop.png'), fullPage: true });
   await page.locator('#detailBackBtn').click();
   await expect(page.locator('#caseList .hb-comment-count')).toHaveAttribute('aria-label', '1 HB comments');
   await page.screenshot({ path: testInfo.outputPath('hb-comment-queue.png'), fullPage: true });

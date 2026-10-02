@@ -685,19 +685,12 @@
       item.reported_at ? `Reported: ${item.reported_at}` : '',
     ].filter(Boolean).forEach(value => meta.appendChild(textNode('span', value)));
     const source = item.source_attribution || {};
-    $('detailSource').textContent = item.global_read
-      ? 'Available to authorized complaint staff'
-      : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || 'Source unavailable'));
+    $('detailSource').textContent = source.type === 'officer' ? ''
+      : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || ''));
+    $('detailSource').hidden = !$('detailSource').textContent;
     $('detailSync').textContent = `Sheet Sync: ${syncLabel(item.sync_status)}`;
-    renderHistory(item); renderEvidence(item.evidence || []); renderActivity(item.updates || []);
-    const comments = $('resolutionCommentsList'); comments.replaceChildren();
-    (item.resolution_comments || []).forEach(comment => {
-      const row = document.createElement('div'); row.className = 'hb-comment item';
-      row.append(textNode('strong', comment.updated_by || 'HB staff'), textNode('small', comment.created_at || '', 'muted'), textNode('p', comment.note));
-      comments.appendChild(row);
-    });
-    $('commentsPanel').hidden = !(item.resolution_comments || []).length;
-    $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = !!item.global_read;
+    renderEvidence(item.evidence || []); renderActivity(item.updates || []);
+    $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = false;
     const actions = item.global_read ? (item.actions || {}) : {
       close: can('complaint.case.close'), reopen: can('complaint.case.reopen'),
       comment: can('complaint.case.comment'),
@@ -722,18 +715,6 @@
     }
   }
 
-  function renderHistory(item) {
-    const resolution = item.latest_resolution || (item.resolution_details ? { note: item.resolution_details, updated_by: '', created_at: item.resolved_at || '' } : null);
-    $('previousResolution').hidden = !resolution;
-    if (!resolution) return;
-    $('previousResolutionText').textContent = displayHistoryNote(resolution.note) || 'No resolution note recorded.';
-    $('previousResolutionMeta').textContent = [resolution.created_at, `Resolved by ${resolution.updated_by || 'Staff'}`].filter(Boolean).join(' · ');
-    const reopened = item.latest_reopen; $('previousReopen').hidden = !reopened;
-    if (reopened) {
-      $('previousReopenText').textContent = displayHistoryNote(reopened.note) || '';
-      $('previousReopenMeta').textContent = [reopened.created_at, `Reopened by ${reopened.updated_by || 'Staff'}`].filter(Boolean).join(' · ');
-    }
-  }
   function displayHistoryNote(note) {
     const value = String(note || '');
     const friendlyLegacyNotes = {
@@ -922,7 +903,10 @@
       else if (item.status === 'Open') action = 'Complaint recorded by';
       else if (item.status === 'Review Needed') action = 'More information requested by';
       const content = document.createElement('div');
-      content.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
+      const affiliation = ['JBL', 'HB'].includes(item.actor_affiliation) ? item.actor_affiliation : 'Staff';
+      const heading = document.createElement('div'); heading.className = 'history-heading';
+      heading.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('span', affiliation, `history-affiliation history-affiliation-${affiliation.toLowerCase()}`));
+      content.append(heading, textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
       row.append(iconNode(item.status === 'Closed' ? 'circle-check' : 'history', 'item-icon'), content);
       node.appendChild(row);
     });

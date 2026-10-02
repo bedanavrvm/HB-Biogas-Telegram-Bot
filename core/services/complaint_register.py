@@ -517,11 +517,13 @@ def register_page(*, filters: dict[str, Any], page: Any = 1, page_size: Any = 50
 
 
 def register_case(case_uuid: str) -> dict[str, Any]:
+    from core.services.complaint_cases import complaint_history
     groups = _group_rows()
     case = _base_queryset().filter(pk=case_uuid).first()
     if not case:
         raise ComplaintCaseError('Complaint case was not found.')
     payload = serialize_register_case(case, groups)
+    payload['updates'] = complaint_history(case)
     updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source='mini_app_comment'))
     payload['resolution_comments'] = [serialize_update(update) for update in case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
