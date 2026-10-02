@@ -2474,6 +2474,7 @@
           </div>
         `;
         events.appendChild(row);
+        if (!event.redacted) window.MiniAppActivityChanges?.append(row.querySelector('.event-body'), event.changes);
       });
     }
   }

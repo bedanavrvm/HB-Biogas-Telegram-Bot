@@ -1,5 +1,15 @@
 # Changelog
 
+## Activity value comparisons - 2 October 2026
+
+- Portal case and invoice history, payment activity, Complaints history and
+  TAT activity share compact old-to-new comparisons from recorded evidence.
+- Recorded blanks remain distinct from unavailable historical values; long
+  notes and larger changesets expand without duplicating actors or times.
+- Payment changes and future Complaint/approval actions retain relevant prior
+  facts in their existing audit records. Redactions omit comparisons and files.
+- No historical event rewrite, schema migration or live external write is needed.
+
 ## Invoice cleanup, compact finance actions and chart controls - 2 October 2026
 
 - Delete removes eligible invoice records; Ignore remains reversible. Payment

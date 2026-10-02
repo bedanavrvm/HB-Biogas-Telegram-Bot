@@ -311,6 +311,9 @@ class ComplaintCaseServiceTests(TestCase):
         first = comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text': 'Repair booked.', 'expected_revision': control.revision, 'client_request_id': 'before-resolution'})
         closed = resolve_case(self.config, self.actor('300'), self.case.message_id, {'resolution_text': 'Burner replaced.', 'expected_revision': first['revision'], 'client_request_id': 'resolve-commented'}, [])
         self.assertEqual(closed['hb_comment_count'], 1)
+        resolution = next(item for item in closed['updates'] if item['status'] == 'Closed')
+        status_change = next(item for item in resolution['changes'] if item['field'] == 'status')
+        self.assertEqual((status_change['old_value'], status_change['new_value']), ('Open', 'Closed'))
         reopened = reopen_case(self.config, self.actor('200'), self.case.message_id, {'reason': 'Problem returned.', 'expected_revision': closed['revision'], 'client_request_id': 'reopen-commented'})
         latest = comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text': 'Return visit booked.', 'expected_revision': reopened['revision'], 'client_request_id': 'after-reopen'})
         self.assertEqual(latest['hb_comment_count'], 2)
@@ -327,6 +330,18 @@ class ComplaintCaseServiceTests(TestCase):
         comment_case(self.config, self.actor('300'), self.case.message_id, {'comment_text':'Feedback.', 'expected_revision':control.revision, 'client_request_id':'affiliation-comment'})
         AccessGrant.objects.filter(user=self.hb_staff, workflow='complaint_cases').update(role='OFFICER')
         self.assertEqual(complaint_history(self.case)[0]['actor_affiliation'], 'HB')
+
+    def test_history_distinguishes_national_id_from_internal_customer_reference(self):
+        control = ensure_case_control(self.case, self.config)
+        CaseUpdate.objects.create(parsed_message=self.case, group_id=self.case.group_id,
+                                  old_status='Open', new_status='Open', raw_update_text='Synthetic change',
+                                  client_request_id='activity-identity')
+        ComplaintCaseEvent.objects.create(case=control, revision=control.revision, action='updated',
+            request_id='activity-identity', before_values={'customer_id': 'internal-old', 'national_id': '123456'},
+            after_values={'customer_id': 'internal-new', 'national_id': '654321'})
+        changes = complaint_history(self.case)[0]['changes']
+        self.assertEqual([item['field'] for item in changes], ['national_id'])
+        self.assertEqual(changes[0]['old_value'], '123456')
 
     def test_legacy_history_keeps_unknown_actor_and_resolution_note(self):
         CaseUpdate.objects.create(parsed_message=self.case, group_id=self.case.group_id, updated_by='Legacy staff', old_status='', new_status='Open', resolution_text='Legacy report.', raw_update_text='legacy', source='telegram')

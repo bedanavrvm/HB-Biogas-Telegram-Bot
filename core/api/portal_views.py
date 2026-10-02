@@ -7189,12 +7189,14 @@ def portal_invoice_batch_confirm(request, batch_id: str):
 
 
 def _serialize_invoice_event(event) -> dict:
+    from core.services.activity_changes import invoice_activity_changes
     return {
         'id': str(event.id),
         'action': event.action,
         'actor': event.actor,
         'note': event.note,
         'metadata': event.metadata or {},
+        'changes': invoice_activity_changes(event.metadata),
         'created_at': event.created_at.isoformat() if event.created_at else None,
     }
 

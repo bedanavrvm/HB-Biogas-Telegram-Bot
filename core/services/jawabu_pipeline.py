@@ -630,6 +630,8 @@ def log_jbl_visit(
             return False, 'Capture the visit location or explain why location was unavailable before forwarding the case.'
 
     prior_state = current_workflow_state(farmer)
+    visit_before = {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
+                    'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment}
     farmer.jbl_visit_date = visit_date
     farmer.jbl_officer = str(officer or sender or '').strip()
     farmer.jbl_visit_status = visit_status
@@ -716,6 +718,7 @@ def log_jbl_visit(
     event = record_pipeline_event(
         farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
         request_id=request_id,
+        old_values=visit_before,
         new_values={
             'visit_date': visit_date.isoformat(),
             'status': visit_status,
@@ -1069,6 +1072,8 @@ def set_credit_decision(
         and not farmer.order_number
         and approval_state(farmer, 'credit') in {'invalidated', 'expired'}
     )
+    credit_before = {'decision': farmer.credit_decision, 'imab_created': farmer.imab_created,
+                     'customer_no': farmer.customer_no}
     if not credit_recheck and not _is_actionable_at_stage(farmer, JawabuWorkflowState.CREDIT, deferred_stage='credit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.CREDIT)
     if is_reappraisal_required(farmer):
@@ -1166,6 +1171,7 @@ def set_credit_decision(
     record_pipeline_event(
         farmer, action='credit_decision_recorded', stage_key='credit', actor=sender,
         request_id=request_id,
+        old_values=credit_before,
         new_values={
             'decision': decision,
             'imab_created': imab_created,
@@ -1269,6 +1275,7 @@ def set_final_decision(
         return False, 'Repayment tenor must be 1 to 120 months.'
 
     old_decision = farmer.final_decision
+    old_comment = farmer.final_decision_comment
     farmer.final_decision = final_decision
     farmer.final_decision_comment = str(decision_comment or '').strip()
     farmer.final_decided_by = str(sender or '').strip()
@@ -1327,7 +1334,7 @@ def set_final_decision(
     event = record_pipeline_event(
         farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
         request_id=request_id,
-        old_values={'decision': old_decision},
+        old_values={'decision': old_decision, 'comment': old_comment},
         new_values={
             'decision': final_decision,
             'reason_code': reason_code,
@@ -1929,6 +1936,8 @@ def assign_order(
     if repayment_tenor and tenor_months is None:
         return False, 'Repayment tenor must be 1 to 120 months.'
 
+    order_before = {'order_number': farmer.order_number,
+                    'requisition_date': farmer.requisition_date.isoformat() if farmer.requisition_date else None}
     farmer.order_number = order_number
     farmer.requisition_date = requested_requisition_date
     from_state, revision_before, revision_after = _advance_state(
@@ -1953,6 +1962,7 @@ def assign_order(
     record_pipeline_event(
         farmer, action='order_assigned', stage_key='order', actor=sender,
         request_id=request_id,
+        old_values=order_before,
         new_values={'order_number': order_number, 'requisition_date': farmer.requisition_date.isoformat()},
         actor_user=actor_user,
         transition_code='jawabu.order.assign',

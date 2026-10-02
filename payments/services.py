@@ -100,11 +100,33 @@ def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> s
     return _digest(payment_review_facts(farmer, payment_mode))
 
 
+def _activity_facts(batch):
+    return {'status': batch.status, 'case_count': batch.case_memberships.filter(is_active=True).count(),
+            'document': batch.current_document.filename if batch.current_document_id else ''}
+
+
+def _payment_activity_changes(event):
+    from core.services.activity_changes import FIELD_LABELS, recorded_changes
+    metadata = event.metadata or {}
+    if isinstance(metadata.get('changes'), list):
+        return [{**change, 'label': FIELD_LABELS[change['field']]} for change in metadata['changes']
+                if isinstance(change, dict) and change.get('field') in FIELD_LABELS
+                and not isinstance(change.get('old_value'), (dict, list))
+                and not isinstance(change.get('new_value'), (dict, list))]
+    facts = {key: metadata[key] for key in ('payment_mode', 'decision', 'comment') if key in metadata}
+    return recorded_changes({}, facts)
+
+
 def _record(batch, action: str, *, actor=None, request_id: str = '', metadata=None):
     if request_id:
         existing = PaymentBatchEvent.objects.filter(request_id=request_id).first()
         if existing:
             return existing
+    from core.services.activity_changes import recorded_changes
+    metadata = dict(metadata or {})
+    if hasattr(batch, '_activity_before'):
+        metadata['changes'] = [*recorded_changes(batch._activity_before, _activity_facts(batch)),
+                               *metadata.get('changes', [])]
     return PaymentBatchEvent.objects.create(
         batch=batch, action=action, actor=actor, request_id=request_id,
         revision=batch.revision, metadata=metadata or {},
@@ -262,6 +284,7 @@ def _require_revision(batch, expected_revision):
         raise PaymentBatchError('The payment batch revision is invalid. Refresh and retry.') from exc
     if expected != batch.revision:
         raise PaymentBatchError('This payment batch changed while you were working. Refresh to see the latest cases.')
+    batch._activity_before = _activity_facts(batch)
 
 
 @transaction.atomic
@@ -302,6 +325,8 @@ def update_case_mode(batch_id, farmer_id, *, payment_mode: str, expected_revisio
         raise PaymentBatchError('This case is not currently in the payment batch.')
     if membership.payment_mode == mode:
         return batch
+    from core.services.activity_changes import recorded_changes
+    mode_changes = recorded_changes({'payment_mode': membership.payment_mode}, {'payment_mode': mode})
     _supersede_document(batch)
     invalidated = _invalidate_membership_review(membership)
     membership.payment_mode = mode
@@ -315,6 +340,7 @@ def update_case_mode(batch_id, farmer_id, *, payment_mode: str, expected_revisio
         batch, 'case_mode_changed', actor=actor, request_id=request_id,
         metadata={
             'farmer_id': str(farmer_id), 'payment_mode': mode,
+            'changes': mode_changes,
             'invalidated_reviews': invalidated,
         },
     )
@@ -523,6 +549,9 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
             raise PaymentBatchError('The generated payment workbook is awaiting its signed copy, not another review.')
         _supersede_document(batch)
     review, _ = PaymentCaseReview.objects.select_for_update().get_or_create(membership=membership)
+    from core.services.activity_changes import recorded_changes
+    review_changes = recorded_changes({'decision': review.decision, 'comment': review.comment},
+                                     {'decision': decision, 'comment': comment})
     review.decision = decision
     review.comment = comment
     review.reviewed_digest = digest
@@ -549,6 +578,7 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
         batch, 'case_reviewed', actor=actor, request_id=request_id,
         metadata={
             'farmer_id': str(farmer_id), 'decision': decision, 'comment': comment,
+            'changes': review_changes,
             'generated_workbook_superseded': reopening_generated_workbook,
             'review_binding_policy': 'payment_facts_v2',
             'payment_review_facts': json.loads(json.dumps(payment_review_facts(membership.farmer, membership.payment_mode), cls=DjangoJSONEncoder)),
@@ -662,6 +692,7 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
         ):
             conflict = True
         else:
+            batch._activity_before = _activity_facts(batch)
             batch.current_document = document
             batch.status = PaymentBatch.STATUS_AWAITING_SCAN
             batch.confirmed_by = actor
@@ -815,13 +846,18 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
     activity = []
     signed_scan_url = ''
     if include_cases:
+        active_activity_ids = {str(item.farmer_id) for item in batch.case_memberships.all() if item.is_active}
         for event in batch.events.select_related('actor').order_by('-created_at', '-pk')[:20]:
             actor = event.actor
+            event_farmer_id = str((event.metadata or {}).get('farmer_id') or '')
             activity.append({
                 'action': event.action,
                 'actor': (actor.get_full_name() or actor.get_username()) if actor else 'System',
                 'created_at': event.created_at.isoformat(),
                 'revision': event.revision,
+                # The API authorizes current members. Do not reveal a removed
+                # case's historical comments through an otherwise scoped batch.
+                'changes': _payment_activity_changes(event) if not event_farmer_id or event_farmer_id in active_activity_ids else [],
             })
         if batch.current_document_id:
             from core.models import DocumentPhysicalSignoff
@@ -940,6 +976,7 @@ def complete_batch_for_document(document, *, actor=None, request_id=''):
         return batch
     if batch.status != PaymentBatch.STATUS_AWAITING_SCAN:
         raise PaymentBatchError('This workbook is no longer the current payment batch version.')
+    batch._activity_before = _activity_facts(batch)
     if not payment_reviews_current(batch):
         raise PaymentBatchError('Payment details changed after review. Head of Rural must review the changed cases again.')
     document.status = 'completed'

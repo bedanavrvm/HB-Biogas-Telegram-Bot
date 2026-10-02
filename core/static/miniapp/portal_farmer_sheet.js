@@ -548,12 +548,13 @@
   }
 
   function renderTimelineEvent(event) {
-    const children = Array.isArray(event.children) ? event.children : [];
-    const childMarkup = children.length ? `<details class="case360-timeline-children"><summary>${children.length} supporting record${children.length === 1 ? '' : 's'}</summary>${children.map(child => `<div><strong>${deps.escapeHtml(child.title || humanLabel(child.action))}</strong>${child.detail ? `<span>${deps.escapeHtml(child.detail)}</span>` : ''}${child.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(child.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(child.artifact.name || 'Open document')} ↗</a>` : ''}</div>`).join('')}</details>` : '';
+    const changes = event.redacted ? '' : (window.MiniAppActivityChanges?.html(event.changes) || '');
+    const children = !event.redacted && Array.isArray(event.children) ? event.children : [];
+    const childMarkup = children.length ? `<details class="case360-timeline-children"><summary>${children.length} supporting record${children.length === 1 ? '' : 's'}</summary>${children.map(child => `<div><strong>${deps.escapeHtml(child.title || humanLabel(child.action))}</strong>${child.detail ? `<span>${deps.escapeHtml(child.detail)}</span>` : ''}${!child.redacted ? (window.MiniAppActivityChanges?.html(child.changes) || '') : ''}${child.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(child.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(child.artifact.name || 'Open document')} ↗</a>` : ''}</div>`).join('')}</details>` : '';
     const source = String(event.source || '').trim().toLowerCase();
     const sourceLabel = source === 'farmup' ? 'FarmUp' : '';
     const actor = event.actor || sourceLabel || (event.origin === 'staff' ? 'Staff action' : 'System');
-    return `<article class="${event.redacted ? 'redacted' : ''}"><div class="case360-timeline-entry"><div class="case360-timeline-entry-heading"><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time></div><small>${deps.escapeHtml(actor)}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}${childMarkup}</div></article>`;
+    return `<article class="${event.redacted ? 'redacted' : ''}"><div class="case360-timeline-entry"><div class="case360-timeline-entry-heading"><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time></div><small>${deps.escapeHtml(actor)}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${changes}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}${childMarkup}</div></article>`;
   }
 
   function renderCase360(data, target) {

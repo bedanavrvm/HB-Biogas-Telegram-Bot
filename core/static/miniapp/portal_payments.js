@@ -488,7 +488,7 @@
     }
     if (heldSection) heldSection.hidden = !heldItems.length;
     const activity = activeBatch.activity || [];
-    required.activity.innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong><small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
+    required.activity.innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong>${window.MiniAppActivityChanges?.html(item.changes) || ''}<small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
     const activityPanel = required.activity.closest('.payment-activity');
     if (activityPanel) activityPanel.hidden = emptyDraft;
     const addPanel = el('payments-add-panel');

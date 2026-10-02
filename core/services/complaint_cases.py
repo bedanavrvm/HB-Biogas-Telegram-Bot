@@ -1784,6 +1784,11 @@ def evidence_filename(
 def control_snapshot(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str, Any]:
     return {
         'status': case.complaint_status or 'Open',
+        'customer_name': case.customer_name, 'national_id': case.customer_id,
+        'primary_phone': case.customer_phone, 'gps_link': case.gps_link,
+        'resolution_details': case.resolution_details,
+        'county': case.county, 'sub_county': case.sub_county, 'village': case.village,
+        'complaint_description': case.complaint_description,
         'category_key': control.category.key if control.category_id else '',
         'branch_code': control.branch_ref.code if control.branch_ref_id else '',
         'county_code': control.county_ref.code if control.county_ref_id else '',
@@ -1919,9 +1924,18 @@ def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]
         source_event_id__in=[str(update.pk) for update in updates],
     ).values_list('source_event_id', 'metadata')
     metadata = dict(events)
+    from core.services.activity_changes import FIELD_LABELS, recorded_changes
+    # customer_id in this snapshot is a global identity UUID, not an ID-card number.
+    history_labels = {key: label for key, label in FIELD_LABELS.items() if key != 'customer_id'}
+    # Match by immutable request key, never by approximate timestamps or live state.
+    recorded = {event.request_id: event for event in ComplaintCaseEvent.objects.filter(
+        case__parsed_message=case, request_id__in=[update.client_request_id for update in updates if update.client_request_id])}
     rows = []
     for update in updates:
         row = serialize_update(update)
+        event = recorded.get(update.client_request_id) if update.client_request_id else None
+        row['changes'] = recorded_changes(event.before_values, event.after_values, labels=history_labels) if event else recorded_changes(
+            {'status': update.old_status} if update.old_status else {}, {'status': update.new_status})
         evidence = metadata.get(str(update.pk), {})
         if 'actor_affiliation' in evidence:
             affiliation = evidence['actor_affiliation']

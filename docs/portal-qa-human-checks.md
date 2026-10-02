@@ -1,5 +1,21 @@
 # Portal QA: human verification
 
+## Activity comparisons
+
+- Change an editable field, then check history: the field label and old → new
+  values appear under one action, with one actor and timestamp.
+- Clear a field and change an amount to zero: show “Not set” and `0`, respectively.
+- Open a grouped import/visit entry: its recorded changes and documents remain
+  together; unrelated technical metadata is not shown.
+- Change a payment mode and review decision: verify the prior and accepted
+  values, including a replacement workbook filename where applicable.
+- Check Complaint resolution/reopening and TAT corrections. Appended HB
+  comments remain separate feedback, not replacements or status changes.
+- Expand a long note and a changeset with more than three fields; verify readable
+  wrapping at 320px and in both themes. Redacted values must remain hidden.
+- For older incomplete events, expect “Previous value not recorded”; never
+  substitute the case's current value as the historical predecessor.
+
 Record results in **Admin → QA release checklists**. Create one checklist for the deployed app, release, environment, and group; include the build commit when known. Open **Run checklist**, choose Pass, Fail, or Blocked, and optionally add a privacy-safe observation, bug reference, and screenshot. The report and comparisons are generated from those records; do not edit a spreadsheet.
 
 Use consenting test records. Never put real customer names, IDs, phones, tokens, or documents in notes or screenshots. A missing prerequisite is **Blocked**, not Pass. Each test ID is permanent; retire a test instead of reusing its ID.

@@ -1,0 +1,6 @@
+.activity-changes { margin:6px 0; font-size:12px; line-height:1.5; color:inherit; min-width:0; }
+.activity-changes .activity-change { display:block; padding:3px 0; overflow-wrap:anywhere; white-space:normal; }
+.activity-changes details { margin-top:4px; }
+.activity-changes summary { cursor:pointer; min-height:36px; display:list-item; padding:7px 0; font-weight:600; }
+.activity-changes .activity-change-long div { display:grid; grid-template-columns:32px minmax(0,1fr); gap:6px; padding:4px 0; }
+.activity-change-long span { white-space:pre-wrap; overflow-wrap:anywhere; }

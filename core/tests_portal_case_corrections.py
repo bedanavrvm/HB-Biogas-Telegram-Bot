@@ -57,6 +57,9 @@ class PortalCaseCorrectionTests(TestCase):
         self.assertEqual(event.old_values['customer_name'], 'Incorrect Name')
         self.assertEqual(event.new_values['customer_name'], 'Correct Name')
         self.assertIn('case_fields_corrected', [item['action'] for item in jawabu_case_timeline(updated)['entries']])
+        entry = next(item for item in jawabu_case_timeline(updated)['entries'] if item['action'] == 'case_fields_corrected')
+        change = next(item for item in entry['changes'] if item['field'] == 'customer_name')
+        self.assertEqual((change['old_value'], change['new_value']), ('Incorrect Name', 'Correct Name'))
         self.assertEqual(updated.field_provenance.filter(source='admin_correction').count(), 2)
 
     @patch('core.services.portal_publication.reserve_farmer_publication', return_value=[])

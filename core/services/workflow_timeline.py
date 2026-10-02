@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Iterable
 
 from django.db.models import Q
+from core.services.activity_changes import recorded_changes
 
 from core.models import (
     JawabuDataQualityResolution,
@@ -72,6 +73,7 @@ def _entry(
     redaction: WorkflowTimelineAnnotation | None = None,
     kind: str = 'event',
     operation_id: str = '',
+    changes: list | None = None,
 ) -> dict[str, Any]:
     public_id = source_id.split(':', 1)[1] if source_id.startswith('jawabu:') else source_id
     entry = {
@@ -94,9 +96,11 @@ def _entry(
         'redacted': bool(redaction),
         'redaction_reason': str(redaction.note or '') if redaction else '',
         'operation_id': str(operation_id or ''),
+        'changes': [] if redaction else (changes or []),
     }
     if redaction:
         entry['detail'] = 'Sensitive event content has been redacted.'
+        entry['artifact'] = None
     return entry
 
 
@@ -124,20 +128,6 @@ def _annotation_entries(rows: Iterable[WorkflowTimelineAnnotation]) -> list[dict
             kind='annotation',
         ))
     return entries
-
-
-def _changed_field_children(event, *, source_id: str, occurred_at) -> list[dict[str, Any]]:
-    """Compact related field changes beneath their single staff action."""
-    before = getattr(event, 'old_values', None) or getattr(event, 'previous_values', None) or {}
-    after = getattr(event, 'new_values', None) or {}
-    if not isinstance(after, dict):
-        return []
-    ignored = {'tat_target_snapshot', 'commissioning_ready_on', 'early_by_days', 'early_commissioning_acknowledged'}
-    changed = [key for key, value in after.items() if key not in ignored and before.get(key) != value]
-    return [_entry(
-        source_id=f'{source_id}:field:{key}', action='field_recorded', occurred_at=occurred_at,
-        source='portal', stage='record', detail=key.replace('_', ' ').capitalize(), kind='field',
-    ) for key in changed[:20]]
 
 
 def _timeline_minute(entry: dict[str, Any]) -> str:
@@ -260,7 +250,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             redaction=redactions.get(source_id),
             operation_id=event.request_id,
         )
-        entry['children'] = _changed_field_children(event, source_id=source_id, occurred_at=event.occurred_at)
+        entry['changes'] = [] if entry['redacted'] else recorded_changes(event.old_values, event.new_values)
         entries.append(entry)
 
     # Post-order work belongs to the HB domain.  It is surfaced here as a
@@ -279,7 +269,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             redaction=redactions.get(source_id),
             operation_id=event.request_id,
         )
-        entry['children'] = _changed_field_children(event, source_id=source_id, occurred_at=event.created_at)
+        entry['changes'] = [] if entry['redacted'] else recorded_changes(event.previous_values, event.new_values)
         entries.append(entry)
 
     for provenance in farmer.field_provenance.order_by('-occurred_at')[:100]:
@@ -294,6 +284,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             detail=f'{provenance.field_name} updated from {provenance.source_reference or provenance.source}.',
             redaction=redactions.get(source_id),
             kind='provenance',
+            changes=recorded_changes({provenance.field_name: provenance.old_value}, {provenance.field_name: provenance.new_value}),
         ))
 
     for resolution in JawabuDataQualityResolution.objects.filter(issue__farmer=farmer).select_related('issue').order_by('-created_at')[:100]:
@@ -422,7 +413,12 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         elif is_parent or parent is None:
             grouped.append(entry)
     grouped.sort(key=lambda item: item['occurred_at'], reverse=True)
-    return {'entries': _group_same_moment_activity(grouped), 'related_cases': related_cases}
+    projected = _group_same_moment_activity(grouped)
+    for entry in projected:
+        if entry['redacted']:
+            entry['changes'] = []
+            entry['children'] = []
+    return {'entries': projected, 'related_cases': related_cases}
 
 
 def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
@@ -448,7 +444,9 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
             authority=_actor_name(event.authority_user),
             source=event.source,
             stage=event.stage_label or event.stage_key,
-            detail=event.reason or event.new_value,
+            detail=event.reason,
+            changes=recorded_changes({'value': event.old_value}, {'value': event.new_value},
+                                     labels={'value': event.stage_label or event.stage_key or 'Value'}),
             redaction=redactions.get(source_id),
         ))
     entries.extend(_annotation_entries(annotations))

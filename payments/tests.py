@@ -545,6 +545,11 @@ class PaymentBatchServiceTests(TestCase):
             expected_revision=batch.revision, actor=self.user,
         )
         self.assertEqual(batch.case_memberships.get(farmer=first_farmer).review.decision, 'pending')
+        activity = serialize_batch(batch)['activity']
+        mode_event = next(item for item in activity if item['action'] == 'case_mode_changed')
+        mode_change = next(item for item in mode_event['changes'] if item['field'] == 'payment_mode')
+        self.assertEqual((mode_change['old_value'], mode_change['new_value']), ('CASH', 'LOAN-JAWABU'))
+        self.assertTrue(mode_change['previous_recorded'])
 
         batch = review_case(
             batch.id, first_farmer.id, decision='approved', comment='Confirmed again.',
@@ -552,6 +557,18 @@ class PaymentBatchServiceTests(TestCase):
         )
         batch = self.add(batch, second_farmer)
         self.assertEqual(batch.case_memberships.get(farmer=first_farmer).review.decision, 'pending')
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_removed_case_history_does_not_expose_its_review_comments(self, _readiness):
+        farmer = self.farmer('activity-removed')
+        batch = self.add(self.batch(), farmer)
+        batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        batch = review_case(batch.id, farmer.id, decision='approved', comment='Private review note.',
+                            expected_revision=batch.revision, actor=self.user)
+        batch = remove_case(batch.id, farmer.id, reason='Removed from this batch.',
+                            expected_revision=batch.revision, actor=self.user)
+        reviewed = next(item for item in serialize_batch(batch)['activity'] if item['action'] == 'case_reviewed')
+        self.assertEqual(reviewed['changes'], [])
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_changed_payment_values_block_generation_and_reopen_review(self, _readiness):

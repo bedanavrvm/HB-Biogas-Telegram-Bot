@@ -6,6 +6,8 @@ const { test, expect } = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 
 async function loadPortalStyles(page) {
+  await page.addScriptTag({path:asset('activity_changes.js')});
+  await page.addStyleTag({path:asset('activity_changes.css')});
   await page.addScriptTag({ path: asset('portal_helpers.js') });
   for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
     await page.addStyleTag({ path: asset(name) });
@@ -386,7 +388,7 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await page.evaluate(() => {
     const batch = {
       id: 'batch-2', payment_number: 24, status: 'completed', status_label: 'Completed', payment_mode_summary: 'Loan - Jawabu', total_amount: '54000', revision: 2,
-      counts: { total: 1, approved: 1, returned: 0, pending: 0 }, activity: [],
+      counts: { total: 1, approved: 1, returned: 0, pending: 0 }, activity: [{action:'case_mode_changed',actor:'Training officer',created_at:'2026-10-02T07:00:00Z',changes:[{field:'payment_mode',label:'Payment mode',old_value:'CASH',new_value:'LOAN-JAWABU',previous_recorded:true}]}],
       cases: [{ farmer_id: 'case-2', case_reference: 'JBL-24', customer_name: 'Jane Wanjiku Synthetic Customer With A Deliberately Long Name', national_id: '12345678', primary_phone: '254712345678', branch: 'Embu Central', loan_officer: 'Mary Officer', invoice_number: 'INV-24', order_number: 'ORD-24', amount: '54000', preferred_repayment_date: '10TH', payment_mode: 'LOAN-JAWABU', payment_mode_label: 'Loan - Jawabu', decision: 'approved', comment: '', changed_since_review: false }],
     };
     window.PortalMiniAppPayments.init({
@@ -398,6 +400,8 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   });
   await expect(page.locator('#payments-detail-title')).toHaveText('Payment #24');
   await expect(page.locator('#payments-detail-total')).toHaveText('KES 54,000');
+  await page.locator('.payment-activity > summary').click();
+  await expect(page.locator('#payments-activity')).toContainText('Cash → Loan – Jawabu');
   await expect(page.locator('#payments-current-section header')).toBeHidden();
   await expect(page.locator('.payment-progress .payment-progress-total')).toHaveCount(0);
   await expect(page.locator('.payment-approved-summary')).toHaveCount(0);
