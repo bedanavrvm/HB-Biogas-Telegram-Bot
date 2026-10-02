@@ -87,6 +87,9 @@ coverage-subsystems.json
 # tracked-artifact allowlist rather than trusted by path alone.
 !core/static/miniapp/jawabu-logo.png
 
+# Synthetic Portal layout baselines, individually hash-pinned in the allowlist.
+!core/test_fixtures/sanitized/portal-layout/**/*.png
+
 # Deployment
 .env.production
 

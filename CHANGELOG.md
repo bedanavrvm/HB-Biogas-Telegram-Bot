@@ -1,5 +1,20 @@
 # Changelog
 
+## Portal shared controls and complete inbox - 2 October 2026
+
+- Performance, score details, notification inbox and filter headings now reuse
+  shared Portal layout rules: right-aligned controls, 44px touch targets and
+  20px icons. Legacy screen CSS no longer overrides these components.
+- The bell counts distinct authorized tasks and exposes all of them in pages
+  of ten. Payment batches and import worklists each count once; overlapping
+  grants cannot borrow another grant's branch scope for actions.
+- Failed refreshes preserve the inbox, stale responses cannot replace newer
+  data, and Escape/Telegram Back close it and restore bell focus. Existing
+  Home sync-repair controls remain available.
+- Full-shell synthetic browser tests cover six viewport widths, both themes,
+  alignment, paging and visual regression baselines. Portal asset versions
+  are bumped; no database migration or external service is added.
+
 ## Complaint history role colours - 2 October 2026
 
 - HB history badges are red and JBL badges green, with readable light/dark

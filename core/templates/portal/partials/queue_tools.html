@@ -14,9 +14,9 @@
   <div class="miniapp-filter-chips" data-portal-filter-chips aria-live="polite"></div>
   <div class="miniapp-sheet-overlay" data-portal-filter-overlay aria-hidden="true" hidden>
     <aside class="miniapp-sheet" data-portal-filter-sheet role="dialog" aria-modal="true" aria-label="Filter {{ queue_label|default:'queue' }}">
-      <header class="miniapp-sheet-header">
+      <header class="miniapp-sheet-header miniapp-panel-heading">
         <div><strong>Filter cases</strong><p data-portal-matching-count role="status" aria-live="polite">Choose filters to narrow this queue.</p></div>
-        <button type="button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" class="miniapp-icon-button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
       </header>
       <form class="miniapp-sheet-body" data-portal-filter-form>
         <fieldset class="portal-filter-options" data-portal-filter-group="county"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>

@@ -2,8 +2,26 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('playwright/test');
+const { mountPortalShell } = require('./fixtures/portal_shell');
 const root = path.resolve(__dirname, '../..');
 const asset = name => path.join(root, 'core/static/miniapp', name);
+
+test('Portal shared controls cannot regress to screen-specific dimensions', async () => {
+  const shell = fs.readFileSync(path.join(root, 'core/templates/base_shell.html'), 'utf8');
+  const portal = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
+  const queue = fs.readFileSync(path.join(root, 'core/templates/portal/partials/queue_tools.html'), 'utf8');
+  for (const id of ['portal-performance-filter', 'portal-performance-filter-close',
+    'portal-performance-details-close', 'history-filter-close']) {
+    const button = portal.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`));
+    expect(button, id).not.toBeNull();
+    expect(button[0]).toContain('miniapp-icon-button');
+  }
+  expect(shell).toContain('miniapp-panel-heading');
+  expect(queue).toContain('miniapp-panel-heading');
+  expect(queue).toContain('miniapp-icon-button');
+  expect(fs.readFileSync(asset('workflow_standard.css'), 'utf8'))
+    .not.toMatch(/\.workflow-standard\.portal-app \.page > header\s*\{/);
+});
 
 test('Portal duplicate selection works without changing the review filter', async ({ page }) => {
   const source = fs.readFileSync(asset('portal_invoices.js'), 'utf8');
@@ -25,9 +43,11 @@ test('Portal duplicate selection works without changing the review filter', asyn
 test('Portal notifications scroll within small screens', async ({ page }) => {
   for (const width of [320, 360, 390, 430]) {
     await page.setViewportSize({ width, height: 640 });
-    await page.setContent(`<body class="portal-app"><section id="portal-notification-panel" class="portal-notification-panel"><div><h2>Needs your input</h2><button id="portal-notification-close">×</button></div><div id="portal-notification-list">${Array.from({length:40},(_,i)=>`<a class="portal-notification-row">Synthetic task ${i}</a>`).join('')}</div></section></body>`);
-    await page.addStyleTag({ path: asset('base.css') });
-    await page.addStyleTag({ path: asset('portal.css') });
+    await mountPortalShell(page, '');
+    await page.evaluate(() => {
+      document.getElementById('portal-notification-panel').hidden=false;
+      document.getElementById('portal-notification-list').innerHTML=Array.from({length:40},(_,i)=>`<a class="portal-notification-row">Synthetic task ${i}</a>`).join('');
+    });
     const bounds = await page.locator('#portal-notification-panel').boundingBox();
     expect(bounds.height).toBeLessThan(600);
     expect(await page.locator('#portal-notification-list').evaluate(node => ['auto','scroll'].includes(getComputedStyle(node).overflowY))).toBe(true);

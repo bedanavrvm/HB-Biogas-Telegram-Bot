@@ -145,6 +145,14 @@
       tg.BackButton.show();
       return;
     }
+    const inbox = document.getElementById('portal-notification-panel');
+    if (inbox && !inbox.hidden) {
+      clearBackHandler();
+      backHandler = () => document.getElementById('portal-notification-close')?.click();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     // Report setup is a mobile wizard. Its internal steps are not separate
     // business screens, so Telegram Back should move through the wizard
     // before it falls back to Portal browser history or closes the Mini App.
@@ -222,6 +230,7 @@
   syncTheme();
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
+  window.addEventListener('portal:inbox-change', syncBackButton);
   window.addEventListener('portal:case-route-change', () => {
     syncBackButton();
     syncMainButton();

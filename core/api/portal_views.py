@@ -2155,6 +2155,7 @@ def portal_dashboard(request):
     payload = dashboard_payload(
         getattr(request, 'portal_user', None),
         access=getattr(request, 'portal_access', None),
+        notification_page=request.GET.get('notification_page', 1),
     )
     return JsonResponse({'ok': True, 'calculated_at': timezone.now().isoformat(), **payload})
 

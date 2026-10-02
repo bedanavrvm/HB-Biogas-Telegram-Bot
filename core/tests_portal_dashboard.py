@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -11,6 +12,98 @@ from core.services.jawabu_case360 import record_pipeline_event
 
 
 class PortalActionDashboardTests(TestCase):
+    def test_mixed_grants_do_not_borrow_view_scope_for_visit_actions(self):
+        self.farmer('Assigned visit', 'Nakuru')
+        self.farmer('View only', 'Ruiru')
+        user = get_user_model().objects.create_user(username='inbox-mixed-synthetic')
+        grants = [
+            SimpleNamespace(pk=1, role='JBL_OFFICER', branch='Nakuru', product='', group_configuration_id=None, group_configuration=None),
+            SimpleNamespace(pk=2, role='OPERATIONS_ADMIN', branch='Ruiru', product='', group_configuration_id=None, group_configuration=None),
+        ]
+        capabilities = {'portal.dashboard.view', 'portal.jbl_queue.view', 'portal.jbl_visit.write'}
+        with patch('core.services.portal_dashboard.effective_capability_keys', return_value=capabilities):
+            payload = dashboard_payload(user, access={'grants': grants})
+        self.assertEqual(payload['notification_count'], 1)
+        self.assertEqual([row['label'] for row in payload['notification_items']], ['Assigned visit'])
+        self.assertEqual(payload['home']['queues'][0]['count'], 1)
+
+    def test_payment_batch_is_one_task_not_one_per_member(self):
+        from core.models import GroupSheetConfiguration
+        from payments.models import PaymentBatch, PaymentBatchCase
+        from core.services.portal_dashboard import _payment_review_home
+        group = GroupSheetConfiguration.objects.create(group_id='inbox-training', sheet_id='training')
+        batch = PaymentBatch.objects.create(group_configuration=group, status=PaymentBatch.STATUS_IN_REVIEW)
+        for index in range(3):
+            PaymentBatchCase.objects.create(batch=batch, farmer=self.farmer(f'Payment training {index}', 'Nakuru'),
+                                           payment_mode='LOAN-JAWABU', case_digest='synthetic')
+        actions, queue = _payment_review_home(None, {}, {'portal.payment.review'})
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(queue['count'], 1)
+        self.assertEqual(actions[0]['detail'], '3 case decisions needed')
+        self.assertEqual(actions[0]['key'], f'payment_review:{batch.pk}')
+
+    def test_each_failed_operation_has_a_reachable_notification(self):
+        for index in range(3):
+            IntegrationOperation.objects.create(
+                integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+                operation_type='training_sync', source_model='Training', source_id=str(index),
+                deduplication_key=f'inbox-training-failure-{index}',
+                status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='network',
+            )
+        payload = dashboard_payload(None, access={})
+        self.assertEqual(payload['notification_count'], 3)
+        self.assertEqual(len({row['key'] for row in payload['notification_items']}), 3)
+        self.assertTrue(all(row['kind'] == 'system' and row['url'] for row in payload['notification_items']))
+
+    def test_invalid_sync_source_does_not_break_home(self):
+        IntegrationOperation.objects.create(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type='training_sync', source_model='JawabuFarmerMaster',
+            source_id='invalid-or-deleted', deduplication_key='inbox-invalid-source',
+            status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='network',
+        )
+        self.assertEqual(dashboard_payload(None, access={})['notification_count'], 1)
+
+    def test_import_versions_are_one_worklist_task(self):
+        from uuid import uuid4
+        from core.models import JawabuFarmerUploadBatch
+        from core.services.portal_dashboard import _import_review_home
+        worklist = uuid4()
+        for version in (1, 2):
+            JawabuFarmerUploadBatch.objects.create(
+                worklist_id=worklist, version_number=version,
+                import_kind='farmers', status='pending_review', is_current_version=True,
+                source_filename=f'training-v{version}.csv',
+            )
+        actions, queues = _import_review_home(None, {}, {'portal.farmup.view'})
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(queues[0]['count'], 1)
+        self.assertEqual(actions[0]['label'], 'training-v2.csv')
+
+    def test_inbox_pages_cover_every_counted_task_without_sampling(self):
+        for index in range(23):
+            self.farmer(f'Training farmer {index:02}', 'Nakuru')
+        self.farmer('Outside branch', 'Ruiru')
+        seen = []
+        for page in (1, 2, 3):
+            payload = dashboard_payload(None, access={'branches': ['Nakuru']}, notification_page=page)
+            self.assertEqual(payload['notification_count'], 23)
+            self.assertEqual(payload['notification_pagination']['page'], page)
+            self.assertEqual(payload['notification_pagination']['pages'], 3)
+            self.assertEqual(len(payload['notification_items']), 10 if page < 3 else 3)
+            seen.extend(item['key'] for item in payload['notification_items'])
+        self.assertEqual(len(set(seen)), 23)
+        for page in ('invalid', 999):
+            payload = dashboard_payload(None, access={'branches': ['Nakuru']}, notification_page=page)
+            self.assertIn(payload['notification_pagination']['page'], (1, 3))
+
+    def test_empty_inbox_has_zero_range_and_no_items(self):
+        payload = dashboard_payload(None, access={})
+        self.assertEqual(payload['notification_count'], 0)
+        self.assertEqual(payload['notification_items'], [])
+        self.assertEqual(payload['notification_pagination']['start'], 0)
+        self.assertEqual(payload['notification_pagination']['end'], 0)
+
     def farmer(self, name, branch, **overrides):
         values = {
             'customer_name': name,

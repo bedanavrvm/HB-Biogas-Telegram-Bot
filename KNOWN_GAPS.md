@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Portal shared controls verification - 2 October 2026
+
+- The focused PostgreSQL inbox/dashboard suite passes all 18 tests; JavaScript
+  syntax and all nine Node test commands pass. No migration is generated.
+- All 77 Portal browser tests pass on the final implementation without
+  updating baselines. Results: `test-results/portal-shared-controls-browser.txt`;
+  database results: `test-results/portal-inbox-postgres-final.txt`.
+- Full-shell visual fixtures use synthetic API responses, not a live Django
+  page/Telegram session. Browser coverage checks mobile/desktop geometry and
+  light/dark themes. Linux CI rendering and production behavior are not yet
+  verified by this local Windows run.
+- Reviewed synthetic visual baselines are SHA-256-pinned. The tracked-artifact
+  audit cannot count these new files until they are added to Git. Separately,
+  HEAD already has a logo hash mismatch: `jawabu-logo.png` is `23a08f62...`
+  while the existing allowlist expects `06c1d7e3...`. This unrelated asset was
+  neither replaced nor re-approved by this UI change.
+- Inbox responses are paginated, but their scoped task list is assembled in
+  memory before pagination. Very large workloads may warrant a separately
+  measured server-side task-query optimization; no new persistent inbox model
+  has been introduced here.
+
 ## Complaints unified history verification - 2 October 2026
 
 - Fresh PostgreSQL run: 94 tests, 92 passed, two failures. The local ignored

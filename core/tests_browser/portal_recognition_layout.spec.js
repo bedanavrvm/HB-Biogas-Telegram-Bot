@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('playwright/test');
+const { mountPortalShell } = require('./fixtures/portal_shell');
 
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const template = fs.readFileSync(path.resolve(__dirname, '../templates/portal/portal.html'), 'utf8');
@@ -36,10 +37,7 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     test(`Portal Performance aligns at ${width}px in ${theme} theme`, async ({ page }, testInfo) => {
       test.setTimeout(45000);
       await page.setViewportSize({ width, height: 740 });
-      await page.setContent(`<html><head><meta charset="utf-8"></head><body class="workflow-standard portal-app"><header class="app-shell-header">Pipeline Portal</header><main id="content"><div id="portal-screen">${performanceMarkup}</div></main></body></html>`);
-      for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css', 'theme.css']) {
-        await page.addStyleTag({ path: asset(name) });
-      }
+      await mountPortalShell(page, `<div id="portal-screen">${performanceMarkup}</div>`);
       await page.addScriptTag({ path: asset('vendor-lucide-1.44.0.min.js') });
       if (theme === 'dark') await page.evaluate(() => {
         document.documentElement.dataset.miniappColorScheme = 'dark';
@@ -58,8 +56,16 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       }));
       await expect(page.locator('.portal-performance-row')).toHaveCount(10);
       await expect(page.locator('.portal-performance-own-cell')).toHaveCount(3);
+      expect(await page.locator('.portal-performance-row').first().evaluate(node => getComputedStyle(node).borderStyle)).not.toBe('none');
       await expect(page.locator('#portal-performance-metrics')).toHaveCount(0);
       await expect(page.locator('.portal-performance-rank').first()).toHaveText('1');
+      const toolbar = await page.locator('.portal-performance-header').boundingBox();
+      const filter = await page.locator('#portal-performance-filter').boundingBox();
+      expect(Math.abs(toolbar.x + toolbar.width - filter.x - filter.width)).toBeLessThanOrEqual(5);
+      if ([320,430,1280].includes(width)) {
+        expect(await page.locator('.portal-performance-header').screenshot({animations:'disabled'}))
+          .toMatchSnapshot(`toolbar-${width}-${theme}.png`, {maxDiffPixelRatio:0.01});
+      }
       await expect(page.locator('.portal-performance-movement').first()).toHaveText('↑2');
       const layout = await page.evaluate(() => {
         const first = document.querySelector('.portal-performance-row');
@@ -82,6 +88,10 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       expect(Math.abs(headerAlignment.titleCenter - headerAlignment.closeCenter)).toBeLessThan(2);
       expect(headerAlignment.closeWidth).toBeGreaterThanOrEqual(44);
       expect(headerAlignment.closeLeft).toBeGreaterThanOrEqual(headerAlignment.titleRight);
+      if ([320,430,1280].includes(width)) {
+        expect(await page.locator('#portal-performance-filters .sheet-header').screenshot({animations:'disabled'}))
+          .toMatchSnapshot(`filter-heading-${width}-${theme}.png`, {maxDiffPixelRatio:0.01});
+      }
       const filterHeight = await page.locator('#portal-performance-filters .sheet-panel').evaluate(node => node.getBoundingClientRect().height);
       expect(filterHeight).toBeLessThan(500);
       await page.locator('#portal-performance-period').fill('2026-05');
@@ -93,6 +103,16 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       await page.locator('#portal-performance-filter-close').click();
       await page.locator('#portal-performance-details-open').click();
       await expect(page.locator('#portal-performance-details')).toHaveAttribute('aria-hidden', 'false');
+      const detailsClose = await page.locator('#portal-performance-details-close').boundingBox();
+      expect(detailsClose.width).toBeGreaterThanOrEqual(44);
+      expect(detailsClose.height).toBeGreaterThanOrEqual(44);
+      const closeIcon = await page.locator('#portal-performance-details-close svg').boundingBox();
+      expect(closeIcon.width).toBe(20);
+      expect(closeIcon.height).toBe(20);
+      if ([320,430,1280].includes(width)) {
+        expect(await page.locator('#portal-performance-details .sheet-header').screenshot({animations:'disabled'}))
+          .toMatchSnapshot(`details-heading-${width}-${theme}.png`, {maxDiffPixelRatio:0.01});
+      }
       if (width === 320) {
         await page.waitForTimeout(250);
         await page.screenshot({ path: testInfo.outputPath(`portal-performance-details-${theme}.png`) });

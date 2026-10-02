@@ -119,6 +119,48 @@
   background: var(--bg-surface, var(--surface));
 }
 .miniapp-sheet-header { justify-content: space-between; border-bottom: 1px solid var(--border-color, var(--line)); }
+/* Explicit Portal layout contract. Broad legacy header rules exclude these
+   classes; individual screens must not redefine alignment or icon dimensions. */
+body.portal-app .miniapp-toolbar,
+body.portal-app .miniapp-panel-heading {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+body.portal-app .miniapp-toolbar > :first-child,
+body.portal-app .miniapp-panel-heading > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+body.portal-app .miniapp-icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--border-color, var(--line));
+  border-radius: var(--miniapp-radius-control);
+  background: var(--bg-surface, var(--surface));
+  color: var(--text-primary, var(--text));
+  font-size: 24px;
+  line-height: 1;
+}
+body.portal-app .miniapp-icon-button svg { width: 20px; height: 20px; }
+body.portal-app .miniapp-panel-heading { flex-shrink: 0; padding: 10px 12px; }
+body.portal-app .miniapp-panel-heading h2 { font-size: 15px; line-height: 1.3; }
+body.portal-app .miniapp-scroll-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .miniapp-sheet-body { overflow: auto; padding: 12px; }
 .miniapp-sheet-actions {
   justify-content: flex-end;

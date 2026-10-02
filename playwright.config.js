@@ -10,6 +10,7 @@ module.exports = defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   outputDir: 'test-results/playwright',
+  snapshotPathTemplate: '{testDir}/../test_fixtures/sanitized/portal-layout/{testFilePath}/{arg}{ext}',
   use: {
     ...devices['Desktop Chrome'],
     headless: true,

@@ -230,7 +230,55 @@
     return Object.freeze({ getLevel: function () { return level; }, setLevel: function (value) { render(value, true); } });
   }
 
+  function createPagedInbox({ root, badge, loadPage, renderItems, onError }) {
+    const list = root.querySelector('[data-inbox-list]');
+    const pagination = root.querySelector('[data-inbox-pagination]');
+    const previous = root.querySelector('[data-inbox-prev]');
+    const next = root.querySelector('[data-inbox-next]');
+    const range = root.querySelector('[data-inbox-range]');
+    let page = 1, pages = 1, sequence = 0, loading = false;
+    function updateButtons() {
+      previous.disabled = loading || page <= 1;
+      next.disabled = loading || page >= pages;
+      list.setAttribute('aria-busy', String(loading));
+    }
+    function display(payload) {
+      const rows = payload.notification_items || [];
+      const total = Number(payload.notification_count || 0);
+      const info = payload.notification_pagination || { page: 1, pages: 1, start: total ? 1 : 0, end: rows.length };
+      page = info.page; pages = info.pages;
+      renderItems(list, rows);
+      badge.textContent = total > 99 ? '99+' : String(total);
+      badge.hidden = !total;
+      badge.parentElement.setAttribute('aria-label', `${total} tasks needing attention`);
+      range.textContent = `${info.start}\u2013${info.end} of ${total}`;
+      pagination.hidden = pages <= 1;
+      list.scrollTop = 0;
+    }
+    function setPayload(payload) {
+      sequence++; loading = false;
+      display(payload); updateButtons();
+    }
+    async function load(requestedPage = page) {
+      const request = ++sequence;
+      loading = true; updateButtons();
+      try {
+        const payload = await loadPage(requestedPage);
+        if (request === sequence) display(payload);
+      } catch (error) {
+        if (request === sequence && error?.name !== 'AbortError') onError(error);
+      } finally {
+        if (request === sequence) { loading = false; updateButtons(); }
+      }
+    }
+    previous.addEventListener('click', () => load(page - 1));
+    next.addEventListener('click', () => load(page + 1));
+    updateButtons();
+    return Object.freeze({ setPayload, load });
+  }
+
   window.MiniAppComponents = Object.freeze({
+    createPagedInbox: createPagedInbox,
     bindSearch: bindSearch,
     renderFilterChips: renderFilterChips,
     bindFilterSheet: bindFilterSheet,

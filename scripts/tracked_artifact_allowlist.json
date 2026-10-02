@@ -5,6 +5,126 @@
       "sha256": "06c1d7e3841f428a64f30495df10a557070f6ffb1f86f71911e0d3c126590bc7",
       "classification": "public_brand_asset",
       "purpose": "Jawabu logo rendered by staff-facing Mini Apps"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-1280-dark.png": {
+      "sha256": "cd4ef02b27aecefa6fcc85bc23688838d5ef2cdb130fe4412ddb38ebea556ce0",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-1280-light.png": {
+      "sha256": "e001bb7fb794dcdc0875ebb1eb387187bad7968f4f535b5fcf046beeed9b8b0e",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-320-dark.png": {
+      "sha256": "0c2cff4438a619a3fe1ec5fc640c38276687432dbad31999406e1096d71b2d6d",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-320-light.png": {
+      "sha256": "b2336f16a6507516f66f003a3a106879cccdbee70123ad4e643a72e1e3137699",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-430-dark.png": {
+      "sha256": "cd4ef02b27aecefa6fcc85bc23688838d5ef2cdb130fe4412ddb38ebea556ce0",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_inbox.spec.js/inbox-heading-430-light.png": {
+      "sha256": "e001bb7fb794dcdc0875ebb1eb387187bad7968f4f535b5fcf046beeed9b8b0e",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-1280-dark.png": {
+      "sha256": "ce726cf187ef94a7336d31db21dbf197df5dc9d88686ff1c8f9d33cab90622d6",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-1280-light.png": {
+      "sha256": "c17f827db9d14c73cd1017ba3fc95b5bfcff224b4f7631b800927cc15f41203a",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-320-dark.png": {
+      "sha256": "a5a842c41c0bdf6ee3f329218573d227ba6dc2dec530df459aed4d43531a6f67",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-320-light.png": {
+      "sha256": "4fa906799180b6e4f7a80894a4ea64ceb53c0d780af32b4c040467c767225a6a",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-430-dark.png": {
+      "sha256": "4fd57c03e61d6bbb8172a3754128a6c47da1f7e2f39f20d402e14408bf3ebcc2",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-430-light.png": {
+      "sha256": "389e524f69058fdefd1a4749ba5e857622d7ad5f5865c70925f322159d93fe25",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-1280-dark.png": {
+      "sha256": "bda3d48081b75798d851453d0b569a64ee9d9605333222eab87e48a93b85ee0e",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-1280-light.png": {
+      "sha256": "0b242b8c4c11254963f68d8102ff270dea3e7980261eb89a24d4b43d5db0d300",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-320-dark.png": {
+      "sha256": "fe58d5839f776537335450ae0fd06c26b00a371f223be57750fe588bf739b985",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-320-light.png": {
+      "sha256": "e79af5cbec3a3ccb9db459f78dd156f232628c30d8d2a5e0d965e2fcc4631733",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-430-dark.png": {
+      "sha256": "484bdc1b76215afa92d4d9b9c31c1d3a8b7512a584485279ae2a8bed128d39db",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/filter-heading-430-light.png": {
+      "sha256": "927b54a7c8b6cb31d5089891b969c09f2edd8880892266d491b894dddde6f78f",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-1280-dark.png": {
+      "sha256": "cfd97bb90ca1b9f39d4195502b22a322a9b8d6dd86b91e2b27eda7cb6b5b8e1d",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-1280-light.png": {
+      "sha256": "fa0cebd1d88639de0ba367f2e6a01372d65fccfaf4ce0e805d07e6dedde2e1af",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-320-dark.png": {
+      "sha256": "8b6a2fe6292ee04186b38cd07fe2f1eaacc5c67d579a4754f5b808fab2f9636b",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-320-light.png": {
+      "sha256": "38f7448b0c1806c391fecffc51d3ac6e6eaf8ede30599073303d6ab73d86eb48",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-430-dark.png": {
+      "sha256": "e3dbbe83bdf30ffe11185cab28e36e26b927814a5d94c40cc1d1e04f659c1467",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/toolbar-430-light.png": {
+      "sha256": "26725672236a774973e6047bd35a7e02d5d67b6ad3c47d857bb8472096c1bda1",
+      "classification": "sanitized_test_fixture",
+      "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
     }
   }
 }

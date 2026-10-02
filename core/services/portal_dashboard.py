@@ -123,22 +123,23 @@ def _payment_review_home(user, access, capabilities):
             ).allowed for item in members
         ):
             continue
+        pending = []
         for item in members:
             review = getattr(item, 'review', None)
             if review and review.decision != PaymentCaseReview.DECISION_PENDING:
                 continue
+            pending.append(item)
+        if pending:
             count += 1
-            if len(actions) < 6:
-                actions.append({
-                    'key': f'payment_review:{item.pk}', 'kind': 'payment',
-                    'label': item.farmer.customer_name or 'Unnamed customer',
-                    'detail': 'Payment decision needed',
-                    'context': f'Payment {batch.payment_number or "draft"}',
-                    'workflow': 'Payments', 'severity': 'action',
-                    'url': reverse('portal_payment_approval_detail', kwargs={'batch_id': batch.pk}),
-                })
+            actions.append({
+                'key': f'payment_review:{batch.pk}', 'kind': 'payment',
+                'label': f'Payment {batch.payment_number or "draft"}',
+                'detail': f'{len(pending)} case decision{"s" if len(pending) != 1 else ""} needed',
+                'context': '', 'workflow': 'Payments', 'severity': 'action',
+                'url': reverse('portal_payment_approval_detail', kwargs={'batch_id': batch.pk}),
+            })
     queue = ({
-        'key': 'payment_review', 'label': 'Payment cases awaiting review',
+        'key': 'payment_review', 'label': 'Payment batches awaiting review',
         'count': count, 'urgent_count': 0,
         'url': reverse('portal_payment_approvals_screen'), 'workflow': 'Payments',
     } if count else None)
@@ -172,7 +173,12 @@ def _import_review_home(user, access, capabilities):
                     pk__in=[item['group_configuration_id'] for item in assignments],
                 ).values_list('group_id', flat=True)
                 queryset = queryset.filter(group_id__in=group_ids)
-        count = queryset.count()
+        # A worklist remains one task even if a historical repair left more
+        # than one upload version flagged current. Prefer its latest version.
+        worklists = {}
+        for batch in queryset.order_by('-version_number', '-created_at', '-pk').iterator():
+            worklists.setdefault(batch.worklist_id, batch)
+        count = len(worklists)
         if not count:
             continue
         queues.append({
@@ -180,9 +186,9 @@ def _import_review_home(user, access, capabilities):
             'urgent_count': 0, 'workflow': 'Monthly list (FarmUp)' if kind == 'farmers' else 'Customer updates (SysUp)',
             'url': reverse('portal_screen', kwargs={'screen': screen}),
         })
-        for batch in queryset.order_by('created_at')[:3]:
+        for batch in sorted(worklists.values(), key=lambda item: (item.created_at, str(item.pk))):
             actions.append({
-                'key': f'{screen}:{batch.pk}', 'kind': 'import',
+                'key': f'{screen}:{batch.worklist_id}', 'kind': 'import',
                 'label': batch.source_filename or label,
                 'detail': 'Review staged rows',
                 'context': f'{batch.total_rows} rows',
@@ -197,7 +203,7 @@ def _import_review_home(user, access, capabilities):
     return actions, queues
 
 
-def dashboard_payload(user, *, access=None) -> dict:
+def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
     capabilities = effective_capability_keys(user, 'jawabu_portal', access=access) if user else {
         capability for _key, _label, capability, _queryset in QUEUE_DEFINITIONS
     } | {
@@ -396,7 +402,7 @@ def dashboard_payload(user, *, access=None) -> dict:
     seen_case_ids = set()
 
     def add_case_notification(farmer, *, queue_key, action, severity='action'):
-        farmer_id = str(farmer.pk)
+        farmer_id = (queue_key, str(farmer.pk))
         if farmer_id in seen_case_ids:
             return
         seen_case_ids.add(farmer_id)
@@ -404,15 +410,7 @@ def dashboard_payload(user, *, access=None) -> dict:
             farmer, queue_key=queue_key, action=action, severity=severity,
         ))
 
-    for farmer in scoped_all.filter(id__in=escalation_ids).order_by('updated_at')[:5]:
-        stage = current_workflow_state(farmer)
-        queue_key = {
-            'jbl_visit': 'jbl', 'credit': 'credit', 'final_review': 'final', 'order': 'requisition',
-        }.get(stage, 'all')
-        if queue_key not in queue_querysets:
-            queue_key = 'all'
-        add_case_notification(farmer, queue_key=queue_key, action='SLA follow-up overdue', severity='urgent')
-    for farmer in reappraisal_cases[:5]:
+    for farmer in reappraisal_cases.order_by('updated_at', 'pk').iterator():
         add_case_notification(farmer, queue_key='deferred', action='60-day deferral ended · reappraisal required', severity='urgent')
     queue_actions = {
         'jbl': 'JBL visit required', 'credit': 'Credit analysis required',
@@ -422,9 +420,19 @@ def dashboard_payload(user, *, access=None) -> dict:
         key = queue['key']
         if key == 'deferred':
             continue
-        for farmer in queue_querysets[key][:5]:
-            add_case_notification(farmer, queue_key=key, action=queue_actions.get(key, queue['label']))
-    for review in reviews[:5]:
+        action_capability = {
+            'jbl': 'portal.jbl_visit.write', 'credit': 'portal.credit.write',
+            'final': 'portal.final_review.write', 'requisition': 'portal.requisition.write',
+        }.get(key)
+        if not action_capability or action_capability not in capabilities:
+            continue
+        actionable = _branch_scope(queue_querysets[key], access, user=user, capability=action_capability)
+        for farmer in actionable.order_by('updated_at', 'pk').iterator():
+            overdue = farmer.pk in escalation_ids
+            add_case_notification(farmer, queue_key=key,
+                                  action='SLA follow-up overdue' if overdue else queue_actions.get(key, queue['label']),
+                                  severity='urgent' if overdue else 'action')
+    for review in reviews.order_by('created_at', 'pk').iterator():
         notification_items.append({
             'key': f'invoice_identity:{review.pk}', 'kind': 'invoice',
             'label': review.farmer.customer_name or 'Unnamed customer',
@@ -433,7 +441,7 @@ def dashboard_payload(user, *, access=None) -> dict:
             'severity': 'warning',
             'url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': review.invoice_id}),
         })
-    for change in changes[:5]:
+    for change in changes.order_by('created_at', 'pk').iterator():
         notification_items.append({
             'key': f'invoice_name_change:{change.pk}', 'kind': 'invoice',
             'label': change.farmer.customer_name or 'Unnamed customer',
@@ -467,7 +475,11 @@ def dashboard_payload(user, *, access=None) -> dict:
             ).count()
             + hb_commissioning.filter(installation_date__lt=commissioning_threshold).count()
         )
-        for action in hb_installations[:5]:
+        hb_write_scope = scoped_actions(user, access, 'portal.hb_action.write') if 'portal.hb_action.write' in capabilities else hb_scoped.none()
+        installation_tasks = hb_installations.filter(pk__in=hb_write_scope.values('pk'))
+        commissioning_tasks = hb_commissioning_due.filter(pk__in=hb_write_scope.values('pk'))
+        hb_actionable_count = installation_tasks.count() + commissioning_tasks.count()
+        for action in installation_tasks.order_by('pk').iterator():
             notification_items.append({
                 'key': f'hb_action:{action.pk}', 'kind': 'case',
                 'farmer_id': str(action.farmer_id), 'queue_key': 'hb_actions',
@@ -477,7 +489,7 @@ def dashboard_payload(user, *, access=None) -> dict:
                 'severity': 'action',
                 'url': f"{reverse('portal_hb_action_detail', kwargs={'farmer_id': action.farmer_id})}?workstream=installation",
             })
-        for action in hb_commissioning_due[:5]:
+        for action in commissioning_tasks.order_by('installation_date', 'pk').iterator():
             overdue_days = max(0, (
                 timezone.localdate()
                 - (action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS))
@@ -491,15 +503,29 @@ def dashboard_payload(user, *, access=None) -> dict:
                 'severity': 'action' if overdue_days == 0 else 'urgent',
                 'url': f"{reverse('portal_hb_action_detail', kwargs={'farmer_id': action.farmer_id})}?workstream=commissioning",
             })
-    for item in attention:
-        if not str(item.get('key') or '').startswith('integration_failure:'):
-            continue
-        notification_items.append({**item, 'kind': 'system', 'context': 'Open Settings for system readiness'})
+    for operation in failed_operations.order_by('created_at', 'pk').iterator():
+        # External-operation source references are strings, not validated
+        # foreign keys. Never let a missing/deleted source break Home.
+        source_case = None
+        if operation.source_model == 'JawabuFarmerMaster' and operation.source_id:
+            from uuid import UUID
+            try:
+                source_case = scoped_all.filter(pk=UUID(operation.source_id)).first()
+            except (ValueError, TypeError, AttributeError):
+                pass
+        notification_items.append({
+            'key': f'integration_failure:{operation.pk}', 'kind': 'system',
+            'label': str(operation.operation_type).replace('_', ' ').title(),
+            'detail': str(operation.last_error_code or 'Sync failed').replace('_', ' '),
+            'context': source_case.customer_name if source_case else 'Google Sheets', 'count': 1, 'severity': 'warning',
+            'url': reverse('portal_case_history_detail', kwargs={'farmer_id': source_case.pk})
+            if source_case
+            else reverse('portal_screen', kwargs={'screen': 'settings'}),
+        })
 
-    actionable_queue_count = sum(int(item['count']) for item in queues if item['key'] != 'deferred') + hb_actionable_count
     # Home and the bell use the same scoped task definitions. A view-only
-    # capability is not an instruction to act, and overlapping queues must not
-    # turn one customer into two notifications.
+    # capability is not an instruction to act. Each workflow task has one key,
+    # including when it also qualifies as overdue.
     action_capabilities = {
         'jbl': 'portal.jbl_visit.write',
         'credit': 'portal.credit.write',
@@ -518,18 +544,6 @@ def dashboard_payload(user, *, access=None) -> dict:
         or (item.get('queue_key') in allowed_actions)
         or (item.get('kind') == 'invoice' and 'portal.invoice_identity.manage' in capabilities)
     ]
-    action_case_ids = set()
-    for key in ('jbl', 'credit', 'final', 'requisition'):
-        if key in allowed_actions and key in queue_querysets:
-            action_case_ids.update(str(pk) for pk in queue_querysets[key].values_list('pk', flat=True))
-    if 'deferred' in allowed_actions:
-        action_case_ids.update(str(pk) for pk in reappraisal_cases.values_list('pk', flat=True))
-    if 'hb_actions' in allowed_actions and hb_installations is not None:
-        action_case_ids.update(str(pk) for pk in hb_installations.values_list('farmer_id', flat=True))
-        action_case_ids.update(str(pk) for pk in hb_commissioning_due.values_list('farmer_id', flat=True))
-    notification_count = (
-        len(action_case_ids) + reviews.count() + changes.count() + failed_operations.count()
-    )
 
     today = timezone.localdate()
     today_start = timezone.make_aware(datetime.combine(today, time.min))
@@ -604,25 +618,35 @@ def dashboard_payload(user, *, access=None) -> dict:
     import_actions, import_queues = _import_review_home(user, access, capabilities)
     notification_items.extend(payment_actions)
     notification_items.extend(import_actions)
-    notification_count += payment_queue['count'] if payment_queue else 0
-    notification_count += sum(item['count'] for item in import_queues)
     def home_priority(item):
         detail = str(item.get('detail') or '').lower()
         return (
             0 if item.get('severity') == 'urgent' or 'overdue' in detail or 'delayed' in detail else
             1 if 'due today' in detail or 'reappraisal' in detail else 2,
-            str(item.get('label') or ''),
+            str(item.get('label') or ''), str(item['key']),
         )
+
+    notification_items = sorted({item['key']: item for item in notification_items}.values(), key=home_priority)
+    notification_count = len(notification_items)
+    from django.core.paginator import Paginator
+    inbox_page = Paginator(notification_items, 10).get_page(notification_page)
 
     home_actions = sorted(
         (item for item in notification_items if item.get('kind') != 'system'),
         key=home_priority,
     )[:6]
-    system_health = [item for item in notification_items if item.get('kind') == 'system']
+    # Preserve the existing grouped repair/resume controls on Home. The bell
+    # exposes every failed operation separately; Home is its compact summary.
+    system_health = [item for item in attention if item['key'].startswith(('integration_failure:', 'portal_sheet_'))]
+    task_counts = {}
+    for item in notification_items:
+        key = item.get('queue_key')
+        if key:
+            task_counts[key] = task_counts.get(key, 0) + 1
     home_queues = [
-        {**item, 'count': hb_actionable_count if item['key'] == 'hb_actions' else item['count'], 'workflow': 'Portal'} for item in queues
+        {**item, 'count': task_counts.get(item['key'], 0), 'workflow': 'Portal'} for item in queues
         if item['key'] in allowed_actions
-        and (hb_actionable_count if item['key'] == 'hb_actions' else item['count'])
+        and task_counts.get(item['key'], 0)
     ]
     if payment_queue:
         home_queues.append(payment_queue)
@@ -658,8 +682,13 @@ def dashboard_payload(user, *, access=None) -> dict:
         },
         'queues': queues,
         'attention': attention,
-        'notification_items': notification_items[:20],
+        'notification_items': list(inbox_page),
         'notification_count': notification_count,
+        'notification_pagination': {
+            'page': inbox_page.number, 'pages': inbox_page.paginator.num_pages,
+            'page_size': 10, 'total': notification_count,
+            'start': inbox_page.start_index(), 'end': inbox_page.end_index(),
+        },
         'home': {
             'actions': home_actions,
             'queues': home_queues,

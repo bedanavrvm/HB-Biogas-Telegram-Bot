@@ -323,7 +323,7 @@
 .workflow-standard.review-app header,
 .workflow-standard.order-approval-app header,
 .workflow-standard.spin-app .spin-header,
-.workflow-standard.portal-app .page > header {
+.workflow-standard.portal-app .page > header:not(.miniapp-toolbar) {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -337,7 +337,7 @@
 .workflow-standard.review-app header h1,
 .workflow-standard.order-approval-app header h1,
 .workflow-standard.spin-app .spin-header h1,
-.workflow-standard.portal-app .page > header h1 {
+.workflow-standard.portal-app .page > header:not(.miniapp-toolbar) h1 {
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0;
@@ -347,7 +347,7 @@
 .workflow-standard.review-app header .meta,
 .workflow-standard.order-approval-app header .hint,
 .workflow-standard.spin-app .spin-header .eyebrow,
-.workflow-standard.portal-app .page > header .meta {
+.workflow-standard.portal-app .page > header:not(.miniapp-toolbar) .meta {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .02em;
@@ -646,7 +646,7 @@
   height: 15px;
 }
 
-.workflow-standard.portal-app .page > header {
+.workflow-standard.portal-app .page > header:not(.miniapp-toolbar) {
   justify-content: flex-start;
   text-align: left;
   padding: 8px 4px 10px;

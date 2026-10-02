@@ -24,11 +24,11 @@
   <script src="{% static 'miniapp/vendor-htmx-2.0.4.min.js' %}?v=2.0.4"></script>
   <script src="{% static 'miniapp/vendor-lucide-1.44.0.min.js' %}?v=1.44.0"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
-  <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=2">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=148">
-  <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
+  <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=149">
+  <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=18">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=10">
-  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=26"></script>
+  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=27"></script>
 </head>
 <body class="workflow-standard portal-app">
   <header class="app-shell-header">
@@ -51,8 +51,13 @@
     </div>
   </header>
   <section id="portal-notification-panel" class="portal-notification-panel" aria-labelledby="portal-notification-title" hidden>
-    <div><h2 id="portal-notification-title">Needs your input</h2><button id="portal-notification-close" type="button" aria-label="Close notifications">&times;</button></div>
-    <div id="portal-notification-list"></div>
+    <header class="miniapp-panel-heading"><h2 id="portal-notification-title">Needs your input</h2><button id="portal-notification-close" class="miniapp-icon-button" type="button" aria-label="Close notifications"><i data-lucide="x" aria-hidden="true"></i></button></header>
+    <div id="portal-notification-list" class="miniapp-scroll-body" data-inbox-list></div>
+    <nav id="portal-notification-pagination" class="miniapp-pagination" aria-label="Notification pages" data-inbox-pagination hidden>
+      <button id="portal-notification-prev" type="button" aria-label="Previous notifications" data-inbox-prev><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <span id="portal-notification-range" role="status" aria-live="polite" data-inbox-range></span>
+      <button id="portal-notification-next" type="button" aria-label="Next notifications" data-inbox-next><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+    </nav>
   </section>
 
   <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" tabindex="-1"></button>
@@ -72,7 +77,7 @@
 
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=19"></script>
-  <script src="{% static 'miniapp/components.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/components.js' %}?v=4"></script>
   <script src="{% static 'miniapp/asset_loader.js' %}?v=1"></script>
   <script src="{% static 'miniapp/runtime.js' %}?v=4"></script>
   <script src="{% static 'miniapp/portal_dialogs.js' %}?v=2"></script>
@@ -92,6 +97,6 @@
   <script src="{% static 'miniapp/portal_farmup.js' %}?v=16"></script>
   <script src="{% static 'miniapp/portal_curated_reports.js' %}?v=4"></script>
   <script src="{% static 'miniapp/portal_recognition.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/portal.js' %}?v=111"></script>
+  <script src="{% static 'miniapp/portal.js' %}?v=112"></script>
 </body>
 </html>

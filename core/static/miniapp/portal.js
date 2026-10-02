@@ -866,22 +866,34 @@
     return `<div class="empty-state queue-empty-state queue-error miniapp-feedback" data-tone="error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Try Again</button>${supportReference ? `<div class="es-sub error-reference">Reference: ${escapeHtml(supportReference)}</div>` : ''}</div>`;
   }
 
+  let notificationInbox = null;
+  function portalNotificationInbox() {
+    if (notificationInbox) return notificationInbox;
+    notificationInbox = window.MiniAppComponents.createPagedInbox({
+      root: el('portal-notification-panel'), badge: el('portal-notification-count'),
+      loadPage: async page => {
+        const result = await apiFetch(`/dashboard/?notification_page=${page}`);
+        if (!result.ok) throw new Error(result.data?.message || 'Notifications could not be loaded. Try again.');
+        return result.data;
+      },
+      onError: error => showToast(error.message, 'error'),
+      renderItems: (list, rows) => {
+        list.innerHTML = rows.length
+          ? rows.map(item => `<a class="portal-notification-row ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml([item.detail, item.context].filter(Boolean).join(' · '))}</small></span>${item.kind === 'system' ? `<b>${escapeHtml(item.count || 0)}</b>` : '<b aria-hidden="true">!</b>'}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
+          : '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
+        if (window.lucide) window.lucide.createIcons();
+      },
+    });
+    return notificationInbox;
+  }
+
   function renderPortalNotifications(payload) {
-    const rows = payload?.notification_items || [];
-    const count = Number(payload?.notification_count || 0);
-    const badge = el('portal-notification-count');
-    badge.textContent = count > 99 ? '99+' : String(count);
-    badge.hidden = !count;
-    el('portal-notification-list').innerHTML = rows.length
-      ? rows.map(item => `<a class="portal-notification-row ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml([item.detail, item.context].filter(Boolean).join(' · '))}</small></span>${item.kind === 'system' ? `<b>${escapeHtml(item.count || 0)}</b>` : '<b aria-hidden="true">!</b>'}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
-      : '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
-    if (window.lucide) window.lucide.createIcons();
+    portalNotificationInbox().setPayload(payload);
   }
 
   async function loadPortalNotifications() {
     if (!hasCapability('portal.dashboard.view')) return;
-    const { ok, data } = await fetchDashboardPayload({ maxAgeMs: 30000 });
-    if (ok) renderPortalNotifications(data);
+    await portalNotificationInbox().load();
   }
 
   function focusRequestedQueueCard(qKey, listEl) {
@@ -2979,12 +2991,18 @@
     const opening = panel.hidden;
     panel.hidden = !opening;
     el('portal-notification-button').setAttribute('aria-expanded', String(opening));
+    window.dispatchEvent(new CustomEvent('portal:inbox-change'));
+    if (opening) el('portal-notification-close').focus();
     if (opening) loadPortalNotifications().catch(() => {});
   });
   el('portal-notification-close')?.addEventListener('click', () => {
     el('portal-notification-panel').hidden = true;
     el('portal-notification-button').setAttribute('aria-expanded', 'false');
+    window.dispatchEvent(new CustomEvent('portal:inbox-change'));
     el('portal-notification-button').focus();
+  });
+  el('portal-notification-panel')?.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); el('portal-notification-close').click(); }
   });
   el('portal-notification-list')?.addEventListener('click', event => {
     const link = event.target.closest('a[href]');
