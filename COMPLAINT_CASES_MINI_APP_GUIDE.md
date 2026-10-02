@@ -512,14 +512,24 @@ It is read-only and covers complaints across authorized complaint groups.
 
 ### Summary metrics
 
-The top metrics show the current total and the main complaint states, including
-pending, resolved, and Needs More Information counts.
+The summary shows Total, Open, Closed, median resolution time, and the
+percentage resolved on time. These counts follow the selected table dates.
 
 ### Charts
 
-**Complaints by Type** can be shown as a bar or pie chart.
+Swipe through the charts, or choose **List** to see them together:
 
-**Complaints over Time** can be grouped by:
+- **Received vs resolved**: reports and closures in each period. A complaint
+  closed again after reopening contributes another closure.
+- **Open complaint age**: how long unresolved complaints have been open.
+- **Resolution time**: median time from the original report to final closure.
+- **Resolved on time**: closed complaints within or beyond their saved target.
+- **Complaint types**: complaint counts; choose Bar or Pie.
+- **Time by complaint type**: median resolution time, with sample counts.
+- **HB response time**: time to the first recorded HB comment or closure.
+- **Reopened complaints**: each complaint counts once per chart period.
+
+Time charts can be grouped by:
 
 - day;
 - week;
@@ -529,6 +539,17 @@ pending, resolved, and Needs More Information counts.
 Choose a wider grouping or a narrower date range when a chart contains too
 many periods.
 
+Tap a chart point/bar, or choose an entry and tap **Show cases**, to narrow the
+table. Tap the selection above the charts to remove it. **Export results**
+includes the same matching complaints, not just the current table page.
+
+Timing uses calendar hours and Nairobi dates. Closed timers freeze at closure;
+comments do not stop them. Reopening retains the original start. Missing or
+invalid dates and unknown historical HB attribution are shown as unavailable,
+not guessed or counted as zero. Graphs use their own event dates: for example,
+September closures may include complaints reported in August. Received totals
+and the table's Reported-date count therefore need not equal closure totals.
+
 ### Report filters
 
 The report can be narrowed using:
@@ -537,7 +558,7 @@ The report can be narrowed using:
 - status;
 - branch;
 - complaint category; and
-- date reported, using any time, a selected month, or a custom date range.
+- Reported or Resolved dates, using any time, a selected month, or a custom date range.
 
 Tap **Show Results** after changing filters. Tap **Reset Filters** to return to
 the unfiltered report.
@@ -576,13 +597,14 @@ and data-quality gaps without changing live complaint records.
 
 ## 12. Downloading the complaints workbook
 
-Authorized users see **Download Complaints** in Data Overview.
+Authorized users have two choices in Data Overview:
 
-The download is intentionally separate from the on-screen filters. It contains
-the governed complaint register across all complaint groups, not merely the
-rows currently visible on screen.
+- **Export results** includes all rows matching the table filters and any
+  chart selection, across every table page.
+- **Export all** includes the governed register across all complaint groups,
+  regardless of the on-screen filters.
 
-1. Tap **Download Complaints**.
+1. Tap **Export results** or **Export all**.
 2. Read the confirmation showing how many complaints will be included.
 3. Tap **Download Complaints** again to confirm.
 4. Accept Telegram's download prompt.
@@ -590,7 +612,8 @@ rows currently visible on screen.
 
 The generated workbook contains fields such as complaint reference, dates,
 status, customer details, location, reporter, complaint type and description,
-GPS link, resolution details, days open, and resolution history.
+GPS link, resolution details, days open, resolution history, resolution time
+in hours, and HB response time in hours. The Google Sheet structure is unchanged.
 
 Names and other applicable text are standardized in uppercase in the export,
 dates use the governed workbook format, and GPS values are clickable links.
@@ -825,7 +848,7 @@ protects the current screen; it is not confirmation that a draft was saved.
 | Download cancelled | The Telegram confirmation was declined. | Tap **Download Again** and accept the prompt. |
 | Download link is no longer available or expired | The protected link is intentionally short-lived. | Return to Data Overview and create a fresh download. |
 | Telegram cannot open the download | Telegram or the phone browser is outdated or blocked. | Update Telegram, allow downloads, and retry; the app may open the browser as a fallback. |
-| Export contains more rows than the filtered table | The governed export intentionally contains all complaint groups. | This is expected and is stated in the confirmation. Apply local workbook filters only after secure download. |
+| Export contains more rows than the current table page | Export results includes every matching page; Export all ignores filters. | Choose Export results for the filtered list. Check the confirmation count before downloading. |
 
 ### What to include when escalating to IT
 

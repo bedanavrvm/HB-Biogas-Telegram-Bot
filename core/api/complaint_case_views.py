@@ -134,6 +134,9 @@ def _complaint_report_filters(payload: dict) -> dict:
         'date_from': payload.get('date_from'),
         'date_to': payload.get('date_to'),
         'search': payload.get('search'),
+        'date_basis': payload.get('date_basis'),
+        'metric': payload.get('metric'),
+        'metric_value': payload.get('metric_value'),
     }
 
 
@@ -574,7 +577,7 @@ def complaint_cases_global_export(request):
     capability_error = _capability_error(actor, 'complaint.case.export', group_config)
     if capability_error:
         return capability_error
-    if payload.get('confirm_all') is not True:
+    if payload.get('confirm_all') is not True and payload.get('confirm_results') is not True:
         return JsonResponse({
             'ok': False,
             'code': 'export_confirmation_required',
@@ -584,12 +587,20 @@ def complaint_cases_global_export(request):
     export_request_id = str(
         payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''
     )
-    filename = export_filename()
+    export_filters = _complaint_report_filters(payload) if payload.get('confirm_results') is True else None
+    filename = export_filename(filtered=export_filters is not None)
+    from core.services.complaint_register import validate_report_filters, encode_export_filters
+    if export_filters is not None:
+        try:
+            validate_report_filters(export_filters)
+        except ComplaintCaseError as exc:
+            return JsonResponse({'ok': False, 'message': str(exc), 'code': 'invalid_report_query'}, status=400)
     if payload.get('delivery') == 'signed_url':
         token = signing.dumps({
             'user_id': str(actor.user.pk),
             'group_id': str(group_config.group_id),
             'request_id': export_request_id,
+            'filter_token': encode_export_filters(export_filters) if export_filters is not None else None,
         }, salt='complaint-register-download', compress=True)
         return JsonResponse({
             'ok': True,
@@ -602,6 +613,7 @@ def complaint_cases_global_export(request):
         workbook, row_count = export_register_xlsx(
             actor=actor.user,
             request_id=export_request_id,
+            filters=export_filters,
         )
     except Exception as exc:
         return unexpected_miniapp_error(request, exc, workflow='complaints')
@@ -625,6 +637,8 @@ def complaint_cases_global_export_download(request, token: str):
         user_id = str(payload['user_id'])
         group_id = str(payload['group_id'])
         export_request_id = str(payload['request_id'])
+        from core.services.complaint_register import decode_export_filters
+        export_filters = decode_export_filters(payload['filter_token']) if payload.get('filter_token') else None
     except (signing.BadSignature, signing.SignatureExpired, KeyError, TypeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'This download link has expired.'}, status=404)
 
@@ -643,13 +657,14 @@ def complaint_cases_global_export_download(request, token: str):
         return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)
 
     from core.services.complaint_register import export_filename, export_register_xlsx
-    filename = export_filename()
+    filename = export_filename(filtered=export_filters is not None)
     workbook = b''
     row_count = ''
     if request.method == 'GET':
         try:
             workbook, row_count = export_register_xlsx(
                 actor=actor_user, request_id=export_request_id,
+                filters=export_filters,
             )
         except Exception as exc:
             return unexpected_miniapp_error(request, exc, workflow='complaints')

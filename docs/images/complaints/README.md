@@ -19,6 +19,18 @@ Before adding an image:
 
 ## Local Playwright capture set
 
+The report regression suite also captures synthetic Data Overview screenshots
+at 320, 360, 390, 430, 768, and 1280 pixels, in light and dark themes:
+
+```powershell
+npm run test:browser -- complaint_reporting.spec.js --workers=1
+```
+
+Images are generated in `test-results/playwright/complaint_reporting-*/` and
+must remain outside Git. The suite uses the actual template, local vendored
+charts, and mocked API responses; no Telegram, Sheets, or Drive calls occur.
+Review these captures when updating guide screenshots 11–14.
+
 The automated capture set is generated locally from an isolated SQLite database
 containing only records explicitly labelled as training examples. The mobile
 viewport is 390 by 844 pixels. It supplies screenshots 1--14 under the exact

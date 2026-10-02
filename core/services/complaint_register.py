@@ -26,6 +26,7 @@ EXPORT_FIELDS = (
     'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
     'Complaint Type', 'Complaint Description', 'GPS Link', 'Resolution Details',
     'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
+    'Resolution Time (hours)', 'HB Response Time (hours)',
 )
 
 SORT_FIELDS = {
@@ -97,7 +98,10 @@ def _parse_filter_date(value: Any, label: str, *, end: bool = False):
     text = str(value or '').strip()
     if not text:
         return None
-    parsed = parse_date(text)
+    try:
+        parsed = parse_date(text)
+    except ValueError:
+        parsed = None
     if not parsed:
         raise ComplaintCaseError(f'{label} must be a valid date.')
     boundary = datetime.combine(parsed, time.max if end else time.min)
@@ -180,10 +184,12 @@ def _sync_state(case: ParsedMessage, groups: dict[str, GroupSheetConfiguration])
     return value
 
 
-def _days_open(case: ParsedMessage) -> int:
+def _days_open(case: ParsedMessage) -> int | None:
     started = case.timestamp or case.created_at
-    ended = case.date_resolved if case.complaint_status == 'Closed' and case.date_resolved else timezone.now()
-    return max(0, int((ended - started).total_seconds() // 86400)) if started else 0
+    ended = case.date_resolved if case.complaint_status == 'Closed' else timezone.now()
+    if not started or not ended or ended < started or ended > timezone.now():
+        return None
+    return int((ended - started).total_seconds() // 86400)
 
 
 def _report_datetime(value) -> str:
@@ -218,6 +224,9 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
     """Return only the explicitly approved management-report fields."""
     status, needs_details = _report_status(case)
     control = case.complaint_control
+    if not hasattr(case, 'complaint_timing'):
+        from core.services.complaint_timing import hydrate_timing
+        hydrate_timing([case])
     return {
         'complaint_id': control.reference_number or '',
         'date_reported': _report_datetime(case.timestamp or case.created_at),
@@ -246,6 +255,8 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'date_resolved': _report_datetime(case.date_resolved),
         'days_open': _days_open(case),
         'resolution_history_count': len(resolution_history_entries(case)),
+        'resolution_hours': case.complaint_timing['resolution_hours'],
+        'hb_response_hours': case.complaint_timing['hb_response_hours'],
     }
 
 
@@ -259,7 +270,7 @@ def _report_queryset():
     )
 
 
-def _apply_report_filters(queryset, filters: dict[str, Any]):
+def _apply_report_filters(queryset, filters: dict[str, Any], *, timing=True):
     status = str(filters.get('status') or '').strip().casefold()
     if status in {'open', 'pending'}:
         queryset = queryset.exclude(complaint_status__in=['Closed', 'Reopened'])
@@ -291,10 +302,8 @@ def _apply_report_filters(queryset, filters: dict[str, Any]):
         )
     date_from = _parse_filter_date(filters.get('date_from'), 'Start date')
     date_to = _parse_filter_date(filters.get('date_to'), 'End date', end=True)
-    if date_from:
-        queryset = queryset.filter(report_date__gte=date_from)
-    if date_to:
-        queryset = queryset.filter(report_date__lte=date_to)
+    if date_from and date_to and date_from > date_to:
+        raise ComplaintCaseError('End date must not be before start date.')
     search = str(filters.get('search') or '').strip()
     if search:
         queryset = queryset.filter(
@@ -304,7 +313,66 @@ def _apply_report_filters(queryset, filters: dict[str, Any]):
             | Q(customer_phone__icontains=search)
             | Q(complaint_description__icontains=search)
         )
-    return queryset
+    if not timing:
+        return queryset
+    basis = str(filters.get('date_basis') or 'reported')
+    metric = str(filters.get('metric') or '')
+    if basis not in {'reported', 'resolved', 'response', 'closures', 'reopened'}:
+        raise ComplaintCaseError('Select Reported or Resolved dates.')
+    if metric not in {'', 'received', 'closures', 'open_age', 'resolution', 'on_time', 'late', 'hb_response', 'reopened'}:
+        raise ComplaintCaseError('This chart selection is unavailable.')
+    if metric == 'open_age' and filters.get('metric_value') not in {'under_3', '3_7', '8_14', 'over_14'}:
+        raise ComplaintCaseError('This age selection is unavailable.')
+    expected_basis = {'received': 'reported', 'closures': 'closures', 'open_age': 'reported',
+                      'resolution': 'resolved', 'on_time': 'resolved', 'late': 'resolved',
+                      'hb_response': 'response', 'reopened': 'reopened'}
+    if metric and expected_basis[metric] != basis:
+        raise ComplaintCaseError('The chart and date selection do not match.')
+    if not metric and basis in {'reported', 'resolved'}:
+        field = 'report_date' if basis == 'reported' else 'date_resolved'
+        if basis == 'resolved':
+            queryset = queryset.filter(complaint_status='Closed')
+        if date_from:
+            queryset = queryset.filter(**{f'{field}__gte': date_from})
+        if date_to:
+            queryset = queryset.filter(**{f'{field}__lte': date_to})
+        return queryset
+    from core.services.complaint_timing import timed_cases, matches_timing
+    ids = [case.pk for case in timed_cases(queryset) if matches_timing(case, filters, date_from, date_to)]
+    return queryset.filter(pk__in=ids)
+
+
+def validate_report_filters(filters):
+    """Validate export selections before issuing a download URL."""
+    _apply_report_filters(_base_queryset().none(), filters)
+
+
+def encode_export_filters(filters):
+    """Keep search values out of URL logs; the outer token still expires/re-authorizes."""
+    import base64
+    import hashlib
+    import json
+    from cryptography.fernet import Fernet
+    from django.conf import settings
+    key = base64.urlsafe_b64encode(hashlib.sha256(
+        ('complaint-export-filters:' + settings.SECRET_KEY).encode()).digest())
+    return Fernet(key).encrypt(json.dumps(filters).encode()).decode()
+
+
+def decode_export_filters(value):
+    import base64
+    import hashlib
+    import json
+    from cryptography.fernet import Fernet, InvalidToken
+    from django.conf import settings
+    for secret in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+        key = base64.urlsafe_b64encode(hashlib.sha256(
+            ('complaint-export-filters:' + secret).encode()).digest())
+        try:
+            return json.loads(Fernet(key).decrypt(value.encode()))
+        except InvalidToken:
+            continue
+    raise ValueError('This download link has expired.')
 
 
 def complaint_report_page(
@@ -338,8 +406,10 @@ def complaint_report_page(
     pages = max(1, (count + bounded_size - 1) // bounded_size)
     current_page = min(requested_page, pages)
     offset = (current_page - 1) * bounded_size
+    from core.services.complaint_timing import hydrate_timing
+    cases = hydrate_timing(list(queryset[offset:offset + bounded_size]))
     return {
-        'results': [serialize_report_case(case) for case in queryset[offset:offset + bounded_size]],
+        'results': [serialize_report_case(case) for case in cases],
         'count': count,
         'page': current_page,
         'page_size': bounded_size,
@@ -354,6 +424,21 @@ def _source_breakdown(queryset, *, canonical: str, legacy: str) -> list[dict[str
         {'label': label, 'count': count}
         for label, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
     ]
+
+
+def _timing_summary(queryset, filters, granularity):
+    from core.services.complaint_timing import timed_cases, timing_summary
+    now = timezone.now()
+    result = timing_summary(
+        timed_cases(_apply_report_filters(queryset, filters, timing=False), now=now),
+        date_from=_parse_filter_date(filters.get('date_from'), 'Start date'),
+        date_to=_parse_filter_date(filters.get('date_to'), 'End date', end=True),
+        granularity=granularity, now=now,
+    )
+    for key in ('activity', 'resolution_trend', 'response_trend', 'reopenings'):
+        if len(result[key]) > REPORT_MAX_TIME_BUCKETS:
+            raise ComplaintCaseError('Narrow the date range or choose a broader time grouping.')
+    return result
 
 
 def complaint_report_summary(
@@ -390,6 +475,7 @@ def complaint_report_summary(
     ]
     return {
         **metrics,
+        **_timing_summary(base_queryset, filters or {}, granularity),
         'by_branch': _source_breakdown(
             queryset, canonical='complaint_control__branch_ref__name', legacy='branch_region',
         ),
@@ -539,12 +625,12 @@ def _excel_text(value: Any) -> Any:
     return "'" + value if value.lstrip().startswith(('=', '+', '-', '@')) else value
 
 
-def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
+def export_register_xlsx(*, actor, request_id: str, filters=None) -> tuple[bytes, int]:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
     groups = _group_rows()
-    queryset = _base_queryset().order_by('-timestamp', '-pk')
+    queryset = (_apply_report_filters(_base_queryset(), filters) if filters is not None else _base_queryset()).order_by('-timestamp', '-pk')
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = 'Complaint Cases'
@@ -552,7 +638,8 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     for cell in sheet[1]:
         cell.font = Font(bold=True)
     count = 0
-    for count, case in enumerate(queryset.iterator(chunk_size=500), start=1):
+    from core.services.complaint_timing import timed_cases
+    for count, case in enumerate(timed_cases(queryset), start=1):
         row = serialize_report_case(case)
         sheet.append(tuple(_excel_text(value) for value in (
             count, _export_upper(row['complaint_id']),
@@ -564,6 +651,7 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
             _export_upper(row['reported_by']), _export_upper(row['complaint_category']),
             row['complaint_description'], row['gps_link'], latest_resolution_text(case),
             resolution_comments_text(case), _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
+            row['resolution_hours'], row['hb_response_hours'],
         )))
         sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'
         sheet.cell(row=count + 1, column=19).number_format = 'dd-mmm-yyyy'
@@ -591,12 +679,13 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
         subject_type='complaint_register', subject_id='global', actor=actor, authority_user=actor,
         request_id=request_id, source_model='ParsedMessage', source_event_id=request_id,
         deduplication_key=f'complaint-register-export:{actor.pk}:{request_id}',
-        after_values={'scope': 'all_groups', 'row_count': count, 'fields': list(EXPORT_FIELDS)},
+        after_values={'scope': 'filtered' if filters is not None else 'all_groups', 'row_count': count, 'fields': list(EXPORT_FIELDS)},
         sensitive=True,
     )
     return output.getvalue(), count
 
 
-def export_filename() -> str:
+def export_filename(*, filtered=False) -> str:
     stamp = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
-    return re.sub(r'[^A-Za-z0-9_.-]+', '-', f'Complaint-Cases-All-Groups-{stamp}.xlsx')
+    scope = 'Results' if filtered else 'All-Groups'
+    return re.sub(r'[^A-Za-z0-9_.-]+', '-', f'Complaint-Cases-{scope}-{stamp}.xlsx')

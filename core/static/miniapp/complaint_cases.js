@@ -16,7 +16,7 @@
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
     globalSort: '-date_reported', reportGridApi: null, reportGridZoom: null, reportGridLoading: false,
     reportGridCopyTimer: null, reportGridCopyPointerId: null, reportGridCopyStart: null, reportGridCopyReadyCell: null,
-    categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
+    categoryChartType: 'bar', reportGranularity: 'month',
     reportChartDisplay: (() => { try { return localStorage.getItem('complaint-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
     reportChartSlide: 0, reportChartTouchStart: null,
     reportFilterSheetOpen: false, reportFilterSnapshot: null, reportFilterReturnFocus: null,
@@ -568,6 +568,7 @@
       $('newCaseBtn').hidden = !can('complaint.case.create');
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
       $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
+      $('exportResultsBtn').hidden = $('exportAllBtn').hidden;
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
       state.locationOptions = data.location_options || state.locationOptions;
       locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
@@ -1413,61 +1414,51 @@
       const card = document.createElement('div'); card.className = 'metric-card';
       card.append(iconNode(icons[key], 'metric-icon'), textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
     });
-  }
-  function chartColor(token, fallback) {
-    return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
+    const timing = metrics.timing || {};
+    const line = textNode('p', `Resolution ${window.ComplaintReportCharts.hours(timing.median_resolution_hours)} · ${timing.on_time_percent == null ? 'On-time rate unavailable' : timing.on_time_percent + '% on time'}`);
+    line.className = 'complaint-timing-summary'; node.appendChild(line);
   }
   function refreshComplaintTheme() {
+    syncComplaintGridTheme();
     if (state.globalOverview) renderReportCharts(state.globalOverview);
     state.reportGridApi?.refreshCells?.({ force: true });
-  }
-  function categoryColorMap(summary) {
-    const labels = (summary.filter_options?.categories || summary.by_category || [])
-      .map(item => item.label).sort((left, right) => left.localeCompare(right));
-    return new Map(labels.map((label, index) => [label, `hsl(${Math.round((index * 137.508) % 360)} 65% 48%)`]));
   }
   function formatChartPeriodDate(value, granularity) {
     const raw = String(value || '').trim();
     let match;
-    if (granularity === 'year' && (match = raw.match(/^(\d{4})$/))) return `01-01-${match[1].slice(-2)}`;
-    if (granularity === 'month' && (match = raw.match(/^(\d{4})-(\d{2})$/))) return `01-${match[2]}-${match[1].slice(-2)}`;
-    if ((match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
+    if (granularity === 'year' && (match = raw.match(/^(\d{4})$/))) return match[1];
+    if (granularity === 'month' && (match = raw.match(/^(\d{4})-(\d{2})$/))) return `${formatReportDate(raw + '-01').slice(3,6)} ${match[1]}`;
+    if (raw.match(/^(\d{4})-(\d{2})-(\d{2})/)) return formatReportDate(raw);
     return raw;
   }
-  function setChartState(name, message) {
-    const canvas = $(name === 'category' ? 'categoryChart' : 'timeChart');
-    const status = $(name === 'category' ? 'categoryChartState' : 'timeChartState');
-    status.textContent = message || ''; status.hidden = !message; canvas.hidden = !!message;
+  function setChartState(_name, message) { window.ComplaintReportCharts?.state(message); }
+  function selectComplaintChart(filters, label) {
+    state.reportDrill = { filters, label };
+    const chip = $('complaintChartSelection'); chip.hidden = false; chip.textContent = label + ' ×';
+    state.globalPage = 1;
+    loadGlobalCases(currentTableFilters());
+  }
+  function syncComplaintGridTheme() {
+    const dark = document.documentElement.dataset.miniappColorScheme === 'dark';
+    $('complaintReportGrid').classList.toggle('ag-theme-quartz-dark', dark);
+    $('complaintReportGrid').classList.toggle('ag-theme-quartz', !dark);
+  }
+  function currentTableFilters() {
+    const base = currentReportFilters();
+    const selected = Object.assign({}, base, state.reportDrill?.filters || {});
+    // A monthly chart bucket must not expand a narrower custom date range.
+    if (base.date_from && (!selected.date_from || selected.date_from < base.date_from)) selected.date_from = base.date_from;
+    if (base.date_to && (!selected.date_to || selected.date_to > base.date_to)) selected.date_to = base.date_to;
+    return selected;
+  }
+  function clearComplaintChartSelection() {
+    state.reportDrill = null; $('complaintChartSelection').hidden = true;
+    state.globalPage = 1; loadGlobalCases(currentTableFilters());
   }
   function renderReportCharts(summary) {
-    if (!window.Chart) return;
-    state.categoryChart?.destroy(); state.timeChart?.destroy(); state.categoryChart = null; state.timeChart = null;
-    const categories = summary.by_category || []; const periods = summary.by_time || [];
-    const textColor = chartColor('--muted', '#667085');
-    const gridColor = chartColor('--line', 'rgba(22,36,29,.12)');
-    setChartState('category', categories.length ? '' : 'No complaint types match these filters.');
-    setChartState('time', periods.length ? '' : 'No complaints match this time period.');
-    if (!categories.length && !periods.length) { syncComplaintChartDisplay(); return; }
-    const colorMap = categoryColorMap(summary);
-    const categoryColors = categories.map(item => colorMap.get(item.label) || 'hsl(210 65% 48%)');
-    const categoryIsPie = state.categoryChartType === 'pie';
-    if (categories.length) {
-    state.categoryChart = new window.Chart($('categoryChart'), {
-      type: state.categoryChartType, data: {
-        labels: categories.map(item => item.label),
-        datasets: [{ data: categories.map(item => item.count), backgroundColor: categoryColors, borderColor: categoryIsPie ? chartColor('--surface', '#fff') : categoryColors, borderWidth: categoryIsPie ? 2 : 0, borderRadius: categoryIsPie ? 0 : 4 }],
-      }, options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: categoryIsPie ? 'x' : 'y',
-        plugins: { legend: { display: categoryIsPie, position: 'bottom', labels: { color: textColor, boxWidth: 10, boxHeight: 10, font: { size: 9 } } } },
-        scales: categoryIsPie ? {} : { x: { beginAtZero: true, ticks: { precision: 0, color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } },
-      },
-    });
-    }
-    if (periods.length) state.timeChart = new window.Chart($('timeChart'), {
-      type: 'line', data: {
-        labels: periods.map(item => formatChartPeriodDate(item.label, summary.time_granularity || state.reportGranularity)),
-        datasets: [{ data: periods.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
-      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, autoSkip: true, autoSkipPadding: 8, maxTicksLimit: window.innerWidth <= 480 ? 4 : 8, maxRotation: 0, minRotation: 0, padding: 4, font: { size: 9 } }, grid: { color: gridColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor }, grid: { color: gridColor } } } },
+    window.ComplaintReportCharts.render(summary, {
+      categoryType: state.categoryChartType, onSelect: selectComplaintChart,
+      formatPeriod: formatChartPeriodDate,
     });
     syncComplaintChartDisplay();
   }
@@ -1494,11 +1485,7 @@
     $('complaintChartPrevious').disabled = state.reportChartSlide === 0;
     $('complaintChartNext').disabled = state.reportChartSlide >= slides.length - 1;
     window.requestAnimationFrame(() => {
-      if (carousel) {
-        (state.reportChartSlide === 0 ? state.categoryChart : state.timeChart)?.resize?.();
-      } else {
-        state.categoryChart?.resize?.(); state.timeChart?.resize?.();
-      }
+      window.ComplaintReportCharts?.resize();
     });
   }
   function setComplaintChartDisplay(display) {
@@ -1597,7 +1584,7 @@
   }
   function globalFilterPayload() {
     const formNode = $('globalFilters'); const values = {};
-    for (const name of ['search', 'status', 'branch', 'category']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
+    for (const name of ['search', 'status', 'branch', 'category', 'date_basis']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
     const mode = formNode.elements.date_mode.value;
     if (mode === 'month') [values.date_from, values.date_to] = monthBoundaries(formNode.elements.report_month.value);
     if (mode === 'custom') {
@@ -1615,8 +1602,9 @@
     }
     if (mode === 'custom') {
       const format = value => value ? new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)) : '';
-      if (filters.date_from && filters.date_to) return `Reported ${format(filters.date_from)} – ${format(filters.date_to)}`;
-      return filters.date_from ? `Reported from ${format(filters.date_from)}` : `Reported through ${format(filters.date_to)}`;
+      const basis = filters.date_basis === 'resolved' ? 'Resolved' : 'Reported';
+      if (filters.date_from && filters.date_to) return `${basis} ${format(filters.date_from)} – ${format(filters.date_to)}`;
+      return filters.date_from ? `${basis} from ${format(filters.date_from)}` : `${basis} through ${format(filters.date_to)}`;
     }
     return 'All reporting dates';
   }
@@ -1627,7 +1615,7 @@
     let filters; try { filters = currentReportFilters(); } catch (error) { notify(error.message, true); return; }
     const settings = Object.assign({ summary: true, table: true }, options || {}); const requests = [];
     if (settings.summary) requests.push(loadGlobalOverview(filters));
-    if (settings.table) requests.push(loadGlobalCases(filters));
+    if (settings.table) requests.push(loadGlobalCases(currentTableFilters()));
     await Promise.all(requests);
   }
   function formatReportDate(value) {
@@ -1668,6 +1656,7 @@
   }
   function initializeReportGrid() {
     if (state.reportGridApi || !window.agGrid) return;
+    syncComplaintGridTheme();
     const touchManagedColumns = window.matchMedia('(max-width: 700px), (pointer: coarse)').matches;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     state.reportGridApi = window.agGrid.createGrid($('complaintReportGrid'), {
@@ -1696,6 +1685,8 @@
         { headerName: 'Resolution Comments', field: 'resolution_comments', width: 300, sortable: false },
         { headerName: 'Date Resolved', field: 'date_resolved', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
+        { headerName: 'Resolution time', field: 'resolution_hours', width: 130, sortable: false, valueFormatter: p => window.ComplaintReportCharts.hours(p.value) },
+        { headerName: 'HB response', field: 'hb_response_hours', width: 125, sortable: false, valueFormatter: p => window.ComplaintReportCharts.hours(p.value) },
         { headerName: 'Resolution History', field: 'resolution_history_count', width: 145, sortable: false, valueFormatter: p => p.value ? `${p.value} ${p.value === 1 ? 'entry' : 'entries'}` : 'No history' },
       ],
       onSortChanged: event => {
@@ -1762,15 +1753,16 @@
   }
   async function refreshGlobal() { await refreshReport(); }
 
-  async function prepareExport() {
+  async function prepareExport(mode) {
     try {
       $('downloadResult').hidden = true;
-      const overview = await getJson('reports/summary/', { granularity: 'year' }); const count = overview.total || 0;
-      $('exportConfirmText').textContent = `Download all ${count} complaints as an Excel file?`;
+      state.exportFilters = mode === 'results' ? currentTableFilters() : null;
+      const overview = await getJson('reports/summary/', Object.assign({}, state.exportFilters || {}, { granularity: 'year' })); const count = overview.total || 0;
+      $('exportConfirmText').textContent = `Download ${mode === 'results' ? 'these' : 'all'} ${count} complaints as an Excel file?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { presentError(error, openGlobalWorkspace); }
   }
-  function cancelExport() { $('exportConfirm').hidden = true; $('exportAllBtn').focus(); }
+  function cancelExport() { $('exportConfirm').hidden = true; (state.exportFilters ? $('exportResultsBtn') : $('exportAllBtn')).focus(); }
   function releaseExportDownload() {
     if (state.exportObjectUrl) URL.revokeObjectURL(state.exportObjectUrl);
     state.exportObjectUrl = ''; state.exportDownloadUrl = '';
@@ -1828,9 +1820,13 @@
   async function confirmExport() {
     const button = $('confirmExportBtn'); setActionLoading(button, true, 'Downloading');
     try {
+      const exportPayload = Object.assign({}, state.exportFilters || {}, {
+        confirm_all: !state.exportFilters, confirm_results: !!state.exportFilters,
+        client_request_id: requestId('complaint-export'),
+      });
       if (isMobileExportClient()) {
         const result = await json('global/export/', {
-          confirm_all: true, delivery: 'signed_url', client_request_id: requestId('complaint-export'),
+          ...exportPayload, delivery: 'signed_url',
         });
         releaseExportDownload();
         state.exportDownloadUrl = result.download_url;
@@ -1843,7 +1839,7 @@
           : 'Excel file ready. Tap Open Excel File to download it.');
         return;
       }
-      const result = await apiClient.postBlob('global/export/', { group_id: state.groupId, confirm_all: true, client_request_id: requestId('complaint-export') }, state.initData, utils);
+      const result = await apiClient.postBlob('global/export/', { group_id: state.groupId, ...exportPayload }, state.initData, utils);
       releaseExportDownload();
       state.exportObjectUrl = URL.createObjectURL(result.blob);
       state.exportFilename = result.filename || 'complaints.xlsx';
@@ -1908,6 +1904,7 @@
       return;
     }
     clearTimeout(state.reportSearchTimer); state.reportSearchTimer = null; state.globalPage = 1;
+    state.reportDrill = null; $('complaintChartSelection').hidden = true;
     closeComplaintReportFilters({ applied: true }); refreshReport();
   });
   $('clearGlobalFiltersBtn').addEventListener('click', () => {
@@ -1958,7 +1955,10 @@
   $('reportGranularity').addEventListener('change', event => {
     state.reportGranularity = event.target.value; refreshReport({ table: false }); utils.haptic?.('light');
   });
-  $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
+  $('exportAllBtn').addEventListener('click', () => prepareExport('all'));
+  $('exportResultsBtn').addEventListener('click', () => prepareExport('results'));
+  $('complaintChartSelection').addEventListener('click', clearComplaintChartSelection);
+  $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); });

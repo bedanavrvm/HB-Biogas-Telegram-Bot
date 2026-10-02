@@ -1802,10 +1802,12 @@ def control_snapshot(control: ComplaintCaseControl, case: ParsedMessage) -> dict
 
 def sla_payload(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str, Any]:
     now = timezone.now()
-    started = control.sla_started_at or case.timestamp or case.created_at
+    from core.services.complaint_timing import case_timing
+    timing = case_timing(control, case, now=now)
     due = control.sla_due_at
-    elapsed = max(0, int((now - started).total_seconds() // 3600)) if started else 0
-    remaining = int((due - now).total_seconds() // 3600) if due else None
+    elapsed = int(timing['elapsed_seconds'] // 3600) if timing['elapsed_seconds'] is not None else None
+    ended = case.date_resolved if case.complaint_status == 'Closed' else now
+    remaining = int((due - ended).total_seconds() // 3600) if due and ended and timing['elapsed_seconds'] is not None else None
     if case.complaint_status == 'Closed':
         state = 'closed'
     elif due and now > due:
@@ -1817,6 +1819,7 @@ def sla_payload(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str,
     return {
         'state': state, 'elapsed_hours': elapsed, 'remaining_hours': remaining,
         'target_hours': control.sla_target_hours, 'due_at': format_datetime(due),
+        'resolution_hours': timing['resolution_hours'], 'on_time': timing['on_time'],
     }
 
 

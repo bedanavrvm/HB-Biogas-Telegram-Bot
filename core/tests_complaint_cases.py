@@ -1273,7 +1273,7 @@ class ComplaintCaseServiceTests(TestCase):
             )
 
     def test_customer_id_is_digits_only_and_preserves_leading_zeroes(self):
-        with self.assertRaisesMessage(ComplaintCaseError, 'numbers only'):
+        with self.assertRaisesMessage(ComplaintCaseError, 'digits only'):
             create_complaint_case(
                 self.config, self.actor('100'), {
                     'client_request_id': 'create-invalid-id', 'client_name': 'Invalid ID',
@@ -1552,7 +1552,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             'county', 'constituency', 'village', 'reported_by',
             'branch_region', 'complaint_category', 'complaint_description',
             'source', 'gps_link', 'attachments', 'resolution_details', 'resolution_comments',
-            'date_resolved', 'days_open', 'resolution_history_count',
+            'date_resolved', 'days_open', 'resolution_history_count', 'resolution_hours', 'hb_response_hours',
         })
         forbidden = {
             'raw_message', 'message_id', 'loan_status', 'loan_at_risk', 'risk_level',
@@ -1703,6 +1703,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
             'Complaint Type', 'Complaint Description', 'GPS Link',
             'Resolution Details', 'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
+            'Resolution Time (hours)', 'HB Response Time (hours)',
         ))
         customer_column = rows[0].index('Customer Name')
         phone_column = rows[0].index('Primary Phone Number')
@@ -1726,6 +1727,37 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(audit.after_values['row_count'], 2)
         self.assertEqual(audit.after_values['fields'], list(rows[0]))
         self.assertNotIn('private raw source', json.dumps(audit.after_values))
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_filtered_download_reauthorizes_and_keeps_search_out_of_signed_payload(self):
+        from django.core import signing
+        from urllib.parse import urlsplit
+        prepared = self.post('complaint_cases_global_export', {
+            'confirm_results': True, 'search': 'Alice Client', 'delivery': 'signed_url',
+            'client_request_id': 'filtered-report-export',
+        })
+        self.assertEqual(prepared.status_code, 200)
+        path = urlsplit(prepared.json()['download_url']).path
+        token = path.rstrip('/').split('/')[-1]
+        signed = signing.loads(token, salt='complaint-register-download')
+        self.assertNotIn('Alice Client', json.dumps(signed))
+        downloaded = self.client.get(path)
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(downloaded['X-Export-Row-Count'], '1')
+        self.assertIn('Complaint-Cases-Results-', downloaded['Content-Disposition'])
+        self.officer.is_active = False
+        self.officer.save(update_fields=['is_active'])
+        self.assertEqual(self.client.get(path).status_code, 403)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_invalid_chart_filters_fail_before_issuing_download(self):
+        invalid = {'date_basis': 'reported', 'metric': 'resolution'}
+        self.assertEqual(self.get('complaint_reports_data', invalid).status_code, 400)
+        self.assertEqual(self.get('complaint_reports_summary', invalid).status_code, 400)
+        self.assertEqual(self.post('complaint_cases_global_export', {
+            **invalid, 'confirm_results': True, 'delivery': 'signed_url',
+            'client_request_id': 'invalid-report-export',
+        }).status_code, 400)
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_mobile_export_uses_short_lived_reauthorized_download(self):
@@ -1962,19 +1994,19 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('"@ag-grid-enterprise/', package_lock)
         self.assertIn('type="date"', template)
         self.assertIn('type="month"', template)
-        self.assertIn('Complaints over Time', template)
+        self.assertIn('Received vs resolved', template)
         self.assertIn('data-category-chart="bar"', template)
         self.assertIn('data-category-chart="pie"', template)
         self.assertIn('id="reportGranularity"', template)
-        self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
-        self.assertIn('name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 254..." required', template)
-        self.assertIn('name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="ID number" required', template)
-        self.assertIn('Customer National ID is required.', script)
-        self.assertIn('Primary Phone Number is required.', script)
+        self.assertIn('inputmode="numeric" pattern="[0-9]{1,9}"', template)
+        self.assertIn('name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required', template)
+        self.assertIn('name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required', template)
+        self.assertIn('National ID / Maisha Namba is required.', script)
+        self.assertIn('Primary Mobile Number is required.', script)
         self.assertIn("data.set('category_inference_token', state.categoryInferenceToken)", script)
         self.assertIn('if (description.length < 20)', script)
-        self.assertIn('setTimeout(() => requestCategorySuggestion(description), 900)', script)
-        self.assertIn("miniapp/complaint_cases.js' %}?v=47", template)
+        self.assertIn('setTimeout(() => requestCategorySuggestion(description), 1500)', script)
+        self.assertRegex(template, r"miniapp/complaint_cases.js' %}\?v=\d+")
         for field_name in (
             'complaint_description', 'complaint_resolution_note', 'complaint_reopen_reason',
         ):
@@ -1995,7 +2027,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for icon in ('refresh-cw', 'clipboard-list', 'layout-dashboard', 'camera', 'eye', 'trash-2'):
             self.assertIn(f'id="lucide-{icon}"', icons)
         self.assertNotIn('unpkg.com/lucide', template)
-        self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
+        self.assertIn('Download ${mode ===', script)
+        self.assertIn('id="exportResultsBtn"', template)
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
         self.assertIn("delivery: 'signed_url'", script)
         self.assertIn("telegram.downloadFile({ url: state.exportDownloadUrl, file_name: state.exportFilename }", script)
@@ -2037,9 +2070,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('.case-age.resolved{color:var(--success)}', styles)
         for wording in (
             'Management Report', 'Read-only organization-wide complaint data', 'Download Complaints',
-            'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
-            'Show Results', 'Reset Filters', 'Needs More Information',
-            'Resolution History', 'Reason for Reopening', 'Attachments', 'Complaint History',
+            'Any Status', 'Any Category', 'Dates', 'Start Date', 'End Date',
+            'Show Results', 'Reset', 'Needs More Information',
+            'Why are you reopening this complaint?', 'Attachments', 'Complaint History',
             'Include what was fixed or completed, when it was done',
         ):
             self.assertIn(wording, template)
