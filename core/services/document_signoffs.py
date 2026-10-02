@@ -250,6 +250,9 @@ def _upload_to_drive(signoff: DocumentPhysicalSignoff, *, actor) -> DocumentPhys
 
     try:
         with transaction.atomic():
+            current_source = source_artifact(signoff.document_type, str(signoff.requisition_batch_id or signoff.payment_document_id), lock=True)
+            if current_source.version != signoff.source_version or current_source.checksum != signoff.source_checksum:
+                raise PhysicalSignoffError('This workbook changed. Upload the scan for its current version.')
             signoff = DocumentPhysicalSignoff.objects.select_for_update().get(pk=signoff.pk)
             if signoff.status == DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED:
                 return signoff
@@ -257,18 +260,34 @@ def _upload_to_drive(signoff: DocumentPhysicalSignoff, *, actor) -> DocumentPhys
                 **_artifact_filters_for_signoff(signoff),
                 status=DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED,
             ).exclude(pk=signoff.pk).first()
-            if duplicate:
+            submitted = signoff.events.filter(action=DocumentPhysicalSignoffEvent.ACTION_SUBMITTED).first()
+            replaces_id = str((submitted.metadata or {}).get('replaces_signoff_id') or '') if submitted else ''
+            replacement = duplicate and str(duplicate.pk) == replaces_id
+            if replaces_id and not replacement:
+                signoff.status = DocumentPhysicalSignoff.STATUS_REJECTED
+                signoff.rejection_reason = 'The accepted scan changed before replacement completed. Refresh and upload again.'
+                signoff.save(update_fields=['status', 'rejection_reason', 'updated_at'])
+                _record_event(signoff, DocumentPhysicalSignoffEvent.ACTION_REJECTED, actor=actor, note=signoff.rejection_reason)
+                return signoff
+            if duplicate and not replacement:
                 signoff.status = DocumentPhysicalSignoff.STATUS_REJECTED
                 signoff.rejection_reason = 'Another signed scan is already the approved record for this exact document version.'
                 signoff.save(update_fields=['status', 'rejection_reason', 'updated_at'])
                 _record_event(signoff, DocumentPhysicalSignoffEvent.ACTION_REJECTED, actor=actor, note=signoff.rejection_reason)
                 return signoff
+            if replacement:
+                duplicate.status = DocumentPhysicalSignoff.STATUS_SUPERSEDED
+                duplicate.save(update_fields=['status', 'updated_at'])
+                _record_event(duplicate, DocumentPhysicalSignoffEvent.ACTION_REPLACED, actor=actor, metadata={'replaced_by': str(signoff.pk)})
             mark_drive_success(signoff, file_id=file_id, url=url, error_field='drive_upload_error')
             signoff.status = DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED
             signoff.approved_by = actor
             signoff.approved_at = timezone.now()
             signoff.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
-            if signoff.document_type == DocumentSignoffPolicy.DOCUMENT_PAYMENT:
+            if replacement:
+                # Retain the original release reference and do not replay milestones.
+                pass
+            elif signoff.document_type == DocumentSignoffPolicy.DOCUMENT_PAYMENT:
                 from payments.services import complete_batch_for_document
                 complete_batch_for_document(
                     signoff.payment_document, actor=actor,
@@ -306,7 +325,7 @@ def _artifact_filters_for_signoff(signoff: DocumentPhysicalSignoff) -> dict:
     return values
 
 
-def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_file, actor, access: dict | None, request_id: str = '') -> tuple[DocumentPhysicalSignoff, bool]:
+def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_file, actor, access: dict | None, request_id: str = '', replaces_signoff_id: str = '') -> tuple[DocumentPhysicalSignoff, bool]:
     """Create one attested sign-off attempt, then attempt its Drive upload.
 
     The boolean is true when a retry/double submit resolves to the same stored
@@ -328,9 +347,13 @@ def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_fi
         if request_id:
             existing_request = DocumentPhysicalSignoff.objects.filter(request_id=request_id).first()
             if existing_request:
+                if existing_request.uploaded_by_id != actor.pk or existing_request.document_type != document_type or str(existing_request.requisition_batch_id or existing_request.payment_document_id) != str(document_id) or existing_request.source_checksum != source.checksum or existing_request.scan_checksum != scan_checksum:
+                    raise PhysicalSignoffError('This upload reference belongs to a different signed scan. Refresh and retry.')
                 return existing_request, True
         approved = signoff_for_source(source)
-        if approved and approved.status == DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED:
+        if replaces_signoff_id and (not approved or str(approved.pk) != str(replaces_signoff_id) or approved.status != DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED):
+            raise PhysicalSignoffError('The signed scan changed. Refresh before replacing it.')
+        if approved and approved.status == DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED and (not replaces_signoff_id or approved.scan_checksum == scan_checksum):
             # A physically approved record is immutable.  Do not send a
             # second scan to Drive or let a retry create competing evidence.
             return approved, True
@@ -363,6 +386,7 @@ def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_fi
         _record_event(signoff, DocumentPhysicalSignoffEvent.ACTION_SUBMITTED, actor=actor, metadata={
             'source_checksum': source.checksum,
             'scan_checksum': scan_checksum,
+            'replaces_signoff_id': str(replaces_signoff_id or ''),
         })
     return _upload_to_drive(signoff, actor=actor), False
 
@@ -402,6 +426,14 @@ def signoff_for_source(source: SourceArtifact) -> DocumentPhysicalSignoff | None
     return matches.filter(status=DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED).first() or matches.first()
 
 
+def current_accepted_scan(original):
+    """Resolve replacement evidence without changing the original release record."""
+    return DocumentPhysicalSignoff.objects.filter(
+        **_artifact_filters_for_signoff(original), source_checksum=original.source_checksum,
+        status=DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED,
+    ).first() or original
+
+
 def _artifact_filters(source: SourceArtifact) -> dict:
     values = {'document_type': source.document_type, 'source_version': source.version}
     if source.document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION:
@@ -425,6 +457,8 @@ def serialize_physical_signoff(signoff: DocumentPhysicalSignoff | None, *, docum
         'status': signoff.status,
         'source_available': source_available,
         'can_upload': can_upload and source_available and signoff.status != DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED,
+        'can_replace': can_upload and source_available and signoff.status == DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED,
+        'preview_url': f'/api/portal/document-signoffs/{signoff.pk}/preview/',
         'approval_role': policy['approval_role'],
         'scan_filename': signoff.scan_filename,
         'scan_checksum': signoff.scan_checksum,
@@ -462,8 +496,7 @@ def document_signoff_summary(document_type: str, document, *, can_upload: bool =
     )
     previous_filters = {
         'document_type': document_type,
-        'status': DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED,
-        'source_version__lt': source.version,
+        'status__in': [DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED, DocumentPhysicalSignoff.STATUS_SUPERSEDED],
     }
     if document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION:
         previous_filters['requisition_batch'] = document
@@ -477,6 +510,9 @@ def document_signoff_summary(document_type: str, document, *, can_upload: bool =
             'scan_filename': item.scan_filename,
             'approved_at': item.approved_at.isoformat() if item.approved_at else None,
         }
-        for item in DocumentPhysicalSignoff.objects.filter(**previous_filters).order_by('-source_version', '-approved_at')[:5]
+        for item in DocumentPhysicalSignoff.objects.filter(**previous_filters).exclude(pk=summary.get('id')).order_by('-source_version', '-approved_at')[:5]
     ]
+    pending = DocumentPhysicalSignoff.objects.filter(**_artifact_filters(source), status__in=['upload_pending', 'upload_failed']).first()
+    if pending and str(pending.pk) != summary.get('id'):
+        summary['pending_replacement'] = serialize_physical_signoff(pending, document_type=document_type, source_available=True, can_upload=can_upload)
     return summary

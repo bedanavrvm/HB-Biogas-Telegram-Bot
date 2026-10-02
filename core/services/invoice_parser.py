@@ -1564,26 +1564,57 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
     return invoice
 
 
+def duplicate_deletion_error(invoice: ParsedInvoice, *, preserve_oldest: bool = False) -> str:
+    """Shared preview/write eligibility; no financial evidence is discarded."""
+    from payments.models import PaymentReceiptItem, PaymentBatchCase
+    from django.db.models import Q
+    if invoice.status == 'deleted':
+        return 'This invoice has already been removed.'
+    if PaymentReceiptItem.objects.filter(Q(invoice=invoice) | Q(replacement_invoice=invoice)).exists():
+        return 'This invoice belongs to a payment receipt. Its evidence is protected.'
+    if invoice.name_change_requests.exists() or invoice.replacement_for_name_changes.exists():
+        return 'This invoice is retained identity-change evidence.'
+    if invoice.matched_farmer_id and PaymentBatchCase.objects.filter(farmer_id=invoice.matched_farmer_id).exists():
+        return 'This matched case has payment history. Its invoice is protected.'
+    peers = ParsedInvoice.objects.filter(batch__group_configuration_id=invoice.batch.group_configuration_id).exclude(pk=invoice.pk).exclude(status='deleted')
+    same = Q()
+    if invoice.invoice_no:
+        same |= Q(invoice_no__iexact=invoice.invoice_no)
+    if invoice.customer_id:
+        same |= Q(customer_id=invoice.customer_id)
+    if invoice.customer_phone:
+        same |= Q(customer_phone=invoice.customer_phone)
+    if not same or not peers.filter(same).exists():
+        return 'Keep one original invoice. No surviving duplicate was found.'
+    if preserve_oldest and not peers.filter(same).filter(Q(created_at__lt=invoice.created_at) | Q(created_at=invoice.created_at, pk__lt=invoice.pk)).exists():
+        return 'The original invoice is retained.'
+    return ''
+
+
 def delete_duplicate_invoice(invoice: ParsedInvoice, *, actor: str = '') -> ParsedInvoice:
-    """Remove a duplicate from every operational queue without erasing its audit history."""
+    """Remove a copy from operational queues without erasing its evidence."""
     actor_text = str(actor or 'portal').strip()
     with transaction.atomic():
+        # Serialize cleanup for this group before locking individual copies.
+        from core.models import GroupSheetConfiguration
+        group_id = invoice.batch.group_configuration_id
+        if group_id:
+            GroupSheetConfiguration.objects.select_for_update().get(pk=group_id)
+        else:
+            ParsedInvoice.objects.select_for_update().filter(batch__group_configuration__isnull=True).order_by('pk').first()
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
-            raise ValueError('Only an unmatched duplicate invoice can be deleted.')
-        if invoice.matched_farmer_id:
-            raise ValueError('A matched invoice cannot be deleted. Unmatch it first.')
+        if invoice.status == 'deleted':
+            return invoice
+        error = duplicate_deletion_error(invoice)
+        if error:
+            raise ValueError(error)
         invoice.status = 'deleted'
         invoice.review_notes = f'Duplicate deleted by {actor_text}.'
         invoice.revision += 1
         invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
-        record_invoice_event(
-            invoice,
-            'deleted',
-            actor=actor_text,
+        record_invoice_event(invoice, 'deleted', actor=actor_text,
             note='Duplicate removed from invoice review. Audit history retained.',
-            metadata={'source': 'duplicate_cleanup', 'batch_id': str(invoice.batch_id), 'page': invoice.page},
-        )
+            metadata={'source': 'duplicate_cleanup', 'batch_id': str(invoice.batch_id), 'page': invoice.page})
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
 

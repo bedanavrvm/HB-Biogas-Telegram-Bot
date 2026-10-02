@@ -8597,11 +8597,13 @@ class DocumentPhysicalSignoff(models.Model):
     STATUS_SIGNED_APPROVED = 'signed_approved'
     STATUS_UPLOAD_FAILED = 'upload_failed'
     STATUS_REJECTED = 'rejected'
+    STATUS_SUPERSEDED = 'superseded'
     STATUS_CHOICES = [
         (STATUS_UPLOAD_PENDING, 'Upload pending'),
         (STATUS_SIGNED_APPROVED, 'Signed scan approved'),
         (STATUS_UPLOAD_FAILED, 'Upload retry required'),
         (STATUS_REJECTED, 'Rejected'),
+        (STATUS_SUPERSEDED, 'Replaced scan retained'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -8715,7 +8717,9 @@ class DocumentPhysicalSignoffEvent(models.Model):
     ACTION_UPLOAD_FAILED = 'upload_failed'
     ACTION_RETRY_STARTED = 'retry_started'
     ACTION_REJECTED = 'rejected'
+    ACTION_REPLACED = 'replaced'
     ACTION_CHOICES = [
+        (ACTION_REPLACED, 'Replaced scan'),
         (ACTION_SUBMITTED, 'Submitted'),
         (ACTION_APPROVED, 'Approved'),
         (ACTION_UPLOAD_FAILED, 'Upload failed'),

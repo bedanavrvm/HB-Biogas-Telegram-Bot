@@ -1190,10 +1190,10 @@
       <p class="jbl-section-label">Lead details</p>
       <div class="form-section form-grid jbl-details-grid jbl-new-lead-fields">
         <div class="form-row" data-jbl-field="customer_name"><label>Customer name <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-name" type="text" maxlength="255" autocomplete="name" placeholder="Full name"><small class="jbl-field-error" data-error-message-for="customer_name"></small></div>
-        <div class="form-row" data-jbl-field="national_id"><label>National ID / Maisha Namba <span class="required-marker" aria-hidden="true">*</span><small>Do not enter Card Serial No.</small></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="1 to 9 digits"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
+        <div class="form-row" data-jbl-field="national_id"><label>National ID / Maisha Namba <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="1 to 9 digits"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
         <div class="form-row" data-jbl-field="primary_phone"><label>Primary mobile number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="e.g. 0712 345 678"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
-        <div class="form-row" data-jbl-field="deposit_paid_hbg"><label>HB deposit paid <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-deposit" type="text" inputmode="decimal" maxlength="16" placeholder="KES amount"><small class="jbl-field-error" data-error-message-for="deposit_paid_hbg"></small></div>
-        <div class="form-row" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
+        <div class="form-row" data-jbl-field="deposit_paid_hbg"><label>HB deposit paid <small>Optional</small></label><input id="jbl-new-lead-hb-deposit" type="text" inputmode="decimal" maxlength="16" placeholder="KES amount"><small class="jbl-field-error" data-error-message-for="deposit_paid_hbg"></small></div>
+        <div class="form-row" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
       </div>` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
@@ -2069,7 +2069,7 @@
     const errors = {};
     if (state().selectedFarmer?.is_new_jbl_lead) {
       if (!el('jbl-new-lead-name')?.value.trim()) errors.customer_name = 'Enter the customer name.';
-      if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID / Maisha Namba using 1 to 9 digits only. Do not enter Card Serial No.';
+      if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID / Maisha Namba using 1 to 9 digits only.';
       if (!normalizeKenyanMobile(el('jbl-new-lead-phone')?.value || '')) errors.primary_phone = 'Enter a valid Kenyan mobile number.';
     }
     const status = el('jbl-status')?.value || '';
@@ -2744,7 +2744,8 @@
     if (!overlay || !content || !item?.preview_url) return;
 
     closeMediaViewer();
-    if (title) title.textContent = item.category === 'CLIENT_ID' ? 'Client ID' : item.category === 'JBL_VISIT_PHOTO' ? 'Supporting photo' : 'Signed LAF Document';
+    const previewSequence = jblPreviewSequence;
+    if (title) title.textContent = item.preview_title || (item.category === 'CLIENT_ID' ? 'Client ID' : item.category === 'JBL_VISIT_PHOTO' ? 'Supporting photo' : 'Signed LAF Document');
     if (sub) sub.textContent = item.name || 'Client media';
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
@@ -2752,11 +2753,13 @@
       const viewer = window.SecureMediaViewer;
       if (!viewer) throw new Error('The secure media viewer is unavailable. Refresh the Portal and retry.');
       const blob = await viewer.fetchAuthorizedBlob(item.preview_url, { headers: mediaPreviewHeaders() });
+      if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       activeMediaObjectUrl = viewer.renderBlob(content, blob, {
         mimeType: item.mime_type,
         name: item.name || 'Client media',
       });
     } catch (error) {
+      if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this media.')} Close and retry.</p>`;
     }
   }
@@ -3146,6 +3149,7 @@
   }
 
   window.PortalMiniAppFarmerSheet = {
+    openDocumentPreview: openClientMediaPreview,
     init,
     openFarmerSheet,
     openNewJblLeadSheet() {

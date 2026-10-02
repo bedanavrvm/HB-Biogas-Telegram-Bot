@@ -27,6 +27,7 @@ from core.models import (
 from core.services.invoice_parser import (
     InvoiceDuplicateUploadError, ingest_invoice_upload_batch,
     ignore_invoice, manually_match_invoice, restore_invoice,
+    delete_duplicate_invoice, duplicate_deletion_error,
 )
 from core.services.invoice_identity import ensure_identity_review, identity_gate
 from core.services.jawabu_approvals import invalidate_material_approvals, record_approval
@@ -425,15 +426,45 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['deleted_count'], 2)
+        self.assertEqual(response.json()['deleted_count'], 1)
         first.refresh_from_db()
         second.refresh_from_db()
-        self.assertEqual((first.status, second.status), ('deleted', 'deleted'))
-        self.assertTrue(first.events.filter(action='deleted').exists())
+        self.assertNotEqual(first.status, 'deleted')
+        self.assertEqual(second.status, 'deleted')
         self.assertTrue(second.events.filter(action='deleted').exists())
         inbox = self.client.get(reverse('portal_invoice_pool'), {'workspace': 'inbox'}).json()
-        self.assertNotIn(str(first.pk), {item['id'] for item in inbox['invoices']})
+        self.assertIn(str(first.pk), {item['id'] for item in inbox['invoices']})
         self.assertNotIn(str(second.pk), {item['id'] for item in inbox['invoices']})
+
+    def test_cleanup_allows_ignored_and_unprotected_matched_copies(self):
+        original = self.invoice_batch().invoices.get()
+        ignored = self.invoice_batch().invoices.get()
+        ignored.status = 'ignored'
+        ignored.save(update_fields=['status'])
+        self.assertEqual(duplicate_deletion_error(ignored, preserve_oldest=True), '')
+        delete_duplicate_invoice(ignored, actor='Synthetic tester')
+        matched = self.invoice_batch().invoices.get()
+        matched.status = 'matched'
+        matched.matched_farmer = self.farmer()
+        matched.save(update_fields=['status', 'matched_farmer'])
+        delete_duplicate_invoice(matched, actor='Synthetic tester')
+        original.refresh_from_db()
+        self.assertNotEqual(original.status, 'deleted')
+        self.assertTrue(duplicate_deletion_error(original))
+
+    def test_cleanup_protects_matched_cases_with_payment_history(self):
+        from payments.models import PaymentBatch, PaymentBatchCase
+        self.invoice_batch()
+        invoice = self.invoice_batch().invoices.get()
+        invoice.status = 'matched'
+        invoice.matched_farmer = self.farmer()
+        invoice.save(update_fields=['status', 'matched_farmer'])
+        batch = PaymentBatch.objects.create(group_configuration=GroupSheetConfiguration.objects.get(group_id='-100payment-documents-test'))
+        PaymentBatchCase.objects.create(batch=batch, farmer=invoice.matched_farmer, payment_mode='LOAN-JAWABU')
+        with self.assertRaisesMessage(ValueError, 'payment history'):
+            delete_duplicate_invoice(invoice)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, 'matched')
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -612,6 +643,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             str(batch.invoices.get().id),
             str(duplicate_batch.invoices.get().id),
         })
+        selected = self.client.get(reverse('portal_invoice_pool'), {'review': 'duplicates', 'include_duplicate_ids': '1'}).json()
+        self.assertEqual(selected['duplicate_ids'], [str(duplicate_batch.invoices.get().id)])
 
     def test_invoice_pool_review_filter_returns_payment_ready_and_blocked(self):
         ready_farmer = self.farmer(order_number='ORDER-READY')

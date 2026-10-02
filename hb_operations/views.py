@@ -213,6 +213,9 @@ def hb_action_document_preview(request, farmer_id, document_kind):
     if str(document_kind or '').strip().lower() != 'signed-order':
         return _error('This document preview is not available.', status=404, code='not_found')
     signoff = action.source_signoff
+    if signoff:
+        from core.services.document_signoffs import current_accepted_scan
+        signoff = current_accepted_scan(signoff)
     if not signoff or signoff.status != 'signed_approved':
         return _error('The accepted signed order is not available for preview.', status=404, code='not_found')
     content = bytes(signoff.scan_file_content or b'')

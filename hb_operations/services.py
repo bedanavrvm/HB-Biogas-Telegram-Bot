@@ -142,6 +142,9 @@ def _invoice_for(action: HomeBiogasAction):
 
 
 def serialize_action(action: HomeBiogasAction, *, include_history: bool = False) -> dict:
+    if action.source_signoff_id:
+        from core.services.document_signoffs import current_accepted_scan
+        action.source_signoff = current_accepted_scan(action.source_signoff)
     farmer = action.farmer
     from core.services.jawabu_case_reference import display_case_reference
 

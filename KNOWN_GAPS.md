@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Portal compact controls verification - 2 October 2026
+
+The focused document-signoff/payment PostgreSQL suite passed 77 tests using
+synthetic data and mocked integrations. Scan replacements retain previous bytes
+and preserve workflow progress; preview scope and removable-duplicate selection
+have regression coverage. No production Google/Telegram integration was called.
+The 59 selected browser tests passed, including compact finance layouts,
+notification scrolling, phone links and nested navigation. Performance screenshots
+were manually inspected at 320px after the compact-height correction.
+
+The wider `core.tests_pipeline` PostgreSQL run is not green: 192 tests ran with
+25 failures and one error. Evidence is in the local ignored artifact
+`test-results/portal-pipeline-postgres.txt`. Failures include outdated-client 426
+responses, stale shell assertions and invoice fixtures without official orders.
+This pass has not independently reproduced those failures on unchanged HEAD;
+do not classify all of them as unrelated or claim a full-repository pass.
+
+Duplicate removal is operational soft deletion, not evidence erasure. Payment
+receipt, payment-history and identity-change references remain protected. Real
+Drive movement and dialler handoff inside Telegram still need deployment smoke tests.
+
 ## Portal engineering remediation — 2 October 2026
 
 Local prevention/recovery changes cover EQ-01/02/03/04/05/07/08/09/10/12.

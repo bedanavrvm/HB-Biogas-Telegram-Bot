@@ -10,7 +10,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
 
-from core.api.portal_views import portal_document_physical_signoff_upload
+from core.api.portal_views import portal_document_physical_signoff_upload, portal_document_physical_signoff_preview
 from core.models import (
     AccessGrant,
     DocumentPhysicalSignoff,
@@ -64,6 +64,48 @@ class PhysicalDocumentSignoffTests(TestCase):
 
     def _scan(self, name='signed.pdf', data=b'%PDF-physical-signed-scan'):
         return SimpleUploadedFile(name, data, content_type='application/pdf')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_signed_scan_preview_rechecks_document_scope(self, storage):
+        storage.return_value.upload.return_value = ('scan', 'https://drive.test/scan')
+        signoff, _ = submit_physical_signoff(document_type='requisition', document_id=str(self.batch.pk), uploaded_file=self._scan(), actor=self.admin_user, access=user_access(self.admin_user, 'jawabu_portal'))
+        request = self.factory.get('/api/portal/document-signoffs/preview/')
+        request.portal_user = self.admin_user
+        request.portal_access = user_access(self.admin_user, 'jawabu_portal')
+        with patch('core.api.portal_views._portal_saved_document_in_scope', return_value=False):
+            response = portal_document_physical_signoff_preview(request, str(signoff.pk))
+        self.assertEqual(response.status_code, 403)
+        with patch('core.api.portal_views._portal_saved_document_in_scope', return_value=True):
+            response = portal_document_physical_signoff_preview(request, str(signoff.pk))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'%PDF-physical-signed-scan')
+        self.assertIn('no-store', response['Cache-Control'])
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_replacement_preserves_old_scan_and_does_not_replay_release(self, storage):
+        storage.return_value.upload.return_value = ('scan', 'https://drive.test/scan')
+        access = user_access(self.admin_user, 'jawabu_portal')
+        first, _ = submit_physical_signoff(document_type='requisition', document_id=str(self.batch.pk), uploaded_file=self._scan(), actor=self.admin_user, access=access)
+        with patch('hb_operations.services.release_requisition_signoff') as release:
+            second, _ = submit_physical_signoff(document_type='requisition', document_id=str(self.batch.pk), uploaded_file=self._scan(data=b'%PDF-replacement'), actor=self.admin_user, access=access, replaces_signoff_id=str(first.pk), request_id='replace-1')
+        first.refresh_from_db()
+        self.assertEqual(first.status, 'superseded')
+        self.assertEqual(bytes(first.scan_file_content), b'%PDF-physical-signed-scan')
+        self.assertEqual(second.status, 'signed_approved')
+        release.assert_not_called()
+        self.assertEqual(document_signoff_summary('requisition', self.batch)['id'], str(second.pk))
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_failed_replacement_keeps_accepted_scan(self, storage):
+        storage.return_value.upload.return_value = ('scan', 'https://drive.test/scan')
+        access = user_access(self.admin_user, 'jawabu_portal')
+        first, _ = submit_physical_signoff(document_type='requisition', document_id=str(self.batch.pk), uploaded_file=self._scan(), actor=self.admin_user, access=access)
+        storage.return_value.upload.side_effect = RuntimeError('Synthetic outage')
+        second, _ = submit_physical_signoff(document_type='requisition', document_id=str(self.batch.pk), uploaded_file=self._scan(data=b'%PDF-replacement'), actor=self.admin_user, access=access, replaces_signoff_id=str(first.pk))
+        first.refresh_from_db()
+        self.assertEqual(first.status, 'signed_approved')
+        self.assertEqual(second.status, 'upload_failed')
+        self.assertEqual(document_signoff_summary('requisition', self.batch)['id'], str(first.pk))
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_authorised_role_retains_exact_source_and_approves_scan(self, storage):

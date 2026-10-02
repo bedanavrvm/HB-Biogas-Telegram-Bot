@@ -616,7 +616,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         if field_type == 'national_id':
             from core.services.identifiers import validate_kenyan_national_id
             if not validate_kenyan_national_id(value):
-                errors[key] = 'Enter a National ID / Maisha Namba using 1 to 9 digits only. Do not enter Card Serial No.'
+                errors[key] = 'Enter a National ID / Maisha Namba using 1 to 9 digits only.'
         elif field_type == 'phone':
             from core.services.identifiers import normalize_kenyan_phone
             if not normalize_kenyan_phone(value):

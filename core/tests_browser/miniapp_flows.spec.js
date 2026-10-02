@@ -70,6 +70,7 @@ test('My submitted visit cards show the latest pipeline stage instead of the ori
   const source = fs.readFileSync(asset('portal.js'), 'utf8');
   const renderer = source.match(/  function renderVisitQueueCard\([^]*?\n  \}/)[0];
   await page.setContent('<main></main>');
+  await page.addScriptTag({ path: asset('portal_helpers.js') });
   await page.addScriptTag({ content: `
     const escapeHtml = value => String(value || '');
     const locationText = farmer => farmer.location_label || '-';

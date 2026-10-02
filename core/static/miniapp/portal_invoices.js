@@ -186,7 +186,7 @@
     const count = el('invoice-selected-count');
     if (!canWriteInvoices()) state.selectedIds.clear();
     const selectedCount = state.selectedIds.size;
-    const duplicateReview = state.workspace === 'inbox' && state.review === 'duplicates' && canWriteInvoices();
+    const duplicateReview = canWriteInvoices();
     if (toolbar) toolbar.style.display = selectedCount || duplicateReview ? 'block' : 'none';
     if (count) count.textContent = selectedCount + ' selected';
     const selectAll = el('invoice-select-all-duplicates');
@@ -232,11 +232,11 @@
         '<article class="invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '" data-invoice-open="' + escapeHtml(invoice.id) + '" role="link" tabindex="0" aria-label="Open invoice ' + escapeHtml(invoice.invoice_no || '') + '">',
         secondaryActions ? '<details class="invoice-card-menu"><summary aria-label="More invoice actions" title="More actions"><i data-lucide="more-vertical" aria-hidden="true"></i></summary><div>' + secondaryActions + '</div></details>' : '',
         '<div class="invoice-card-main">',
-        canWriteInvoices() && invoice.status !== 'matched' ? '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>' : '<span></span>',
+        canWriteInvoices() ? '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>' : '<span></span>',
         '<div class="invoice-card-content">',
         '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
-        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.matched_order_number ? 'Order ' + invoice.matched_order_number : (invoice.customer_phone || '-')) + '</span></div>',
+        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + (invoice.matched_order_number ? escapeHtml('Order ' + invoice.matched_order_number) : window.PortalMiniAppHelpers.phoneLink(invoice.customer_phone)) + '</span></div>',
         orderReferenceAlert ? '<div class="invoice-card-warning">' + escapeHtml(orderReferenceAlert.message) + '</div>' : '',
         reviewReason ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(reviewReason) + '</span>' : '',
         '</div>',
@@ -1045,9 +1045,6 @@
   async function bulkInvoiceAction(action, options = {}) {
     const ids = Array.from(state.selectedIds);
     if (!ids.length) return deps.showToast('Select at least one invoice first.', 'error');
-    if (action === 'delete_duplicates' && options.requireDuplicateFilter !== false && state.review !== 'duplicates') {
-      return deps.showToast('Filter to Possible duplicates before deleting selected invoices.', 'error');
-    }
     const label = action === 'restore' ? 'restore' : action === 'delete_duplicates' ? 'delete' : 'ignore';
     const title = label === 'delete' ? 'Delete selected duplicates?' : (label === 'restore' ? 'Restore' : 'Ignore') + ' selected invoices?';
     const message = label === 'delete'
@@ -1076,14 +1073,15 @@
       ? ' Shared source PDF kept because it still contains active invoices.' : '';
     const filedPdfNote = response.data.drive_archived_count
       ? ' Source PDF filed under Ignored.' : '';
-    deps.showToast(actionMessage + changed + ' invoice(s)' + (skipped ? '; skipped ' + skipped : '') + '.' + sharedPdfNote + filedPdfNote + (driveWarning ? ' ' + driveWarning : ''), skipped || driveWarning ? 'warning' : 'success');
+    const reasons = [...new Set((response.data.skipped || []).map(item => item.reason).filter(Boolean))];
+    deps.showToast(actionMessage + changed + ' invoice(s)' + (skipped ? '; kept ' + skipped + ': ' + reasons.join('; ') : '') + '.' + sharedPdfNote + filedPdfNote + (driveWarning ? ' ' + driveWarning : ''), skipped || driveWarning ? 'warning' : 'success');
     load(state.page);
     return true;
   }
 
   async function selectAllFilteredDuplicates() {
-    if (state.workspace !== 'inbox' || state.review !== 'duplicates' || !canWriteInvoices()) return;
-    const params = new URLSearchParams({ workspace: 'inbox', review: 'duplicates', include_duplicate_ids: '1' });
+    if (!canWriteInvoices()) return;
+    const params = new URLSearchParams({ workspace: state.workspace || 'inbox', review: 'duplicates', include_duplicate_ids: '1' });
     if (state.status) params.set('status', state.status);
     if (state.search) params.set('search', state.search);
     const button = el('invoice-select-all-duplicates');
@@ -1103,7 +1101,7 @@
           input.closest('.invoice-pool-card')?.classList.toggle('is-selected', input.checked);
         });
       }
-      deps.showToast(ids.length ? 'Selected all ' + ids.length + ' detected duplicate invoices.' : 'No duplicate invoices to select.', ids.length ? 'success' : 'warning');
+      deps.showToast(ids.length ? 'Selected ' + ids.length + ' removable duplicate copies. Originals and payment evidence are kept.' : 'No removable duplicate copies. Originals and payment evidence are kept.', ids.length ? 'success' : 'warning');
     } catch (_) {
       deps.showToast('Could not load the duplicate selection. Refresh and try again.', 'error');
     } finally {
@@ -1577,6 +1575,7 @@
   }
 
   window.PortalMiniAppInvoices = {
+    confirmAction: confirmInvoiceAction,
     init,
     load,
   };

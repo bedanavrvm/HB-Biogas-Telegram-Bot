@@ -40,6 +40,7 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css', 'theme.css']) {
         await page.addStyleTag({ path: asset(name) });
       }
+      await page.addScriptTag({ path: asset('vendor-lucide-1.44.0.min.js') });
       if (theme === 'dark') await page.evaluate(() => {
         document.documentElement.dataset.miniappColorScheme = 'dark';
         document.documentElement.style.setProperty('--tg-theme-bg-color', '#111827');
@@ -73,6 +74,16 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       await page.screenshot({ path: testInfo.outputPath(`portal-performance-${width}-${theme}.png`), fullPage: true });
       await page.locator('#portal-performance-filter').click();
       await expect(page.locator('#portal-performance-filters')).toHaveAttribute('aria-hidden', 'false');
+      const headerAlignment = await page.evaluate(() => {
+        const title = document.getElementById('portal-performance-filter-title').getBoundingClientRect();
+        const close = document.getElementById('portal-performance-filter-close').getBoundingClientRect();
+        return { titleCenter:title.y + title.height / 2, closeCenter:close.y + close.height / 2, closeWidth:close.width, titleRight:title.right, closeLeft:close.left };
+      });
+      expect(Math.abs(headerAlignment.titleCenter - headerAlignment.closeCenter)).toBeLessThan(2);
+      expect(headerAlignment.closeWidth).toBeGreaterThanOrEqual(44);
+      expect(headerAlignment.closeLeft).toBeGreaterThanOrEqual(headerAlignment.titleRight);
+      const filterHeight = await page.locator('#portal-performance-filters .sheet-panel').evaluate(node => node.getBoundingClientRect().height);
+      expect(filterHeight).toBeLessThan(500);
       await page.locator('#portal-performance-period').fill('2026-05');
       await expect(page.locator('#portal-performance-month-display')).toHaveText('May 2026');
       if (width === 320) {

@@ -7281,7 +7281,7 @@ def _invoice_duplicate_ids(queryset, request=None) -> set:
         group_scope |= Q(batch__group_configuration_id=group_id) if group_id else Q(batch__group_configuration__isnull=True)
     peers = _scoped_invoice_duplicates(
         ParsedInvoice.objects.filter(group_scope)
-        .exclude(status__in=['ignored', 'deleted'])
+        .exclude(status='deleted')
         .values('id', 'batch__group_configuration_id', 'invoice_no', 'customer_id', 'customer_phone'),
         request,
     )
@@ -7455,6 +7455,10 @@ def portal_invoice_pool(request):
         ).count(),
     }
 
+    selectable_duplicate_ids = []
+    if review == 'duplicates' and request.GET.get('include_duplicate_ids') == '1':
+        from core.services.invoice_parser import duplicate_deletion_error
+        selectable_duplicate_ids = [str(invoice.pk) for invoice in invoices.filter(pk__in=duplicate_ids).select_related('batch') if not duplicate_deletion_error(invoice, preserve_oldest=True)]
     return JsonResponse({
         'ok': True,
         'summary': summary,
@@ -7464,8 +7468,7 @@ def portal_invoice_pool(request):
             for invoice in paged_invoices
         ],
         'pagination': invoice_pagination,
-        'duplicate_ids': sorted(str(invoice_id) for invoice_id in duplicate_ids)
-        if review == 'duplicates' and request.GET.get('include_duplicate_ids') == '1' else [],
+        'duplicate_ids': selectable_duplicate_ids,
         'filters': {
             'status': status,
             'search': search,
@@ -7501,7 +7504,7 @@ def portal_create_and_complete_jbl_lead(request):
     deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
-    if not national_id: errors['national_id'] = 'National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.'
+    if not national_id: errors['national_id'] = 'National ID / Maisha Namba must contain 1 to 9 digits only.'
     if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
     if not str(body.get('sub_county') or '').strip(): errors['sub_county'] = 'Choose the constituency where this visit was done.'
@@ -8636,7 +8639,7 @@ def portal_invoice_bulk_action(request):
         return JsonResponse({'ok': False, 'error': 'Select at least one invoice.'}, status=400)
 
     actor = _portal_sender_from_request(request)
-    invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer'))
+    invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer').order_by('-created_at', '-pk'))
     role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
@@ -8648,8 +8651,7 @@ def portal_invoice_bulk_action(request):
     if action == 'delete_duplicates':
         duplicate_ids = _invoice_duplicate_ids(
             ParsedInvoice.objects.filter(
-                pk__in=invoice_ids, status__in=['draft', 'unmatched', 'ambiguous'],
-                matched_farmer__isnull=True,
+                pk__in=invoice_ids,
             ),
             request,
         )
@@ -8668,9 +8670,6 @@ def portal_invoice_bulk_action(request):
                 continue
             changed.append(restore_invoice(invoice, actor=actor, note=note or 'Bulk restored.'))
         elif action == 'delete_duplicates':
-            if invoice.status not in {'draft', 'unmatched', 'ambiguous'} or invoice.matched_farmer_id:
-                skipped.append({'id': str(invoice.id), 'reason': 'only unmatched invoices can be deleted'})
-                continue
             if invoice.id not in duplicate_ids:
                 skipped.append({'id': str(invoice.id), 'reason': 'invoice is not a detected duplicate'})
                 continue
@@ -9400,6 +9399,29 @@ def _portal_document_signoff_document(request, document_type: str, document_id: 
     return document, None
 
 
+@require_http_methods(['GET'])
+def portal_document_physical_signoff_preview(request, signoff_id: str):
+    from django.http import HttpResponse
+    from django.shortcuts import get_object_or_404
+    from core.models import DocumentPhysicalSignoff
+    from core.services.compliance_audit import record_sensitive_access
+    denied = _portal_read_access_error(request, capability='portal.documents.view')
+    if denied:
+        return denied
+    signoff = get_object_or_404(DocumentPhysicalSignoff, pk=signoff_id)
+    document = signoff.requisition_batch or signoff.payment_document
+    if not _portal_saved_document_in_scope(request, document.order_number, document.farmer_ids, capability='portal.documents.view'):
+        return JsonResponse({'ok': False, 'error': 'This signed scan is outside your access.'}, status=403)
+    content = bytes(signoff.scan_file_content or b'')
+    if not content:
+        return JsonResponse({'ok': False, 'error': 'The signed scan is unavailable.'}, status=404)
+    record_sensitive_access(workflow='portal', action='portal.document_signoff.preview', subject_type='document_physical_signoff', subject_id=str(signoff.pk), actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request), request_id=_portal_request_id(request))
+    response = HttpResponse(content, content_type=signoff.scan_content_type or 'application/octet-stream')
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_document_physical_signoff_upload(request, document_type: str, document_id: str):
@@ -9422,6 +9444,7 @@ def portal_document_physical_signoff_upload(request, document_type: str, documen
             actor=getattr(request, 'portal_user', None),
             access=getattr(request, 'portal_access', None),
             request_id=_portal_request_id(request),
+            replaces_signoff_id=str(request.POST.get('replaces_signoff_id') or ''),
         )
     except PhysicalSignoffError as exc:
         return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)

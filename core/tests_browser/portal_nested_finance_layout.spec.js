@@ -6,6 +6,7 @@ const { test, expect } = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 
 async function loadPortalStyles(page) {
+  await page.addScriptTag({ path: asset('portal_helpers.js') });
   for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
     await page.addStyleTag({ path: asset(name) });
   }

@@ -47,6 +47,14 @@
     return `${day}-${month}-${year}`;
   }
 
+  function phoneLink(value) {
+    const text = String(value || '').trim();
+    const digits = text.replace(/[^0-9+]/g, '');
+    return /\d{7,}/.test(digits)
+      ? `<a class="portal-phone-link" href="tel:${escapeHtml(digits)}" aria-label="Call ${escapeHtml(text)}">${escapeHtml(text)}</a>`
+      : escapeHtml(text || 'Phone not provided');
+  }
+
   function fmtDateTime(value) {
     if (utils.formatDateTime) return utils.formatDateTime(value);
     return fmtDate(value);
@@ -112,7 +120,7 @@
       return `
         <div class="batch-client-row">
           <div class="name">${escapeHtml(farmer.customer_name || 'Unnamed client')}</div>
-          <div class="meta">ID ${escapeHtml(farmer.national_id || '-')} | ${escapeHtml(farmer.primary_phone || '-')} | ${escapeHtml(locationText(farmer))}</div>
+          <div class="meta">ID ${escapeHtml(farmer.national_id || '-')} | ${phoneLink(farmer.primary_phone)} | ${escapeHtml(locationText(farmer))}</div>
           <div class="meta">${escapeHtml(invoice)}${farmer.invoice_amount ? ' | KES ' + escapeHtml(farmer.invoice_amount) : ''}</div>
           ${missing.length ? `<div class="batch-warning" style="margin-top:8px;">Missing: ${missing.map(escapeHtml).join(', ')}</div>` : ''}
         </div>
@@ -230,6 +238,7 @@
   }
 
   window.PortalMiniAppHelpers = {
+    phoneLink,
     creditBadge,
     batchClientRows,
     bindHoldToCopy,
@@ -247,4 +256,8 @@
     summaryGrid,
     validateInvoiceFile,
   };
+  // A contact link is an action of its own, not a click on the containing case.
+  document.addEventListener('click', event => {
+    if (event.target.closest('a[href^="tel:"]')) event.stopPropagation();
+  }, true);
 })();

@@ -237,7 +237,7 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         return 'Installation in Progress'
 
     if farmer.order_number:
-        return 'Order Awaiting Signed Confirmation'
+        return 'Awaiting signed order'
 
     if state == JawabuWorkflowState.ORDER:
         return 'Ready for Order'

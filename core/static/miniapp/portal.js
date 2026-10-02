@@ -1259,7 +1259,7 @@
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-secondary btn-view-batch" data-order="${escapeHtml(b.order_number)}">View</button>
-              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || '')}" ${b.drive_url ? '' : 'disabled'}>Open in Drive</button>
+              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || '')}" ${b.drive_url ? '' : 'disabled'} aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>
               ${b.drive_sync_status === 'retryable_failure' && hasCapability('portal.requisition.write') ? `<button class="btn btn-secondary btn-retry-batch" data-order="${escapeHtml(b.order_number)}">Retry storage</button>` : ''}
               ${hasCapability('portal.invoice.write') ? `<button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>` : ''}
             </div>
@@ -1372,7 +1372,7 @@
       return `
         <div class="batch-client-row">
           <div class="name">${escapeHtml(f.customer_name || 'Unnamed client')}</div>
-          <div class="meta">ID ${escapeHtml(f.national_id || '-')} | ${escapeHtml(f.primary_phone || '-')} | ${escapeHtml(f.county || '-')}</div>
+          <div class="meta">ID ${escapeHtml(f.national_id || '-')} | ${window.PortalMiniAppHelpers.phoneLink(f.primary_phone)} | ${escapeHtml(f.county || '-')}</div>
           <div class="meta">${escapeHtml(invoice)}${f.invoice_amount ? ' | KES ' + escapeHtml(f.invoice_amount) : ''}</div>
           ${missing.length ? `<div class="batch-warning" style="margin-top:8px;">Missing: ${missing.map(escapeHtml).join(', ')}</div>` : ''}
         </div>
@@ -1454,7 +1454,7 @@
         </div>
         <div class="jbl-queue-card-details">
           <span class="jbl-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
-          <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>${phone}</span></span>
+          <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>${window.PortalMiniAppHelpers.phoneLink(f.primary_phone)}</span>
         </div>
         <div class="jbl-queue-card-bottom">
           <span class="badge badge-grey">Unit ${unit}</span>
@@ -1491,7 +1491,7 @@
       </div>
       <div class="operational-queue-card-details">
         <span class="operational-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
-        <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>${phone}</span></span>
+        <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>${window.PortalMiniAppHelpers.phoneLink(f.primary_phone)}</span>
       </div>
       ${badges.length ? `<div class="operational-queue-card-bottom">${badges.join('')}</div>` : ''}
     </div>`;
@@ -1700,7 +1700,7 @@
     const status = String(signoff.status || 'awaiting_signed_scan');
     const role = signoff.approval_role ? `Configured approver: ${escapeHtml(signoff.approval_role)}.` : 'No approver role is configured.';
     if (status === 'signed_approved') {
-      return `<section class="physical-signoff physical-signoff-approved"><div><strong>Signed &amp; stamped scan retained</strong><span>${role} Hash: ${escapeHtml(String(signoff.scan_checksum || '').slice(0, 12))}&hellip;</span></div>${signoff.drive_url ? `<button type="button" class="btn btn-secondary history-open-signed-scan" data-url="${escapeHtml(signoff.drive_url)}">Open signed scan</button>` : ''}</section>`;
+      return `<section class="physical-signoff physical-signoff-approved"><div><strong>Signed scan</strong><span>${escapeHtml(signoff.scan_filename || '')}</span></div><div class="history-document-actions">${signoff.preview_url ? `<button type="button" class="btn btn-secondary history-preview-signed-scan" data-url="${escapeHtml(signoff.preview_url)}" data-filename="${escapeHtml(signoff.scan_filename)}" aria-label="Preview signed scan" title="Preview signed scan"><i data-lucide="file-search" aria-hidden="true"></i></button>` : ''}${signoff.drive_url ? `<button type="button" class="btn btn-secondary history-open-signed-scan" data-url="${escapeHtml(signoff.drive_url)}" aria-label="Open signed scan in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}</div></section>${signoff.can_replace ? signedScanUploadMarkup(document, type, signoff.id) : ''}${signoff.pending_replacement ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.pending_replacement.id)}">Retry replacement</button>` : ''}`;
     }
     if (status === 'legacy_not_signable') {
       return `<section class="physical-signoff physical-signoff-muted"><div><strong>Legacy workbook</strong><span>Its source bytes were not retained. Regenerate this document before attaching a signed scan.</span></div></section>`;
@@ -1717,7 +1717,11 @@
     if (!signoff.can_upload) {
       return `<section class="physical-signoff physical-signoff-muted"><div><strong>Awaiting signed &amp; stamped scan</strong><span>${role}</span></div></section>`;
     }
-    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>Attach signed &amp; stamped scan</strong><small>${role} The original Excel stays unchanged.</small></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">Upload signed scan</button></div></details>`;
+    return signedScanUploadMarkup(document, type);
+  }
+
+  function signedScanUploadMarkup(document, type, replaces = '') {
+    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>${replaces ? 'Replace signed scan' : 'Attach signed scan'}</strong></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-replaces="${escapeHtml(replaces)}" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">${replaces ? 'Replace scan' : 'Upload signed scan'}</button></div></details>`;
   }
 
   function priorPhysicalSignoffsMarkup(document) {
@@ -1752,7 +1756,7 @@
         ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting Head of Rural review'}</span>` : ''}
         <div class="history-document-actions">
           <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
-          ${doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-download="true" data-filename="${escapeHtml(doc.filename || `${kind === 'payments' ? 'Payment' : 'Order'}-${doc.payment_number || doc.order_number || 'workbook'}.xlsx`)}" data-url="${escapeHtml(doc.download_url)}">Download workbook</button>` : doc.drive_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url)}">Open in Drive</button>` : ''}
+          ${doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-download="true" data-filename="${escapeHtml(doc.filename || `${kind === 'payments' ? 'Payment' : 'Order'}-${doc.payment_number || doc.order_number || 'workbook'}.xlsx`)}" data-url="${escapeHtml(doc.download_url)}">Download workbook</button>` : doc.drive_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url)}" aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}
         </div>
         ${physicalSignoffMarkup(doc, kind)}
         ${priorPhysicalSignoffsMarkup(doc)}
@@ -1771,6 +1775,8 @@
     });
     const partnerFilters = el('history-order-partner-filters');
     if (partnerFilters) partnerFilters.hidden = kind !== 'orders';
+    const chip = el('history-partner-chip');
+    if (chip) { chip.hidden = kind !== 'orders' || historyPartner === 'all'; chip.textContent = historyPartner === 'HB' ? 'HB' : 'Eco-conserve'; }
     partnerFilters?.querySelectorAll('[data-history-partner]').forEach(button => {
       const selected = button.dataset.historyPartner === historyPartner;
       button.classList.toggle('btn-primary', selected);
@@ -1789,6 +1795,7 @@
       ? collapsePaymentHistoryVersions(data.documents || [])
       : (data.documents || []);
     renderDocumentHistory(documents, kind);
+    window.lucide?.createIcons();
   }
 
   function caseHistoryUrl(farmerId, source = state.activePage) {
@@ -1878,7 +1885,7 @@
     const farmers = data.farmers || [];
     target.innerHTML = farmers.length ? farmers.map(farmer => `
       <article class="farmer-card case-history-result">
-        <div class="fc-top"><div><div class="fc-name">${escapeHtml(farmer.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([farmer.national_id, farmer.primary_phone].filter(Boolean).join(' | ') || 'No ID or telephone recorded')}</div></div></div>
+        <div class="fc-top"><div><div class="fc-name">${escapeHtml(farmer.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml(farmer.national_id || 'No ID')} | ${window.PortalMiniAppHelpers.phoneLink(farmer.primary_phone)}</div></div></div>
         <div class="fc-sub">${escapeHtml(locationText(farmer))}</div>
         <button type="button" class="btn btn-primary case-history-open" data-farmer-id="${escapeHtml(farmer.id)}">Open Case History</button>
       </article>`).join('') : '<div class="empty-state"><div class="es-title">No matching cases</div><div class="es-sub">Check the spelling, telephone number, or national ID.</div></div>';
@@ -2396,7 +2403,7 @@
     }
   }
 
-  document.addEventListener('click', event => {
+  document.addEventListener('click', async event => {
     const dormantWorkspaceControl = event.target.closest(
       '[data-portal-workspace], .workspace-manage, .workspace-clear-recents, '
       + '.workspace-open-case, .workspace-toggle-pin, .workspace-open-view, '
@@ -2556,6 +2563,12 @@
       openPortalLink(signedScanButton.dataset.url || '');
       return;
     }
+    const previewScanButton = event.target.closest('.history-preview-signed-scan');
+    if (previewScanButton) {
+      event.preventDefault();
+      portalFarmerSheet.openDocumentPreview({ preview_url: previewScanButton.dataset.url, preview_title: 'Signed scan', name: previewScanButton.dataset.filename || 'Signed scan', mime_type: previewScanButton.dataset.mime });
+      return;
+    }
     const uploadSignedScanButton = event.target.closest('.history-upload-signed-scan');
     if (uploadSignedScanButton) {
       event.preventDefault();
@@ -2569,6 +2582,15 @@
       const formData = new FormData();
       formData.append('signed_scan', file);
       formData.append('attested_complete', 'true');
+      if (uploadSignedScanButton.dataset.replaces) {
+        if (uploadSignedScanButton.disabled) return;
+        uploadSignedScanButton.disabled = true;
+        if (!await portalInvoices.confirmAction('Replace signed scan?', 'The previous scan stays in history. Case progress and approvals remain unchanged.', 'Replace scan')) {
+          uploadSignedScanButton.disabled = false;
+          return;
+        }
+        formData.append('replaces_signoff_id', uploadSignedScanButton.dataset.replaces);
+      }
       const status = card?.querySelector('.history-signed-scan-status');
       if (status) status.textContent = `Uploading ${file.name}…`;
       setButtonLoading(uploadSignedScanButton, true, 'Uploading...');
@@ -2672,13 +2694,6 @@
       setButtonLoading(button, true, 'Saving');
       savePortalTatTargets(form).catch(error => showToast(error.message || 'Portal TAT targets could not be saved.', 'error'))
         .finally(() => setButtonLoading(button, false));
-      return;
-    }
-    const historyPartnerButton = event.target.closest('[data-history-partner]');
-    if (historyPartnerButton) {
-      event.preventDefault();
-      historyPartner = historyPartnerButton.dataset.historyPartner || 'all';
-      loadHistory('orders');
       return;
     }
     if (!PORTAL_WORKSPACE_UI_ENABLED && (
@@ -2936,6 +2951,21 @@
       return;
     }
     portalFarmerSheet.openNewJblLeadSheet?.();
+  });
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('#history-filter-open, #history-filter-close, #history-filter-apply, #history-filter-clear');
+    const sheet = el('history-filter-sheet');
+    if (!sheet) return;
+    if (event.target === sheet || button?.id === 'history-filter-close') {
+      sheet.classList.remove('open'); sheet.setAttribute('aria-hidden', 'true'); el('history-filter-open')?.focus();
+    } else if (button?.id === 'history-filter-open') {
+      el('history-partner').value = historyPartner;
+      sheet.classList.add('open'); sheet.setAttribute('aria-hidden', 'false'); el('history-partner').focus();
+    } else if (button) {
+      historyPartner = button.id === 'history-filter-clear' ? 'all' : el('history-partner').value;
+      sheet.classList.remove('open'); sheet.setAttribute('aria-hidden', 'true'); el('history-filter-open')?.focus(); loadHistory(historyKind);
+    }
   });
   if (portalHbActions.init) {
     portalHbActions.init({

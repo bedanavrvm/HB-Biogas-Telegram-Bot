@@ -202,6 +202,7 @@ from .portal_views import (
     portal_document_order_preview,
     portal_document_physical_signoff_upload,
     portal_document_physical_signoff_retry,
+    portal_document_physical_signoff_preview,
     portal_payment_document_detail,
     portal_all_cases,
     portal_deferred,
@@ -609,6 +610,7 @@ urlpatterns = [
     path('portal/document-history/orders/<uuid:document_id>/preview/', portal_auth_required(portal_document_order_preview), name='portal_document_order_preview'),
     path('portal/document-signoffs/<str:document_type>/<str:document_id>/upload/', portal_auth_required(portal_document_physical_signoff_upload), name='portal_document_physical_signoff_upload'),
     path('portal/document-signoffs/<str:signoff_id>/retry/', portal_auth_required(portal_document_physical_signoff_retry), name='portal_document_physical_signoff_retry'),
+    path('portal/document-signoffs/<str:signoff_id>/preview/', portal_auth_required(portal_document_physical_signoff_preview), name='portal_document_physical_signoff_preview'),
     path('portal/payment-document-history/<str:document_id>/', portal_auth_required(portal_payment_document_detail), name='portal_payment_document_detail'),
     # All cases + deferred
     path('portal/farmers/', portal_auth_required(portal_all_cases), name='portal_all_cases'),

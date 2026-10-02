@@ -170,7 +170,7 @@
       const table = !rows.length
         ? '<div class="empty-state"><div class="es-title">No source rows</div><div class="es-sub">This staged file has no non-blank source rows to display.</div></div>'
         : `<details class="portal-import-source"><summary>Source rows <span>${escapeHtml(totalRows)}</span></summary><div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
-      target.innerHTML = `<div class="portal-import-review-heading"><div><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
+      target.innerHTML = `<div class="portal-import-review-heading"><div><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close" aria-label="Close review" title="Close review"><i data-lucide="x" aria-hidden="true"></i></button></div>${table}`;
       if (activeReviewRows.length) {
         const allRowsAlreadyCurrent = activeReviewRows.every(row => row['Import Status'] === 'already_current');
         const commitLabel = allRowsAlreadyCurrent ? 'Close unchanged batch' : 'Commit selected';

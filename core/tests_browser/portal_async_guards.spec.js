@@ -81,6 +81,7 @@ test('invoice list keeps newer search results when an earlier request finishes l
     <div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"></div>
     <div id="invoice-pool-summary"></div><div id="invoice-pool-list"></div><div id="pg-invoices"></div>
   `);
+  await page.addScriptTag({ path: asset('portal_helpers.js') });
   await page.addScriptTag({ path: asset('portal_invoices.js') });
   await page.evaluate(() => {
     window.requests = [];

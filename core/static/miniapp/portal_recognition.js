@@ -27,6 +27,7 @@
     if (open) state.returnFocus = document.activeElement;
     node.classList.toggle('open', open);
     node.setAttribute('aria-hidden', String(!open));
+    document.body.classList.toggle('portal-overlay-open', open);
     window.dispatchEvent(new Event('portal:case-route-change'));
     if (open) node.querySelector('.sheet-close-button')?.focus();
     else (state.returnFocus?.isConnected ? state.returnFocus : $('portal-performance-filter'))?.focus();

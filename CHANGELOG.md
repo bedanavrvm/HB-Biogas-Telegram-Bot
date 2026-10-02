@@ -1,5 +1,32 @@
 # Changelog
 
+## Portal compact controls and document cleanup - 2-October-2026
+
+- Performance filters and score details use compact, content-sized sheets with
+  right-aligned close controls. Notification tasks scroll inside their panel.
+  Secondary document actions use distinct preview/Drive icons with accessible labels.
+- Queue contact numbers open the dialler without opening the case. Mobile paging
+  shows previous/current/next instead of crowding the row. HB status pills share
+  the available width; payment Refresh is right-aligned and order totals share a row.
+- Document History partner selection now lives in a filter. Order invoice status
+  uses actual matched counts rather than a missing upload-log message. Removed
+  the two unwanted National ID/FarmUp helper labels without weakening validation.
+- Duplicate selection works without first applying a duplicate filter. Bulk cleanup
+  retains an original and protects payment/identity-change evidence; skipped items
+  have specific explanations. Removal hides the invoice but retains audit evidence;
+  existing Drive archival rules do not move a PDF with other active invoice pages.
+- Signed-scan replacement requires confirmation, not a note. Previous scans stay
+  retained, previews recheck access, and successful replacement does not replay
+  installation release or payment completion. Late preview responses are discarded.
+- Deploy migration `core.0198_physical_scan_replacement` with the new code, then
+  refresh Mini App sessions. No environment variables or external setup changed.
+  Do not roll back scan-status support after replacements without reconciling the
+  retained superseded scans; never delete their evidence to make rollback fit.
+- Verified: 77 focused PostgreSQL tests, 59 browser tests (including 320–430px,
+  larger screens and light/dark Performance layouts), nine Node groups and JS syntax.
+  Mobile screenshots were inspected. Broader pipeline failures are recorded in
+  `KNOWN_GAPS.md`; live Telegram/Drive behavior was not exercised.
+
 ## Complaint HB comments - 2-October-2026
 
 - HB staff can save timestamped resolution comments without closing a complaint,

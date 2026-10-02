@@ -1461,7 +1461,7 @@
         : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${disabled ? ' disabled' : ''}>`;
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
-    const identifierHelp = field.type === 'national_id' ? 'Do not enter Card Serial No.' : '';
+    const identifierHelp = field.type === 'national_id' ? '' : '';
     const helpText = [field.help_text, identifierHelp].filter(Boolean).join(' ');
     const help = helpText ? `<small class="field-help">${escapeHtml(helpText)}</small>` : '';
     const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('field', field.key, normalizeLabel(field)) : '';

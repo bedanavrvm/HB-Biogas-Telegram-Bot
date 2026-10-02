@@ -576,7 +576,7 @@
     return items.map(item => `
       <div class="batch-client-row">
         <div class="name">${deps.escapeHtml(item.customer_name || 'Unnamed client')}</div>
-        <div class="meta">ID ${deps.escapeHtml(item.national_id || '-')} | ${deps.escapeHtml(item.primary_phone || '-')}</div>
+        <div class="meta">ID ${deps.escapeHtml(item.national_id || '-')} | ${window.PortalMiniAppHelpers.phoneLink(item.primary_phone)}</div>
         <div class="batch-warning" style="margin-top:8px;">Missing: ${(item.missing || []).map(deps.escapeHtml).join(', ')}</div>
       </div>
     `).join('');
@@ -598,7 +598,7 @@
       target.innerHTML = `
         <div class="batch-warning" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;margin-top:10px;">
           ${label} generated: ${deps.escapeHtml(doc.filename || '')}
-          ${doc.drive_url ? `<button type="button" class="btn btn-secondary" id="batch-payment-open" style="margin-top:8px;width:100%;justify-content:center;">Open in Drive</button>` : ''}
+          ${doc.drive_url ? `<button type="button" class="btn btn-secondary" id="batch-payment-open" style="margin-top:8px;width:100%;justify-content:center;" aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}
         </div>
       `;
       el('batch-payment-open')?.addEventListener('click', () => deps.openPortalLink(doc.drive_url));
@@ -758,20 +758,23 @@
     const driveRetryNeeded = batch.drive_sync_status === 'retryable_failure';
     actions.innerHTML = `
       ${hasRequisitionOutput
-        ? '<button class="btn btn-primary" id="batch-detail-download">Open in Drive</button>'
+        ? '<button class="btn btn-primary" id="batch-detail-download" aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>'
         : drivePending
           ? '<button class="btn btn-primary" disabled>Saving to Drive…</button>'
           : driveRetryNeeded
             ? '<button class="btn btn-secondary" id="batch-detail-retry-sync">Retry Drive storage</button>'
             : '<span class="badge badge-grey">Legacy batch has no stored final form</span>'}
-      <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
+      <button class="btn btn-secondary" id="batch-detail-preview" aria-label="Preview in App" title="Preview in App"><i data-lucide="file-search" aria-hidden="true"></i></button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
     `;
+    window.lucide?.createIcons();
     if (inv.last_invoice_upload_status) {
       const cls = inv.last_invoice_upload_status === 'success' ? 'badge-green' : inv.last_invoice_upload_status === 'partial' ? 'badge-orange' : 'badge-red';
       invoiceResult.innerHTML = `<span class="badge ${cls}">Last invoice upload: ${deps.escapeHtml(inv.last_invoice_upload_status)}</span>${inv.last_invoice_upload_error ? `<div class="batch-warning" style="margin-top:8px;">${deps.escapeHtml(inv.last_invoice_upload_error)}</div>` : ''}`;
     } else {
-      invoiceResult.innerHTML = '<span class="badge badge-grey">No invoice upload recorded</span>';
+      invoiceResult.innerHTML = inv.invoiced_count > 0
+        ? `<span class="badge badge-green">${inv.invoiced_count} invoiced</span>`
+        : '<span class="badge badge-grey">Awaiting invoices</span>';
     }
     if (batch.drive_sync_status === 'pending') {
       invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-orange">Drive storage pending</span>');

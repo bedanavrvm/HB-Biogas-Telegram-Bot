@@ -38,7 +38,7 @@
       </span>
       <span class="jbl-queue-card-meta jbl-queue-card-phone">
         <i data-lucide="phone" aria-hidden="true"></i>
-        <span>{{ farmer.primary_phone|default:"Phone not provided" }}</span>
+        {% if farmer.primary_phone %}<a class="portal-phone-link" href="tel:{{ farmer.primary_phone }}">{{ farmer.primary_phone }}</a>{% else %}<span>Phone not provided</span>{% endif %}
       </span>
     </div>
     <div class="jbl-queue-card-bottom">
@@ -64,7 +64,7 @@
     </div>
     <div class="operational-queue-card-details">
       <span class="operational-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>{{ farmer.location_label|default:"Location not provided" }}</span></span>
-      <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>{{ farmer.primary_phone|default:"Phone not provided" }}</span></span>
+      <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>{% if farmer.primary_phone %}<a class="portal-phone-link" href="tel:{{ farmer.primary_phone }}">{{ farmer.primary_phone }}</a>{% else %}<span>Phone not provided</span>{% endif %}</span>
     </div>
     <div class="operational-queue-card-bottom">
       {% if farmer.unit_number %}<span class="badge badge-grey">Unit {{ farmer.unit_number }}</span>{% endif %}

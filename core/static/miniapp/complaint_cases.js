@@ -1075,8 +1075,8 @@
       return 'National ID / Maisha Namba is required.';
     }
     if (!/^\d{1,9}$/.test(value)) {
-      input?.setCustomValidity?.('National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.'); input?.reportValidity?.();
-      return 'National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.';
+      input?.setCustomValidity?.('National ID / Maisha Namba must contain 1 to 9 digits only.'); input?.reportValidity?.();
+      return 'National ID / Maisha Namba must contain 1 to 9 digits only.';
     }
     input?.setCustomValidity?.(''); return '';
   }

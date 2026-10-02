@@ -342,7 +342,7 @@
 
   function caseDetails(item) {
     const value = (itemValue, fallback = 'Not recorded') => escape(itemValue || fallback);
-    return `<div class="payment-case-identifiers"><span>${value(item.case_reference, 'Case reference unavailable')}</span><span>ID ${value(item.national_id)}</span><span>${value(item.primary_phone, 'Phone not recorded')}</span></div>
+    return `<div class="payment-case-identifiers"><span>${value(item.case_reference, 'Case reference unavailable')}</span><span>ID ${value(item.national_id)}</span><span>${window.PortalMiniAppHelpers.phoneLink(item.primary_phone)}</span></div>
       <dl class="payment-case-details">
         <div><dt>Branch</dt><dd>${value(item.branch)}</dd></div>
         <div><dt>Loan officer</dt><dd>${value(item.loan_officer, 'Unassigned')}</dd></div>
