@@ -127,6 +127,14 @@
 
   function syncBackButton() {
     if (!tg?.BackButton) return;
+    const receiptPreview = document.getElementById('payment-receipt-preview');
+    if (receiptPreview?.open) {
+      clearBackHandler();
+      backHandler = () => document.getElementById('payment-receipt-preview-close')?.click();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     const openOverlay = [...document.querySelectorAll('#content .sheet-overlay.open')]
       .map((overlay, index) => ({
         overlay,
@@ -231,6 +239,7 @@
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('portal:inbox-change', syncBackButton);
+  window.addEventListener('portal:dialog-change', syncBackButton);
   window.addEventListener('portal:case-route-change', () => {
     syncBackButton();
     syncMainButton();

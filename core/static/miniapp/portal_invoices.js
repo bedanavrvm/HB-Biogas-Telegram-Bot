@@ -192,12 +192,14 @@
     const selectAll = el('invoice-select-all-duplicates');
     const deleteButton = el('invoice-bulk-delete-duplicates');
     if (selectAll) selectAll.hidden = !duplicateReview;
-    if (deleteButton) deleteButton.hidden = !duplicateReview || !selectedCount;
-    if (el('invoice-bulk-ignore')) el('invoice-bulk-ignore').hidden = !selectedCount;
-    if (el('invoice-bulk-restore')) el('invoice-bulk-restore').hidden = !selectedCount;
+    if (deleteButton) deleteButton.hidden = true; // Old shells retain this button; Delete selected covers both paths.
+    if (el('invoice-bulk-delete')) el('invoice-bulk-delete').hidden = !duplicateReview || !selectedCount;
+    if (el('invoice-bulk-ignore')) el('invoice-bulk-ignore').hidden = !selectedCount || state.workspace === 'ignored';
+    if (el('invoice-bulk-restore')) el('invoice-bulk-restore').hidden = !selectedCount || state.workspace !== 'ignored';
   }
 
   function renderInvoices(invoices) {
+    state.invoices = invoices;
     const target = el('invoice-pool-list');
     if (!target) return;
     if (!invoices.length) {
@@ -216,7 +218,7 @@
       const orderReferenceAlert = invoice.order_reference_alert || null;
       const secondaryActions = [
         canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
-        canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
+        canWriteInvoices() && ['draft', 'unmatched', 'ambiguous', 'matched'].includes(invoice.status) ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].filter(Boolean).join('');
       const reviewReason = orderReferenceAlert ? ''
@@ -385,6 +387,7 @@
         renderPagination(result.data.pagination || {});
       }
       if (window.lucide) window.lucide.createIcons();
+      if (canWriteInvoices()) cleanupFiles(false, true);
     } catch (_) {
       if (!invoicesScreenIsActive() || requestVersion !== listRequestVersion) return;
       const list = el('invoice-pool-list');
@@ -506,13 +509,14 @@
       canWriteInvoices() ? '<button type="button" class="invoice-record-action invoice-parsed-edit-toggle" title="Edit parsed fields" aria-label="Edit parsed fields"><i data-lucide="pencil" aria-hidden="true"></i><span>Edit fields</span></button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous', 'ignored'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
       canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-record-action invoice-detail-unmatch-action" title="Change applicant match" aria-label="Change applicant match"><i data-lucide="user-round-search" aria-hidden="true"></i><span>Change match</span></button>' : '',
-      canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="invoice-record-action invoice-detail-ignore-action" title="Ignore invoice" aria-label="Ignore invoice"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Ignore</span></button>' : '',
+      canWriteInvoices() && ['draft', 'unmatched', 'ambiguous', 'matched'].includes(invoice.status) ? '<button type="button" class="invoice-record-action invoice-detail-ignore-action" title="Ignore invoice" aria-label="Ignore invoice"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Ignore</span></button>' : '',
       canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-record-action invoice-detail-restore-action" title="Restore invoice" aria-label="Restore invoice"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore</span></button>' : '',
+      canWriteInvoices() ? '<button type="button" class="invoice-record-action invoice-detail-delete-action" title="Delete invoice" aria-label="Delete invoice"><i data-lucide="trash-2" aria-hidden="true"></i><span>Delete</span></button>' : '',
     ].join('');
     const duplicateHtml = duplicates.length
       ? duplicates.map(function (dup) {
         const reasons = (dup.duplicate_reasons || []).join(', ') || 'Possible duplicate';
-        const remove = canWriteInvoices() && !['matched', 'ignored'].includes(dup.status)
+        const remove = canWriteInvoices()
           ? '<button type="button" class="invoice-duplicate-remove" data-duplicate-ignore="' + escapeHtml(dup.id) + '" aria-label="Remove duplicate invoice ' + escapeHtml(dup.invoice_no || '') + '" title="Remove duplicate from active invoices"><i data-lucide="trash-2" aria-hidden="true"></i></button>'
           : '';
         return '<div class="batch-client-row invoice-duplicate-row"><div><div class="name">Invoice ' + escapeHtml(dup.invoice_no || '-') + '</div><div class="meta">' + escapeHtml(reasons) + ' | ' + escapeHtml(dup.customer_name || '-') + ' | ' + escapeHtml(dup.status || '-') + '</div></div>' + remove + '</div>';
@@ -626,6 +630,11 @@
     });
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
+    target.querySelector('.invoice-detail-delete-action')?.addEventListener('click', async function () {
+      state.selectedIds = new Set([invoice.id]);
+      state.invoices = [invoice];
+      if (await bulkInvoiceAction('delete')) navigate('inbox');
+    });
     target.querySelectorAll('[data-duplicate-ignore]').forEach(function (button) {
       button.addEventListener('click', async function () {
         await deleteDuplicateInvoice(button.dataset.duplicateIgnore);
@@ -1045,20 +1054,20 @@
   async function bulkInvoiceAction(action, options = {}) {
     const ids = Array.from(state.selectedIds);
     if (!ids.length) return deps.showToast('Select at least one invoice first.', 'error');
-    const label = action === 'restore' ? 'restore' : action === 'delete_duplicates' ? 'delete' : 'ignore';
-    const title = label === 'delete' ? 'Delete selected duplicates?' : (label === 'restore' ? 'Restore' : 'Ignore') + ' selected invoices?';
+    const label = action === 'restore' ? 'restore' : ['delete', 'delete_duplicates'].includes(action) ? 'delete' : 'ignore';
+    const title = label === 'delete' ? 'Delete selected invoices?' : (label === 'restore' ? 'Restore' : 'Ignore') + ' selected invoices?';
     const message = label === 'delete'
-      ? ids.length + ' duplicate invoice(s) will be permanently removed from review and cannot be restored. Audit history is retained. A shared PDF is kept while another invoice in the same file remains active.'
+      ? ids.length + ' invoice(s) will be removed from the database. Unused PDFs will be deleted from Drive. Shared files and protected payment evidence are kept. This cannot be undone.'
       : ids.length + ' invoice(s) will be ' + (label === 'restore' ? 'returned to review.' : 'moved to Ignored. Matching is never performed in bulk.');
     const confirmed = await confirmInvoiceAction(
       title,
       message,
-      label === 'restore' ? 'Restore selected' : label === 'delete' ? 'Delete duplicates' : 'Ignore selected',
+      label === 'restore' ? 'Restore selected' : label === 'delete' ? 'Delete invoices' : 'Ignore selected',
     );
     if (!confirmed) return false;
     const response = await deps.apiFetch('/invoice-pool/bulk-action/', {
       method: 'POST',
-      body: JSON.stringify({ action: action, invoice_ids: ids }),
+      body: JSON.stringify({ action: action, invoice_ids: ids, revisions: Object.fromEntries((state.invoices || []).filter(item => ids.includes(item.id)).map(item => [item.id, item.revision])) }),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Bulk action failed.', 'error');
@@ -1076,7 +1085,21 @@
     const reasons = [...new Set((response.data.skipped || []).map(item => item.reason).filter(Boolean))];
     deps.showToast(actionMessage + changed + ' invoice(s)' + (skipped ? '; kept ' + skipped + ': ' + reasons.join('; ') : '') + '.' + sharedPdfNote + filedPdfNote + (driveWarning ? ' ' + driveWarning : ''), skipped || driveWarning ? 'warning' : 'success');
     load(state.page);
+    if (label === 'delete') cleanupFiles();
     return true;
+  }
+
+  async function cleanupFiles(retry = false, quiet = false) {
+    try {
+      const response = await deps.apiFetch('/invoice-pool/cleanup/', {method: 'POST', body: JSON.stringify({retry})});
+      if (!response.ok || !response.data?.ok) throw new Error('Cleanup unavailable');
+      const pending = Number(response.data?.pending_count || 0);
+      if (el('invoice-retry-cleanup')) el('invoice-retry-cleanup').hidden = !pending;
+      if (pending && !quiet) deps.showToast('Invoices removed. PDF cleanup is pending; you can continue working.', 'warning');
+    } catch (_) {
+      if (el('invoice-retry-cleanup')) el('invoice-retry-cleanup').hidden = false;
+      if (!quiet) deps.showToast('Invoices removed. PDF cleanup will retry separately.', 'warning');
+    }
   }
 
   async function selectAllFilteredDuplicates() {
@@ -1423,12 +1446,14 @@
     if (document.documentElement.dataset.invoiceBulkActionsBound === 'true') return;
     document.documentElement.dataset.invoiceBulkActionsBound = 'true';
     document.addEventListener('click', function (event) {
-      const button = event.target.closest('#invoice-select-all-duplicates, #invoice-bulk-delete-duplicates, #invoice-bulk-ignore, #invoice-bulk-restore, #invoice-selection-clear');
+      const button = event.target.closest('#invoice-select-all-duplicates, #invoice-bulk-delete-duplicates, #invoice-bulk-delete, #invoice-retry-cleanup, #invoice-bulk-ignore, #invoice-bulk-restore, #invoice-selection-clear');
       if (!button) return;
       if (button.id === 'invoice-select-all-duplicates') {
         selectAllFilteredDuplicates();
         return;
       }
+      if (button.id === 'invoice-bulk-delete') return bulkInvoiceAction('delete');
+      if (button.id === 'invoice-retry-cleanup') return cleanupFiles(true);
       if (button.id === 'invoice-bulk-delete-duplicates') {
         bulkInvoiceAction('delete_duplicates');
         return;

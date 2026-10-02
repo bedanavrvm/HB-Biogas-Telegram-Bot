@@ -166,6 +166,8 @@ def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool
                 'status_label': dict(PaymentReceiptItem.STATUS_CHOICES).get(dispositions[item.pk][0], ''),
                 'reason': dispositions[item.pk][2], 'source_filename': item.source_upload.original_filename,
                 'invoice_id': str(item.invoice_id or ''), 'replacement_invoice_id': str(item.replacement_invoice_id or ''),
+                'preview_url': f'/api/portal/invoice-receipt-items/{item.pk}/preview/' if item.source_upload.drive_file_id else '',
+                'preview_page': item.invoice.page if item.invoice_id else 1,
                 'invoice_no': item.invoice.invoice_no if item.invoice_id else '',
                 'invoice_date': item.invoice.invoice_date.isoformat() if item.invoice_id and item.invoice.invoice_date else '',
                 'invoice_holder_name': item.invoice.customer_name if item.invoice_id else '',
@@ -193,6 +195,9 @@ def create_payment_batch_from_receipt(*, receipt_id, payment_modes, expected_rev
     """
     from payments.services import PaymentBatchError, add_cases, create_batch
 
+    from core.models import GroupSheetConfiguration
+    group_id = PaymentReceiptBatch.objects.values_list('group_configuration_id', flat=True).get(pk=receipt_id)
+    GroupSheetConfiguration.objects.select_for_update().get(pk=group_id)
     receipt = PaymentReceiptBatch.objects.select_for_update().select_related('group_configuration').get(pk=receipt_id)
     if int(expected_revision) != receipt.revision:
         raise PaymentReceiptError('This invoice batch changed while you were working. Refresh it before creating payment.')

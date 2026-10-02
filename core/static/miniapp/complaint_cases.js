@@ -1952,9 +1952,20 @@
     });
     if (state.globalOverview) renderReportCharts(state.globalOverview);
   }));
-  $('reportGranularity').addEventListener('change', event => {
-    state.reportGranularity = event.target.value; refreshReport({ table: false }); utils.haptic?.('light');
+  // One report time grouping, available on every time-series slide. Copies
+  // stay synchronized so swiping never silently changes the population.
+  ['resolution', 'response', 'reopened'].forEach(key => {
+    const head = document.querySelector(`[data-complaint-chart="${key}"] .report-chart-head`);
+    if (!head) return;
+    const label = $('reportGranularity').parentElement.cloneNode(true);
+    label.querySelector('select').removeAttribute('id');
+    head.appendChild(label);
   });
+  document.querySelectorAll('.chart-granularity select').forEach(control => control.addEventListener('change', event => {
+    state.reportGranularity = event.target.value;
+    document.querySelectorAll('.chart-granularity select').forEach(select => { select.value = state.reportGranularity; });
+    refreshReport({ table: false }); utils.haptic?.('light');
+  }));
   $('exportAllBtn').addEventListener('click', () => prepareExport('all'));
   $('exportResultsBtn').addEventListener('click', () => prepareExport('results'));
   $('complaintChartSelection').addEventListener('click', clearComplaintChartSelection);

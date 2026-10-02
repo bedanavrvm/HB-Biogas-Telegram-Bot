@@ -122,3 +122,26 @@ test('empty timing charts remain honest and keyboard-friendly', async ({page})=>
   await page.keyboard.press('Enter');
   await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 8');
 });
+
+test('trend grouping stays synchronized and chart borders match their purpose', async ({page}, info)=>{
+  await page.setViewportSize({width:320,height:850});
+  await openReport(page);
+  await expect(page.locator('.chart-granularity select')).toHaveCount(4);
+  let current = 0;
+  for (const [key, grouping, target] of [['resolution','day',2], ['response','week',6], ['reopened','year',7], ['activity','month',0]]) {
+    while(current !== target) {
+      await page.locator(current < target ? '#complaintChartNext' : '#complaintChartPrevious').click();
+      current += current < target ? 1 : -1;
+    }
+    await page.locator(`[data-complaint-chart="${key}"] .chart-granularity select`).selectOption(grouping);
+    await expect.poll(()=>page.evaluate(()=>window.__reportQueries.filter(item=>item.route==='reports/summary/').at(-1).params.granularity)).toBe(grouping);
+    expect(await page.locator('.chart-granularity select').evaluateAll(nodes=>nodes.map(node=>node.value))).toEqual(Array(4).fill(grouping));
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`${key}-320.png`)});
+  }
+  const widths = await page.evaluate(()=>Array.from(document.querySelectorAll('[data-complaint-chart] canvas')).flatMap(canvas=>{
+    const chart=Chart.getChart(canvas);return chart ? chart.data.datasets.map(dataset=>({type:chart.config.type,width:dataset.borderWidth ?? Chart.defaults.elements.line.borderWidth})) : [];
+  }));
+  expect(widths.filter(item=>item.type==='bar').every(item=>item.width===0)).toBe(true);
+  expect(widths.filter(item=>item.type==='line').every(item=>item.width>0)).toBe(true);
+});

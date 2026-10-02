@@ -74,6 +74,21 @@ These cards are deliberately focused on behavior a person must see or judge. The
 
 ## Payment
 
+### INV-DELETE · Delete versus Ignore
+
+- Do: Ignore and restore an eligible invoice, then delete it through confirmation.
+- Expect: Ignore moves it to the ignored queue; Restore returns it for matching.
+  Delete removes it permanently, with a specific explanation for protected items.
+- Do: Delete one invoice from a combined PDF; then delete its last eligible invoice.
+- Expect: The shared PDF stays until no surviving invoice needs it. Drive cleanup
+  does not block navigation; a failed attempt can be retried without restoring rows.
+
+### PAY-PREVIEW · Delivery invoice preview
+
+- Do: Switch a delivery row to Cash, preview its invoice, then close or go Back.
+- Expect: The same preparation dialog and Cash choice remain. Preview and Drive
+  icons are distinct, aligned, and usable at 320px in both themes.
+
 ### PAY-02 · Candidate card
 
 - Do: Open and close an invoice-matched candidate on a phone.

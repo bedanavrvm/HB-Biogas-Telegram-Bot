@@ -3679,12 +3679,13 @@
         const seriesColor = statusColors[item.key] || semanticColors[item.key] || colors[index % colors.length];
         return {
           label: item.label, data: item.values || [], borderColor: seriesColor,
+          borderWidth: chartType === 'line' ? 2 : 0,
           backgroundColor: pie || (horizontal && (payload.series || []).length === 1)
             ? chartColors((payload.labels || []).length)
             : seriesColor,
           pointBackgroundColor: progressionActual
             ? (payload.stage_states || []).map(value => semanticColors[value] || colors[0])
-            : colors[index % colors.length],
+            : seriesColor,
           pointRadius: progressionActual ? 4 : 3,
           borderDash: key === 'case_progression' && item.key === 'target_minutes' ? [5, 4] : undefined,
           tension: .25, spanGaps: false,

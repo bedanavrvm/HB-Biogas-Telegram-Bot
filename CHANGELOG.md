@@ -1,5 +1,20 @@
 # Changelog
 
+## Invoice cleanup, compact finance actions and chart controls - 2 October 2026
+
+- Delete removes eligible invoice records; Ignore remains reversible. Payment
+  and identity evidence are protected, shared PDFs are retained, and unused
+  Drive PDFs have durable cleanup with explicit retry. Local deletion does not
+  wait for Drive, and independent deletion audit evidence remains.
+- Document history uses aligned preview/download/Drive icons. Payment cards
+  and invoice-delivery actions are compact; each delivery invoice can be
+  previewed without closing the preparation dialog or losing Cash choices.
+- Complaints time-series charts share synchronized Day/Week/Month/Year
+  controls. Filled chart bars and segments no longer have unrelated borders;
+  line charts retain their series-coloured strokes.
+- Synthetic mobile screenshots and PostgreSQL tests cover these changes.
+  No schema migration or real external-service mutation is introduced.
+
 ## Portal shared controls and complete inbox - 2 October 2026
 
 - Performance, score details, notification inbox and filter headings now reuse

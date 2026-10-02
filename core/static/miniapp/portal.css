@@ -2786,13 +2786,26 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .history-tabs { display: flex; gap: 8px; margin: 0 4px 10px; }
 .history-order-partner-filters { display:flex; flex-wrap:wrap; gap:6px; margin:0 4px 10px; }
 .history-order-partner-filters .btn { min-height:34px; padding:6px 12px; }
-.history-document-card { cursor: default; }
+.history-document-card { cursor: default; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 8px; }
+.history-document-card > .fc-sub, .history-document-card > .physical-signoff, .history-document-card > details { grid-column:1 / -1; }
+.history-document-card > .history-document-actions { grid-column:2; grid-row:1; margin:0; flex-wrap:nowrap; align-items:center; }
+.history-document-card > .badge { width:auto; justify-self:start; }
+.history-document-card > .fc-sub { margin:0; font-size:12px; line-height:1.35; }
+.history-document-title { align-self:center; font-size:15px; }
+.portal-app .portal-finance-icon, .portal-app .physical-signoff .history-document-actions .miniapp-icon-button { margin:0; }
+.portal-finance-icon:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.portal-finance-icon:disabled { opacity:.45; }
 .physical-signoff { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); padding: 9px 10px; }
 .physical-signoff > div { min-width: 0; }
 .physical-signoff strong, .physical-signoff span, .physical-signoff small { display: block; }
 .physical-signoff strong { font-size: 11px; }
 .physical-signoff span, .physical-signoff small { margin-top: 2px; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
 .physical-signoff-approved { border-color: rgba(16,185,129,.32); background: rgba(16,185,129,.09); }
+body.portal-app .physical-signoff-approved { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; padding:8px; }
+.physical-signoff-approved > div:first-child { flex:1; }
+.portal-app .physical-signoff-approved .history-document-actions { display:flex; flex-flow:row nowrap; flex:0 0 auto; margin:0; width:auto; }
+.physical-signoff-approved strong { font-size:12px; }
+.physical-signoff-approved span { font-size:11px; overflow-wrap:anywhere; }
 .physical-signoff-warning { border-color: rgba(245,158,11,.36); background: rgba(245,158,11,.09); }
 .physical-signoff-muted { opacity: .86; }
 .physical-signoff-upload { display: block; padding: 0; }
@@ -4687,6 +4700,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 #page-invoices .invoice-list-toolbar .portal-queue-search { width:100%; min-width:0; flex:none; }
 #page-invoices .invoice-list-toolbar .portal-queue-search #invoice-pool-search-clear { position:absolute; top:4px; right:4px; width:36px; min-width:36px; height:36px; min-height:36px; padding:0; }
 #page-invoices .invoice-list-toolbar .portal-queue-search #invoice-pool-search-clear[hidden] { display:none; }
+#invoice-bulk-toolbar [hidden] { display:none !important; }
 #page-invoices .invoice-list-toolbar #invoice-filter-trigger { box-sizing:border-box; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; justify-self:end; }
 .invoice-pool-card { position:relative; display:block; min-width:0; cursor:pointer; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); padding:8px 38px 8px 8px; }
 .invoice-pool-card:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
@@ -4893,7 +4907,7 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .payment-case-summary-facts small { max-width:140px; font-size:11px; }
 .payment-current-case[open] .payment-case-summary-facts small [aria-hidden] { display:inline-block; transform:rotate(180deg); }
 .payment-case-expanded { padding:3px 11px 11px; }
-.payment-case-identifiers { gap:5px 10px; margin-top:7px; font-size:12px; }
+.payment-case-identifiers { gap:5px 10px; margin-top:7px; font-size:12px; align-items:center; }
 .payment-case-identifiers span { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
 .payment-case-details { gap:9px 10px; margin-top:8px; padding-top:8px; }
 .payment-case-details dt { font-size:11px; line-height:1.2; }
@@ -4901,7 +4915,7 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .payment-case-open { min-height:36px; margin-top:7px; border:1px solid var(--brand-primary); background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); color:var(--brand-primary); padding:6px 10px; font-size:12px; }
 .payment-case-open:active { background:color-mix(in srgb,var(--brand-primary) 16%,var(--bg-surface)); }
 .payment-case-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:8px; }
-.payment-case-toolbar .payment-case-open { margin:0; }
+.portal-app .payment-case-toolbar .payment-case-open { margin:0; width:auto; flex:0 0 auto; min-height:40px; }
 .payment-case-toolbar .payment-candidate-cash-toggle { min-height:36px; padding:6px 9px; font-size:12px; }
 .payment-case-toolbar .payment-candidate-cash-toggle svg { width:15px; height:15px; }
 .payment-case-toolbar .payment-remove-case { min-height:36px; margin:0 0 0 auto; padding:6px 8px; font-size:12px; }
@@ -4910,6 +4924,23 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .payment-review-comment { box-sizing:border-box; height:64px; min-height:64px; margin-top:5px; padding:9px; font-size:13px; }
 .payment-case-actions { gap:8px; margin-top:8px; }
 .payment-case-actions .btn { min-height:42px; font-size:13px; }
+.portal-app .payment-receipt-dialog header { display:flex; flex-flow:row nowrap; align-items:center; gap:10px; }
+.payment-receipt-dialog header h2 { flex:1; min-width:0; font-size:16px; }
+.portal-app .payment-receipt-dialog header .icon-button { width:40px; height:40px; flex:0 0 40px; padding:0; }
+.payment-receipt-dialog .icon-button svg { width:18px; height:18px; }
+.payment-receipt-row-tools { display:flex; flex-flow:row nowrap; align-items:center; gap:5px; }
+.portal-app .payment-receipt-dialog-row, .portal-app .payment-receipt-dialog-row.held { grid-template-columns:minmax(0,1fr) auto; }
+.payment-receipt-dialog-row strong, .payment-receipt-dialog-row small { white-space:normal; overflow-wrap:anywhere; font-size:12px; }
+.payment-receipt-dialog-row small { font-size:11px; line-height:1.35; }
+.payment-receipt-preview { width:min(calc(100% - 16px),800px); max-width:none; height:min(90vh,900px); max-height:90vh; padding:10px; border:0; background:var(--bg-surface); color:var(--text-primary); border-radius:12px; }
+.portal-app .payment-receipt-preview header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.payment-receipt-preview h2 { margin:0; font-size:16px; }
+.payment-receipt-preview .icon-button { width:44px; height:44px; padding:0; flex:0 0 44px; }
+.payment-receipt-preview .icon-button svg { width:20px; height:20px; }
+#payment-receipt-preview-content { height:calc(100% - 48px); overflow:auto; }
+#payment-receipt-preview-content iframe { display:block; border:0; width:100%; height:100%; }
+.payment-case-summary-facts small { display:flex; align-items:center; justify-content:flex-end; gap:4px; }
+.payment-case-summary-facts small svg { width:14px; height:14px; }
 .payment-approved-cases > summary { font-size:13px; }
 .payment-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; min-height:0; }
 .payment-document-actions[hidden] { display:none; }

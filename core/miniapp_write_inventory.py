@@ -368,6 +368,12 @@ _add(
     domain_replay='Request-keyed definition/audit event plus report revision/archive state',
 )
 _add(
+    'portal_invoice_cleanup', authentication=_PORTAL_AUTH,
+    capability='portal.invoice.write', scope='Complete authorized grant matching retained cleanup scope',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Durable file-specific IntegrationOperation lease and success replay; bounded retry',
+)
+_add(
     'portal_report_run portal_report_export',
     authentication=_PORTAL_AUTH, capability='portal.reports.view',
     scope='IT-only report and canonical scoped Portal cases', request_key_binding=_PORTAL_KEY,

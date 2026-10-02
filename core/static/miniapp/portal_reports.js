@@ -570,7 +570,7 @@
           data: chart.values,
           borderColor: colors.primary,
           backgroundColor: chart.type === 'doughnut' ? colors.palette : colors.primary,
-          borderWidth: 2,
+          borderWidth: chart.type === 'line' ? 2 : 0,
           fill: chart.type === 'line' ? false : undefined,
         }],
       },

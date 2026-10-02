@@ -751,6 +751,8 @@ def ingest_invoice_upload_batch(
         else:
             raise InvoiceDuplicateUploadError(duplicate)
 
+    if existing and (existing.metadata or {}).get('invoice_rows_deleted'):
+        raise ValueError('This invoice upload was deleted. Start a new upload instead of retrying the old request.')
     received_at = timezone.now()
     try:
         with transaction.atomic():
@@ -1531,10 +1533,21 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
 
 def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
+        from core.models import GroupSheetConfiguration, JawabuFarmerMaster
+        if invoice.batch.group_configuration_id:
+            GroupSheetConfiguration.objects.select_for_update().get(pk=invoice.batch.group_configuration_id)
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored'}:
+        if invoice.matched_farmer_id:
+            JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
             raise ValueError('This invoice can no longer be ignored from the review queue.')
         if invoice.status != 'ignored':
+            from core.services.invoice_cleanup import protection_error
+            error = protection_error(invoice)
+            if error:
+                raise ValueError(error)
+            if invoice.matched_farmer_id:
+                invoice = unmatch_invoice(invoice, actor=actor, note='Moved to Ignored.')
             note_text = str(note or '').strip()
             actor_text = str(actor or 'portal').strip()
             invoice.status = 'ignored'
@@ -1542,6 +1555,14 @@ def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -
             invoice.revision += 1
             invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
             record_invoice_event(invoice, 'ignored', actor=actor_text, note=note_text)
+            from payments.models import PaymentReceiptItem, PaymentReceiptBatch
+            from payments.receipt_batches import _refresh_status
+            receipt_ids = list(PaymentReceiptItem.objects.filter(invoice=invoice).values_list('receipt_batch_id', flat=True))
+            PaymentReceiptItem.objects.filter(invoice=invoice).update(status='ignored', reason='Ignored by staff.')
+            for receipt in PaymentReceiptBatch.objects.select_for_update().filter(pk__in=receipt_ids):
+                receipt.revision += 1
+                receipt.save(update_fields=['revision', 'updated_at'])
+                _refresh_status(receipt)
             refresh_invoice_batch_counts(invoice.batch)
     sync_ignored_invoice_pdf_location(invoice.batch_id)
     return invoice
@@ -1549,6 +1570,9 @@ def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -
 
 def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
+        from core.models import GroupSheetConfiguration
+        if invoice.batch.group_configuration_id:
+            GroupSheetConfiguration.objects.select_for_update().get(pk=invoice.batch.group_configuration_id)
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
         if invoice.status != 'ignored':
             return invoice
@@ -1559,6 +1583,14 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
         invoice.revision += 1
         invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
         record_invoice_event(invoice, 'restored', actor=actor_text, note=note_text)
+        from payments.models import PaymentReceiptItem, PaymentReceiptBatch
+        from payments.receipt_batches import _refresh_status
+        receipt_ids = list(PaymentReceiptItem.objects.filter(invoice=invoice).values_list('receipt_batch_id', flat=True))
+        PaymentReceiptItem.objects.filter(invoice=invoice).update(status='review', farmer=None, reason='Restored invoice: confirm the applicant match.')
+        for receipt in PaymentReceiptBatch.objects.select_for_update().filter(pk__in=receipt_ids):
+            receipt.revision += 1
+            receipt.save(update_fields=['revision', 'updated_at'])
+            _refresh_status(receipt)
         refresh_invoice_batch_counts(invoice.batch)
     sync_ignored_invoice_pdf_location(invoice.batch_id)
     return invoice
@@ -1566,16 +1598,13 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
 
 def duplicate_deletion_error(invoice: ParsedInvoice, *, preserve_oldest: bool = False) -> str:
     """Shared preview/write eligibility; no financial evidence is discarded."""
-    from payments.models import PaymentReceiptItem, PaymentBatchCase
     from django.db.models import Q
     if invoice.status == 'deleted':
         return 'This invoice has already been removed.'
-    if PaymentReceiptItem.objects.filter(Q(invoice=invoice) | Q(replacement_invoice=invoice)).exists():
-        return 'This invoice belongs to a payment receipt. Its evidence is protected.'
-    if invoice.name_change_requests.exists() or invoice.replacement_for_name_changes.exists():
-        return 'This invoice is retained identity-change evidence.'
-    if invoice.matched_farmer_id and PaymentBatchCase.objects.filter(farmer_id=invoice.matched_farmer_id).exists():
-        return 'This matched case has payment history. Its invoice is protected.'
+    from core.services.invoice_cleanup import protection_error
+    error = protection_error(invoice)
+    if error:
+        return error
     peers = ParsedInvoice.objects.filter(batch__group_configuration_id=invoice.batch.group_configuration_id).exclude(pk=invoice.pk).exclude(status='deleted')
     same = Q()
     if invoice.invoice_no:
@@ -1591,32 +1620,10 @@ def duplicate_deletion_error(invoice: ParsedInvoice, *, preserve_oldest: bool = 
     return ''
 
 
-def delete_duplicate_invoice(invoice: ParsedInvoice, *, actor: str = '') -> ParsedInvoice:
-    """Remove a copy from operational queues without erasing its evidence."""
-    actor_text = str(actor or 'portal').strip()
-    with transaction.atomic():
-        # Serialize cleanup for this group before locking individual copies.
-        from core.models import GroupSheetConfiguration
-        group_id = invoice.batch.group_configuration_id
-        if group_id:
-            GroupSheetConfiguration.objects.select_for_update().get(pk=group_id)
-        else:
-            ParsedInvoice.objects.select_for_update().filter(batch__group_configuration__isnull=True).order_by('pk').first()
-        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        if invoice.status == 'deleted':
-            return invoice
-        error = duplicate_deletion_error(invoice)
-        if error:
-            raise ValueError(error)
-        invoice.status = 'deleted'
-        invoice.review_notes = f'Duplicate deleted by {actor_text}.'
-        invoice.revision += 1
-        invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
-        record_invoice_event(invoice, 'deleted', actor=actor_text,
-            note='Duplicate removed from invoice review. Audit history retained.',
-            metadata={'source': 'duplicate_cleanup', 'batch_id': str(invoice.batch_id), 'page': invoice.page})
-        refresh_invoice_batch_counts(invoice.batch)
-    return invoice
+def delete_duplicate_invoice(invoice: ParsedInvoice, *, actor: str = '') -> dict:
+    """Physically delete a disposable copy while preserving independent audit."""
+    from core.services.invoice_cleanup import delete_invoice
+    return delete_invoice(invoice, actor=actor, duplicate_only=True)
 
 
 def sync_ignored_invoice_pdf_location(batch_id) -> dict:

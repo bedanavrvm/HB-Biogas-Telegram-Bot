@@ -63,7 +63,7 @@
       const rows = spec.horizontal ? spec.rows.slice(0,10) : spec.rows;
       const timeChart = spec.type === 'line';
       const datasets = spec.datasets || [{label:spec.hours?'Hours':'Complaints',data:rows.map(row=>spec.hours?row.hours:row.count),
-        backgroundColor:spec.colors || rows.map((_row,i)=>`hsl(${(i*137.508)%360} 60% 42%)`),borderColor:blue,borderWidth:2,pointRadius:2,tension:.2}];
+        backgroundColor:spec.colors || rows.map((_row,i)=>`hsl(${(i*137.508)%360} 60% 42%)`),borderColor:blue,borderWidth:spec.type==='line'?2:0,pointBackgroundColor:blue,pointRadius:2,tension:.2}];
       const choices = document.createElement('div'); choices.className='chart-drill-controls';
       const select = document.createElement('select'); select.setAttribute('aria-label',`Select ${slide.querySelector('h3').textContent} cases`);
       const placeholder=document.createElement('option'); placeholder.textContent='Choose cases…'; placeholder.value=''; select.appendChild(placeholder);

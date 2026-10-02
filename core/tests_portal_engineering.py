@@ -228,6 +228,21 @@ class InvoiceRecoveryTests(TestCase):
 
 
 class PDFBudgetTests(TestCase):
+    def test_delivery_preview_worker_starts_at_the_requested_invoice_page(self):
+        from core.services.secure_media_preview import pdf_preview_html
+        writer = PdfWriter()
+        for _ in range(10):
+            writer.add_blank_page(width=100, height=100)
+        stream = BytesIO()
+        writer.write(stream)
+        preview = pdf_preview_html(stream.getvalue(), 'synthetic.pdf', start_page=9)
+        self.assertIn(b'<figcaption>Page 9</figcaption>', preview)
+        self.assertIn(b'<figcaption>Page 10</figcaption>', preview)
+        self.assertNotIn(b'<figcaption>Page 1</figcaption>', preview)
+        single = pdf_preview_html(stream.getvalue(), 'synthetic.pdf', start_page=9, page_limit=1)
+        self.assertIn(b'<figcaption>Page 9</figcaption>', single)
+        self.assertNotIn(b'<figcaption>Page 10</figcaption>', single)
+
     def test_preview_runs_with_hard_worker_timeout(self):
         from core.services.secure_media_preview import pdf_preview_html
         import subprocess

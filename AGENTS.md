@@ -151,6 +151,7 @@ Key modules:
 - `group_config.py` — Telegram-group/workflow configuration
 - `group_reset.py` — controlled group data resets
 - `invoice_parser.py` — invoice extraction and parsing
+- `invoice_cleanup.py` — scoped physical invoice deletion, independent audit retention, and durable removal of unused Drive PDFs; payment and identity evidence and shared PDFs remain protected
 - `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
 - `docx_pdf_preview.py` — bounded local companion-PDF rendering of governed invoice-name-change DOCX artifacts for secure Telegram WebView preview
 - `jawabu.py` — Jawabu message processing

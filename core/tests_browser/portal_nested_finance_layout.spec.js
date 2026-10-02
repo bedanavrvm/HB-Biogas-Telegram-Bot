@@ -10,6 +10,7 @@ async function loadPortalStyles(page) {
   for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
     await page.addStyleTag({ path: asset(name) });
   }
+  await page.addScriptTag({path:asset('vendor-lucide-1.44.0.min.js')});
 }
 
 async function assertNoHorizontalOverflow(page, width) {
@@ -30,6 +31,9 @@ test('background publication never blocks leaving but foreground saves do', asyn
   });
   expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(true);
   await page.evaluate(async () => { finishSyntheticRequest({ok: true}); await pendingSyntheticRequest; });
+  await page.evaluate(() => { window.pendingSyntheticRequest = fetch('/api/portal/invoice-pool/cleanup/', {method:'POST'}); });
+  expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(true);
+  await page.evaluate(async () => { finishSyntheticRequest({ok:true}); await pendingSyntheticRequest; });
   await page.evaluate(() => { window.pendingSyntheticRequest = fetch('/api/portal/payments/batches/', {method: 'POST'}); });
   expect(await page.evaluate(() => MiniAppUtils.canNavigatePage('/portal/s/jbl/'))).toBe(false);
   await page.evaluate(async () => { finishSyntheticRequest({ok: true}); await pendingSyntheticRequest; });
@@ -166,7 +170,8 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   });
   await expect(page.locator('#payments-current-cases details.payment-current-case')).toHaveCount(50);
   await expect(page.locator('#payments-current-cases details.payment-current-case').first()).not.toHaveAttribute('open');
-  await expect(page.locator('#payments-progress > span')).toHaveCount(3);
+  await expect(page.locator('#payments-progress > span')).toHaveCount(1);
+  await expect(page.locator('#payments-progress')).toContainText('50 awaiting review');
   await expect(page.locator('#payments-current-heading h3')).toHaveText('Cases in this payment');
   const headingAndCard = await page.evaluate(() => [document.querySelector('#payments-current-heading h3').getBoundingClientRect().x, document.querySelector('.payment-current-case').getBoundingClientRect().x]);
   expect(headingAndCard[0] - headingAndCard[1]).toBeLessThan(12);
@@ -369,7 +374,7 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   await assertNoHorizontalOverflow(page, 320);
 });
 
-test('payment detail keeps approved case facts compact and available at 320px', async ({ page }) => {
+test('payment detail keeps approved case facts compact and available at 320px', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id="batch-2"><section id="page-payments" class="page active">
     <section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button class="case-history-back" id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div>
@@ -422,10 +427,17 @@ test('payment detail keeps approved case facts compact and available at 320px', 
     expect(item.bottom).toBeLessThanOrEqual(headerBounds.header.bottom);
   });
   await assertNoHorizontalOverflow(page, 320);
-  for (const viewport of [{width: 360, height: 800}, {width: 430, height: 932}]) {
+  for (const viewport of [{width:320,height:700}, {width:360,height:800}, {width:390,height:844}, {width:430,height:932}, {width:768,height:900}, {width:1280,height:900}]) {
     await page.setViewportSize(viewport);
     await assertNoHorizontalOverflow(page, viewport.width);
     await expect(page.locator('#payments-detail-total')).toBeVisible();
+    for (const dark of [false,true]) {
+      await page.evaluate(dark=>{
+        document.documentElement.dataset.miniappColorScheme=dark?'dark':'light';
+        for(const [key,value] of Object.entries(dark?{bg_color:'#17171e',secondary_bg_color:'#20202c',text_color:'#ffffff',hint_color:'#a8a8b3'}:{bg_color:'#f5f7f8',secondary_bg_color:'#ffffff',text_color:'#17212b',hint_color:'#6d7a86'})) document.documentElement.style.setProperty('--tg-theme-'+key.replaceAll('_','-'),value);
+      },dark);
+      await page.screenshot({path:testInfo.outputPath(`payment-${viewport.width}-${dark?'dark':'light'}.png`), animations:'disabled'});
+    }
   }
 });
 

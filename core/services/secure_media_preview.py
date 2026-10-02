@@ -24,12 +24,15 @@ PDF_PREVIEW_MAX_SECONDS = 15
 def pdf_preview_html(
     content: bytes, filename: str, *, password: str | None = None,
     show_filename: bool = True, show_single_page_caption: bool = True,
+    start_page: int = 1,
+    page_limit: int = PDF_PREVIEW_MAX_PAGES,
 ) -> bytes:
     """Keep native PDF rendering out of the web worker with a hard deadline."""
     if not content or len(content) > PDF_PREVIEW_MAX_SOURCE_BYTES:
         raise ValueError('This PDF is too large for an in-app preview.')
     options = json.dumps({'filename': filename, 'password': password,
-                          'show_filename': show_filename, 'show_single_page_caption': show_single_page_caption})
+                          'show_filename': show_filename, 'show_single_page_caption': show_single_page_caption,
+                          'start_page': start_page, 'page_limit': page_limit})
     try:
         result = subprocess.run(
             [sys.executable, '-m', 'scripts.invoice_pdf_worker', 'preview'],
@@ -53,6 +56,8 @@ def _pdf_preview_html(
     password: str | None = None,
     show_filename: bool = True,
     show_single_page_caption: bool = True,
+    start_page: int = 1,
+    page_limit: int = PDF_PREVIEW_MAX_PAGES,
 ) -> bytes:
     """Render bounded PDF pages into a self-contained WebView-safe document."""
     if not content or len(content) > PDF_PREVIEW_MAX_SOURCE_BYTES:
@@ -69,8 +74,9 @@ def _pdf_preview_html(
         total_pages = len(document)
         if not total_pages:
             raise ValueError('This PDF has no pages to preview.')
-        page_count = min(total_pages, PDF_PREVIEW_MAX_PAGES)
-        for page_index in range(page_count):
+        first_page = max(0, min(int(start_page) - 1, total_pages - 1))
+        page_count = min(total_pages - first_page, max(1, min(int(page_limit), PDF_PREVIEW_MAX_PAGES)))
+        for page_index in range(first_page, first_page + page_count):
             if time.monotonic() - started > PDF_PREVIEW_MAX_SECONDS:
                 raise ValueError('This PDF is too detailed for an in-app preview. Download it instead.')
             page = document[page_index]
@@ -102,13 +108,13 @@ def _pdf_preview_html(
         document.close()
 
     continuation = (
-        f'<p class="notice">Showing the first {page_count} of {total_pages} pages.</p>'
+        f'<p class="notice">Showing pages {first_page + 1}–{first_page + page_count} of {total_pages}.</p>'
         if total_pages > page_count else ''
     )
     image_markup = ''.join(
         f'<figure>{f"<figcaption>Page {index}</figcaption>" if total_pages > 1 or show_single_page_caption else ""}'
         f'<img src="data:image/jpeg;base64,{encoded}" alt="{html_escape(filename)} - page {index}"></figure>'
-        for index, encoded in enumerate(page_images, start=1)
+        for index, encoded in enumerate(page_images, start=first_page + 1)
     )
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

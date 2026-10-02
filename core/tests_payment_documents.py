@@ -3,6 +3,7 @@ from decimal import Decimal
 import io
 import json
 import tempfile
+import uuid
 from unittest.mock import patch
 
 from django.core.files.base import ContentFile
@@ -428,10 +429,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['deleted_count'], 1)
         first.refresh_from_db()
-        second.refresh_from_db()
         self.assertNotEqual(first.status, 'deleted')
-        self.assertEqual(second.status, 'deleted')
-        self.assertTrue(second.events.filter(action='deleted').exists())
+        self.assertFalse(ParsedInvoice.objects.filter(pk=second.pk).exists())
+        from core.models import ComplianceAuditEvent
+        self.assertTrue(ComplianceAuditEvent.objects.filter(subject_id=str(second.pk), action='invoice.deleted').exists())
         inbox = self.client.get(reverse('portal_invoice_pool'), {'workspace': 'inbox'}).json()
         self.assertIn(str(first.pk), {item['id'] for item in inbox['invoices']})
         self.assertNotIn(str(second.pk), {item['id'] for item in inbox['invoices']})
@@ -465,6 +466,143 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             delete_duplicate_invoice(invoice)
         invoice.refresh_from_db()
         self.assertEqual(invoice.status, 'matched')
+
+    def test_delete_removes_open_delivery_item_but_keeps_shared_pdf(self):
+        from payments.models import PaymentReceiptBatch, PaymentReceiptItem
+        from core.models import IntegrationOperation
+        from core.services.invoice_cleanup import delete_invoice, DELETE_OPERATION
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+        sibling = ParsedInvoice.objects.create(batch=batch, page=2)
+        receipt = PaymentReceiptBatch.objects.create(group_configuration=GroupSheetConfiguration.objects.first())
+        item = PaymentReceiptItem.objects.create(receipt_batch=receipt, source_upload=batch, invoice=invoice)
+        result = delete_invoice(invoice, actor='Synthetic tester')
+        self.assertTrue(result['deleted'])
+        self.assertFalse(ParsedInvoice.objects.filter(pk=invoice.pk).exists())
+        self.assertFalse(PaymentReceiptItem.objects.filter(pk=item.pk).exists())
+        self.assertTrue(ParsedInvoice.objects.filter(pk=sibling.pk).exists())
+        self.assertFalse(IntegrationOperation.objects.filter(operation_type=DELETE_OPERATION).exists())
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.revision, 2)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_deleted_invoice_file_cleanup_is_durable_and_idempotent(self, storage):
+        from core.models import IntegrationOperation
+        from core.services.invoice_cleanup import delete_invoice, attempt_pdf_delete, DELETE_OPERATION
+        batch = self.invoice_batch()
+        empty_copy = InvoiceUploadBatch.objects.create(drive_file_id='drive-pdf', drive_url='https://drive.test/shared')
+        delete_invoice(batch.invoices.get(), actor='Synthetic tester')
+        operation = IntegrationOperation.objects.get(operation_type=DELETE_OPERATION)
+        attempt_pdf_delete(operation)
+        attempt_pdf_delete(operation)
+        storage.return_value.service.files.return_value.delete.assert_called_once_with(fileId='drive-pdf', supportsAllDrives=True)
+        batch.refresh_from_db()
+        self.assertEqual(batch.drive_file_id, '')
+        self.assertEqual(batch.drive_url, '')
+        empty_copy.refresh_from_db()
+        self.assertEqual(empty_copy.drive_file_id, '')
+
+    def test_deleting_all_pages_does_not_report_the_pdf_as_still_shared(self):
+        batch = self.invoice_batch()
+        ParsedInvoice.objects.create(batch=batch, page=2)
+        response = self.client.post(reverse('portal_invoice_bulk_action'), content_type='application/json',
+            data=json.dumps({'action':'delete', 'invoice_ids':[str(pk) for pk in batch.invoices.values_list('pk',flat=True)]}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['deleted_count'], 2)
+        self.assertEqual(response.json()['shared_pdf_count'], 0)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_cleanup_endpoint_advances_durable_file_removal(self, storage):
+        from core.services.invoice_cleanup import delete_invoice
+        batch = self.invoice_batch()
+        delete_invoice(batch.invoices.get())
+        response = self.client.post(reverse('portal_invoice_cleanup'), content_type='application/json', data='{}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['pending_count'], 0)
+        storage.return_value.service.files.return_value.delete.assert_called_once_with(fileId='drive-pdf', supportsAllDrives=True)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_background_pump_advances_file_cleanup_when_sheet_queue_is_empty(self, storage):
+        from core.services.invoice_cleanup import delete_invoice
+        delete_invoice(self.invoice_batch().invoices.get())
+        response = self.client.post(reverse('portal_publication_pump'), content_type='application/json', data='{}')
+        self.assertEqual(response.status_code, 200)
+        storage.return_value.service.files.return_value.delete.assert_called_once_with(fileId='drive-pdf', supportsAllDrives=True)
+
+    def test_delete_rejects_stale_invoice_revision(self):
+        from core.services.invoice_cleanup import delete_invoice
+        invoice = self.invoice_batch().invoices.get()
+        with self.assertRaisesMessage(ValueError, 'changed'):
+            delete_invoice(invoice, expected_revision=invoice.revision + 1)
+        self.assertTrue(ParsedInvoice.objects.filter(pk=invoice.pk).exists())
+
+    def test_delete_keeps_legacy_payment_workbook_evidence(self):
+        from core.services.invoice_cleanup import delete_invoice
+        farmer = self.farmer()
+        invoice = self.invoice_batch(farmer).invoices.get()
+        PaymentDocument.objects.create(order_number=farmer.order_number, status='final', farmer_ids=[str(farmer.pk)])
+        with self.assertRaisesMessage(ValueError, 'retained payment workbook'):
+            delete_invoice(invoice)
+        self.assertTrue(ParsedInvoice.objects.filter(pk=invoice.pk).exists())
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_cleanup_failure_keeps_links_and_can_be_retried(self, storage):
+        from core.models import IntegrationOperation
+        from core.services.invoice_cleanup import delete_invoice, attempt_pdf_delete, DELETE_OPERATION
+        from core.services.external_resilience import ExternalOperationError
+        batch = self.invoice_batch()
+        delete_invoice(batch.invoices.get())
+        operation = IntegrationOperation.objects.get(operation_type=DELETE_OPERATION)
+        storage.return_value.service.files.return_value.delete.return_value.execute.side_effect = TimeoutError('Synthetic timeout')
+        with self.assertRaises(ExternalOperationError):
+            attempt_pdf_delete(operation)
+        batch.refresh_from_db()
+        self.assertEqual(batch.drive_file_id, 'drive-pdf')
+        storage.return_value.service.files.return_value.delete.return_value.execute.side_effect = None
+        operation.next_retry_at = None
+        operation.save(update_fields=['next_retry_at'])
+        attempt_pdf_delete(operation)
+        batch.refresh_from_db()
+        self.assertEqual(batch.drive_file_id, '')
+
+    @patch('core.services.invoice_parser.sync_ignored_invoice_pdf_location')
+    def test_ignored_delivery_can_be_restored_without_a_stuck_ignored_item(self, _sync):
+        from payments.models import PaymentReceiptBatch, PaymentReceiptItem
+        batch = self.invoice_batch()
+        receipt = PaymentReceiptBatch.objects.create(group_configuration=GroupSheetConfiguration.objects.first())
+        item = PaymentReceiptItem.objects.create(receipt_batch=receipt, source_upload=batch, invoice=batch.invoices.get())
+        ignored = ignore_invoice(batch.invoices.get())
+        item.refresh_from_db()
+        self.assertEqual(item.status, 'ignored')
+        restore_invoice(ignored)
+        item.refresh_from_db()
+        receipt.refresh_from_db()
+        self.assertEqual(item.status, 'review')
+        self.assertEqual(receipt.status, 'open')
+
+    @patch('core.api.portal_views._portal_pdf_preview_html', return_value=b'<html>Synthetic page</html>')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_receipt_invoice_preview_starts_at_its_page_and_is_not_cached(self, storage, renderer):
+        from payments.models import PaymentReceiptBatch, PaymentReceiptItem
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+        invoice.page = 17
+        invoice.save(update_fields=['page'])
+        receipt = PaymentReceiptBatch.objects.create(group_configuration=GroupSheetConfiguration.objects.first())
+        item = PaymentReceiptItem.objects.create(receipt_batch=receipt, source_upload=batch, invoice=invoice)
+        storage.return_value.download.return_value = b'Synthetic PDF'
+        response = self.client.get(reverse('portal_invoice_receipt_item_preview', args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Cache-Control'], 'private, no-store')
+        renderer.assert_called_once_with(b'Synthetic PDF', 'invoices.pdf', start_page=17, page_limit=1)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_receipt_preview_permission_denial_never_downloads_evidence(self, storage):
+        from django.http import JsonResponse
+        with patch('core.api.portal_views._portal_capability_error', return_value=JsonResponse({'ok':False}, status=403)):
+            response = self.client.get(reverse('portal_invoice_receipt_item_preview', args=[uuid.uuid4()]))
+        self.assertEqual(response.status_code, 403)
+        storage.return_value.download.assert_not_called()
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -925,7 +1063,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertTrue(invoice.events.filter(action='restored', note='Needs review again').exists())
         self.assertEqual(batch.unmatched_count, 1)
 
-    def test_bulk_invoice_ignore_skips_matched_invoices(self):
+    @patch('core.services.invoice_parser.sync_ignored_invoice_pdf_location')
+    def test_bulk_invoice_ignore_unmatches_unprotected_invoices(self, drive_location):
         matched_farmer = self.farmer(order_number='ORDER-MATCHED')
         matched_batch = self.invoice_batch(matched_farmer)
         matched_invoice = matched_batch.invoices.get()
@@ -944,11 +1083,12 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data['changed_count'], 1)
-        self.assertEqual(data['skipped_count'], 1)
+        self.assertEqual(data['changed_count'], 2)
+        self.assertEqual(data['skipped_count'], 0)
         matched_invoice.refresh_from_db()
         review_invoice.refresh_from_db()
-        self.assertEqual(matched_invoice.status, 'matched')
+        self.assertEqual(matched_invoice.status, 'ignored')
+        self.assertIsNone(matched_invoice.matched_farmer_id)
         self.assertEqual(review_invoice.status, 'ignored')
         self.assertTrue(review_invoice.events.filter(action='ignored', note='Batch cleanup').exists())
 

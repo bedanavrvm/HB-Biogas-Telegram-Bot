@@ -17,6 +17,9 @@
   let previewRequestVersion = 0;
   let previewHistoryActive = false;
   let previewTrigger = null;
+  let receiptPreviewVersion = 0;
+  let receiptPreviewUrl = '';
+  let receiptPreviewTrigger = null;
   const reviewProtections = new Map();
   let batchPage = 1;
   let batchSearch = '';
@@ -251,23 +254,57 @@
     const items = activeReceipt.items || [];
     const payable = items.filter(function (item) { return ['matched', 'name_change'].includes(item.status) && item.farmer_id; });
     const held = items.filter(function (item) { return !['matched', 'name_change'].includes(item.status) || !item.farmer_id; });
-    if (title) title.textContent = activeReceipt.payment_batch_id ? 'Payment created from this delivery' : 'Prepare payment from invoice delivery';
+    if (title) title.textContent = activeReceipt.payment_batch_id ? 'Payment created' : 'Prepare payment';
     if (copy) copy.textContent = activeReceipt.payment_batch_id
       ? 'This delivery already has a governed payment batch.'
-      : 'Matched invoices default to Loan - Jawabu. Switch only a Cash exception. Correction-pending cases may enter this draft; held invoices are not included.';
+      : 'Jawabu is selected by default. Switch Cash exceptions. Held invoices stay out of this payment.';
     target.innerHTML = [
       ...payable.map(function (item) {
         const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
         const correction = item.status === 'name_change' ? ` · ${escape(item.reason || 'Corrected invoice needed')}` : '';
-        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu${correction}</small></span><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>`;
+        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu${correction}</small></span><div class="payment-receipt-row-tools">${receiptPreviewButton(item)}<button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div></div>`;
       }),
       ...held.map(function (item) {
-        return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div>`;
+        return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><div class="payment-receipt-row-tools">${receiptPreviewButton(item)}<span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div></div>`;
       }),
     ].join('') || '<div class="empty-state compact"><div class="es-title">No invoices in this delivery</div></div>';
     if (submit) submit.hidden = Boolean(activeReceipt.payment_batch_id) || !payable.length;
     if (dialog.showModal && !dialog.open) dialog.showModal();
     window.lucide?.createIcons?.();
+  }
+
+  function receiptPreviewButton(item) {
+    return `<button type="button" class="miniapp-icon-button portal-finance-icon payment-receipt-invoice-preview" data-receipt-item="${escape(item.id)}" aria-label="Preview invoice ${escape(item.invoice_no || item.source_filename || '')}" title="Preview invoice" ${item.preview_url ? '' : 'disabled'}><i data-lucide="eye" aria-hidden="true"></i></button>`;
+  }
+
+  function closeReceiptPreview({fromHistory = false} = {}) {
+    ++receiptPreviewVersion;
+    el('payment-receipt-preview')?.close();
+    if (!fromHistory && window.history.state?.receiptInvoicePreview) window.history.back();
+    if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    receiptPreviewUrl = '';
+    if (receiptPreviewTrigger?.isConnected) receiptPreviewTrigger.focus();
+    window.dispatchEvent(new Event('portal:dialog-change'));
+  }
+
+  async function previewReceiptInvoice(button) {
+    const item = activeReceipt?.items?.find(row => String(row.id) === button.dataset.receiptItem);
+    const dialog = el('payment-receipt-preview'), content = el('payment-receipt-preview-content');
+    if (!item?.preview_url || !dialog || !content) return;
+    const version = ++receiptPreviewVersion;
+    receiptPreviewTrigger = button;
+    el('payment-receipt-preview-title').textContent = `Invoice ${item.invoice_no || ''}`.trim();
+    content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    if (!dialog.open) { dialog.showModal(); window.history.pushState({...window.history.state, receiptInvoicePreview: true}, '', window.location.href); }
+    window.dispatchEvent(new Event('portal:dialog-change'));
+    try {
+      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(item.preview_url);
+      if (version !== receiptPreviewVersion || !dialog.open) return;
+      if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+      receiptPreviewUrl = window.SecureMediaViewer.renderBlob(content, blob, {name: item.source_filename || 'Invoice'});
+    } catch (error) {
+      if (version === receiptPreviewVersion && dialog.open) content.innerHTML = `<p class="batch-warning">${escape(error.message || 'Could not load invoice.')}</p><button type="button" class="btn btn-secondary payment-receipt-invoice-preview" data-receipt-item="${escape(item.id)}">Retry</button>`;
+    }
   }
 
   async function openReceipt(receiptId) {
@@ -366,7 +403,7 @@
     const modeAction = canRemove ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Switch this case to Loan - Jawabu' : 'Switch this case to Cash'}" title="${cashSelected ? 'Switch to Loan - Jawabu' : 'Switch to Cash'}"><i data-lucide="${cashSelected ? 'landmark' : 'banknote'}" aria-hidden="true"></i><span>${cashSelected ? 'Use Jawabu' : 'Use Cash'}</span></button>` : '';
     const removeAction = canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : '';
     return `<details class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}${compact ? ' payment-case-row' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')} <span aria-hidden="true">⌄</span></small></span></summary>
+      <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${compact && item.decision === 'approved' ? '' : badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')} <i data-lucide="chevron-down" aria-hidden="true"></i></small></span></summary>
       <div class="payment-case-expanded">${caseDetails(item)}${warning}<div class="payment-case-toolbar">${history}${modeAction}${removeAction}</div>
       ${canReview ? `<label class="payment-review-label">${item.changed_since_review ? 'Update prior comment for re-review' : 'Approval comment'}<textarea class="payment-review-comment" rows="2" placeholder="Record your reason or conditions">${escape(item.comment || '')}</textarea></label><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note"><strong>Head of Rural comment:</strong> ${escape(item.comment)}</p>` : ''}
       </div>
@@ -411,8 +448,8 @@
     required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Payment batch';
     required.meta.textContent = activeBatch.status_label || activeBatch.payment_mode_summary || '';
     if (required.total) required.total.textContent = money(activeBatch.total_amount);
-    required.progress.innerHTML = `<span><strong>${escape(counts.pending || 0)}</strong> awaiting review</span><span><strong>${escape(counts.returned || 0)}</strong> returned</span><span><strong>${escape(counts.approved || 0)}</strong> approved</span>`;
-    required.progress.hidden = emptyDraft;
+    required.progress.innerHTML = [['pending','awaiting review'],['returned','returned'],['approved','approved']].filter(([key])=>Number(counts[key])>0).map(([key,label])=>`<span><strong>${escape(counts[key])}</strong> ${label}</span>`).join('');
+    required.progress.hidden = emptyDraft || (!Number(counts.pending) && !Number(counts.returned));
     const cases = activeBatch.cases || [];
     const approvedCases = cases.filter(item => item.decision === 'approved');
     const actionableCases = cases.filter(item => item.decision !== 'approved');
@@ -751,11 +788,13 @@
     if (document.documentElement.dataset.portalPaymentsBound) return;
     document.documentElement.dataset.portalPaymentsBound = 'true';
     window.addEventListener('popstate', () => {
+      if (el('payment-receipt-preview')?.open && !window.history.state?.receiptInvoicePreview) closeReceiptPreview({fromHistory: true});
       if (previewHistoryActive && !window.history.state?.paymentPreview) closePreview({fromHistory: true});
     });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && previewHistoryActive) closePreview();
     });
+    el('payment-receipt-preview')?.addEventListener('cancel', event => { event.preventDefault(); closeReceiptPreview(); });
     const previewOverlay = el('payment-preview-overlay');
     if (previewOverlay) new MutationObserver(() => {
       if (previewHistoryActive && !previewOverlay.classList.contains('open')) closePreview();
@@ -777,6 +816,8 @@
     });
     document.addEventListener('click', event => {
       const target = event.target;
+      if (target.closest('#payment-receipt-preview-close')) return closeReceiptPreview();
+      if (target.closest('.payment-receipt-invoice-preview')) return previewReceiptInvoice(target.closest('.payment-receipt-invoice-preview'));
       const batch = target.closest('[data-payment-batch]');
       if (batch) {
         event.preventDefault();

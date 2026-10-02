@@ -399,10 +399,11 @@
         <span>Bulk review actions</span>
       </div>
       <div class="portal-action-wrap">
-        <button class="btn btn-secondary" id="invoice-select-all-duplicates" type="button" hidden>Select all possible duplicates</button>
+        <button class="btn btn-secondary" id="invoice-select-all-duplicates" type="button" hidden>Select duplicates</button>
         <button class="btn btn-secondary" id="invoice-bulk-ignore" type="button">Ignore selected</button>
         <button class="btn btn-secondary" id="invoice-bulk-restore" type="button">Restore selected</button>
-        <button class="btn btn-danger" id="invoice-bulk-delete-duplicates" type="button" hidden>Delete selected duplicates</button>
+        <button class="btn btn-danger" id="invoice-bulk-delete" type="button" hidden>Delete selected</button>
+        <button class="btn btn-secondary" id="invoice-retry-cleanup" type="button" hidden>Retry file cleanup</button>
         <button class="btn btn-secondary" id="invoice-selection-clear" type="button">Clear selection</button>
       </div>
     </div>
@@ -449,6 +450,10 @@
     <form method="dialog"><header><h2 id="payment-receipt-dialog-title">Invoice delivery</h2><button value="cancel" class="icon-button" aria-label="Close"><i data-lucide="x"></i></button></header><p id="payment-receipt-dialog-copy"></p><div id="payment-receipt-dialog-items" class="payment-receipt-dialog-items"></div><footer><button value="cancel" class="btn btn-secondary">Cancel</button><button type="button" class="btn btn-primary" id="payment-receipt-create">Create payment batch</button></footer></form>
   </dialog>
 
+  <dialog id="payment-receipt-preview" class="portal-confirm-dialog payment-receipt-preview" aria-labelledby="payment-receipt-preview-title">
+    <header><h2 id="payment-receipt-preview-title">Invoice</h2><button type="button" id="payment-receipt-preview-close" class="miniapp-icon-button icon-button" aria-label="Close invoice preview"><i data-lucide="x" aria-hidden="true"></i></button></header>
+    <div id="payment-receipt-preview-content" aria-live="polite"></div>
+  </dialog>
   <dialog id="payment-submit-confirm" class="portal-confirm-dialog" aria-labelledby="payment-submit-confirm-title">
     <form method="dialog">
       <h2 id="payment-submit-confirm-title">Submit payment batch for review?</h2>

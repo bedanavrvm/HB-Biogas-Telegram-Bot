@@ -148,7 +148,7 @@
       // Durable publication is coordination, not an unsaved staff action.
       // Leaving the document must not depend on a Google request completing.
       if (requestUrl.origin === window.location.origin
-          && requestUrl.pathname === '/api/portal/publication/pump/') {
+          && ['/api/portal/publication/pump/', '/api/portal/invoice-pool/cleanup/'].includes(requestUrl.pathname)) {
         return originalFetch.apply(this, args);
       }
       // Only field-recovery drafts are safe during the in-memory Portal

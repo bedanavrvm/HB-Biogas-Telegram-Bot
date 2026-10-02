@@ -25,6 +25,7 @@ from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature, TimestampSigner
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.shortcuts import render
@@ -4157,6 +4158,17 @@ def portal_publication_pump(request):
 
     operation = queued_publication_operations().first()
     changed = False
+    if operation is None:
+        from core.services.invoice_cleanup import DELETE_OPERATION, attempt_pdf_delete
+        from core.services.external_resilience import ExternalOperationError
+        cleanup = IntegrationOperation.objects.filter(operation_type=DELETE_OPERATION,
+            status__in=[IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE]).filter(
+            Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=timezone.now())).order_by('created_at').first()
+        if cleanup:
+            try:
+                changed = bool(attempt_pdf_delete(cleanup))
+            except (ExternalCircuitOpen, ExternalOperationError):
+                pass
     if operation is not None:
         if not JawabuFarmerMaster.objects.filter(pk=operation.source_id).exists():
             IntegrationOperation.objects.filter(pk=operation.pk).update(
@@ -8634,13 +8646,18 @@ def portal_invoice_bulk_action(request):
     action = str(body.get('action') or '').strip().lower()
     invoice_ids = [str(item).strip() for item in (body.get('invoice_ids') or []) if str(item).strip()]
     note = str(body.get('note') or '').strip()
-    if action not in {'ignore', 'restore', 'delete_duplicates'}:
+    if action not in {'ignore', 'restore', 'delete_duplicates', 'delete'}:
         return JsonResponse({'ok': False, 'error': 'Unsupported bulk invoice action.'}, status=400)
     if not invoice_ids:
         return JsonResponse({'ok': False, 'error': 'Select at least one invoice.'}, status=400)
 
     actor = _portal_sender_from_request(request)
-    invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer').order_by('-created_at', '-pk'))
+    from core.services.workflow_access import scope_workflow_queryset
+    queryset = scope_workflow_queryset(ParsedInvoice.objects.filter(pk__in=invoice_ids),
+        getattr(request, 'portal_user', None), 'jawabu_portal', 'portal.invoice.write',
+        access=getattr(request, 'portal_access', None), branch_field='matched_farmer__branch',
+        product_field='matched_farmer__product__code', group_field='batch__group_configuration__group_id')
+    invoices = list(queryset.select_related('batch', 'matched_farmer').order_by('-created_at', '-pk'))
     role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
@@ -8661,28 +8678,39 @@ def portal_invoice_bulk_action(request):
     affected_batch_ids = set()
     for invoice in invoices:
         if action == 'ignore':
-            if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
+            if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'matched'}:
                 skipped.append({'id': str(invoice.id), 'reason': 'only invoices in review can be ignored'})
                 continue
-            changed.append(ignore_invoice(invoice, actor=actor, note=note or 'Bulk ignored.'))
+            try:
+                changed.append(ignore_invoice(invoice, actor=actor, note=note or 'Bulk ignored.'))
+            except ValueError as exc:
+                skipped.append({'id': str(invoice.id), 'reason': str(exc)})
         elif action == 'restore':
             if invoice.status != 'ignored':
                 skipped.append({'id': str(invoice.id), 'reason': 'only ignored invoices can be restored'})
                 continue
             changed.append(restore_invoice(invoice, actor=actor, note=note or 'Bulk restored.'))
-        elif action == 'delete_duplicates':
-            if invoice.id not in duplicate_ids:
+        elif action in {'delete_duplicates', 'delete'}:
+            if action == 'delete_duplicates' and invoice.id not in duplicate_ids:
                 skipped.append({'id': str(invoice.id), 'reason': 'invoice is not a detected duplicate'})
                 continue
             try:
-                changed.append(delete_duplicate_invoice(invoice, actor=actor))
-                affected_batch_ids.add(invoice.batch_id)
+                from core.services.invoice_cleanup import delete_invoice
+                changed.append(delete_invoice(invoice, actor=actor,
+                    expected_revision=(body.get('revisions') or {}).get(str(invoice.pk)),
+                    duplicate_only=action == 'delete_duplicates'))
             except ValueError as exc:
                 skipped.append({'id': str(invoice.id), 'reason': str(exc)})
 
     drive_warnings = []
     drive_archived_count = 0
     shared_pdf_count = 0
+    if action in {'delete', 'delete_duplicates'}:
+        from core.models import InvoiceUploadBatch
+        files = InvoiceUploadBatch.objects.filter(pk__in=[result['batch_id'] for result in changed]).exclude(
+            drive_file_id='').values_list('drive_file_id', flat=True)
+        shared_pdf_count = InvoiceUploadBatch.objects.filter(drive_file_id__in=files).filter(
+            Q(invoices__isnull=False) | Q(payment_receipt_items__isnull=False)).values('drive_file_id').distinct().count()
     for batch_id in affected_batch_ids:
         result = sync_ignored_invoice_pdf_location(batch_id)
         drive_archived_count += int(bool(result.get('archived')))
@@ -8699,10 +8727,10 @@ def portal_invoice_bulk_action(request):
         'ok': True,
         'action': action,
         'changed_count': len(changed),
-        'deleted_count': len(changed) if action == 'delete_duplicates' else 0,
+        'deleted_count': len(changed) if action in {'delete_duplicates', 'delete'} else 0,
         'skipped_count': len(skipped),
         'skipped': skipped,
-        'invoices': [_serialize_parsed_invoice(invoice) for invoice in changed[:25]],
+        'invoices': changed[:25] if action in {'delete_duplicates', 'delete'} else [_serialize_parsed_invoice(invoice) for invoice in changed[:25]],
         'drive_warnings': drive_warnings,
         'drive_archived_count': drive_archived_count,
         'shared_pdf_count': shared_pdf_count,
@@ -8934,6 +8962,72 @@ def portal_payment_preview_data(request, order_number: str):
         'order_number': order_number, 'payment_number': payment_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
     }, 'workbook_preview': None})
+
+
+@require_http_methods(['GET'])
+def portal_invoice_receipt_item_preview(request, item_id):
+    """Preview delivery evidence without borrowing general case-read access."""
+    from payments.models import PaymentReceiptItem
+    from core.services.compliance_audit import record_sensitive_access
+    from core.services.order_approval import GoogleDriveMediaStorage
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    item = PaymentReceiptItem.objects.select_related('source_upload', 'invoice', 'farmer', 'receipt_batch__group_configuration').filter(pk=item_id).first()
+    from core.services.workflow_access import scope_workflow_queryset
+    permitted = scope_workflow_queryset(PaymentReceiptItem.objects.filter(pk=item_id),
+        getattr(request, 'portal_user', None), 'jawabu_portal', 'portal.payment.prepare',
+        access=getattr(request, 'portal_access', None), branch_field='farmer__branch',
+        product_field='farmer__product__code', group_field='receipt_batch__group_configuration__group_id')
+    if item is None or not permitted.exists():
+        return JsonResponse({'ok': False, 'error': 'Invoice unavailable in your access.'}, status=404)
+    if item.farmer_id:
+        error = _portal_capability_error(request, 'portal.payment.prepare', farmer=item.farmer)
+        if error:
+            return error
+    batch = item.source_upload
+    if not batch.drive_file_id:
+        return JsonResponse({'ok': False, 'error': 'The source invoice PDF is unavailable.'}, status=404)
+    try:
+        record_sensitive_access(workflow='portal', action='portal.receipt_invoice.preview',
+            subject_type='invoice_upload_batch', subject_id=str(batch.pk),
+            actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request),
+            request_id=str(getattr(request, 'portal_request_id', '') or uuid.uuid4().hex))
+        content = _portal_pdf_preview_html(GoogleDriveMediaStorage().download(batch.drive_file_id), batch.original_filename or 'Invoice.pdf',
+            start_page=item.invoice.page if item.invoice_id else 1, page_limit=1)
+    except Exception:
+        logger.exception('Delivery invoice preview failed item_id=%s', item_id)
+        return JsonResponse({'ok': False, 'error': 'Could not load this invoice. Please retry.'}, status=503)
+    response = HttpResponse(content, content_type='text/html; charset=utf-8')
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_invoice_cleanup(request):
+    """Advance bounded, previously authorized file removal; explicit retry is scoped."""
+    from core.models import IntegrationOperation
+    from core.services.invoice_cleanup import DELETE_OPERATION, attempt_pdf_delete
+    from core.services.external_resilience import ExternalOperationError, ExternalCircuitOpen
+    access_error = _portal_capability_error(request, 'portal.invoice.write')
+    if access_error:
+        return access_error
+    operations = IntegrationOperation.objects.filter(operation_type=DELETE_OPERATION).exclude(status=IntegrationOperation.STATUS_SUCCEEDED)
+    from core.services.workflow_access import scope_workflow_queryset
+    operations = scope_workflow_queryset(operations, getattr(request, 'portal_user', None),
+        'jawabu_portal', 'portal.invoice.write', access=getattr(request, 'portal_access', None),
+        branch_field='metadata__branch', product_field='metadata__product', group_field='metadata__group_id')
+    if _json_body(request).get('retry'):
+        operations.filter(status=IntegrationOperation.STATUS_DEAD_LETTER).update(status=IntegrationOperation.STATUS_RETRYABLE, attempts=0, next_retry_at=None)
+    operation = operations.filter(Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=timezone.now())).order_by('created_at').first()
+    if operation:
+        try:
+            attempt_pdf_delete(operation)
+        except (ExternalOperationError, ExternalCircuitOpen):
+            pass
+    return JsonResponse({'ok': True, 'pending_count': operations.exclude(status=IntegrationOperation.STATUS_SUCCEEDED).count()})
 
 
 @csrf_exempt
