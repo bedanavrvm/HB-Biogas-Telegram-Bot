@@ -131,8 +131,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('portal-context-bar', portal)
 
     def test_high_risk_miniapps_use_state_aware_close_protection(self):
-        origination = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
-        signing = Path('core/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
+        origination = Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        signing = Path('origination/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
         complaints = Path('core/static/miniapp/complaint_cases.js').read_text(encoding='utf-8')
 
         self.assertIn("'origination-unsaved'", origination)
@@ -172,8 +172,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("'Pending Visit'", source)
 
     def test_origination_draft_saves_are_serialized_and_conflicts_are_recoverable(self):
-        source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
-        template = Path('core/templates/loan_origination/app.html').read_text(encoding='utf-8')
+        source = Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        template = Path('origination/templates/loan_origination/app.html').read_text(encoding='utf-8')
 
         self.assertIn('if (saveInFlight)', source)
         self.assertIn('const waitingForRequestId = saveInFlightRequestId;', source)
@@ -197,7 +197,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('loan_origination.js\' %}?v=20260909-1', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
-        source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        source = Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
 
         self.assertIn('function normalizeNumericText(value)', source)
         self.assertIn('value = normalizeNumericText(value);', source)

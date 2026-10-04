@@ -390,7 +390,8 @@ def bind_farmer_location_fields(
 
 
 def catalog_readiness() -> dict[str, Any]:
-    from core.models import AccessGrant, JawabuFarmerMaster, LoanOriginationApplication
+    from origination.models import LoanOriginationApplication
+    from core.models import AccessGrant, JawabuFarmerMaster
 
     active_branches = OperationalLocation.objects.filter(location_type='branch', active=True)
     uncovered = [

@@ -10,7 +10,13 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import resolve
 
-from core.models import ComplianceAuditEvent, GroupSheetConfiguration, IntegrationOperation, JawabuFarmerMaster, JawabuFarmerUploadBatch
+from core.models import (
+    ComplianceAuditEvent,
+    GroupSheetConfiguration,
+    IntegrationOperation,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
+)
 from core.services.portal_imports import (
     PortalImportConflict,
     PortalImportError,

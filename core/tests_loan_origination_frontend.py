@@ -5,10 +5,10 @@ from django.test import SimpleTestCase
 
 class LoanOriginationFrontendTests(SimpleTestCase):
     def test_remote_signing_is_primary_and_assisted_signing_is_explicit(self):
-        app_source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
-        signer_source = Path('core/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
-        signer_template = Path('core/templates/loan_origination/sign.html').read_text(encoding='utf-8')
-        signer_styles = Path('core/static/miniapp/origination_signing.css').read_text(encoding='utf-8')
+        app_source = Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        signer_source = Path('origination/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
+        signer_template = Path('origination/templates/loan_origination/sign.html').read_text(encoding='utf-8')
+        signer_styles = Path('origination/static/miniapp/origination_signing.css').read_text(encoding='utf-8')
 
         self.assertIn("Send to signer's phone", app_source)
         self.assertIn('In-person assisted signing', app_source)
@@ -51,9 +51,9 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertEqual(response['Pragma'], 'no-cache')
 
     def test_wizard_and_preview_contract_are_present(self):
-        source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
-        template = Path('core/templates/loan_origination/app.html').read_text(encoding='utf-8')
-        css = Path('core/static/miniapp/loan_origination.css').read_text(encoding='utf-8')
+        source = Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        template = Path('origination/templates/loan_origination/app.html').read_text(encoding='utf-8')
+        css = Path('origination/static/miniapp/loan_origination.css').read_text(encoding='utf-8')
 
         for section in ('Applicant', 'Business', 'Loan', 'Security', 'Guarantors', 'Review'):
             self.assertIn(f"label: '{section}'", source)
@@ -71,7 +71,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertNotIn('id="preview-open"', template)
         self.assertIn('data-ui-version="20260909-1"', template)
         self.assertIn("loan_origination.css' %}?v=20260909-1", template)
-        self.assertIn("loan_origination.js' %}?v=20260909-1", template)
+        self.assertIn("loan_origination.js' %}?v=20261004-1", template)
         self.assertIn('maximumLiveViewportHeight', source)
         self.assertIn('setKeyboardViewportOpen', source)
         self.assertIn('.origination-keyboard-open .wizard-actions { display: none !important; }', css)
@@ -190,9 +190,9 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertNotIn('window.prompt', source)
 
     def test_superuser_template_calibration_workspace_is_present(self):
-        template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')
-        source = Path('core/static/admin/origination_calibration.js').read_text(encoding='utf-8')
-        styles = Path('core/static/admin/origination_calibration.css').read_text(encoding='utf-8')
+        template = Path('origination/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')
+        source = Path('origination/static/admin/origination_calibration.js').read_text(encoding='utf-8')
+        styles = Path('origination/static/admin/origination_calibration.css').read_text(encoding='utf-8')
         for control in ('calibration-canvas', 'calibration-save', 'calibration-publish', 'cal-filled', 'calibration-add-signature'):
             self.assertIn(control, template)
         self.assertIn('global-apply', template)
@@ -236,12 +236,12 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('.calibration-mobile-dock button.is-active', styles)
         self.assertNotIn('←', template)
         self.assertNotIn('↻', template)
-        self.assertIn('preview_format', Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))
+        self.assertIn('preview_format', Path('origination/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))
         self.assertIn('beforeunload', source)
 
     def test_superuser_visual_product_builder_is_present(self):
-        template = Path('core/templates/admin/core/originationproductdefinition/change_form.html').read_text(encoding='utf-8')
-        source = Path('core/static/admin/origination_product_builder.js').read_text(encoding='utf-8')
+        template = Path('origination/templates/admin/core/originationproductdefinition/change_form.html').read_text(encoding='utf-8')
+        source = Path('origination/static/admin/origination_product_builder.js').read_text(encoding='utf-8')
 
         for control in ('origination-product-builder', 'opb-sections', 'opb-signers', 'add-section', 'add-signer'):
             self.assertIn(control, template)

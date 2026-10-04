@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
@@ -281,6 +283,7 @@ def fcaup_review_payload(batch_id: str, token: str) -> dict[str, Any]:
     }
 
 
+@include_record_reference('record')
 def fcaup_record_to_review_row(record: FcaImportRecord) -> dict[str, Any]:
     fields = dict(record.parsed_fields or {})
     review = record.import_status == 'review_needed'

@@ -6,6 +6,10 @@ This guide describes the current implementation and the invariants a developer
 must preserve. Code, migrations, settings, and tests remain authoritative if
 this document drifts.
 
+Ownership and access were updated on 4 October 2026. See the
+[separation release](origination-separation-release.md) for migrations, rollback
+and the future Mini App reference contract.
+
 ## Purpose and boundaries
 
 Loan Origination is a product-neutral, revision-controlled Telegram Mini App. A
@@ -76,18 +80,18 @@ deletion, or another Mini App.
 
 | Area | Primary source |
 |---|---|
-| Models and constraints | `core/models.py` |
-| Admin screens and actions | `core/admin.py`, `core/admin_navigation.py` |
-| Application lifecycle | `core/services/loan_origination.py` |
-| Document selection/rendering | `core/services/origination_documents.py` |
-| PDF upload/calibration/publication | `core/services/origination_templates.py` |
-| Canonical field governance | `core/services/origination_fields.py` |
+| Models and constraints | `origination/models.py` |
+| Admin screens and actions | `origination/admin.py`, `core/admin_navigation.py` |
+| Application lifecycle | `origination/services/loan_origination.py` |
+| Document selection/rendering | `origination/services/origination_documents.py` |
+| PDF upload/calibration/publication | `origination/services/origination_templates.py` |
+| Canonical field governance | `origination/services/origination_fields.py` |
 | Product terms and availability | `core/services/product_catalog.py` |
-| Officer-entered commercial contract, quote comparison and exact exceptions | `core/services/origination_commercial_terms.py` |
-| Authorization and scoping | `core/services/origination_access.py`, `core/services/workflow_capabilities.py` |
-| HTTP boundary | `core/api/origination_views.py`, `core/api/urls.py` |
-| Mini App | `core/templates/loan_origination/app.html`, `core/static/miniapp/loan_origination.*` |
-| Admin builders | `core/templates/admin/core/origination*/`, `core/static/admin/origination_*` |
+| Officer-entered commercial contract, quote comparison and exact exceptions | `origination/services/origination_commercial_terms.py` |
+| Authorization and scoping | `origination/services/origination_access.py`, `core/services/workflow_capabilities.py` |
+| HTTP boundary | `origination/views.py`, `origination/auth.py`, `origination/urls.py` |
+| Mini App | `origination/templates/loan_origination/app.html`, `origination/static/miniapp/loan_origination.*` |
+| Admin builders | `origination/templates/admin/core/origination*/`, `origination/static/admin/origination_*` |
 
 Business rules belong in services. Views should parse requests, authenticate,
 authorize, call a service, and translate known errors into stable responses.
@@ -297,20 +301,24 @@ audit.
 ## Authentication, authorization, and concurrency
 
 The shell is public HTML at `/origination/`; its APIs are protected through the
-shared Portal Telegram authenticator. Production must keep
-`PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True`. Never add a separate or weaker
-`initData` verifier.
+independent Origination staff-access boundary, which delegates verification to
+the shared canonical Telegram identity service. Production must keep
+`ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=True`. Never weaken `initData` verification.
 
-The `jawabu_portal` capability defaults are:
+The `loan_origination` capability defaults are:
 
 | Capability | Default roles |
 |---|---|
-| `portal.origination.view` | `JBL_OFFICER`, `OPERATIONS_ADMIN`, `BUSINESS_ADMIN` |
-| `portal.origination.create` | `JBL_OFFICER` |
-| `portal.origination.review` | `OPERATIONS_ADMIN`, `BUSINESS_ADMIN` |
-| `portal.origination.signing.start` | `OPERATIONS_ADMIN` |
+| `origination.view` | `JBL_OFFICER`, `BM`, `MANAGEMENT`, `CA`, `OPERATIONS_ADMIN`, `BUSINESS_ADMIN` |
+| `origination.create` | `JBL_OFFICER` |
+| `origination.review` | `OPERATIONS_ADMIN`, `BUSINESS_ADMIN` |
+| `origination.signing.start` | `OPERATIONS_ADMIN` |
+| `origination.signing.staff` | `JBL_OFFICER`, `BM`, `MANAGEMENT`, `CA` |
 
-Capabilities are only the first layer. Enforce branch, product, application
+IT receives every capability within its active grant scope. Signing-only staff
+view the applicable signing work, rather than a general customer queue.
+
+Capabilities are only the first layer. Enforce a complete branch/product/group grant, application
 ownership, and full/masked/denied presentation through `origination_access.py`.
 An officer with create access sees their own applications; elevated review/
 signing roles receive their allowed scoped queue. A view-only result may be

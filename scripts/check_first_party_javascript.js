@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const roots = [
+  path.join(root, 'origination', 'static'),
   path.join(root, 'core', 'static', 'admin'),
   path.join(root, 'core', 'static', 'miniapp'),
   path.join(root, 'core', 'tests_js'),

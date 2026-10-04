@@ -14,7 +14,7 @@ API_ROOT = ROOT / 'core' / 'api'
 URLS_FILE = API_ROOT / 'urls.py'
 UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 KEY_BOUNDARIES = frozenset({
-    'miniapp_write_response', 'miniapp_idempotency_boundary', 'portal_auth_required',
+    'miniapp_write_response', 'miniapp_idempotency_boundary', 'portal_auth_required', 'origination_auth_required',
 })
 
 
@@ -38,7 +38,7 @@ def _decorator_name(node: ast.expr) -> str:
 
 def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
     contracts: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
-    for source_path in sorted(API_ROOT.glob('*.py')):
+    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'origination' / 'views.py']):
         tree = ast.parse(source_path.read_text(encoding='utf-8'), filename=str(source_path))
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -60,7 +60,7 @@ def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
 
 def discover_write_routes() -> dict[str, DiscoveredRoute]:
     contracts = _view_contracts()
-    tree = ast.parse(URLS_FILE.read_text(encoding='utf-8'), filename=str(URLS_FILE))
+    tree = ast.parse(URLS_FILE.read_text(encoding='utf-8') + '\n' + (ROOT / 'origination/urls.py').read_text(encoding='utf-8'))
     discovered: dict[str, DiscoveredRoute] = {}
     for node in ast.walk(tree):
         if not (

@@ -178,7 +178,8 @@ def apply_baseline(*, actor=None) -> dict:
 
 def _reconcile_default_products() -> None:
     """Leave a fresh database with only the explicitly approved defaults."""
-    from core.models import OriginationProductDefinition, Product, ProductVersion
+    from origination.models import OriginationProductDefinition
+    from core.models import Product, ProductVersion
 
     approved_codes = {code for code, _name in DEFAULT_PRODUCT_SPECS}
     unwanted = Product.objects.exclude(code__in=approved_codes).order_by('pk')

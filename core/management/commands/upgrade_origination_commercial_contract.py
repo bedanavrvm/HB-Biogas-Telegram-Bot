@@ -7,13 +7,13 @@ from django.core import signing
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from core.models import (
+from origination.models import (
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
 )
-from core.services.origination_commercial_terms import (
+from origination.services.origination_commercial_terms import (
     COMMERCIAL_KEYS,
     merge_commercial_contract,
 )

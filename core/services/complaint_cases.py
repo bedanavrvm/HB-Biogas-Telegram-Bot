@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Count
@@ -1828,6 +1830,7 @@ def sla_payload(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str,
     }
 
 
+@include_record_reference('case')
 def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     control = ensure_case_control(case)
     resolved = case.complaint_status == 'Closed'

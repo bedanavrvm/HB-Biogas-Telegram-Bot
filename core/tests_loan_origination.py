@@ -21,8 +21,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from core.admin import OriginationProductDefinitionForm
-from core.models import (
+from origination.admin import OriginationProductDefinitionForm
+from origination.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationConsentPolicyVersion,
@@ -35,9 +35,9 @@ from core.models import (
     OriginationSigningActionInvalidation,
     OriginationSigningPackage,
     OriginationTemplateConfigurationRevision,
-    Product,
 )
-from core.services.loan_origination import (
+from core.models import Product
+from origination.services.loan_origination import (
     OriginationConflict,
     OriginationError,
     OriginationRecallConfirmationRequired,
@@ -63,7 +63,7 @@ from core.services.loan_origination import (
     validate_applicant_identity_contract,
     validate_form_payload,
 )
-from core.services.origination_documents import (
+from origination.services.origination_documents import (
     mark_document_previewed,
     mark_packet_previewed,
     save_document_fields,
@@ -72,13 +72,13 @@ from core.services.origination_documents import (
     render_packet,
     validate_applicability_rule,
 )
-from core.services.origination_consent import apply_consent_notice
-from core.services.origination_final_review import final_review_signed_packet
-from core.services.origination_templates import (
+from origination.services.origination_consent import apply_consent_notice
+from origination.services.origination_final_review import final_review_signed_packet
+from origination.services.origination_templates import (
     attach_shared_document_template,
     attach_shared_supporting_template,
 )
-from core.services.origination_signing import (
+from origination.services.origination_signing import (
     _validated_signature_capture,
     _slot_overlay,
     _test_overlay,
@@ -135,7 +135,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertTrue(complete.valid)
 
     def test_repeatable_form_column_widths_require_one_hundred_percent(self):
-        from core.services.loan_origination import validate_product_form_contract
+        from origination.services.loan_origination import validate_product_form_contract
         schema = {'fields': [{
             'key': 'loans', 'type': 'repeating_group',
             'structure': {'min_items': 0, 'max_items': 3, 'columns': [{'key': 'institution'}]},
@@ -354,7 +354,7 @@ class LoanOriginationServiceTests(TestCase):
                 decision='request_correction',
             )
 
-    @patch('core.services.origination_documents.render_packet')
+    @patch('origination.services.origination_documents.render_packet')
     def test_operations_freezes_packet_before_checker_review(self, render_packet_mock):
         render_packet_mock.return_value = (b'%PDF-frozen-review', [{
             'key': 'primary', 'rendered_sha256': 'c' * 64,
@@ -387,7 +387,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(bytes(package.frozen_unsigned_document), b'%PDF-frozen-review')
         self.assertTrue(application.events.filter(action='review_packet_prepared').exists())
 
-    @patch('core.services.origination_documents.render_packet')
+    @patch('origination.services.origination_documents.render_packet')
     def test_approved_review_packet_uses_exact_frozen_bytes(self, render_packet_mock):
         frozen = b'%PDF-exact-checker-review'
         render_packet_mock.return_value = (frozen, [{'key': 'primary', 'page_count': 1}])
@@ -434,7 +434,7 @@ class LoanOriginationServiceTests(TestCase):
         with self.assertRaisesRegex(OriginationConflict, 'integrity check'):
             frozen_unsigned_package_content(package)
 
-    @patch('core.services.origination_documents.render_packet')
+    @patch('origination.services.origination_documents.render_packet')
     def test_legacy_packet_recovery_requires_exact_original_hashes(self, render_packet_mock):
         application, _ = create_application(
             product_key=self.product.product_key, officer=self.officer,
@@ -504,7 +504,7 @@ class LoanOriginationServiceTests(TestCase):
         )
         output = StringIO()
         with patch(
-            'core.services.origination_documents.render_packet', return_value=(content, []),
+            'origination.services.origination_documents.render_packet', return_value=(content, []),
         ):
             call_command(
                 'repair_origination_frozen_packet', package_id=str(package.pk), stdout=output,
@@ -1098,7 +1098,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(application.form_payload['customer_name'], 'Synthetic Customer')
         self.assertEqual(support_document.field_payload, {
             'guarantor_name': 'Synthetic Guarantor',
-            'guarantor_phone': '0712345678',
+            'guarantor_phone': '254712345678',
         })
         mark_packet_previewed(application)
         packet = serialize_packet(application)
@@ -1113,7 +1113,7 @@ class LoanOriginationServiceTests(TestCase):
             writer.write(output)
             rendered_documents.append(output.getvalue())
         with patch(
-            'core.services.origination_documents.render_document',
+            'origination.services.origination_documents.render_document',
             side_effect=rendered_documents,
         ):
             combined, manifest = render_packet(application)
@@ -1158,7 +1158,7 @@ class LoanOriginationServiceTests(TestCase):
         support_document.refresh_from_db()
         self.assertEqual(support_document.field_payload, {
             'guarantor_name': 'Corrected Guarantor',
-            'guarantor_phone': '0712345678',
+            'guarantor_phone': '254712345678',
         })
 
     def test_supporting_document_selection_does_not_require_a_separate_primary_preview(self):
@@ -1417,7 +1417,7 @@ class LoanOriginationServiceTests(TestCase):
         )
         return application, package, action
 
-    @patch('core.services.origination_esign._archive_signed_package_after_commit')
+    @patch('origination.services.origination_esign._archive_signed_package_after_commit')
     def test_independent_final_review_approves_exact_opened_hash(self, archive_mock):
         application, package, _action = self._signed_conditional_package()
 
@@ -1456,7 +1456,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_PARTIALLY_SIGNED)
         self.assertTrue(OriginationSigningActionInvalidation.objects.filter(action=action).exists())
         self.assertEqual(package.signed_document_hash, '')
-        from core.services.origination_esign import _create_or_get_active_action
+        from origination.services.origination_esign import _create_or_get_active_action
         replacement, created = _create_or_get_active_action(
             package=package, document_key='primary', slot_key='approval_signature',
             defaults={
@@ -1523,7 +1523,7 @@ class LoanOriginationServiceTests(TestCase):
         )
         self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_PARTIALLY_SIGNED)
 
-    @patch('core.services.origination_esign._archive_signed_package_after_commit')
+    @patch('origination.services.origination_esign._archive_signed_package_after_commit')
     def test_corrected_final_review_requires_reasoned_checker_takeover(self, archive_mock):
         alternate_reviewer = get_user_model().objects.create_user(
             username='conditional-alternate-reviewer',
@@ -1787,7 +1787,7 @@ class LoanOriginationServiceTests(TestCase):
             'guarantor_1_id_copy',
             {item['key'] for item in application.product_terms_snapshot['requirements']},
         )
-        from core.services.loan_origination import _missing_application_requirements
+        from origination.services.loan_origination import _missing_application_requirements
         self.assertEqual(
             {item['key'] for item in _missing_application_requirements(application, stage='review')},
             {'guarantor_1_id_copy'},
@@ -1825,7 +1825,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(application.packet_documents.get(document_key='primary').template_id, template.pk)
 
     def test_generic_laf_net_income_fields_are_independent_manual_values(self):
-        from core.services.generic_jawabu_laf_seed import FIELD_SPECS
+        from origination.services.generic_jawabu_laf_seed import FIELD_SPECS
 
         specs = {item['key']: item for item in FIELD_SPECS}
         self.assertEqual(specs['enterprise_net_income']['type'], 'money')
@@ -1835,9 +1835,9 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(specs['enterprise_net_income']['validation'], {})
         self.assertEqual(specs['household_net_income']['validation'], {})
 
-    @patch('core.services.generic_jawabu_laf_seed.upload_template_record')
+    @patch('origination.services.generic_jawabu_laf_seed.upload_template_record')
     def test_generic_laf_seed_is_idempotent_and_does_not_attach_products(self, upload_mock):
-        from core.services.generic_jawabu_laf_seed import apply_seed
+        from origination.services.generic_jawabu_laf_seed import apply_seed
 
         upload_mock.side_effect = lambda template, **_kwargs: template
         actor = get_user_model().objects.create_superuser(
@@ -1880,7 +1880,7 @@ class LoanOriginationServiceTests(TestCase):
 class OriginationProductFamilyPurgeTests(TestCase):
     def test_family_purge_is_scoped_audited_and_idempotent(self):
         from core.models import ComplianceAuditChainState, ComplianceAuditEvent
-        from core.services.origination_god_mode import purge_origination_product_family
+        from origination.services.origination_god_mode import purge_origination_product_family
 
         actor = get_user_model().objects.create_superuser(
             username='family-purge-admin', email='family-purge@example.test', password='password',
@@ -1938,7 +1938,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
             username='template-upload-admin', email='template-upload@example.test', password='password',
         )
         self.client.force_login(self.actor)
-        self.add_url = reverse('admin:core_originationdocumenttemplate_add')
+        self.add_url = reverse('admin:origination_originationdocumenttemplate_add')
 
     @staticmethod
     def _pdf_upload(name='generic-laf.pdf', *, width=612):
@@ -1994,7 +1994,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         template.published_configuration_revision = published
         template.save(update_fields=['published_configuration_revision'])
         change_url = reverse(
-            'admin:core_originationdocumenttemplate_change', args=[template.pk],
+            'admin:origination_originationdocumenttemplate_change', args=[template.pk],
         )
 
         page = self.client.get(change_url)
@@ -2006,7 +2006,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertContains(page, 'Preview published mapping')
 
         response = self.client.post(reverse(
-            'admin:core_originationdocumenttemplate_create_editable_version',
+            'admin:origination_originationdocumenttemplate_create_editable_version',
             args=[template.pk],
         ))
 
@@ -2015,13 +2015,13 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         )
         self.assertRedirects(
             response,
-            reverse('admin:core_originationdocumenttemplate_calibrate', args=[successor.pk]),
+            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[successor.pk]),
             fetch_redirect_response=False,
         )
         self.assertEqual(successor.status, successor.STATUS_READY)
         self.assertEqual(successor.drive_file_id, template.drive_file_id)
 
-    @patch('core.services.origination_templates.upload_template_record')
+    @patch('origination.services.origination_templates.upload_template_record')
     def test_admin_upload_applies_generic_laf_contract_and_versions_its_family(self, upload_mock):
         upload_mock.side_effect = self._mark_uploaded
         first_response = self.client.post(self.add_url, {
@@ -2044,7 +2044,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertGreater(len(first.signer_rules), 2)
         self.assertTrue(OriginationDataField.objects.filter(key='enterprise_net_income').exists())
         self.assertIn(
-            reverse('admin:core_originationdocumenttemplate_calibrate', args=[first.pk]),
+            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[first.pk]),
             first_response['Location'],
         )
 
@@ -2067,7 +2067,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertEqual(second.form_schema, first.form_schema)
         self.assertEqual(second.signer_rules, first.signer_rules)
 
-    @patch('core.services.origination_templates.upload_template_record')
+    @patch('origination.services.origination_templates.upload_template_record')
     def test_primary_upload_creates_an_independent_catalogue_document(self, upload_mock):
         upload_mock.side_effect = self._mark_uploaded
         product = OriginationProductDefinition.objects.create(
@@ -2130,7 +2130,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
 
     def test_draft_product_has_a_single_guided_supporting_document_entrypoint(self):
         response = self.client.get(reverse(
-            'admin:core_originationproductdefinition_supporting_document_setup', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_supporting_document_setup', args=[self.product.pk],
         ))
 
         self.assertEqual(response.status_code, 200)
@@ -2153,7 +2153,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         template.published_configuration_revision = revision
         template.save(update_fields=['published_configuration_revision'])
         add_url = reverse(
-            'admin:core_originationproductdefinition_packet_add_shared', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_packet_add_shared', args=[self.product.pk],
         )
 
         response = self.client.post(add_url, {'template_id': template.pk})
@@ -2162,7 +2162,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         assignment = OriginationProductDocumentAssignment.objects.get(product_definition=self.product)
         self.assertEqual(response.json()['assignment_id'], str(assignment.pk))
         remove_url = reverse(
-            'admin:core_originationproductdefinition_packet_remove_shared',
+            'admin:origination_originationproductdefinition_packet_remove_shared',
             args=[self.product.pk, assignment.pk],
         )
         response = self.client.post(remove_url)
@@ -2193,7 +2193,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         template.save(update_fields=['published_configuration_revision'])
 
         response = self.client.post(reverse(
-            'admin:core_originationproductdefinition_packet_add_shared', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_packet_add_shared', args=[self.product.pk],
         ), {'template_id': template.pk})
 
         self.assertEqual(response.status_code, 200)
@@ -2206,7 +2206,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertIn('applicant_name', {item['key'] for item in self.product.form_schema['fields']})
 
     def test_ajax_publish_returns_the_real_validation_error_instead_of_hiding_it(self):
-        from core.services.origination_templates import OriginationTemplateError
+        from origination.services.origination_templates import OriginationTemplateError
 
         template = OriginationDocumentTemplate.objects.create(
             product_definition=None, document_key='primary', document_role='primary',
@@ -2229,12 +2229,12 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
             display_order=0, created_by=self.actor,
         )
         url = reverse(
-            'admin:core_originationproductdefinition_publish_assigned_primary',
+            'admin:origination_originationproductdefinition_publish_assigned_primary',
             args=[self.product.pk],
         )
 
         with patch(
-            'core.services.origination_templates.publish_product_template',
+            'origination.services.origination_templates.publish_product_template',
             side_effect=OriginationTemplateError('Required field loan_amount is not calibrated.'),
         ):
             response = self.client.post(
@@ -2273,7 +2273,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
             display_order=0, created_by=self.actor,
         )
         url = reverse(
-            'admin:core_originationproductdefinition_publish_assigned_primary',
+            'admin:origination_originationproductdefinition_publish_assigned_primary',
             args=[self.product.pk],
         )
 
@@ -2284,7 +2284,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
             return self.product, template, revision
 
         with patch(
-            'core.services.origination_templates.publish_product_template',
+            'origination.services.origination_templates.publish_product_template',
             side_effect=publish_success,
         ):
             response = self.client.post(
@@ -2299,7 +2299,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertEqual(payload['lifecycle_status'], self.product.STATUS_PUBLISHED)
         self.assertEqual(
             payload['redirect_url'],
-            reverse('admin:core_originationproductdefinition_changelist'),
+            reverse('admin:origination_originationproductdefinition_changelist'),
         )
 
     def test_product_can_be_created_from_published_reusable_primary_without_upload(self):
@@ -2325,7 +2325,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         template.published_configuration_revision = revision
         template.save(update_fields=['published_configuration_revision'])
 
-        response = self.client.post(reverse('admin:core_originationproductdefinition_add'), {
+        response = self.client.post(reverse('admin:origination_originationproductdefinition_add'), {
             'product_version': '',
             'product_key': 'library-created-product',
             'name': 'Library-created product',
@@ -2346,7 +2346,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertIn('application_note', {item['key'] for item in product.form_schema['fields']})
 
     def test_configure_later_draft_is_saved_and_flagged_as_missing_main_laf(self):
-        response = self.client.post(reverse('admin:core_originationproductdefinition_add'), {
+        response = self.client.post(reverse('admin:origination_originationproductdefinition_add'), {
             'product_version': '',
             'product_key': 'configure-later-product',
             'name': 'Configure later product',
@@ -2408,7 +2408,7 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         )
 
         response = self.client.post(reverse(
-            'admin:core_originationproductdefinition_packet_upgrade_primary',
+            'admin:origination_originationproductdefinition_packet_upgrade_primary',
             args=[self.product.pk, assignment.pk],
         ))
 

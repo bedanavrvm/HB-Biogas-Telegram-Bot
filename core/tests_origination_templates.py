@@ -15,7 +15,7 @@ from django.utils import timezone
 from pypdf import PdfReader, PdfWriter
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationDataField,
     OriginationDocumentTemplate,
@@ -24,7 +24,7 @@ from core.models import (
     OriginationProductDefinition,
     OriginationTemplateConfigurationRevision,
 )
-from core.services.origination_templates import (
+from origination.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
     assignment_template_compatibility_errors,
@@ -41,14 +41,14 @@ from core.services.origination_templates import (
     validate_template_files,
     validate_template_pdf,
 )
-from core.services.origination_fields import (
+from origination.services.origination_fields import (
     OriginationFieldConflict,
     consolidate_data_field,
     create_data_field,
     mark_data_field_terminology_distinct,
     terminology_audit_candidates,
 )
-from core.services.origination_terminology import terminology_signature
+from origination.services.origination_terminology import terminology_signature
 from core.services.partnership_laf_preview import (
     PartnershipLafPreviewError,
     _checkbox_is_checked,
@@ -56,7 +56,7 @@ from core.services.partnership_laf_preview import (
     render_pdf_page,
     render_template,
 )
-from core.services.loan_origination import render_application_preview
+from origination.services.loan_origination import render_application_preview
 
 
 def synthetic_pdf() -> bytes:
@@ -493,7 +493,7 @@ class OriginationTemplateLifecycleTests(TestCase):
             source_byte_size=100, page_count=1, placement_config=json.loads(synthetic_config()),
             drive_file_id='drive-template-admin', created_by=self.maker,
         )
-        url = reverse('admin:core_originationdocumenttemplate_calibrate', args=[template.pk])
+        url = reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
         self.client.force_login(self.maker)
         self.assertEqual(self.client.get(url).status_code, 200)
         ordinary_staff = get_user_model().objects.create_user(
@@ -539,7 +539,7 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.assertEqual(renderer.call_args.kwargs['configuration'], published_config)
 
     @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-updated')
-    @patch('core.services.loan_origination._published_template_configuration')
+    @patch('origination.services.loan_origination._published_template_configuration')
     def test_submitted_review_preview_preserves_the_submitted_configuration(self, published, renderer):
         product = OriginationProductDefinition.objects.create(
             product_key='review-calibration-refresh', name='Review calibration refresh', version=1,
@@ -623,7 +623,7 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_calibration_new_items_use_page_center_instead_of_bottom_corner(self):
         source = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.js'
         ).read_text(encoding='utf-8')
 
         self.assertIn('const centeredBox = (width, height) =>', source)
@@ -631,7 +631,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('y: rounded((pageHeight - boxHeight) / 2)', source)
         self.assertNotIn('box: { x: 40, y: 40', source)
 
-    @patch('core.services.origination_templates.load_template_source')
+    @patch('origination.services.origination_templates.load_template_source')
     def test_signer_slot_appearance_is_validated_without_raw_json(self, load_source):
         load_source.return_value = self.pdf
         self.product.signer_rules[0]['slots'].append({
@@ -683,11 +683,11 @@ class MultiProductOriginationTemplateTests(TestCase):
             validate_template_configuration(invalid, template=template, require_complete=True)
 
         source = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.js'
         ).read_text(encoding='utf-8')
         builder = (
             Path(settings.BASE_DIR)
-            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+            / 'origination/templates/admin/core/originationdocumenttemplate/calibrate.html'
         ).read_text(encoding='utf-8')
         self.assertIn('function updateSelectedSignature()', source)
         self.assertIn('cal-signature-ink', builder)
@@ -696,7 +696,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('cal-stamp-fit', builder)
 
     def test_shared_assignment_admin_derives_document_identity_from_template(self):
-        from core.admin import OriginationProductDocumentAssignmentForm
+        from origination.admin import OriginationProductDocumentAssignmentForm
 
         template = OriginationDocumentTemplate.objects.create(
             product_definition=None, document_key='guarantor_form',
@@ -726,7 +726,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(assignment.name, template.name)
         self.client.force_login(self.user)
         response = self.client.get(
-            reverse('admin:core_originationproductdocumentassignment_add'),
+            reverse('admin:origination_originationproductdocumentassignment_add'),
             {'product_definition': str(self.product.pk)},
         )
         self.assertContains(response, 'Only include this document when')
@@ -735,7 +735,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertContains(response, 'origination_document_conditions.js')
 
     def test_shared_assignment_admin_stores_simple_rule_from_form_controls(self):
-        from core.admin import OriginationProductDocumentAssignmentForm
+        from origination.admin import OriginationProductDocumentAssignmentForm
 
         template = OriginationDocumentTemplate.objects.create(
             product_definition=None, document_key='guarantor_form',
@@ -803,7 +803,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            reverse('admin:core_originationproductdocumentassignment_add')
+            reverse('admin:origination_originationproductdocumentassignment_add')
             + f'?template={successor.pk}',
             {
                 'product_definition': str(self.product.pk),
@@ -819,7 +819,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(response.status_code, 302, response.content.decode())
         self.assertEqual(
             response.url,
-            reverse('admin:core_originationproductdefinition_change', args=[self.product.pk]),
+            reverse('admin:origination_originationproductdefinition_change', args=[self.product.pk]),
         )
         assignment.refresh_from_db()
         self.product.refresh_from_db()
@@ -871,7 +871,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            reverse('admin:core_originationproductdocumentassignment_add'),
+            reverse('admin:origination_originationproductdocumentassignment_add'),
             {
                 'product_definition': str(self.product.pk),
                 'template': str(replacement.pk),
@@ -892,11 +892,11 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
         source = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.js'
         ).read_text(encoding='utf-8')
         template = (
             Path(settings.BASE_DIR)
-            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+            / 'origination/templates/admin/core/originationdocumenttemplate/calibrate.html'
         ).read_text(encoding='utf-8')
 
         self.assertIn('const globalFieldFormatting = () =>', source)
@@ -909,11 +909,11 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_checkbox_builder_uses_canonical_selectors_and_sample_control(self):
         source = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.js'
         ).read_text(encoding='utf-8')
         template = (
             Path(settings.BASE_DIR)
-            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+            / 'origination/templates/admin/core/originationdocumenttemplate/calibrate.html'
         ).read_text(encoding='utf-8')
 
         self.assertIn('function checkboxOptions(spec)', source)
@@ -924,14 +924,14 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_readiness_and_field_catalogue_are_bounded_collapsible_panels(self):
         source = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.js'
         ).read_text(encoding='utf-8')
         styles = (
-            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.css'
+            Path(settings.BASE_DIR) / 'origination/static/admin/origination_calibration.css'
         ).read_text(encoding='utf-8')
         template = (
             Path(settings.BASE_DIR)
-            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+            / 'origination/templates/admin/core/originationdocumenttemplate/calibrate.html'
         ).read_text(encoding='utf-8')
 
         self.assertIn('<details id="calibration-readiness"', template)
@@ -954,7 +954,7 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_admin_creates_visual_product_draft_without_raw_template_identifiers(self):
         self.client.force_login(self.user)
-        add_url = reverse('admin:core_originationproductdefinition_add')
+        add_url = reverse('admin:origination_originationproductdefinition_add')
         response = self.client.get(add_url)
         self.assertContains(response, 'id="origination-product-builder"')
         self.assertEqual(response.context['adminform'].readonly_fields, ())
@@ -993,7 +993,7 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     def test_unsaved_product_builder_can_create_an_audited_canonical_field_inline(self):
         self.client.force_login(self.user)
-        url = reverse('admin:core_originationproductdefinition_create_canonical_field')
+        url = reverse('admin:origination_originationproductdefinition_create_canonical_field')
         payload = {
             'label': 'Applicant residence type',
             'key': 'applicant_residence_type',
@@ -1111,7 +1111,7 @@ class MultiProductOriginationTemplateTests(TestCase):
     def test_terminology_audit_admin_is_superuser_only(self):
         self.client.force_login(self.user)
         response = self.client.get(
-            reverse('admin:core_originationdatafield_terminology_audit'),
+            reverse('admin:origination_originationdatafield_terminology_audit'),
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Applicant is the standard Origination term')
@@ -1122,7 +1122,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
         self.client.force_login(staff)
         forbidden = self.client.get(
-            reverse('admin:core_originationdatafield_terminology_audit'),
+            reverse('admin:origination_originationdatafield_terminology_audit'),
         )
         self.assertEqual(forbidden.status_code, 403)
 
@@ -1138,7 +1138,7 @@ class MultiProductOriginationTemplateTests(TestCase):
             created_by=self.user,
         )
         self.client.force_login(self.user)
-        url = reverse('admin:core_originationdatafield_terminology_audit')
+        url = reverse('admin:origination_originationdatafield_terminology_audit')
         payload = {
             'action': 'consolidate',
             'preferred_id': str(preferred.pk),
@@ -1169,7 +1169,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(staff)
 
         response = self.client.post(
-            reverse('admin:core_originationproductdefinition_create_canonical_field'),
+            reverse('admin:origination_originationproductdefinition_create_canonical_field'),
             data=json.dumps({'label': 'Forbidden field', 'key': 'forbidden_field', 'type': 'text'}),
             content_type='application/json',
         )
@@ -1186,7 +1186,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            reverse('admin:core_originationproductdefinition_add'),
+            reverse('admin:origination_originationproductdefinition_add'),
             {
                 'product_key': 'integrated-laf',
                 'name': 'Integrated LAF Loan',
@@ -1216,7 +1216,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertRedirects(
             response,
             reverse(
-                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+                'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
             ),
             fetch_redirect_response=False,
         )
@@ -1230,7 +1230,7 @@ class MultiProductOriginationTemplateTests(TestCase):
             ['created', 'uploaded'],
         )
         state_response = self.client.get(reverse(
-            'admin:core_originationdocumenttemplate_calibration_state',
+            'admin:origination_originationdocumenttemplate_calibration_state',
             args=[template.pk],
         ))
         state = state_response.json()
@@ -1265,7 +1265,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse(
-            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_change', args=[self.product.pk],
         ))
 
         self.assertEqual(response.status_code, 200)
@@ -1276,7 +1276,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
         self.assertContains(response, 'Open alignment builder')
         self.assertContains(response, reverse(
-            'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+            'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
         ))
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -1288,7 +1288,7 @@ class MultiProductOriginationTemplateTests(TestCase):
 
         response = self.client.post(
             reverse(
-                'admin:core_originationproductdefinition_change', args=[self.product.pk],
+                'admin:origination_originationproductdefinition_change', args=[self.product.pk],
             ),
             {
                 'product_version': '',
@@ -1307,7 +1307,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertRedirects(
             response,
             reverse(
-                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+                'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
             ),
             fetch_redirect_response=False,
         )
@@ -1316,7 +1316,7 @@ class MultiProductOriginationTemplateTests(TestCase):
     def test_admin_template_add_is_compact_and_explains_eligible_drafts(self):
         self.client.force_login(self.user)
         response = self.client.get(
-            reverse('admin:core_originationdocumenttemplate_add'),
+            reverse('admin:origination_originationdocumenttemplate_add'),
             {'product_definition': str(self.product.pk)},
         )
 
@@ -1356,12 +1356,12 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.product.save(update_fields=['lifecycle_status'])
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
+        response = self.client.get(reverse('admin:origination_originationdocumenttemplate_add'))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Upload to the reusable document library')
         self.assertContains(response, 'No draft product is currently available')
-        self.assertContains(response, reverse('admin:core_originationproductdefinition_add'))
+        self.assertContains(response, reverse('admin:origination_originationproductdefinition_add'))
         self.assertFalse(
             response.context['adminform'].form.fields['product_definition'].queryset.exists(),
         )
@@ -1381,13 +1381,13 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
+        response = self.client.get(reverse('admin:origination_originationdocumenttemplate_add'))
 
         self.assertContains(response, 'Dairy Working Capital - loan form v1')
         self.assertTrue(response.context['adminform'].form.fields['product_definition'].queryset.exists())
 
         change_response = self.client.get(
-            reverse('admin:core_originationdocumenttemplate_change', args=[template.pk]),
+            reverse('admin:origination_originationdocumenttemplate_change', args=[template.pk]),
         )
         self.assertEqual(change_response.status_code, 200)
         self.assertContains(change_response, 'Source PDF')
@@ -1397,7 +1397,7 @@ class MultiProductOriginationTemplateTests(TestCase):
     def test_admin_template_upload_requires_only_draft_product_and_pdf(self, storage_class):
         storage_class.return_value.upload.return_value = ('drive-admin-pdf', 'https://drive.test/admin-pdf')
         self.client.force_login(self.user)
-        response = self.client.post(reverse('admin:core_originationdocumenttemplate_add'), {
+        response = self.client.post(reverse('admin:origination_originationdocumenttemplate_add'), {
             'product_definition': str(self.product.pk),
             'name': 'Dairy Admin PDF',
             'pdf_file': SimpleUploadedFile('dairy-admin.pdf', self.pdf, content_type='application/pdf'),
@@ -1415,7 +1415,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         storage_class.return_value.upload.return_value = ('drive-shared-guarantor', 'https://drive.test/shared')
         self.client.force_login(self.user)
 
-        response = self.client.post(reverse('admin:core_originationdocumenttemplate_add'), {
+        response = self.client.post(reverse('admin:origination_originationdocumenttemplate_add'), {
             'product_definition': '',
             'document_key': 'shared_guarantor',
             'document_role': OriginationDocumentTemplate.ROLE_SUPPORTING,
@@ -1434,7 +1434,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(template.document_role, template.ROLE_SUPPORTING)
         self.assertEqual(template.form_schema, {'_revision': 0, 'sections': [], 'fields': []})
         change_response = self.client.get(reverse(
-            'admin:core_originationdocumenttemplate_change', args=[template.pk],
+            'admin:origination_originationdocumenttemplate_change', args=[template.pk],
         ))
         replacement_url = change_response.context['origination_next_family_version_url']
         self.assertIn('reusable_family=shared-guarantor-form', replacement_url)
@@ -1768,7 +1768,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse(
-            'admin:core_originationproductdocumentassignment_change', args=[assignment.pk],
+            'admin:origination_originationproductdocumentassignment_change', args=[assignment.pk],
         ))
 
         self.assertEqual(response.status_code, 200)
@@ -1779,7 +1779,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.product.save(update_fields=['lifecycle_status', 'is_active', 'updated_at'])
         self.client.force_login(self.user)
         url = reverse(
-            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_change', args=[self.product.pk],
         )
 
         response = self.client.post(url, {'name': 'Attempted stale edit'})
@@ -1797,7 +1797,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse(
-            'admin:core_originationproductdefinition_changelist',
+            'admin:origination_originationproductdefinition_changelist',
         ))
 
         self.assertEqual(response.status_code, 200)
@@ -1807,7 +1807,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(product_rows, [clone])
         self.assertContains(response, 'Draft v2 · Live v1')
         history = self.client.get(reverse(
-            'admin:core_originationproductdefinition_version_history',
+            'admin:origination_originationproductdefinition_version_history',
             args=[clone.pk],
         ))
         self.assertEqual(history.status_code, 200)
@@ -1815,7 +1815,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertContains(history, 'v2')
         self.assertContains(history, 'v1')
         historical = self.client.get(reverse(
-            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+            'admin:origination_originationproductdefinition_change', args=[self.product.pk],
         ))
         self.assertEqual(historical.status_code, 200)
         self.assertContains(historical, 'Open editable v2')
@@ -1845,7 +1845,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.product.save()
         self.client.force_login(self.user)
         url = reverse(
-            'admin:core_originationproductdefinition_create_next_version',
+            'admin:origination_originationproductdefinition_create_next_version',
             args=[self.product.pk],
         )
 
@@ -1859,7 +1859,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertRedirects(
             response,
             reverse(
-                'admin:core_originationdocumenttemplate_calibrate',
+                'admin:origination_originationdocumenttemplate_calibrate',
                 args=[inherited.pk],
             ),
             fetch_redirect_response=False,
@@ -1897,7 +1897,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
         self.client.force_login(self.user)
         history = self.client.get(reverse(
-            'admin:core_originationproductdefinition_version_history',
+            'admin:origination_originationproductdefinition_version_history',
             args=[self.product.pk],
         ))
         self.assertContains(history, 'Inherited')

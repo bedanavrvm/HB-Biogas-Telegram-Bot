@@ -5,7 +5,7 @@ from pathlib import Path
 from django.conf import settings
 from django.test import SimpleTestCase
 
-from core.services.generic_jawabu_laf_seed import (
+from origination.services.generic_jawabu_laf_seed import (
     EVIDENCE_REQUIREMENTS,
     EXTERNAL_LOANS_STRUCTURE,
     FIELD_SPECS as GENERIC_FIELD_SPECS,
@@ -13,12 +13,12 @@ from core.services.generic_jawabu_laf_seed import (
     SECTIONS as GENERIC_SECTIONS,
     SIGNER_RULES as GENERIC_SIGNER_RULES,
 )
-from core.services.invoice_finance_origination_seed import (
+from origination.services.invoice_finance_origination_seed import (
     FIELD_SPECS as INVOICE_FIELD_SPECS,
     SECTIONS as INVOICE_SECTIONS,
     SIGNER_RULES as INVOICE_SIGNER_RULES,
 )
-from core.services.origination_commercial_terms import (
+from origination.services.origination_commercial_terms import (
     COMMERCIAL_DERIVED_KEYS,
     FIELD_SPECS as COMMERCIAL_FIELD_SPECS,
     COMMERCIAL_INPUT_KEYS,

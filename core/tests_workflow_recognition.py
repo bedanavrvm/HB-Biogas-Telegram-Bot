@@ -10,7 +10,14 @@ from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
-from core.models import AccessGrant, DocumentPhysicalSignoff, JawabuFarmerMaster, JawabuPipelineEvent, RequisitionBatch, TatTrackerCase
+from core.models import (
+    AccessGrant,
+    DocumentPhysicalSignoff,
+    JawabuFarmerMaster,
+    JawabuPipelineEvent,
+    RequisitionBatch,
+    TatTrackerCase,
+)
 from hb_operations.models import HomeBiogasAction, HomeBiogasActionEvent
 from core.services.workflow_recognition import (
     MINIMUM_RANKED_SAMPLE,

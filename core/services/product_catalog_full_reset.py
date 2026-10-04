@@ -14,12 +14,12 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from origination.models import OriginationDocumentProductEligibility
 from core.models import (
     AccessGrant,
     ComplianceAuditEvent,
     EmergencyAccessGrant,
     JawabuApprovalDelegation,
-    OriginationDocumentProductEligibility,
     Product,
     ProductAvailability,
     ProductMappingIssue,

@@ -60,7 +60,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | jawabu | `core_jawaburelatedperson` | `core.JawabuRelatedPerson` | authoritative_record | active | A spouse/household member kept distinct from the applicant identity. |
 | jawabu | `core_jawabuvisitrecord` | `core.JawabuVisitRecord` | authoritative_record | active | Audit/import record for Jawabu HomeBiogas WhatsApp visit exports. |
 | integration | `core_livesheetrecordchange` | `core.LiveSheetRecordChange` | authoritative_record | active | Audit trail for Django admin edits and deletes applied to live sheet rows. |
-| origination | `core_loanoriginationapplication` | `core.LoanOriginationApplication` | authoritative_record | active | Canonical, revision-controlled application captured by a field officer. |
+| origination | `core_loanoriginationapplication` | `origination.LoanOriginationApplication` | authoritative_record | active | Canonical, revision-controlled application captured by a field officer. |
 | catalog | `core_locationconfigurationevent` | `core.LocationConfigurationEvent` | immutable_event | active | Append-only evidence for global location and coverage changes. |
 | catalog | `core_locationmappingissue` | `core.LocationMappingIssue` | authoritative_record | active | Persists location mapping issues for the owning workflow. |
 | catalog | `core_locationpolicystate` | `core.LocationPolicyState` | configuration_state | active | Persists Location enforcement policy for the owning workflow. |
@@ -73,32 +73,32 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | catalog | `core_operationallocation` | `core.OperationalLocation` | authoritative_record | active | Stable branch, county, or sub-county identity shared by all workflows. |
 | catalog | `core_operationallocationalias` | `core.OperationalLocationAlias` | business_link | active | Approved legacy or alternate spelling for a canonical location. |
 | order_approval | `core_orderapprovalupdate` | `core.OrderApprovalUpdate` | authoritative_record | archived | Audit trail for Telegram-driven order approval BRO updates. |
-| origination | `core_originationapplicationdocument` | `core.OriginationApplicationDocument` | authoritative_record | active | Application-scoped snapshot and progress for one generated packet document. |
-| origination | `core_originationapplicationevent` | `core.OriginationApplicationEvent` | immutable_event | active | Append-only operational history for an origination application. |
-| origination | `core_originationcommercialexception` | `core.OriginationCommercialException` | authoritative_record | active | Immutable Superuser approval for exact policy mismatches on one revision. |
-| origination | `core_originationconsentpolicyversion` | `core.OriginationConsentPolicyVersion` | authoritative_record | active | Immutable approved wording bound to a conditional signing packet. |
-| origination | `core_originationcorrectionitem` | `core.OriginationCorrectionItem` | processing_record | active | Immutable field or requirement target within a correction request. |
-| origination | `core_originationcorrectionrequest` | `core.OriginationCorrectionRequest` | authoritative_record | active | Append-preserving reviewer instructions for one submitted revision. |
-| origination | `core_originationdatafield` | `core.OriginationDataField` | authoritative_record | active | Global semantic field used by product forms and legal PDF mappings. |
-| origination | `core_originationdatafieldevent` | `core.OriginationDataFieldEvent` | immutable_event | active | Append-only, value-free audit trail for catalogue governance. |
-| origination | `core_originationdocumentproducteligibility` | `core.OriginationDocumentProductEligibility` | business_link | active | Current product allowlist for one immutable Origination catalogue document version. |
-| origination | `core_originationdocumenttemplate` | `core.OriginationDocumentTemplate` | configuration | active | Immutable Drive-backed PDF/config pair approved for origination rendering. |
-| origination | `core_originationdocumenttemplateevent` | `core.OriginationDocumentTemplateEvent` | immutable_event | active | Append-only audit trail for legal template lifecycle changes. |
-| origination | `core_originationfieldreviewissue` | `core.OriginationFieldReviewIssue` | authoritative_record | active | Tracked exit path for a legacy schema field without a safe catalogue binding. |
-| origination | `core_originationotpchallenge` | `core.OriginationOtpChallenge` | processing_record | temporary | Hashed, bounded OTP challenge; provider delivery never proves signing. |
-| origination | `core_originationproductdefinition` | `core.OriginationProductDefinition` | configuration | active | Versioned, inactive-by-default contract for one loan-origination form. |
-| origination | `core_originationproductdefinitionevent` | `core.OriginationProductDefinitionEvent` | immutable_event | active | Append-only lifecycle history for a versioned origination product. |
-| origination | `core_originationproductdocumentassignment` | `core.OriginationProductDocumentAssignment` | business_assignment | compatibility | Version-policy assignment between a legacy product definition and document family. |
-| origination | `core_originationreportingvalue` | `core.OriginationReportingValue` | authoritative_record | active | Rebuildable typed projection of explicitly reportable application values. |
-| origination | `core_originationrequirementevidence` | `core.OriginationRequirementEvidence` | authoritative_record | active | Audited Drive-backed evidence for one snapshotted product requirement. |
-| origination | `core_originationreviewernotice` | `core.OriginationReviewerNotice` | authoritative_record | active | Persistent in-app attention item for an Origination checker. |
-| origination | `core_originationsignersession` | `core.OriginationSignerSession` | authoritative_record | temporary | Revocable bearer session for one signer of one immutable packet. |
-| origination | `core_originationsigningaction` | `core.OriginationSigningAction` | authoritative_record | active | Append-only evidence for one simulated or provider-verified slot action. |
-| origination | `core_originationsigningactioninvalidation` | `core.OriginationSigningActionInvalidation` | authoritative_record | active | Append-only checker evidence invalidating one otherwise immutable action. |
-| origination | `core_originationsigningpackage` | `core.OriginationSigningPackage` | authoritative_record | active | Stable cross-system link from one frozen revision to e-signatures. |
-| origination | `core_originationsigningrequestevent` | `core.OriginationSigningRequestEvent` | immutable_event | active | Minimal append-only database throttle evidence for public signing writes. |
-| origination | `core_originationstampasset` | `core.OriginationStampAsset` | authoritative_record | active | Versioned, controlled PNG used only in calibrated stamp slots. |
-| origination | `core_originationtemplateconfigurationrevision` | `core.OriginationTemplateConfigurationRevision` | authoritative_record | active | Append-only saved calibration revision for one immutable source PDF. |
+| origination | `core_originationapplicationdocument` | `origination.OriginationApplicationDocument` | authoritative_record | active | Application-scoped snapshot and progress for one generated packet document. |
+| origination | `core_originationapplicationevent` | `origination.OriginationApplicationEvent` | immutable_event | active | Append-only operational history for an origination application. |
+| origination | `core_originationcommercialexception` | `origination.OriginationCommercialException` | authoritative_record | active | Immutable Superuser approval for exact policy mismatches on one revision. |
+| origination | `core_originationconsentpolicyversion` | `origination.OriginationConsentPolicyVersion` | authoritative_record | active | Immutable approved wording bound to a conditional signing packet. |
+| origination | `core_originationcorrectionitem` | `origination.OriginationCorrectionItem` | processing_record | active | Immutable field or requirement target within a correction request. |
+| origination | `core_originationcorrectionrequest` | `origination.OriginationCorrectionRequest` | authoritative_record | active | Append-preserving reviewer instructions for one submitted revision. |
+| origination | `core_originationdatafield` | `origination.OriginationDataField` | authoritative_record | active | Global semantic field used by product forms and legal PDF mappings. |
+| origination | `core_originationdatafieldevent` | `origination.OriginationDataFieldEvent` | immutable_event | active | Append-only, value-free audit trail for catalogue governance. |
+| origination | `core_originationdocumentproducteligibility` | `origination.OriginationDocumentProductEligibility` | business_link | active | Current product allowlist for one immutable Origination catalogue document version. |
+| origination | `core_originationdocumenttemplate` | `origination.OriginationDocumentTemplate` | configuration | active | Immutable Drive-backed PDF/config pair approved for origination rendering. |
+| origination | `core_originationdocumenttemplateevent` | `origination.OriginationDocumentTemplateEvent` | immutable_event | active | Append-only audit trail for legal template lifecycle changes. |
+| origination | `core_originationfieldreviewissue` | `origination.OriginationFieldReviewIssue` | authoritative_record | active | Tracked exit path for a legacy schema field without a safe catalogue binding. |
+| origination | `core_originationotpchallenge` | `origination.OriginationOtpChallenge` | processing_record | temporary | Hashed, bounded OTP challenge; provider delivery never proves signing. |
+| origination | `core_originationproductdefinition` | `origination.OriginationProductDefinition` | configuration | active | Versioned, inactive-by-default contract for one loan-origination form. |
+| origination | `core_originationproductdefinitionevent` | `origination.OriginationProductDefinitionEvent` | immutable_event | active | Append-only lifecycle history for a versioned origination product. |
+| origination | `core_originationproductdocumentassignment` | `origination.OriginationProductDocumentAssignment` | business_assignment | compatibility | Version-policy assignment between a legacy product definition and document family. |
+| origination | `core_originationreportingvalue` | `origination.OriginationReportingValue` | authoritative_record | active | Rebuildable typed projection of explicitly reportable application values. |
+| origination | `core_originationrequirementevidence` | `origination.OriginationRequirementEvidence` | authoritative_record | active | Audited Drive-backed evidence for one snapshotted product requirement. |
+| origination | `core_originationreviewernotice` | `origination.OriginationReviewerNotice` | authoritative_record | active | Persistent in-app attention item for an Origination checker. |
+| origination | `core_originationsignersession` | `origination.OriginationSignerSession` | authoritative_record | temporary | Revocable bearer session for one signer of one immutable packet. |
+| origination | `core_originationsigningaction` | `origination.OriginationSigningAction` | authoritative_record | active | Append-only evidence for one simulated or provider-verified slot action. |
+| origination | `core_originationsigningactioninvalidation` | `origination.OriginationSigningActionInvalidation` | authoritative_record | active | Append-only checker evidence invalidating one otherwise immutable action. |
+| origination | `core_originationsigningpackage` | `origination.OriginationSigningPackage` | authoritative_record | active | Stable cross-system link from one frozen revision to e-signatures. |
+| origination | `core_originationsigningrequestevent` | `origination.OriginationSigningRequestEvent` | immutable_event | active | Minimal append-only database throttle evidence for public signing writes. |
+| origination | `core_originationstampasset` | `origination.OriginationStampAsset` | authoritative_record | active | Versioned, controlled PNG used only in calibrated stamp slots. |
+| origination | `core_originationtemplateconfigurationrevision` | `origination.OriginationTemplateConfigurationRevision` | authoritative_record | active | Append-only saved calibration revision for one immutable source PDF. |
 | jawabu | `core_parsedinvoice` | `core.ParsedInvoice` | authoritative_record | active | One parsed invoice page/record from a Drive-backed invoice upload batch. |
 | jawabu | `core_parsedinvoiceevent` | `core.ParsedInvoiceEvent` | immutable_event | active | Append-only operational event for manual invoice reconciliation. |
 | complaints | `core_parsedmessage` | `core.ParsedMessage` | authoritative_record | active | Structured data extracted from raw messages. Maps directly to Google Sheets schema. |
@@ -255,7 +255,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`, `core/services/user_hard_delete.py`
-- Used by: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`, `origination/migrations/0003_independent_capabilities.py`
 
 ### `core_accessgrant`
 
@@ -265,8 +265,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
-- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`, `origination/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`, `origination/tests.py`, `origination/tests_migrations.py`
 
 ### `core_branchservicearea`
 
@@ -310,7 +310,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ComplaintCaseEvidence`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`
-- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`
+- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/complaint_timing.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`
 
 ### `core_complaintcasecontrol`
 
@@ -320,8 +320,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.ComplaintCategory`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ParsedMessage`
 - Children: `core.ComplaintCaseEvent`
 - Cross-domain parents: `auth.User`, `core.JawabuCustomer`, `core.OperationalLocation`
-- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
+- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/complaint_publication.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
 
 ### `core_complaintcaseevent`
 
@@ -442,7 +442,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`
-- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/origination_god_mode.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`
+- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/origination_god_mode.py`
 
 ### `core_deleteduseridentity`
 
@@ -507,8 +507,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.Product`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.Product`
-- Direct ORM writers: `core/services/access_control.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
-- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`
+- Direct ORM writers: `core/services/access_control.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/tests.py`
+- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `origination/tests.py`
 
 ### `core_fcaimportrecord`
 
@@ -518,8 +518,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_groupsheetconfiguration`
 
@@ -527,10 +527,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
 - Parents: None
-- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `payments.PaymentBatch`, `payments.PaymentReceiptBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
+- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `origination.LoanOriginationApplication`, `payments.PaymentBatch`, `payments.PaymentReceiptBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/fca.py`, `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_portal_sheet_numbers.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`, `requisitions/models.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/tests.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_portal_sheet_numbers.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/models.py`, `origination/tests.py`, `origination/views.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`, `requisitions/models.py`
 
 ### `core_integrationcircuitstate`
 
@@ -551,8 +551,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/external_resilience.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/external_resilience.py`, `core/services/origination_esign.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/invoice_cleanup.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/services/origination_esign.py`
 
 ### `core_invoiceidentityreview`
 
@@ -617,8 +617,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.GroupSheetConfiguration`
 - Children: `core.ParsedInvoice`, `payments.PaymentReceiptItem`
 - Cross-domain parents: `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/inventory_invoice_recovery.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`
 
 ### `core_jawabuapprovalcondition`
 
@@ -681,10 +681,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: None
-- Children: `core.ComplaintCaseControl`, `core.JawabuCustomerPhoneHistory`, `core.JawabuFarmerMaster`, `core.JawabuRelatedPerson`, `core.LoanOriginationApplication`
+- Children: `core.ComplaintCaseControl`, `core.JawabuCustomerPhoneHistory`, `core.JawabuFarmerMaster`, `core.JawabuRelatedPerson`, `origination.LoanOriginationApplication`
 - Cross-domain parents: None
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/jawabu_identity.py`, `core/services/portal_full_reset.py`, `core/services/system_export.py`
-- Used by: `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/invoice_identity.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/system_export.py`
+- Used by: `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/invoice_identity.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`
 
 ### `core_jawabucustomerfieldprovenance`
 
@@ -738,8 +738,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `hb_operations.HomeBiogasAction`, `payments.PaymentBatchCase`, `payments.PaymentReceiptItem`
 - Cross-domain parents: `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_recognition.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_links.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_jawabufarmeruploadbatch`
 
@@ -749,8 +749,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `origination/tests.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_jawabuhouseholdrelationship`
 
@@ -820,14 +820,14 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 
 ### `core_loanoriginationapplication`
 
-- Application identity: `core.LoanOriginationApplication` in **Origination**
+- Application identity: `origination.LoanOriginationApplication` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.JawabuCustomer`, `core.LoanOriginationApplication`, `core.OperationalLocation`, `core.OriginationProductDefinition`, `core.ProductVersion`
-- Children: `core.LoanOriginationApplication`, `core.OriginationApplicationDocument`, `core.OriginationApplicationEvent`, `core.OriginationCommercialException`, `core.OriginationCorrectionRequest`, `core.OriginationReportingValue`, `core.OriginationRequirementEvidence`, `core.OriginationReviewerNotice`, `core.OriginationSigningPackage`
-- Cross-domain parents: `auth.User`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`
-- Direct ORM writers: `core/services/loan_origination.py`, `core/services/origination_god_mode.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/origination_views.py`, `core/services/fresh_database_baseline.py`, `core/services/loan_origination.py`, `core/services/location_catalog.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_consent.py`, `core/services/origination_documents.py`, `core/services/origination_esign.py`, `core/services/origination_evidence.py`, `core/services/origination_fields.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`, `core/services/portal_full_reset.py`, `core/services/product_deletion.py`
+- Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`, `origination.LoanOriginationApplication`, `origination.OriginationProductDefinition`
+- Children: `origination.LoanOriginationApplication`, `origination.OriginationApplicationDocument`, `origination.OriginationApplicationEvent`, `origination.OriginationCommercialException`, `origination.OriginationCorrectionRequest`, `origination.OriginationReportingValue`, `origination.OriginationRequirementEvidence`, `origination.OriginationReviewerNotice`, `origination.OriginationSigningPackage`
+- Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`, `origination/tests.py`
+- Used by: `core/services/fresh_database_baseline.py`, `core/services/location_catalog.py`, `core/services/portal_full_reset.py`, `core/services/product_deletion.py`, `core/services/workflow_links.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_consent.py`, `origination/services/origination_documents.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_fields.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/tests.py`, `origination/tests_migrations.py`, `origination/views.py`
 
 ### `core_locationconfigurationevent`
 
@@ -934,10 +934,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `core.OperationalLocation`
-- Children: `core.AccessGrant`, `core.BranchServiceArea`, `core.ComplaintCaseControl`, `core.JawabuFarmerMaster`, `core.LoanOriginationApplication`, `core.LocationMappingIssue`, `core.OperationalLocation`, `core.OperationalLocationAlias`, `core.OrderApprovalUpdate`, `core.OriginationStampAsset`, `core.ProductAvailability`
+- Children: `core.AccessGrant`, `core.BranchServiceArea`, `core.ComplaintCaseControl`, `core.JawabuFarmerMaster`, `core.LocationMappingIssue`, `core.OperationalLocation`, `core.OperationalLocationAlias`, `core.OrderApprovalUpdate`, `core.ProductAvailability`, `origination.LoanOriginationApplication`, `origination.OriginationStampAsset`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/fresh_database_baseline.py`
-- Used by: `core/api/origination_views.py`, `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_pipeline.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/product_availability.py`, `core/services/spin_credit.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_pipeline.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/product_availability.py`, `core/services/spin_credit.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_forms.py`, `origination/views.py`
 
 ### `core_operationallocationalias`
 
@@ -958,294 +958,294 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.OperationalLocation`
 - Children: `core.MediaAttachment`
 - Cross-domain parents: `core.OperationalLocation`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/order_approval.py`
-- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/location_catalog.py`, `core/services/order_approval.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/order_approval.py`, `origination/tests.py`
+- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/location_catalog.py`, `core/services/order_approval.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_originationapplicationdocument`
 
-- Application identity: `core.OriginationApplicationDocument` in **Origination**
+- Application identity: `origination.OriginationApplicationDocument` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `core.LoanOriginationApplication`, `core.OriginationDocumentTemplate`, `core.OriginationProductDocumentAssignment`
+- Parents: `origination.LoanOriginationApplication`, `origination.OriginationDocumentTemplate`, `origination.OriginationProductDocumentAssignment`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/origination_documents.py`
-- Used by: `core/services/origination_documents.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_documents.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationapplicationevent`
 
-- Application identity: `core.OriginationApplicationEvent` in **Origination**
+- Application identity: `origination.OriginationApplicationEvent` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the permanent workflow or compliance audit record.
-- Parents: `auth.User`, `core.LoanOriginationApplication`
+- Parents: `auth.User`, `origination.LoanOriginationApplication`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/loan_origination.py`
-- Used by: `core/services/loan_origination.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/loan_origination.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationcommercialexception`
 
-- Application identity: `core.OriginationCommercialException` in **Origination**
+- Application identity: `origination.OriginationCommercialException` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.LoanOriginationApplication`, `core.ProductVersion`
+- Parents: `auth.User`, `core.ProductVersion`, `origination.LoanOriginationApplication`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.ProductVersion`
-- Direct ORM writers: `core/services/origination_commercial_terms.py`
-- Used by: `core/services/origination_commercial_terms.py`, `core/services/origination_god_mode.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `origination/services/origination_commercial_terms.py`
+- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationconsentpolicyversion`
 
-- Application identity: `core.OriginationConsentPolicyVersion` in **Origination**
+- Application identity: `origination.OriginationConsentPolicyVersion` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `auth.User`
-- Children: `core.OriginationDocumentTemplate`, `core.OriginationSigningPackage`
+- Children: `origination.OriginationDocumentTemplate`, `origination.OriginationSigningPackage`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/origination_consent.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/admin.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_consent.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationcorrectionitem`
 
-- Application identity: `core.OriginationCorrectionItem` in **Origination**
+- Application identity: `origination.OriginationCorrectionItem` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `core.OriginationCorrectionRequest`
+- Parents: `origination.OriginationCorrectionRequest`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/loan_origination.py`, `core/services/origination_final_review.py`
-- Used by: `core/services/loan_origination.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationcorrectionrequest`
 
-- Application identity: `core.OriginationCorrectionRequest` in **Origination**
+- Application identity: `origination.OriginationCorrectionRequest` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.LoanOriginationApplication`
-- Children: `core.OriginationCorrectionItem`
+- Parents: `auth.User`, `origination.LoanOriginationApplication`
+- Children: `origination.OriginationCorrectionItem`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/loan_origination.py`, `core/services/origination_final_review.py`
-- Used by: `core/services/loan_origination.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationdatafield`
 
-- Application identity: `core.OriginationDataField` in **Origination**
+- Application identity: `origination.OriginationDataField` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.OriginationDataField`
-- Children: `core.OriginationDataField`, `core.OriginationDataFieldEvent`, `core.OriginationFieldReviewIssue`, `core.OriginationReportingValue`
+- Parents: `auth.User`, `origination.OriginationDataField`
+- Children: `origination.OriginationDataField`, `origination.OriginationDataFieldEvent`, `origination.OriginationFieldReviewIssue`, `origination.OriginationReportingValue`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_commercial_terms.py`, `core/services/origination_fields.py`, `core/services/origination_main_laf_seeds.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`
+- Direct ORM writers: `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_main_laf_seeds.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
 
 ### `core_originationdatafieldevent`
 
-- Application identity: `core.OriginationDataFieldEvent` in **Origination**
+- Application identity: `origination.OriginationDataFieldEvent` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the permanent workflow or compliance audit record.
-- Parents: `auth.User`, `core.OriginationDataField`
+- Parents: `auth.User`, `origination.OriginationDataField`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_fields.py`, `core/services/origination_main_laf_seeds.py`
-- Used by: `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_main_laf_seeds.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`
 
 ### `core_originationdocumentproducteligibility`
 
-- Application identity: `core.OriginationDocumentProductEligibility` in **Origination**
+- Application identity: `origination.OriginationDocumentProductEligibility` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained while the catalogue document or product history requires it.
-- Parents: `auth.User`, `core.OriginationDocumentTemplate`, `core.Product`
+- Parents: `auth.User`, `core.Product`, `origination.OriginationDocumentTemplate`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.Product`
-- Direct ORM writers: `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
-- Used by: `core/services/database_catalog.py`, `core/services/origination_document_catalogue.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/database_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
 
 ### `core_originationdocumenttemplate`
 
-- Application identity: `core.OriginationDocumentTemplate` in **Origination**
+- Application identity: `origination.OriginationDocumentTemplate` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
-- Parents: `auth.User`, `core.OriginationConsentPolicyVersion`, `core.OriginationProductDefinition`, `core.OriginationTemplateConfigurationRevision`
-- Children: `core.OriginationApplicationDocument`, `core.OriginationDocumentProductEligibility`, `core.OriginationDocumentTemplateEvent`, `core.OriginationProductDocumentAssignment`, `core.OriginationTemplateConfigurationRevision`
+- Parents: `auth.User`, `origination.OriginationConsentPolicyVersion`, `origination.OriginationProductDefinition`, `origination.OriginationTemplateConfigurationRevision`
+- Children: `origination.OriginationApplicationDocument`, `origination.OriginationDocumentProductEligibility`, `origination.OriginationDocumentTemplateEvent`, `origination.OriginationProductDocumentAssignment`, `origination.OriginationTemplateConfigurationRevision`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/loan_origination.py`, `core/services/origination_consent.py`, `core/services/origination_document_catalogue.py`, `core/services/origination_documents.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/product_deletion.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_consent.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
 
 ### `core_originationdocumenttemplateevent`
 
-- Application identity: `core.OriginationDocumentTemplateEvent` in **Origination**
+- Application identity: `origination.OriginationDocumentTemplateEvent` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the permanent workflow or compliance audit record.
-- Parents: `auth.User`, `core.OriginationDocumentTemplate`
+- Parents: `auth.User`, `origination.OriginationDocumentTemplate`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`
-- Used by: `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
 
 ### `core_originationfieldreviewissue`
 
-- Application identity: `core.OriginationFieldReviewIssue` in **Origination**
+- Application identity: `origination.OriginationFieldReviewIssue` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.OriginationDataField`, `core.OriginationProductDefinition`
+- Parents: `auth.User`, `origination.OriginationDataField`, `origination.OriginationProductDefinition`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_fields.py`, `core/services/origination_god_mode.py`
-- Used by: `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationotpchallenge`
 
-- Application identity: `core.OriginationOtpChallenge` in **Origination**
+- Application identity: `origination.OriginationOtpChallenge` in **Origination**
 - Source of truth: **Yes**
 - Retention: Service-managed bounded retention; see the owning service and deployment settings.
-- Parents: `core.OriginationSignerSession`
+- Parents: `origination.OriginationSignerSession`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/origination_esign.py`
-- Used by: `core/services/origination_esign.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_esign.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationproductdefinition`
 
-- Application identity: `core.OriginationProductDefinition` in **Origination**
+- Application identity: `origination.OriginationProductDefinition` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
-- Parents: `auth.User`, `core.OriginationProductDefinition`, `core.ProductVersion`
-- Children: `core.LoanOriginationApplication`, `core.OriginationDocumentTemplate`, `core.OriginationFieldReviewIssue`, `core.OriginationProductDefinition`, `core.OriginationProductDefinitionEvent`, `core.OriginationProductDocumentAssignment`
+- Parents: `auth.User`, `core.ProductVersion`, `origination.OriginationProductDefinition`
+- Children: `origination.LoanOriginationApplication`, `origination.OriginationDocumentTemplate`, `origination.OriginationFieldReviewIssue`, `origination.OriginationProductDefinition`, `origination.OriginationProductDefinitionEvent`, `origination.OriginationProductDocumentAssignment`
 - Cross-domain parents: `auth.User`, `core.ProductVersion`
-- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/fresh_database_baseline.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_god_mode.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`
-- Used by: `core/api/origination_views.py`, `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/fresh_database_baseline.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/loan_origination.py`, `core/services/origination_document_catalogue.py`, `core/services/origination_documents.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/fresh_database_baseline.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/tests.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/fresh_database_baseline.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/tests.py`, `origination/tests_migrations.py`, `origination/views.py`
 
 ### `core_originationproductdefinitionevent`
 
-- Application identity: `core.OriginationProductDefinitionEvent` in **Origination**
+- Application identity: `origination.OriginationProductDefinitionEvent` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the permanent workflow or compliance audit record.
-- Parents: `auth.User`, `core.OriginationProductDefinition`
+- Parents: `auth.User`, `origination.OriginationProductDefinition`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`
-- Used by: `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/management/commands/upgrade_origination_commercial_contract.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
+- Used by: `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
 
 ### `core_originationproductdocumentassignment`
 
-- Application identity: `core.OriginationProductDocumentAssignment` in **Origination**
+- Application identity: `origination.OriginationProductDocumentAssignment` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained for historical product-definition and application compatibility.
-- Parents: `auth.User`, `core.OriginationDocumentTemplate`, `core.OriginationProductDefinition`
-- Children: `core.OriginationApplicationDocument`
+- Parents: `auth.User`, `origination.OriginationDocumentTemplate`, `origination.OriginationProductDefinition`
+- Children: `origination.OriginationApplicationDocument`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/origination_god_mode.py`, `core/services/origination_templates.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/services/database_catalog.py`, `core/services/origination_documents.py`, `core/services/origination_god_mode.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/services/database_catalog.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
 
 ### `core_originationreportingvalue`
 
-- Application identity: `core.OriginationReportingValue` in **Origination**
+- Application identity: `origination.OriginationReportingValue` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `core.LoanOriginationApplication`, `core.OriginationDataField`
+- Parents: `origination.LoanOriginationApplication`, `origination.OriginationDataField`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/origination_fields.py`, `core/services/origination_god_mode.py`
-- Used by: `core/services/origination_fields.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationrequirementevidence`
 
-- Application identity: `core.OriginationRequirementEvidence` in **Origination**
+- Application identity: `origination.OriginationRequirementEvidence` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.LoanOriginationApplication`
+- Parents: `auth.User`, `origination.LoanOriginationApplication`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_evidence.py`, `core/services/origination_god_mode.py`
-- Used by: `core/api/origination_views.py`, `core/services/origination_evidence.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_evidence.py`, `origination/services/origination_god_mode.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_evidence.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
 
 ### `core_originationreviewernotice`
 
-- Application identity: `core.OriginationReviewerNotice` in **Origination**
+- Application identity: `origination.OriginationReviewerNotice` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.LoanOriginationApplication`, `core.OriginationSigningPackage`
+- Parents: `auth.User`, `origination.LoanOriginationApplication`, `origination.OriginationSigningPackage`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/loan_origination.py`
-- Used by: `core/api/origination_views.py`, `core/services/loan_origination.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/loan_origination.py`
+- Used by: `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
 
 ### `core_originationsignersession`
 
-- Application identity: `core.OriginationSignerSession` in **Origination**
+- Application identity: `origination.OriginationSignerSession` in **Origination**
 - Source of truth: **Yes**
 - Retention: Service-managed bounded retention; see the owning service and deployment settings.
-- Parents: `auth.User`, `core.OriginationSigningPackage`
-- Children: `core.OriginationOtpChallenge`, `core.OriginationSigningAction`, `core.OriginationSigningRequestEvent`
+- Parents: `auth.User`, `origination.OriginationSigningPackage`
+- Children: `origination.OriginationOtpChallenge`, `origination.OriginationSigningAction`, `origination.OriginationSigningRequestEvent`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_esign.py`
-- Used by: `core/api/origination_views.py`, `core/services/origination_esign.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_esign.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
 
 ### `core_originationsigningaction`
 
-- Application identity: `core.OriginationSigningAction` in **Origination**
+- Application identity: `origination.OriginationSigningAction` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.OriginationSignerSession`, `core.OriginationSigningAction`, `core.OriginationSigningPackage`, `core.OriginationStampAsset`
-- Children: `core.OriginationSigningAction`, `core.OriginationSigningActionInvalidation`
+- Parents: `auth.User`, `origination.OriginationSignerSession`, `origination.OriginationSigningAction`, `origination.OriginationSigningPackage`, `origination.OriginationStampAsset`
+- Children: `origination.OriginationSigningAction`, `origination.OriginationSigningActionInvalidation`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_esign.py`, `core/services/origination_signing.py`
-- Used by: `core/services/origination_esign.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`, `core/services/origination_signing.py`
+- Direct ORM writers: `origination/services/origination_esign.py`, `origination/services/origination_signing.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`
 
 ### `core_originationsigningactioninvalidation`
 
-- Application identity: `core.OriginationSigningActionInvalidation` in **Origination**
+- Application identity: `origination.OriginationSigningActionInvalidation` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.OriginationSigningAction`
+- Parents: `auth.User`, `origination.OriginationSigningAction`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_final_review.py`
-- Used by: `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_final_review.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationsigningpackage`
 
-- Application identity: `core.OriginationSigningPackage` in **Origination**
+- Application identity: `origination.OriginationSigningPackage` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.LoanOriginationApplication`, `core.OriginationConsentPolicyVersion`
-- Children: `core.OriginationReviewerNotice`, `core.OriginationSignerSession`, `core.OriginationSigningAction`
+- Parents: `auth.User`, `origination.LoanOriginationApplication`, `origination.OriginationConsentPolicyVersion`
+- Children: `origination.OriginationReviewerNotice`, `origination.OriginationSignerSession`, `origination.OriginationSigningAction`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_esign.py`
-- Used by: `core/api/origination_views.py`, `core/management/commands/repair_origination_frozen_packet.py`, `core/services/loan_origination.py`, `core/services/origination_esign.py`, `core/services/origination_evidence.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`, `core/services/origination_signing.py`
+- Direct ORM writers: `origination/services/origination_esign.py`
+- Used by: `core/management/commands/repair_origination_frozen_packet.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`, `origination/tests_migrations.py`, `origination/views.py`
 
 ### `core_originationsigningrequestevent`
 
-- Application identity: `core.OriginationSigningRequestEvent` in **Origination**
+- Application identity: `origination.OriginationSigningRequestEvent` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the permanent workflow or compliance audit record.
-- Parents: `core.OriginationSignerSession`
+- Parents: `origination.OriginationSignerSession`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/origination_esign.py`
-- Used by: `core/services/origination_esign.py`, `core/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_esign.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationstampasset`
 
-- Application identity: `core.OriginationStampAsset` in **Origination**
+- Application identity: `origination.OriginationStampAsset` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `auth.User`, `core.OperationalLocation`
-- Children: `core.OriginationSigningAction`
+- Children: `origination.OriginationSigningAction`
 - Cross-domain parents: `auth.User`, `core.OperationalLocation`
-- Direct ORM writers: `core/services/origination_god_mode.py`
-- Used by: `core/services/origination_esign.py`, `core/services/origination_god_mode.py`, `core/services/origination_signing.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/origination_god_mode.py`
+- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`
 
 ### `core_originationtemplateconfigurationrevision`
 
-- Application identity: `core.OriginationTemplateConfigurationRevision` in **Origination**
+- Application identity: `origination.OriginationTemplateConfigurationRevision` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.OriginationDocumentTemplate`
-- Children: `core.OriginationDocumentTemplate`
+- Parents: `auth.User`, `origination.OriginationDocumentTemplate`
+- Children: `origination.OriginationDocumentTemplate`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/origination_god_mode.py`, `core/services/origination_templates.py`
-- Used by: `core/services/origination_god_mode.py`, `core/services/origination_templates.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
 
 ### `core_parsedinvoice`
 
@@ -1256,7 +1256,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.ParsedInvoiceEvent`, `payments.PaymentReceiptItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_parser.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`
 
 ### `core_parsedinvoiceevent`
 
@@ -1277,8 +1277,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.ProcessedMessage`
 - Children: `core.CaseUpdate`, `core.ComplaintCaseControl`, `core.ComplaintCaseEvidence`, `core.ComplaintCaseImportItem`, `core.PortalVoiceTranscriptionAttempt`
 - Cross-domain parents: None
-- Direct ORM writers: `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`
-- Used by: `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`
+- Direct ORM writers: `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_paymentdocument`
 
@@ -1289,7 +1289,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.DocumentPhysicalSignoff`, `core.JawabuApprovalRecord`, `payments.PaymentBatch`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_paymentdocumenttemplate`
 
@@ -1376,8 +1376,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.RawMessage`
 - Children: `core.ParsedMessage`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_sync.py`, `core/services/storage.py`
+- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `origination/tests.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_sync.py`, `core/services/storage.py`, `origination/tests.py`
 
 ### `core_product`
 
@@ -1385,10 +1385,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: None
-- Children: `core.AccessGrant`, `core.EmergencyAccessGrant`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.OriginationDocumentProductEligibility`, `core.ProductAlias`, `core.ProductAvailability`, `core.ProductMappingIssue`, `core.ProductVersion`, `core.SpinCreditRequest`, `core.TatRepairJob`, `core.TatTrackerCase`, `core.WorkflowTatDailyMetric`
+- Children: `core.AccessGrant`, `core.EmergencyAccessGrant`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.ProductAlias`, `core.ProductAvailability`, `core.ProductMappingIssue`, `core.ProductVersion`, `core.SpinCreditRequest`, `core.TatRepairJob`, `core.TatTrackerCase`, `core.WorkflowTatDailyMetric`, `origination.OriginationDocumentProductEligibility`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/product_catalog_full_reset.py`
-- Used by: `core/api/views.py`, `core/services/access_policies.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/loan_origination.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/origination_terminology.py`, `core/services/payment_documents.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/access_policies.py`, `core/services/activity_changes.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/payment_documents.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/services/origination_terminology.py`, `origination/tests.py`, `payments/services.py`
 
 ### `core_productalias`
 
@@ -1409,8 +1409,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.OperationalLocation`, `core.Product`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/product_availability.py`, `core/services/product_catalog_full_reset.py`
-- Used by: `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`
+- Direct ORM writers: `core/services/product_availability.py`, `core/services/product_catalog_full_reset.py`, `origination/origination_setup_admin.py`
+- Used by: `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `origination/origination_setup_admin.py`
 
 ### `core_productcustomattribute`
 
@@ -1421,7 +1421,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`
+- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
 
 ### `core_productfee`
 
@@ -1432,7 +1432,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/origination_commercial_terms.py`, `core/services/product_deletion.py`, `core/services/product_quotes.py`
+- Used by: `core/services/product_deletion.py`, `core/services/product_quotes.py`, `origination/origination_setup_forms.py`, `origination/services/origination_commercial_terms.py`
 
 ### `core_productionreleaseaudit`
 
@@ -1465,7 +1465,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`
+- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
 
 ### `core_producttatconfiguration`
 
@@ -1484,10 +1484,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `auth.User`, `core.Product`, `core.ProductVersion`
-- Children: `core.JawabuFarmerMaster`, `core.LoanOriginationApplication`, `core.OriginationCommercialException`, `core.OriginationProductDefinition`, `core.ProductCustomAttribute`, `core.ProductFee`, `core.ProductRequirement`, `core.ProductTatConfiguration`, `core.ProductVersion`, `core.ProductVersionEvent`, `core.SpinCreditRequest`, `core.TatTrackerCase`
+- Children: `core.JawabuFarmerMaster`, `core.ProductCustomAttribute`, `core.ProductFee`, `core.ProductRequirement`, `core.ProductTatConfiguration`, `core.ProductVersion`, `core.ProductVersionEvent`, `core.SpinCreditRequest`, `core.TatTrackerCase`, `origination.LoanOriginationApplication`, `origination.OriginationCommercialException`, `origination.OriginationProductDefinition`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/fresh_database_baseline.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`
-- Used by: `core/services/fresh_database_baseline.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_setup.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_quotes.py`, `core/services/tat_configuration.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`
+- Direct ORM writers: `core/services/fresh_database_baseline.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`, `origination/tests.py`
+- Used by: `core/services/fresh_database_baseline.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_quotes.py`, `core/services/tat_configuration.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/tests.py`
 
 ### `core_productversionevent`
 
@@ -1497,8 +1497,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.ProductVersion`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/product_catalog.py`, `core/services/product_deletion.py`
-- Used by: `core/services/origination_setup.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`
+- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`, `origination/services/origination_setup.py`
 
 ### `core_publicendpointthrottlebucket`
 
@@ -1519,8 +1519,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.ProcessedMessage`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/storage.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_sync.py`, `core/services/storage.py`
+- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/storage.py`, `origination/tests.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/deduplication.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_sync.py`, `core/services/storage.py`, `origination/tests.py`
 
 ### `core_requisitionbatch`
 
@@ -1530,8 +1530,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.RequisitionTemplate`
 - Children: `core.DocumentPhysicalSignoff`, `hb_operations.HomeBiogasAction`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `requisitions/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `requisitions/services.py`
 
 ### `core_requisitiontemplate`
 
@@ -1596,8 +1596,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.Product`, `core.ProductVersion`
 - Children: `core.SpinBatchReviewItem`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/services/spin_credit.py`, `core/services/workflow_pilot_purge.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`
+- Direct ORM writers: `core/services/spin_credit.py`, `core/services/workflow_pilot_purge.py`, `origination/tests.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `origination/tests.py`
 
 ### `core_spinrequestsequence`
 
@@ -1849,8 +1849,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.Product`, `core.ProductVersion`
 - Children: `core.TatActionTask`, `core.TatTrackerApprovalCertificate`, `core.TatTrackerEvent`, `core.TatUpdateSideEffectDispatch`, `core.WorkflowTatMetricRebuildRequest`, `credit_assessments.CreditAssessment`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `credit_assessments/tests.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `credit_assessments/tests.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`, `origination/tests.py`
 
 ### `core_tattrackerevent`
 
@@ -1982,7 +1982,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `hb_operations/tests.py`
-- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/origination_access.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`, `hb_operations/tests.py`
+- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`, `hb_operations/tests.py`, `origination/migrations/0003_independent_capabilities.py`
 
 ### `core_workflowrolecapabilityauditevent`
 
@@ -2202,7 +2202,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `payments.PaymentBatchCase`, `payments.PaymentBatchEvent`, `payments.PaymentSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`, `payments.PaymentReceiptBatch`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `payment_batch_case`
 
@@ -2213,7 +2213,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `payments.PaymentCaseReview`
 - Cross-domain parents: `auth.User`, `core.JawabuFarmerMaster`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_batch_event`
 
@@ -2245,8 +2245,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
 - Children: `payments.PaymentBatch`, `payments.PaymentReceiptItem`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
-- Used by: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`
 
 ### `payment_receipt_item`
 
@@ -2256,8 +2256,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`, `payments.PaymentReceiptBatch`
 - Children: None
 - Cross-domain parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`
-- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `payment_sequence_event`
 
@@ -2311,8 +2311,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `requisitions.OrderSequenceState`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `requisitions/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`, `requisitions/services.py`
 
 ### `requisition_order_sequence_state`
 

@@ -3,7 +3,7 @@
 from django.urls import path
 
 from .complaint_case_views import complaint_cases_app
-from .origination_views import origination_app, origination_signing_app
+from origination.views import origination_app, origination_signing_app
 from .portal_views import (
     portal_case_history_detail,
     portal_farmup_review_screen,

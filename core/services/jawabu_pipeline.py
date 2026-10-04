@@ -19,6 +19,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
@@ -1983,6 +1985,7 @@ def assign_order(
     source_farmer.refresh_from_db()
     return True, ''
 
+@include_record_reference('farmer')
 def farmer_to_card(
     farmer: JawabuFarmerMaster,
     *,

@@ -6,7 +6,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import DurableJobRunnerHeartbeat, IntegrationOperation, InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import (
+    DurableJobRunnerHeartbeat,
+    IntegrationOperation,
+    InvoiceIdentityReview,
+    InvoiceUploadBatch,
+    JawabuFarmerMaster,
+    ParsedInvoice,
+)
 from core.services.portal_dashboard import dashboard_payload
 from core.services.jawabu_case360 import record_pipeline_event
 
@@ -215,7 +222,7 @@ class PortalActionDashboardTests(TestCase):
 
     def test_origination_capability_does_not_add_portal_home_content(self):
         user = get_user_model().objects.create_user(username='origination-home', password='unused')
-        capabilities = {'portal.dashboard.view', 'portal.origination.signing.staff'}
+        capabilities = {'portal.dashboard.view', 'origination.signing.staff'}
         with patch('core.services.portal_dashboard.effective_capability_keys', return_value=capabilities):
             payload = dashboard_payload(user, access={'roles': ['BM'], 'grants': []})
 

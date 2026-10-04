@@ -746,6 +746,8 @@ def process_order_approval_form_submission(
         ))
 
     def finish(result: dict) -> dict:
+        from core.services.workflow_links import record_reference
+        result['record_ref'] = record_reference(update_record)
         update_record.response_snapshot = result
         update_record.save(update_fields=['response_snapshot'])
         return result

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
 
 const root = path.resolve(__dirname, '..', '..');
-const asset = (name) => path.join(root, 'core', 'static', 'miniapp', name);
+const asset = (name) => path.join(root, /^(loan_origination|origination_signing)/.test(name) ? 'origination' : 'core', 'static', 'miniapp', name);
 const { initData: syntheticTelegramInitData } = require(path.join(__dirname, 'fixtures', 'local_mcp_fixtures.js'));
 
 test('Role-tailored Portal Home keeps the first task visible on narrow screens', async ({ page }) => {

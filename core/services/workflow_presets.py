@@ -10,6 +10,15 @@ MANUAL_PRESET = 'manual'
 
 
 WORKFLOW_PRESETS = {
+    'loan_origination': {
+        'label': 'Loan Origination',
+        'description': 'Independent application capture, review and signing scope; Django owns all workflow state.',
+        'sheet_name': '',
+        'workflow': {'type': 'loan_origination', 'mini_app_launchers': ['loan_origination']},
+        'sheet_schema': {},
+        'parser_rules': {},
+        'admin_fields': {},
+    },
     MANUAL_PRESET: {
         'label': 'Manual JSON / custom workflow',
         'description': 'Use advanced JSON fields directly for any workflow.',

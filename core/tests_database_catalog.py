@@ -12,7 +12,7 @@ class DatabaseCatalogueTests(SimpleTestCase):
         entries = database_catalog(include_usage=False)
         models = [
             model
-            for app_label in ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
+            for app_label in ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
             for model in apps.get_app_config(app_label).get_models()
         ]
 
@@ -43,10 +43,10 @@ class DatabaseCatalogueTests(SimpleTestCase):
     def test_candidates_reported_as_obsolete_are_documented_as_active(self):
         entries = {item['django_model']: item for item in database_catalog(include_usage=True)}
 
-        self.assertEqual(entries['core.OriginationDocumentProductEligibility']['lifecycle'], 'active')
+        self.assertEqual(entries['origination.OriginationDocumentProductEligibility']['lifecycle'], 'active')
         self.assertIn(
-            'core/services/origination_document_catalogue.py',
-            entries['core.OriginationDocumentProductEligibility']['used_by'],
+            'origination/services/origination_document_catalogue.py',
+            entries['origination.OriginationDocumentProductEligibility']['used_by'],
         )
         self.assertEqual(entries['core.FcaImportRecord']['lifecycle'], 'active')
         self.assertIn('core/services/fca.py', entries['core.FcaImportRecord']['used_by'])

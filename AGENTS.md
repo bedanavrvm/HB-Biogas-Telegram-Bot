@@ -65,7 +65,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
 | **Product catalogue reset** | A testing-only, active-Superuser clean-slate control. It hard-deletes unused draft product families, retains connected or governed legacy products as inactive tombstones, revokes their live availability/access, and never deletes operational records or external files. |
 | **Global location** | The stable `OperationalLocation` identity for branches, counties, and sub-counties. Codes and hierarchy are immutable; aliases preserve legacy labels, branch service areas govern availability, and workflow records retain canonical references plus historical display values. |
-| **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
+| **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under the owning app; legacy workflows use `core`, and Loan Origination uses `origination`. |
+| **Mini App record reference** | A versioned, allowlisted workflow/entity/UUID reference for future explicit interlinkage. It contains no customer identity or access token, grants no authority, and resolves only through the owning workflow's current authorization. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
@@ -90,8 +91,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Household relationship** | An Operations-confirmed link between a JBL applicant and a distinct spouse or household person. Exact normalized national ID is the only automatic reuse key; phone is supporting evidence only, and the relationship never merges their legal customer identities. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
 | **Operations Administrator** | A scoped Portal role (`OPERATIONS_ADMIN`) for operational processing such as orders, invoices, and payment preparation; it does not grant Head of Rural approvals or JBL visit logging. |
-| **Origination Branch Manager** | A scoped Portal role (`BM`) that may view in-scope Origination signing work and complete Branch Manager or shared management-approval signer slots. It does not prepare/dispatch packets or inherit TAT authority. |
-| **Origination Management** | A scoped Portal role (`MANAGEMENT`) that may view in-scope Origination signing work and complete the shared management-approval signer slot. It does not prepare/dispatch packets or inherit unrelated workflow authority. |
+| **Origination Branch Manager** | A scoped Loan Origination role (`BM`) that may view in-scope Origination signing work and complete Branch Manager or shared management-approval signer slots. It does not prepare/dispatch packets or inherit TAT authority. |
+| **Origination Management** | A scoped Loan Origination role (`MANAGEMENT`) that may view in-scope Origination signing work and complete the shared management-approval signer slot. It does not prepare/dispatch packets or inherit unrelated workflow authority. |
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
 | **IT** | The mandatory technical override role in every access-controlled Mini App workflow. It receives every workflow capability but remains bounded by its active `AccessGrant` group, branch, and product scope; it is never inferred from Django technical-admin flags. Sensitive overrides must remain explicit and auditable. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
@@ -133,7 +134,8 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `portal_recognition/` — settled Portal Performance facts and expiring live-rank checkpoints
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
-- `core/models.py` — database models for all workflows
+- `core/models.py` — legacy workflow and shared catalogue/identity models
+- `origination/` — bounded Loan Origination models, services, authorization, routes, admin, templates, and assets
 - `core/admin.py` — Django admin registrations and operations
 
 ### Business services

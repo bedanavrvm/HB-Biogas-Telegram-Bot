@@ -34,6 +34,7 @@ MINI_APP_LAUNCHER_CHOICES = (
 
 _LAUNCHER_LABELS = dict(MINI_APP_LAUNCHER_CHOICES)
 _DEFAULTS_BY_WORKFLOW = {
+    'loan_origination': (LOAN_ORIGINATION_LAUNCHER,),
     'tat_tracker': (TAT_TRACKER_LAUNCHER,),
     'spin_credit_analysis': (SPIN_LAUNCHER,),
     'order_approval': (),
@@ -99,6 +100,20 @@ def loan_origination_launcher_url() -> str:
     return f'{base_url}/origination/' if base_url else ''
 
 
+def _with_origination_group(url: str, group_id: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    if not url:
+        return ''
+    parts = urlsplit(url)
+    # Telegram named-app links open the app's authorized group selector.
+    # An arbitrary query parameter is not forwarded into the Web App URL.
+    if parts.netloc == 't.me':
+        return url
+    query = dict(parse_qsl(parts.query))
+    query['group_id'] = str(group_id)
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
 def build_launcher_url(launcher_key: str, group_id: str) -> str:
     """Build a durable Mini App URL for a pinned group launcher.
 
@@ -118,7 +133,7 @@ def build_launcher_url(launcher_key: str, group_id: str) -> str:
         from core.services.complaint_cases import build_complaint_cases_launcher_url
         return build_complaint_cases_launcher_url(group_id)
     if launcher_key == LOAN_ORIGINATION_LAUNCHER:
-        return loan_origination_launcher_url()
+        return _with_origination_group(loan_origination_launcher_url(), group_id)
     return ''
 
 

@@ -7,6 +7,8 @@ from core.production import production_security_readiness_issues
 
 
 _CHECK_IDS = {
+    'miniapp-auth-origination': 'core.E030',
+    'telegram-auth-age-origination': 'core.E031',
     'miniapp-auth-portal': 'core.E001',
     'miniapp-auth-complaint-cases': 'core.E002',
     'miniapp-auth-tat-tracker': 'core.E003',

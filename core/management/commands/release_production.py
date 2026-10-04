@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from core.models import ProductionReleaseAudit
 from core.production import production_readiness_issues
-from core.services.origination_production import origination_signing_readiness_issues
+from origination.services.origination_production import origination_signing_readiness_issues
 from core.services.production_release import (
     existing_release,
     migration_plan_names,

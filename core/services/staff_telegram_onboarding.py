@@ -40,7 +40,7 @@ LAUNCHER_WORKFLOWS = {
     'complaint_cases': 'complaint_cases',
     'pipeline_portal': 'jawabu_portal',
     'order_approval': 'jawabu_portal',
-    'loan_origination': 'jawabu_portal',
+    'loan_origination': 'loan_origination',
 }
 LAUNCHER_CAPABILITIES = {
     'tat_tracker': 'tat.home.view',
@@ -48,7 +48,7 @@ LAUNCHER_CAPABILITIES = {
     'complaint_cases': 'complaint.queue.view',
     'pipeline_portal': 'portal.dashboard.view',
     'order_approval': 'portal.requisition.view',
-    'loan_origination': 'portal.origination.view',
+    'loan_origination': 'origination.view',
 }
 
 

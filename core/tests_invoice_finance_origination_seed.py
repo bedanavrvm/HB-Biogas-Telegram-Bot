@@ -10,26 +10,24 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from pypdf import PdfWriter
 
-from core.models import (
-    AccessGrant,
+from origination.models import (
     LoanOriginationApplication,
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
     OriginationSigningAction,
     OriginationSigningPackage,
-    Product,
-    ProductVersion,
 )
-from core.services.invoice_finance_origination_seed import (
+from core.models import AccessGrant, Product, ProductVersion
+from origination.services.invoice_finance_origination_seed import (
     FIELD_SPECS,
     InvoiceFinanceSeedError,
     apply_seed,
 )
-from core.services.loan_origination import OriginationError
-from core.services.origination_commercial_terms import COMMERCIAL_INPUT_KEYS
-from core.services.origination_access import DENIED, FULL, application_presentation_mode, scope_application_queryset
-from core.services.origination_esign import authorize_staff_signer, complete_staff_signatures
+from origination.services.loan_origination import OriginationError
+from origination.services.origination_commercial_terms import COMMERCIAL_INPUT_KEYS
+from origination.services.origination_access import DENIED, FULL, application_presentation_mode, scope_application_queryset
+from origination.services.origination_esign import authorize_staff_signer, complete_staff_signatures
 from core.services.telegram_identity import user_access
 
 
@@ -96,7 +94,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
             )
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-drive-folder')
-    @patch('core.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
+    @patch('origination.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
     def test_apply_builds_an_unpublished_calibration_ready_contract(self, _upload):
         message = self._command(apply=True)
 
@@ -136,7 +134,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         self.assertNotIn('invoice_copy', {item['key'] for item in definition.form_schema['fields']})
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-drive-folder')
-    @patch('core.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
+    @patch('origination.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
     def test_apply_is_idempotent_for_same_draft_and_pdf(self, upload):
         self._command(apply=True)
         definition = OriginationProductDefinition.objects.get(product_key='invoice_finance')
@@ -162,7 +160,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         ))
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-drive-folder')
-    @patch('core.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
+    @patch('origination.services.origination_templates._upload_template_bytes', return_value=('drive-file', 'https://drive.example.test/file'))
     def test_published_contract_gets_a_draft_successor(self, _upload):
         published = OriginationProductDefinition.objects.create(
             product_version=self.terms, product_key='invoice_finance', name='Invoice Finance',
@@ -197,15 +195,15 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         officer = get_user_model().objects.create_user(username='invoice-bro')
         operations = get_user_model().objects.create_user(username='invoice-operations')
         AccessGrant.objects.create(
-            user=manager, workflow='jawabu_portal', role='BM',
+            user=manager, workflow='loan_origination', role='BM',
             branch='EMBU', product='invoice_finance',
         )
         AccessGrant.objects.create(
-            user=officer, workflow='jawabu_portal', role='JBL_OFFICER',
+            user=officer, workflow='loan_origination', role='JBL_OFFICER',
             branch='EMBU', product='invoice_finance',
         )
         AccessGrant.objects.create(
-            user=operations, workflow='jawabu_portal', role='OPERATIONS_ADMIN',
+            user=operations, workflow='loan_origination', role='OPERATIONS_ADMIN',
             branch='EMBU', product='invoice_finance',
         )
 
@@ -232,7 +230,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         )
         manager = get_user_model().objects.create_user(username='scoped-signing-manager')
         AccessGrant.objects.create(
-            user=manager, workflow='jawabu_portal', role='BM',
+            user=manager, workflow='loan_origination', role='BM',
             branch='EMBU', product='invoice_finance',
         )
         draft = LoanOriginationApplication.objects.create(
@@ -244,7 +242,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
             product_version=self.terms, officer=self.actor, branch='EMBU',
             status=LoanOriginationApplication.STATUS_SIGNING_PENDING,
         )
-        access = user_access(manager, 'jawabu_portal')
+        access = user_access(manager, 'loan_origination')
 
         self.assertEqual(application_presentation_mode(draft, user=manager, access=access), DENIED)
         self.assertEqual(application_presentation_mode(signing, user=manager, access=access), FULL)
@@ -253,7 +251,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         )
         self.assertEqual(list(visible.values_list('pk', flat=True)), [signing.pk])
 
-    @patch('core.services.origination_esign.render_verified_package', return_value=b'synthetic-signed-pdf')
+    @patch('origination.services.origination_esign.render_verified_package', return_value=b'synthetic-signed-pdf')
     def test_staff_signature_atomically_completes_its_signing_date_slot(self, _render):
         definition = OriginationProductDefinition.objects.create(
             product_version=self.terms, product_key='invoice_finance', name='Invoice Finance',
@@ -262,7 +260,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         )
         manager = get_user_model().objects.create_user(username='invoice-signing-manager')
         AccessGrant.objects.create(
-            user=manager, workflow='jawabu_portal', role='MANAGEMENT',
+            user=manager, workflow='loan_origination', role='MANAGEMENT',
             branch='EMBU', product='invoice_finance',
         )
         application = LoanOriginationApplication.objects.create(

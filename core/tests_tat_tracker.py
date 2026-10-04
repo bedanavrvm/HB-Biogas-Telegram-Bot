@@ -20,7 +20,31 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, ProductTatConfiguration, ProductVersion, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowRoleCapability, WorkflowSlaEscalation, WorkflowTatMetricRebuildRequest
+from core.models import (
+    AccessGrant,
+    BusinessCalendarHoliday,
+    GroupSheetConfiguration,
+    LiveSheetRecordChange,
+    ProductTatConfiguration,
+    ProductVersion,
+    SheetRegisterContract,
+    SheetSyncAuditSnapshot,
+    TatActionTask,
+    TatActionTaskRecipient,
+    TatConfigurationEvent,
+    TatEscalationRule,
+    TatPresentationSettings,
+    TatRepairJob,
+    TatTrackerApprovalCertificate,
+    TatTrackerCase,
+    TatTrackerEvent,
+    UserMiniAppPreference,
+    UserProfile,
+    WorkflowConfigurationChangeRequest,
+    WorkflowRoleCapability,
+    WorkflowSlaEscalation,
+    WorkflowTatMetricRebuildRequest,
+)
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (

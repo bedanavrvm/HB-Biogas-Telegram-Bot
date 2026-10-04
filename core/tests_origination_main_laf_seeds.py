@@ -13,16 +13,15 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from pypdf import PdfWriter
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationDataField,
     OriginationDocumentProductEligibility,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
-    Product,
-    ProductVersion,
 )
-from core.services.origination_main_laf_seeds import (
+from core.models import Product, ProductVersion
+from origination.services.origination_main_laf_seeds import (
     DEFINITIONS,
     MainLafDefinition,
     MainLafSeedError,
@@ -32,7 +31,7 @@ from core.services.origination_main_laf_seeds import (
     preflight_seed,
     source_path,
 )
-from core.services.loan_origination import _missing_application_requirements, preview_context
+from origination.services.loan_origination import _missing_application_requirements, preview_context
 
 
 DOCUMENT_NAMES = {
@@ -154,7 +153,7 @@ class MainLafSeedTests(TestCase):
             preflight_seed(replace(self.definition, product_code='missing_product'), laf_root=self.root)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
-    @patch('core.services.origination_main_laf_seeds.upload_template_record')
+    @patch('origination.services.origination_main_laf_seeds.upload_template_record')
     def test_apply_is_idempotent_and_sets_exact_catalogue_eligibility(self, upload):
         upload.side_effect = self._uploaded
         first = apply_seed(self.definition, laf_root=self.root, actor=self.actor)
@@ -174,7 +173,7 @@ class MainLafSeedTests(TestCase):
         self.assertEqual(OriginationDocumentProductEligibility.objects.count(), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
-    @patch('core.services.origination_main_laf_seeds.upload_template_record')
+    @patch('origination.services.origination_main_laf_seeds.upload_template_record')
     def test_changed_contract_creates_successor_without_mutating_active_version(self, upload):
         upload.side_effect = self._uploaded
         first = apply_seed(self.definition, laf_root=self.root, actor=self.actor)['template']
@@ -196,7 +195,7 @@ class MainLafSeedTests(TestCase):
         self.assertNotEqual(first.pk, successor.pk)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
-    @patch('core.services.origination_main_laf_seeds.upload_template_record')
+    @patch('origination.services.origination_main_laf_seeds.upload_template_record')
     def test_manual_allowlist_widening_is_not_silently_accepted(self, upload):
         upload.side_effect = self._uploaded
         first = apply_seed(self.definition, laf_root=self.root, actor=self.actor)['template']

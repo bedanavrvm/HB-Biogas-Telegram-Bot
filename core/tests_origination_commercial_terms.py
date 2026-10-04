@@ -11,17 +11,11 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import (
-    LoanOriginationApplication,
-    OriginationApplicationEvent,
-    OriginationProductDefinition,
-    Product,
-    ProductFee,
-    ProductVersion,
-)
-from core.services.loan_origination import preview_context, save_application_fields, submit_for_review
-from core.api.origination_views import portal_origination_quote_preview
-from core.services.origination_commercial_terms import (
+from origination.models import LoanOriginationApplication, OriginationApplicationEvent, OriginationProductDefinition
+from core.models import Product, ProductFee, ProductVersion
+from origination.services.loan_origination import preview_context, save_application_fields, submit_for_review
+from origination.views import portal_origination_quote_preview
+from origination.services.origination_commercial_terms import (
     approve_commercial_exception,
     commercial_contract_enabled,
     ensure_commercial_catalogue,
@@ -200,10 +194,10 @@ class OriginationCommercialTermsTests(TestCase):
             }),
             content_type='application/json',
         )
-        request.portal_user = self.officer
-        request.portal_access = None
-        with patch('core.api.origination_views._capability_error', return_value=None), patch(
-            'core.api.origination_views._application_access_error', return_value=None,
+        request.origination_user = self.officer
+        request.origination_access = None
+        with patch('origination.views._capability_error', return_value=None), patch(
+            'origination.views._application_access_error', return_value=None,
         ):
             response = portal_origination_quote_preview(request, str(application.pk))
         body = json.loads(response.content)
@@ -220,10 +214,10 @@ class OriginationCommercialTermsTests(TestCase):
             }),
             content_type='application/json',
         )
-        stale.portal_user = self.officer
-        stale.portal_access = None
-        with patch('core.api.origination_views._capability_error', return_value=None), patch(
-            'core.api.origination_views._application_access_error', return_value=None,
+        stale.origination_user = self.officer
+        stale.origination_access = None
+        with patch('origination.views._capability_error', return_value=None), patch(
+            'origination.views._application_access_error', return_value=None,
         ):
             stale_response = portal_origination_quote_preview(stale, str(application.pk))
         self.assertEqual(stale_response.status_code, 409)
@@ -288,7 +282,7 @@ class OriginationCommercialTermsTests(TestCase):
         definition, legacy_schema = self._legacy_linked_definition('admin')
         self.client.force_login(self.superuser)
         change_url = reverse(
-            'admin:core_originationproductdefinition_change', args=[definition.pk],
+            'admin:origination_originationproductdefinition_change', args=[definition.pk],
         )
 
         page = self.client.get(change_url)
@@ -298,7 +292,7 @@ class OriginationCommercialTermsTests(TestCase):
         self.assertContains(page, 'Upgrade Commercial Terms')
 
         response = self.client.post(reverse(
-            'admin:core_originationproductdefinition_upgrade_commercial_terms',
+            'admin:origination_originationproductdefinition_upgrade_commercial_terms',
             args=[definition.pk],
         ))
 
@@ -320,12 +314,12 @@ class OriginationCommercialTermsTests(TestCase):
         self.client.force_login(self.superuser)
 
         response = self.client.post(reverse(
-            'admin:core_originationproductdefinition_upgrade_commercial_terms',
+            'admin:origination_originationproductdefinition_upgrade_commercial_terms',
             args=[definition.pk],
         ))
 
         self.assertRedirects(response, reverse(
-            'admin:core_originationproductdefinition_change', args=[definition.pk],
+            'admin:origination_originationproductdefinition_change', args=[definition.pk],
         ))
         definition.refresh_from_db()
         self.assertEqual(definition.form_schema, legacy_schema)

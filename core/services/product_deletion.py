@@ -15,11 +15,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from core.models import (
-    AccessGrant,
-    EmergencyAccessGrant,
-    JawabuApprovalDelegation,
-    JawabuFarmerMaster,
+from origination.models import (
     LoanOriginationApplication,
     OriginationCommercialException,
     OriginationDocumentProductEligibility,
@@ -30,6 +26,12 @@ from core.models import (
     OriginationProductDefinitionEvent,
     OriginationProductDocumentAssignment,
     OriginationTemplateConfigurationRevision,
+)
+from core.models import (
+    AccessGrant,
+    EmergencyAccessGrant,
+    JawabuApprovalDelegation,
+    JawabuFarmerMaster,
     Product,
     ProductAvailability,
     ProductCustomAttribute,
@@ -381,7 +383,7 @@ def delete_product_family(*, product_id, actor, request_id: str = '') -> dict:
 
     # Remove product-specific Origination configuration only. Operational
     # applications and application documents were verified absent above.
-    from core.services.origination_god_mode import _purge_product_definition
+    from origination.services.origination_god_mode import _purge_product_definition
 
     origination_counts: Counter[str] = Counter()
     for definition_id in definition_ids:

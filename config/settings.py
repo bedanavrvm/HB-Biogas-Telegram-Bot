@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'health_check.contrib.migrations',
     # Local apps
     'core',
+    'origination',
     'requisitions',
     'payments',
     'credit_assessments',
@@ -64,6 +65,13 @@ INSTALLED_APPS = [
     'tat_recognition',
     'portal_recognition',
 ]
+
+ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
+    'ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH', default=True, cast=bool,
+)
+ORIGINATION_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
+    'ORIGINATION_WEBAPP_AUTH_MAX_AGE_SECONDS', default=86400, cast=int,
+)
 
 UNFOLD = {
     'SITE_TITLE': 'JBL Workflow Admin',

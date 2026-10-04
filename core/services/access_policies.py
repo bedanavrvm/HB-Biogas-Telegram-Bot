@@ -11,6 +11,7 @@ BUSINESS_ADMIN_ROLE = 'BUSINESS_ADMIN'
 OPERATIONS_ADMIN_ROLE = 'OPERATIONS_ADMIN'
 LEGACY_BUSINESS_ADMIN_ROLE = 'ADMIN'
 BUSINESS_ADMIN_WORKFLOWS = frozenset({
+    'loan_origination',
     'jawabu_portal',
     'tat_tracker',
     'spin_credit_analysis',
@@ -18,6 +19,12 @@ BUSINESS_ADMIN_WORKFLOWS = frozenset({
 
 
 WORKFLOW_ROLES = {
+    'loan_origination': (
+        ('JBL_OFFICER', 'Field Officer'), ('BM', 'Branch Manager'),
+        ('MANAGEMENT', 'Management'), ('CA', 'Credit Analyst'),
+        (OPERATIONS_ADMIN_ROLE, 'Operations Administrator'),
+        (BUSINESS_ADMIN_ROLE, 'Business Administrator'), ('IT', 'IT / Platform Support'),
+    ),
     'jawabu_portal': (
         ('JBL_OFFICER', 'JBL Officer'),
         ('BM', 'Branch Manager'),
@@ -57,6 +64,13 @@ WORKFLOW_ROLES = {
 }
 
 ROLE_ALIASES = {
+    'loan_origination': {
+        'officer': 'JBL_OFFICER', 'jbl_officer': 'JBL_OFFICER',
+        'branch_manager': 'BM', 'bm': 'BM', 'management': 'MANAGEMENT',
+        'credit_analyst': 'CA', 'ca': 'CA',
+        'operations': OPERATIONS_ADMIN_ROLE, 'operations_admin': OPERATIONS_ADMIN_ROLE,
+        'business_admin': BUSINESS_ADMIN_ROLE,
+    },
     'jawabu_portal': {
         'admin': BUSINESS_ADMIN_ROLE, 'business_admin': BUSINESS_ADMIN_ROLE,
         'jbl_officer': 'JBL_OFFICER',
@@ -78,6 +92,7 @@ ROLE_ALIASES = {
 }
 
 WORKFLOW_GROUP_TYPES = {
+    'loan_origination': {'loan_origination'},
     'jawabu_portal': {'jawabu', 'jawabu_homebiogas'},
     'complaint_cases': {'case'},
     'tat_tracker': {'tat_tracker'},
@@ -106,6 +121,7 @@ def role_choices():
 
 def workflow_label(workflow: str) -> str:
     return {
+        'loan_origination': 'Loan Origination',
         'jawabu_portal': 'Jawabu Portal',
         'complaint_cases': 'Complaint Cases',
         'tat_tracker': 'TAT Tracker',

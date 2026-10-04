@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
-from core.models import OriginationConsentPolicyVersion
+from origination.models import OriginationConsentPolicyVersion
 from core.production import (
     MINIAPP_AUTH_SETTINGS,
     PUBLIC_RATE_LIMIT_SETTINGS,

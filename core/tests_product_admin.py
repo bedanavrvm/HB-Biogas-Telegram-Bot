@@ -7,15 +7,17 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from origination.models import (
+    OriginationDocumentTemplate,
+    OriginationDocumentTemplateEvent,
+    OriginationProductDefinition,
+    OriginationProductDefinitionEvent,
+)
 from core.models import (
     AccessGrant,
     ComplianceAuditEvent,
     EmergencyAccessGrant,
     JawabuApprovalDelegation,
-    OriginationDocumentTemplate,
-    OriginationDocumentTemplateEvent,
-    OriginationProductDefinition,
-    OriginationProductDefinitionEvent,
     Product,
     ProductAlias,
     ProductFee,

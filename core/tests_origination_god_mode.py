@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationApplicationEvent,
@@ -26,12 +26,10 @@ from core.models import (
     OriginationSigningPackage,
     OriginationStampAsset,
     OriginationTemplateConfigurationRevision,
-    OperationalLocation,
-    Product,
-    ProductVersion,
 )
+from core.models import OperationalLocation, Product, ProductVersion
 from core.services import origination_god_mode
-from core.services.origination_god_mode import (
+from origination.services.origination_god_mode import (
     ORIGINATION_RESET_MODELS,
     OriginationGodModeError,
     preview_full_origination_reset,
@@ -211,7 +209,7 @@ class OriginationGodModeTests(TestCase):
     def test_admin_requires_exact_id_then_purges_only_origination_database_graph(self):
         self.client.force_login(self.superuser)
         url = reverse(
-            'admin:core_originationproductdefinition_god_mode_purge',
+            'admin:origination_originationproductdefinition_god_mode_purge',
             args=[self.product.pk],
         )
         response = self.client.get(url)
@@ -232,7 +230,7 @@ class OriginationGodModeTests(TestCase):
         })
         self.assertRedirects(
             response,
-            reverse('admin:core_originationproductdefinition_changelist'),
+            reverse('admin:origination_originationproductdefinition_changelist'),
         )
         self.assertFalse(OriginationProductDefinition.objects.filter(pk=self.product.pk).exists())
         self.assertFalse(OriginationDocumentTemplate.objects.filter(pk=self.template.pk).exists())
@@ -242,7 +240,7 @@ class OriginationGodModeTests(TestCase):
     def test_non_superuser_cannot_open_purge_endpoint(self):
         self.client.force_login(self.staff)
         response = self.client.get(reverse(
-            'admin:core_originationproductdefinition_god_mode_purge',
+            'admin:origination_originationproductdefinition_god_mode_purge',
             args=[self.product.pk],
         ))
         self.assertEqual(response.status_code, 403)
@@ -254,7 +252,7 @@ class OriginationGodModeTests(TestCase):
     def test_full_reset_model_registry_covers_every_origination_model(self):
         discovered = {
             model
-            for model in apps.get_app_config('core').get_models()
+            for model in apps.get_app_config('origination').get_models()
             if model.__name__.startswith('Origination')
             or model is LoanOriginationApplication
         }
@@ -272,19 +270,19 @@ class OriginationGodModeTests(TestCase):
     @override_settings(ORIGINATION_FULL_RESET_ENABLED=False)
     def test_full_reset_endpoint_is_disabled_by_default(self):
         self.client.force_login(self.superuser)
-        response = self.client.get(reverse('admin:core_origination_full_reset'))
+        response = self.client.get(reverse('admin:origination_origination_full_reset'))
         self.assertEqual(response.status_code, 403)
 
     @override_settings(ORIGINATION_FULL_RESET_ENABLED=True)
     def test_full_reset_endpoint_rejects_non_superuser(self):
         self.client.force_login(self.staff)
-        response = self.client.get(reverse('admin:core_origination_full_reset'))
+        response = self.client.get(reverse('admin:origination_origination_full_reset'))
         self.assertEqual(response.status_code, 403)
 
     @override_settings(ORIGINATION_FULL_RESET_ENABLED=True)
     def test_full_reset_requires_reason_and_exact_phrase(self):
         self.client.force_login(self.superuser)
-        url = reverse('admin:core_origination_full_reset')
+        url = reverse('admin:origination_origination_full_reset')
         before = preview_full_origination_reset()
 
         response = self.client.get(url)
@@ -314,10 +312,10 @@ class OriginationGodModeTests(TestCase):
     @override_settings(ORIGINATION_FULL_RESET_ENABLED=True)
     def test_full_reset_clears_only_origination_and_is_retry_safe(self):
         self.client.force_login(self.superuser)
-        url = reverse('admin:core_origination_full_reset')
+        url = reverse('admin:origination_origination_full_reset')
         before = preview_full_origination_reset()
         self.assertTrue(before['total'])
-        self.assertEqual(before['counts']['core.OriginationReviewerNotice'], 1)
+        self.assertEqual(before['counts']['origination.OriginationReviewerNotice'], 1)
 
         response = self.client.post(url, {
             'confirmation': 'RESET ALL ORIGINATION DATA',

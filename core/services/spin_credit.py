@@ -12,6 +12,8 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from typing import Any
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, transaction
@@ -1479,6 +1481,7 @@ def review_summary(parsed: ParsedSpinRequest) -> dict[str, Any]:
     }
 
 
+@include_record_reference('record')
 def request_summary(record: SpinCreditRequest | None, parsed: ParsedSpinRequest | None = None) -> dict[str, Any]:
     if record:
         return {

@@ -16,6 +16,8 @@ from datetime import date
 from pathlib import PurePath
 from typing import Any
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, transaction
@@ -1697,6 +1699,7 @@ def archive_operation_ids(batches: list[JawabuFarmerUploadBatch]) -> dict[str, s
     }
 
 
+@include_record_reference('batch')
 def serialize_import_batch(
     batch: JawabuFarmerUploadBatch, *, include_rows: bool = False, archive_operation_id: str = '',
 ) -> dict[str, Any]:

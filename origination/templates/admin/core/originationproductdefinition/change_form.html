@@ -1,0 +1,282 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% if not original or original.lifecycle_status == 'draft' %}
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const sourceInputs = document.querySelectorAll('input[name="main_laf_source"]');
+        const library = document.getElementById('id_reusable_primary_template');
+        const upload = document.getElementById('id_laf_pdf');
+        const guidance = document.getElementById('opb-laf-guidance');
+        function fieldRow(input) {
+          if (!input) return null;
+          const direct = input.closest('.form-row, [class~="field-' + input.name + '"]');
+          if (direct) return direct;
+          const label = document.querySelector('label[for="' + input.id + '"]');
+          let node = input.parentElement;
+          while (node && label && !node.contains(label)) node = node.parentElement;
+          return node || input.parentElement;
+        }
+        function updateLafSource() {
+          const source = document.querySelector('input[name="main_laf_source"]:checked')?.value || 'library';
+          const libraryRow = fieldRow(library);
+          const uploadRow = fieldRow(upload);
+          if (libraryRow) libraryRow.hidden = source !== 'library';
+          if (uploadRow) uploadRow.hidden = source !== 'upload';
+          if (guidance) guidance.textContent = {
+            library: 'Choose a published reusable primary LAF above and save. Its reviewed PDF mapping is reused without another upload.',
+            upload: 'Choose a new LAF PDF above and save. The visual alignment builder opens automatically after upload.',
+            later: 'Save this incomplete draft now. Main LAF missing will remain visible until you return and choose a reusable LAF or upload one.',
+          }[source] || '';
+        }
+        ['id_product_key', 'id_name'].forEach(function (id) {
+          const row = fieldRow(document.getElementById(id));
+          if (row) row.hidden = true;
+        });
+        sourceInputs.forEach(function (input) { input.addEventListener('change', updateLafSource); });
+        updateLafSource();
+      });
+    </script>
+  {% endif %}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=10">
+{% endblock %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and origination_version_history_url %}
+    <li><a href="{{ origination_version_history_url }}">Version history</a></li>
+  {% endif %}
+  {% if original and origination_create_next_version_url %}
+    <li>
+      <form method="post" action="{{ origination_create_next_version_url }}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="button" style="min-height:38px;padding:0 14px;border:0;border-radius:7px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer">
+          {% if origination_existing_successor %}Open editable v{{ origination_existing_successor.version }}{% else %}Create editable next version{% endif %}
+        </button>
+      </form>
+    </li>
+  {% endif %}
+  {% if original and origination_god_mode_purge_url and request.user.is_superuser %}
+    <li><a href="{{ origination_god_mode_purge_url }}" style="color:#b91c1c;font-weight:700">God mode purge</a></li>
+  {% endif %}
+  {% if original and origination_product_family_purge_url and request.user.is_superuser %}
+    <li><a href="{{ origination_product_family_purge_url }}" style="color:#991b1b;font-weight:800">Purge entire Origination family</a></li>
+  {% endif %}
+{% endblock %}
+
+{% block field_sets %}
+  {% if original and origination_commercial_contract_version %}
+    <section class="opb-shell opb-contract-status{% if origination_commercial_contract_version < 2 %} is-warning{% endif %}">
+      <div><h2>Commercial Terms contract v{{ origination_commercial_contract_version }}</h2>{% if origination_commercial_contract_version < 2 %}<p>This legacy draft exposes policy-controlled fields. Upgrade it before publishing so officers enter only loan amount and repayment tenor.</p>{% else %}<p>Officer inputs are limited to loan amount and repayment tenor. Interest, installments, fees, and totals are calculated from the published product policy.</p>{% endif %}</div>
+      {% if origination_upgrade_commercial_terms_url %}<form method="post" action="{{ origination_upgrade_commercial_terms_url }}">{% csrf_token %}<button type="submit" class="button opb-primary-action">Upgrade Commercial Terms</button></form>{% endif %}
+    </section>
+  {% endif %}
+  {% if not original or original.lifecycle_status == 'draft' %}
+    <nav class="opb-workflow" aria-label="Loan form setup steps">
+      <span class="is-active"><b>1</b> Product and LAF</span>
+      <span class="is-active"><b>2</b> Define fields and signers</span>
+      <span{% if origination_calibration_url %} class="is-active"{% endif %}><b>3</b> Assign and align on PDF</span>
+    </nav>
+  {% endif %}
+  {{ block.super }}
+  {% if not original or original.lifecycle_status == 'draft' %}
+    {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
+    {{ origination_data_fields|json_script:"origination-data-field-data" }}
+    <section id="origination-product-builder" class="opb-shell" data-create-field-url="{{ origination_data_field_create_url }}">
+      <header class="opb-header">
+        <div>
+          <h2>Loan form builder</h2>
+          <p>Define the Mini App sections, variables, and signer slots. These become the available fields in the LAF alignment builder.</p>
+        </div>
+        <div class="opb-actions">
+          <a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a>
+          <button type="button" class="button" data-action="add-section">Add section</button>
+          <button type="button" class="button" data-action="add-signer">Add signer</button>
+        </div>
+      </header>
+      <div id="opb-errors" class="opb-errors" hidden></div>
+      <div class="opb-grid">
+        <section>
+          <h3>Form sections and fields</h3>
+          <div id="opb-sections"></div>
+        </section>
+        <aside>
+          <h3>Signing roles</h3>
+          <p class="help">Slots are drawn onto the PDF during visual calibration.</p>
+          <div id="opb-signers"></div>
+        </aside>
+      </div>
+    </section>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=9" defer></script>
+  {% elif original %}
+    <section class="opb-shell opb-published">
+      <h2>Published product version</h2>
+      <p>This contract is immutable. Create a safe editable copy of its fields, document packet, PDF, and alignment without altering existing applications.</p>
+      {% if origination_create_next_version_url %}
+        <form method="post" action="{{ origination_create_next_version_url }}" class="opb-actions">
+          {% csrf_token %}
+          <button type="submit" class="button opb-primary-action">
+            {% if origination_existing_successor %}Open editable v{{ origination_existing_successor.version }}{% else %}Create editable next version{% endif %}
+          </button>
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block after_related_objects %}
+  {{ block.super }}
+  {% if not original or original.lifecycle_status == 'draft' %}
+    <section class="opb-shell opb-next-step">
+      <h2>Assign and align fields on the LAF</h2>
+      {% if origination_calibration_url %}
+        <p><b>{{ origination_document_template.name }}</b> is attached. Open the visual builder to assign variables, draw their positions, set text alignment, place signer slots, and preview the populated LAF.</p>
+        <div class="opb-actions">
+          <a class="button" href="{{ origination_calibration_url }}">Open alignment builder</a>
+          <a class="opb-secondary-link" href="{{ origination_template_change_url }}">View LAF template record</a>
+        </div>
+      {% elif origination_failed_template %}
+        <p>The previous LAF upload did not reach Drive. Choose the LAF PDF template above and save again; a new auditable upload attempt will be created.</p>
+      {% else %}
+        <p id="opb-laf-guidance">Choose a reusable primary LAF, upload a new PDF, or save an incomplete draft and configure its document packet later.</p>
+      {% endif %}
+    </section>
+    {% if original %}
+      <section class="opb-shell opb-next-step">
+        <header class="opb-header">
+          <div>
+            <h2>Historical document packet</h2>
+            <p>These assignments are retained for existing applications and audit only. New applications resolve documents from the independent catalogue.</p>
+          </div>
+          <span class="opb-packet-actions" hidden>
+            {% if origination_packet_add_shared_url and origination_available_shared_documents %}
+              <label class="opb-packet-picker">Add reusable document
+                <select data-packet-document-select aria-label="Reusable document">
+                  <option value="">Choose a document</option>
+                  {% for document in origination_available_shared_documents %}<option value="{{ document.pk }}">{{ document.name }} — {{ document.get_document_role_display }} v{{ document.version }}</option>{% endfor %}
+                </select>
+              </label>
+              <button type="button" class="button" data-packet-add-url="{{ origination_packet_add_shared_url }}">Add</button>
+            {% endif %}
+            {% if origination_supporting_document_setup_url %}<a class="button" href="{{ origination_supporting_document_setup_url }}">Create supporting document</a>{% endif %}
+            {% if origination_publish_assigned_primary_url %}
+              <button type="button" class="button" data-packet-publish-url="{{ origination_publish_assigned_primary_url }}">Publish product</button>
+            {% endif %}
+            <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
+          </span>
+          <a class="button" href="{{ origination_shared_library_url }}">Open document catalogue</a>
+        </header>
+        <p class="opb-publish-feedback" data-packet-publish-feedback role="status" aria-live="polite"></p>
+        {% if origination_shared_document_empty_reason %}
+          <p class="opb-packet-empty">{{ origination_shared_document_empty_reason }}</p>
+        {% endif %}
+        {% if origination_packet_readiness %}
+          <div class="opb-packet-readiness" aria-label="Document packet readiness">
+            {% for item in origination_packet_readiness %}
+              <span class="{% if item.ready %}is-ready{% else %}is-blocked{% endif %}"><b>{{ item.label }}</b><small>{{ item.detail }}</small></span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if origination_document_packet %}
+          <div class="opb-document-packet">
+            {% for item in origination_document_packet %}
+              <article>
+                <span><b>{{ item.name }}</b><small>{{ item.get_document_role_display }} · {{ item.get_inclusion_mode_display }}</small></span>
+                <span>
+                  {% if item.drive_file_id %}<a href="{% url 'admin:origination_originationdocumenttemplate_calibrate' item.pk %}">Open builder</a>{% endif %}
+                  <a href="{% url 'admin:origination_originationdocumenttemplate_change' item.pk %}">Details</a>
+                </span>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if origination_shared_document_assignments %}
+          <div class="opb-document-packet">
+            {% for item in origination_shared_document_assignments %}
+              <article>
+                <span><b>{{ item.assignment.name }}</b><small>{% if item.resolved_template %}{{ item.resolved_template.get_document_role_display }} &middot; {% endif %}{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
+                <span>
+                  {% if item.resolved_template %}<a href="{% url 'admin:origination_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %}
+                  <a href="{% url 'admin:origination_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a>
+                  {% if original.lifecycle_status == 'draft' and item.upgrade_template and item.upgrade_template.pk != item.assignment.template_id %}
+                    <button type="button" class="opb-upgrade-document" data-packet-upgrade-url="{% url 'admin:origination_originationproductdefinition_packet_upgrade_primary' original.pk item.assignment.pk %}" data-current-version="{{ item.assignment.template.version }}" data-new-version="{{ item.upgrade_template.version }}">Use v{{ item.upgrade_template.version }}</button>
+                  {% endif %}
+                  {% if original.lifecycle_status == 'draft' %}<button type="button" class="opb-remove-document" data-packet-remove-url="{% url 'admin:origination_originationproductdefinition_packet_remove_shared' original.pk item.assignment.pk %}" data-document-name="{{ item.assignment.name }}">Remove</button>{% endif %}
+                </span>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+  {% endif %}
+  {% if original and origination_packet_add_shared_url %}
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const addButton = document.querySelector('[data-packet-add-url]');
+        const publishButton = document.querySelector('[data-packet-publish-url]');
+        const publishFeedback = document.querySelector('[data-packet-publish-feedback]');
+        const picker = document.querySelector('[data-packet-document-select]');
+        const csrf = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+        async function post(url, values) {
+          const response = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'}, body: new URLSearchParams(values)});
+          const data = await response.json().catch(function () { return {}; });
+          if (!response.ok || !data.ok) throw new Error(data.error || 'The document packet could not be updated.');
+          return data;
+        }
+        addButton?.addEventListener('click', async function () {
+          if (!picker?.value) { window.alert('Choose a reusable document first.'); return; }
+          addButton.disabled = true;
+          try { await post(addButton.dataset.packetAddUrl, {template_id: picker.value}); window.location.reload(); }
+          catch (error) { window.alert(error.message); addButton.disabled = false; }
+        });
+        publishButton?.addEventListener('click', async function () {
+          if (!window.confirm('Publish this product using its resolved reusable primary LAF? Existing applications will not change.')) return;
+          publishButton.disabled = true;
+          publishButton.textContent = 'Publishing...';
+          if (publishFeedback) {
+            publishFeedback.textContent = 'Validating the complete product and document packet...';
+            publishFeedback.className = 'opb-publish-feedback is-working';
+          }
+          try {
+            const data = await post(publishButton.dataset.packetPublishUrl, {request_id: 'publish-' + Date.now()});
+            if (publishFeedback) {
+              publishFeedback.textContent = data.message || 'Product published and activated.';
+              publishFeedback.className = 'opb-publish-feedback is-success';
+            }
+            window.location.assign(data.redirect_url || window.location.href);
+          } catch (error) {
+            if (publishFeedback) {
+              publishFeedback.textContent = error.message;
+              publishFeedback.className = 'opb-publish-feedback is-error';
+              publishFeedback.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            } else {
+              window.alert(error.message);
+            }
+            publishButton.textContent = 'Publish product';
+            publishButton.disabled = false;
+          }
+        });
+        document.querySelectorAll('[data-packet-remove-url]').forEach(function (button) {
+          button.addEventListener('click', async function () {
+            const name = button.dataset.documentName || 'this document';
+            if (!window.confirm('Remove ' + name + ' from this draft product packet? The reusable template and existing applications will not be changed.')) return;
+            button.disabled = true;
+            try { await post(button.dataset.packetRemoveUrl, {}); window.location.reload(); }
+            catch (error) { window.alert(error.message); button.disabled = false; }
+          });
+        });
+        document.querySelectorAll('[data-packet-upgrade-url]').forEach(function (button) {
+          button.addEventListener('click', async function () {
+            if (!window.confirm('Upgrade the pinned main LAF from v' + button.dataset.currentVersion + ' to reviewed compatible v' + button.dataset.newVersion + '? Existing applications will not change.')) return;
+            button.disabled = true;
+            try { await post(button.dataset.packetUpgradeUrl, {}); window.location.reload(); }
+            catch (error) { window.alert(error.message); button.disabled = false; }
+          });
+        });
+      });
+    </script>
+  {% endif %}
+{% endblock %}

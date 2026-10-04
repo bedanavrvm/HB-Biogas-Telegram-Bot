@@ -5,11 +5,10 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
+from origination.models import OriginationDocumentProductEligibility, OriginationDocumentTemplate
 from core.models import (
     AccessGrant,
     ComplianceAuditEvent,
-    OriginationDocumentProductEligibility,
-    OriginationDocumentTemplate,
     Product,
     ProductAlias,
     ProductAvailability,

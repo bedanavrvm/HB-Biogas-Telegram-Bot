@@ -147,7 +147,8 @@
         "core/services/access_control.py",
         "core/services/fresh_database_baseline.py",
         "core/services/staff_lifecycle.py",
-        "core/services/user_hard_delete.py"
+        "core/services/user_hard_delete.py",
+        "origination/migrations/0003_independent_capabilities.py"
       ]
     },
     {
@@ -165,7 +166,8 @@
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
         "core/services/staff_access_readiness.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "origination/tests.py"
       ],
       "django_model": "core.AccessGrant",
       "domain": "access",
@@ -211,7 +213,9 @@
         "core/services/user_hard_delete.py",
         "core/services/workflow_access.py",
         "core/services/workflow_recognition.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "origination/tests.py",
+        "origination/tests_migrations.py"
       ]
     },
     {
@@ -325,6 +329,8 @@
       "used_by": [
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
+        "core/services/complaint_register.py",
+        "core/services/complaint_timing.py",
         "core/services/database_catalog.py",
         "core/services/group_reset.py",
         "core/services/reporting_relationships.py"
@@ -344,6 +350,7 @@
       ],
       "direct_orm_writers": [
         "core/services/complaint_cases.py",
+        "core/services/complaint_publication.py",
         "core/services/group_reset.py",
         "core/services/portal_full_reset.py"
       ],
@@ -367,6 +374,7 @@
       "table": "core_complaintcasecontrol",
       "used_by": [
         "core/services/complaint_cases.py",
+        "core/services/complaint_publication.py",
         "core/services/complaint_register.py",
         "core/services/group_reset.py",
         "core/services/portal_full_reset.py"
@@ -673,15 +681,16 @@
       "used_by": [
         "core/management/commands/sample_compliance_audit.py",
         "core/services/complaint_cases.py",
+        "core/services/complaint_timing.py",
         "core/services/compliance_audit.py",
         "core/services/database_catalog.py",
-        "core/services/origination_god_mode.py",
         "core/services/portal_maintenance.py",
         "core/services/portal_reporting.py",
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
         "core/services/tat_full_reset.py",
-        "core/services/user_hard_delete.py"
+        "core/services/user_hard_delete.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -840,7 +849,8 @@
       "direct_orm_writers": [
         "core/services/access_control.py",
         "core/services/product_catalog_full_reset.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/tests.py"
       ],
       "django_model": "core.EmergencyAccessGrant",
       "domain": "access",
@@ -865,7 +875,8 @@
         "core/services/product_deletion.py",
         "core/services/staff_access_readiness.py",
         "core/services/telegram_identity.py",
-        "core/services/user_hard_delete.py"
+        "core/services/user_hard_delete.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -877,7 +888,8 @@
       "direct_orm_writers": [
         "core/services/fca.py",
         "core/services/group_reset.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "origination/tests.py"
       ],
       "django_model": "core.FcaImportRecord",
       "domain": "jawabu",
@@ -899,7 +911,9 @@
         "core/services/fca.py",
         "core/services/group_reset.py",
         "core/services/portal_full_reset.py",
-        "core/services/sheet_publication.py"
+        "core/services/sheet_publication.py",
+        "core/services/workflow_links.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -923,6 +937,7 @@
         "core.TatResponsibilityAssignment",
         "core.WorkflowConfigurationChangeRequest",
         "core.WorkflowPilotFormulaReadiness",
+        "origination.LoanOriginationApplication",
         "payments.PaymentBatch",
         "payments.PaymentReceiptBatch",
         "payments.PaymentSequenceState",
@@ -939,6 +954,7 @@
         "core/services/workflow_pilot_purge.py",
         "credit_assessments/tests.py",
         "hb_operations/tests.py",
+        "origination/tests.py",
         "payments/tests.py"
       ],
       "django_model": "core.GroupSheetConfiguration",
@@ -967,6 +983,8 @@
         "core/services/fresh_database_baseline.py",
         "core/services/group_config.py",
         "core/services/group_reset.py",
+        "core/services/invoice_cleanup.py",
+        "core/services/invoice_parser.py",
         "core/services/jawabu.py",
         "core/services/jawabu_case360.py",
         "core/services/jawabu_master.py",
@@ -998,7 +1016,11 @@
         "credit_assessments/services.py",
         "credit_assessments/tests.py",
         "hb_operations/tests.py",
+        "origination/models.py",
+        "origination/tests.py",
+        "origination/views.py",
         "payments/models.py",
+        "payments/receipt_batches.py",
         "payments/tests.py",
         "requisitions/models.py"
       ]
@@ -1036,6 +1058,7 @@
       ],
       "direct_orm_writers": [
         "core/api/portal_views.py",
+        "core/services/complaint_publication.py",
         "core/services/external_resilience.py",
         "core/services/portal_full_reset.py"
       ],
@@ -1059,14 +1082,16 @@
         "core/management/commands/drain_portal_publications.py",
         "core/management/commands/probe_integrations.py",
         "core/services/complaint_imports.py",
+        "core/services/complaint_publication.py",
         "core/services/external_resilience.py",
-        "core/services/origination_esign.py",
+        "core/services/invoice_cleanup.py",
         "core/services/portal_dashboard.py",
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
         "core/services/portal_publication.py",
         "core/services/tat_setup.py",
-        "core/services/tat_tracker.py"
+        "core/services/tat_tracker.py",
+        "origination/services/origination_esign.py"
       ]
     },
     {
@@ -1223,11 +1248,12 @@
         "payments.PaymentReceiptItem"
       ],
       "classification": "processing_record",
-      "column_count": 21,
+      "column_count": 22,
       "cross_domain_parents": [
         "core.GroupSheetConfiguration"
       ],
       "direct_orm_writers": [
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_parser.py",
         "core/services/portal_full_reset.py",
         "hb_operations/tests.py",
@@ -1249,6 +1275,8 @@
       "table": "core_invoiceuploadbatch",
       "used_by": [
         "core/api/portal_views.py",
+        "core/management/commands/inventory_invoice_recovery.py",
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_identity.py",
         "core/services/invoice_parser.py",
         "core/services/portal_full_reset.py",
@@ -1434,7 +1462,7 @@
         "core.JawabuCustomerPhoneHistory",
         "core.JawabuFarmerMaster",
         "core.JawabuRelatedPerson",
-        "core.LoanOriginationApplication"
+        "origination.LoanOriginationApplication"
       ],
       "classification": "authoritative_record",
       "column_count": 7,
@@ -1442,6 +1470,7 @@
       "direct_orm_writers": [
         "core/api/portal_views.py",
         "core/services/jawabu_identity.py",
+        "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "core/services/system_export.py"
       ],
@@ -1461,9 +1490,12 @@
         "core/services/jawabu_customer_quality.py",
         "core/services/jawabu_data_quality.py",
         "core/services/jawabu_identity.py",
+        "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
-        "core/services/system_export.py"
+        "core/services/system_export.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py"
       ]
     },
     {
@@ -1605,9 +1637,11 @@
         "core/services/fca.py",
         "core/services/invoice_parser.py",
         "core/services/jawabu_master.py",
+        "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "origination/tests.py",
         "payments/receipt_batches.py",
         "payments/tests.py"
       ],
@@ -1641,6 +1675,7 @@
         "core/services/fca.py",
         "core/services/fresh_database_baseline.py",
         "core/services/group_reset.py",
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_identity.py",
         "core/services/invoice_parser.py",
         "core/services/jawabu_approvals.py",
@@ -1661,7 +1696,6 @@
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
         "core/services/portal_publication.py",
-        "core/services/portal_recognition.py",
         "core/services/portal_reporting.py",
         "core/services/product_catalog.py",
         "core/services/product_deletion.py",
@@ -1669,11 +1703,13 @@
         "core/services/requisition.py",
         "core/services/sheet_publication.py",
         "core/services/system_export.py",
+        "core/services/workflow_links.py",
         "core/services/workflow_sla.py",
         "core/services/workflow_timeline.py",
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "origination/tests.py",
         "payments/models.py",
         "payments/receipt_batches.py",
         "payments/services.py",
@@ -1693,7 +1729,8 @@
         "core/services/jawabu_master.py",
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
-        "core/services/system_export.py"
+        "core/services/system_export.py",
+        "origination/tests.py"
       ],
       "django_model": "core.JawabuFarmerUploadBatch",
       "domain": "jawabu",
@@ -1723,7 +1760,9 @@
         "core/services/portal_dashboard.py",
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
-        "core/services/system_export.py"
+        "core/services/system_export.py",
+        "core/services/workflow_links.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -1934,30 +1973,32 @@
     {
       "application_area": "Origination",
       "children": [
-        "core.LoanOriginationApplication",
-        "core.OriginationApplicationDocument",
-        "core.OriginationApplicationEvent",
-        "core.OriginationCommercialException",
-        "core.OriginationCorrectionRequest",
-        "core.OriginationReportingValue",
-        "core.OriginationRequirementEvidence",
-        "core.OriginationReviewerNotice",
-        "core.OriginationSigningPackage"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationApplicationDocument",
+        "origination.OriginationApplicationEvent",
+        "origination.OriginationCommercialException",
+        "origination.OriginationCorrectionRequest",
+        "origination.OriginationReportingValue",
+        "origination.OriginationRequirementEvidence",
+        "origination.OriginationReviewerNotice",
+        "origination.OriginationSigningPackage"
       ],
       "classification": "authoritative_record",
-      "column_count": 35,
+      "column_count": 36,
       "cross_domain_parents": [
         "auth.User",
+        "core.GroupSheetConfiguration",
         "core.JawabuCustomer",
         "core.OperationalLocation",
         "core.ProductVersion"
       ],
       "direct_orm_writers": [
-        "core/services/loan_origination.py",
-        "core/services/origination_god_mode.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_god_mode.py",
+        "origination/tests.py"
       ],
-      "django_model": "core.LoanOriginationApplication",
+      "django_model": "origination.LoanOriginationApplication",
       "domain": "origination",
       "explicit_indexes": [
         "core_loanor_officer_3c905e_idx",
@@ -1966,31 +2007,39 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
+        "core.GroupSheetConfiguration",
         "core.JawabuCustomer",
-        "core.LoanOriginationApplication",
         "core.OperationalLocation",
-        "core.OriginationProductDefinition",
-        "core.ProductVersion"
+        "core.ProductVersion",
+        "origination.LoanOriginationApplication",
+        "origination.OriginationProductDefinition"
       ],
       "purpose": "Canonical, revision-controlled application captured by a field officer.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_loanoriginationapplication",
       "used_by": [
-        "core/api/origination_views.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/loan_origination.py",
         "core/services/location_catalog.py",
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_consent.py",
-        "core/services/origination_documents.py",
-        "core/services/origination_esign.py",
-        "core/services/origination_evidence.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py",
         "core/services/portal_full_reset.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "core/services/workflow_links.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_consent.py",
+        "origination/services/origination_documents.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_evidence.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py",
+        "origination/tests.py",
+        "origination/tests_migrations.py",
+        "origination/views.py"
       ]
     },
     {
@@ -2263,13 +2312,13 @@
         "core.BranchServiceArea",
         "core.ComplaintCaseControl",
         "core.JawabuFarmerMaster",
-        "core.LoanOriginationApplication",
         "core.LocationMappingIssue",
         "core.OperationalLocation",
         "core.OperationalLocationAlias",
         "core.OrderApprovalUpdate",
-        "core.OriginationStampAsset",
-        "core.ProductAvailability"
+        "core.ProductAvailability",
+        "origination.LoanOriginationApplication",
+        "origination.OriginationStampAsset"
       ],
       "classification": "authoritative_record",
       "column_count": 13,
@@ -2289,7 +2338,6 @@
       "source_of_truth": true,
       "table": "core_operationallocation",
       "used_by": [
-        "core/api/origination_views.py",
         "core/services/complaint_cases.py",
         "core/services/database_catalog.py",
         "core/services/fresh_database_baseline.py",
@@ -2299,7 +2347,11 @@
         "core/services/product_availability.py",
         "core/services/spin_credit.py",
         "core/services/tat_tracker.py",
-        "core/services/workflow_catalog.py"
+        "core/services/workflow_catalog.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_forms.py",
+        "origination/views.py"
       ]
     },
     {
@@ -2339,7 +2391,8 @@
       ],
       "direct_orm_writers": [
         "core/services/group_reset.py",
-        "core/services/order_approval.py"
+        "core/services/order_approval.py",
+        "origination/tests.py"
       ],
       "django_model": "core.OrderApprovalUpdate",
       "domain": "order_approval",
@@ -2359,7 +2412,9 @@
         "core/services/commands.py",
         "core/services/group_reset.py",
         "core/services/location_catalog.py",
-        "core/services/order_approval.py"
+        "core/services/order_approval.py",
+        "core/services/workflow_links.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -2369,25 +2424,29 @@
       "column_count": 20,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/origination_documents.py"
+        "origination/services/origination_documents.py"
       ],
-      "django_model": "core.OriginationApplicationDocument",
+      "django_model": "origination.OriginationApplicationDocument",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
-        "core.LoanOriginationApplication",
-        "core.OriginationDocumentTemplate",
-        "core.OriginationProductDocumentAssignment"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationDocumentTemplate",
+        "origination.OriginationProductDocumentAssignment"
       ],
       "purpose": "Application-scoped snapshot and progress for one generated packet document.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationapplicationdocument",
       "used_by": [
-        "core/services/origination_documents.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_documents.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -2399,9 +2458,10 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/loan_origination.py"
+        "origination/admin.py",
+        "origination/services/loan_origination.py"
       ],
-      "django_model": "core.OriginationApplicationEvent",
+      "django_model": "origination.OriginationApplicationEvent",
       "domain": "origination",
       "explicit_indexes": [
         "core_origin_applica_ea7e72_idx"
@@ -2409,15 +2469,19 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication"
+        "origination.LoanOriginationApplication"
       ],
       "purpose": "Append-only operational history for an origination application.",
       "retention": "Retained with the permanent workflow or compliance audit record.",
       "source_of_truth": true,
       "table": "core_originationapplicationevent",
       "used_by": [
-        "core/services/loan_origination.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -2430,9 +2494,9 @@
         "core.ProductVersion"
       ],
       "direct_orm_writers": [
-        "core/services/origination_commercial_terms.py"
+        "origination/services/origination_commercial_terms.py"
       ],
-      "django_model": "core.OriginationCommercialException",
+      "django_model": "origination.OriginationCommercialException",
       "domain": "origination",
       "explicit_indexes": [
         "orig_comm_exception_rev_idx"
@@ -2440,32 +2504,38 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication",
-        "core.ProductVersion"
+        "core.ProductVersion",
+        "origination.LoanOriginationApplication"
       ],
       "purpose": "Immutable Superuser approval for exact policy mismatches on one revision.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationcommercialexception",
       "used_by": [
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_god_mode.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationDocumentTemplate",
-        "core.OriginationSigningPackage"
+        "origination.OriginationDocumentTemplate",
+        "origination.OriginationSigningPackage"
       ],
       "classification": "authoritative_record",
       "column_count": 15,
       "cross_domain_parents": [
         "auth.User"
       ],
-      "direct_orm_writers": [],
-      "django_model": "core.OriginationConsentPolicyVersion",
+      "direct_orm_writers": [
+        "origination/admin.py"
+      ],
+      "django_model": "origination.OriginationConsentPolicyVersion",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
@@ -2477,8 +2547,12 @@
       "source_of_truth": true,
       "table": "core_originationconsentpolicyversion",
       "used_by": [
-        "core/services/origination_consent.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_consent.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -2488,30 +2562,34 @@
       "column_count": 7,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/loan_origination.py",
-        "core/services/origination_final_review.py"
+        "origination/services/loan_origination.py",
+        "origination/services/origination_final_review.py"
       ],
-      "django_model": "core.OriginationCorrectionItem",
+      "django_model": "origination.OriginationCorrectionItem",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
-        "core.OriginationCorrectionRequest"
+        "origination.OriginationCorrectionRequest"
       ],
       "purpose": "Immutable field or requirement target within a correction request.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationcorrectionitem",
       "used_by": [
-        "core/services/loan_origination.py",
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationCorrectionItem"
+        "origination.OriginationCorrectionItem"
       ],
       "classification": "authoritative_record",
       "column_count": 9,
@@ -2519,10 +2597,10 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/loan_origination.py",
-        "core/services/origination_final_review.py"
+        "origination/services/loan_origination.py",
+        "origination/services/origination_final_review.py"
       ],
-      "django_model": "core.OriginationCorrectionRequest",
+      "django_model": "origination.OriginationCorrectionRequest",
       "domain": "origination",
       "explicit_indexes": [
         "orig_corr_app_status_idx"
@@ -2530,25 +2608,29 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication"
+        "origination.LoanOriginationApplication"
       ],
       "purpose": "Append-preserving reviewer instructions for one submitted revision.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationcorrectionrequest",
       "used_by": [
-        "core/services/loan_origination.py",
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationDataField",
-        "core.OriginationDataFieldEvent",
-        "core.OriginationFieldReviewIssue",
-        "core.OriginationReportingValue"
+        "origination.OriginationDataField",
+        "origination.OriginationDataFieldEvent",
+        "origination.OriginationFieldReviewIssue",
+        "origination.OriginationReportingValue"
       ],
       "classification": "authoritative_record",
       "column_count": 20,
@@ -2556,11 +2638,11 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_main_laf_seeds.py"
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_main_laf_seeds.py"
       ],
-      "django_model": "core.OriginationDataField",
+      "django_model": "origination.OriginationDataField",
       "domain": "origination",
       "explicit_indexes": [
         "core_origin_active_c188a9_idx"
@@ -2568,7 +2650,7 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDataField"
+        "origination.OriginationDataField"
       ],
       "purpose": "Global semantic field used by product forms and legal PDF mappings.",
       "retention": "Retained with the owning business record according to its workflow policy.",
@@ -2577,13 +2659,17 @@
       "used_by": [
         "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
@@ -2595,31 +2681,36 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_main_laf_seeds.py"
+        "origination/admin.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_main_laf_seeds.py"
       ],
-      "django_model": "core.OriginationDataFieldEvent",
+      "django_model": "origination.OriginationDataFieldEvent",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDataField"
+        "origination.OriginationDataField"
       ],
       "purpose": "Append-only, value-free audit trail for catalogue governance.",
       "retention": "Retained with the permanent workflow or compliance audit record.",
       "source_of_truth": true,
       "table": "core_originationdatafieldevent",
       "used_by": [
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py"
       ]
     },
     {
@@ -2632,20 +2723,21 @@
         "core.Product"
       ],
       "direct_orm_writers": [
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py",
         "core/services/product_catalog_full_reset.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationDocumentProductEligibility",
+      "django_model": "origination.OriginationDocumentProductEligibility",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDocumentTemplate",
-        "core.Product"
+        "core.Product",
+        "origination.OriginationDocumentTemplate"
       ],
       "purpose": "Current product allowlist for one immutable Origination catalogue document version.",
       "retention": "Retained while the catalogue document or product history requires it.",
@@ -2653,22 +2745,26 @@
       "table": "core_originationdocumentproducteligibility",
       "used_by": [
         "core/services/database_catalog.py",
-        "core/services/origination_document_catalogue.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py",
         "core/services/product_catalog_full_reset.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_document_catalogue.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationApplicationDocument",
-        "core.OriginationDocumentProductEligibility",
-        "core.OriginationDocumentTemplateEvent",
-        "core.OriginationProductDocumentAssignment",
-        "core.OriginationTemplateConfigurationRevision"
+        "origination.OriginationApplicationDocument",
+        "origination.OriginationDocumentProductEligibility",
+        "origination.OriginationDocumentTemplateEvent",
+        "origination.OriginationProductDocumentAssignment",
+        "origination.OriginationTemplateConfigurationRevision"
       ],
       "classification": "configuration",
       "column_count": 33,
@@ -2677,21 +2773,21 @@
       ],
       "direct_orm_writers": [
         "core/management/commands/seed_origination_packet_demo.py",
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationDocumentTemplate",
+      "django_model": "origination.OriginationDocumentTemplate",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationConsentPolicyVersion",
-        "core.OriginationProductDefinition",
-        "core.OriginationTemplateConfigurationRevision"
+        "origination.OriginationConsentPolicyVersion",
+        "origination.OriginationProductDefinition",
+        "origination.OriginationTemplateConfigurationRevision"
       ],
       "purpose": "Immutable Drive-backed PDF/config pair approved for origination rendering.",
       "retention": "Retain while referenced; retire or deactivate instead of deleting governed history.",
@@ -2700,18 +2796,24 @@
       "used_by": [
         "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/loan_origination.py",
-        "core/services/origination_consent.py",
-        "core/services/origination_document_catalogue.py",
-        "core/services/origination_documents.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_admin.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_consent.py",
+        "origination/services/origination_document_catalogue.py",
+        "origination/services/origination_documents.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
@@ -2723,33 +2825,38 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py"
+        "origination/admin.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationDocumentTemplateEvent",
+      "django_model": "origination.OriginationDocumentTemplateEvent",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDocumentTemplate"
+        "origination.OriginationDocumentTemplate"
       ],
       "purpose": "Append-only audit trail for legal template lifecycle changes.",
       "retention": "Retained with the permanent workflow or compliance audit record.",
       "source_of_truth": true,
       "table": "core_originationdocumenttemplateevent",
       "used_by": [
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
@@ -2761,10 +2868,10 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py"
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py"
       ],
-      "django_model": "core.OriginationFieldReviewIssue",
+      "django_model": "origination.OriginationFieldReviewIssue",
       "domain": "origination",
       "explicit_indexes": [
         "core_origin_status_85057f_idx"
@@ -2772,17 +2879,21 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDataField",
-        "core.OriginationProductDefinition"
+        "origination.OriginationDataField",
+        "origination.OriginationProductDefinition"
       ],
       "purpose": "Tracked exit path for a legacy schema field without a safe catalogue binding.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationfieldreviewissue",
       "used_by": [
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -2792,33 +2903,37 @@
       "column_count": 16,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/origination_esign.py"
+        "origination/services/origination_esign.py"
       ],
-      "django_model": "core.OriginationOtpChallenge",
+      "django_model": "origination.OriginationOtpChallenge",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "temporary",
       "parents": [
-        "core.OriginationSignerSession"
+        "origination.OriginationSignerSession"
       ],
       "purpose": "Hashed, bounded OTP challenge; provider delivery never proves signing.",
       "retention": "Service-managed bounded retention; see the owning service and deployment settings.",
       "source_of_truth": true,
       "table": "core_originationotpchallenge",
       "used_by": [
-        "core/services/origination_esign.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.LoanOriginationApplication",
-        "core.OriginationDocumentTemplate",
-        "core.OriginationFieldReviewIssue",
-        "core.OriginationProductDefinition",
-        "core.OriginationProductDefinitionEvent",
-        "core.OriginationProductDocumentAssignment"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationDocumentTemplate",
+        "origination.OriginationFieldReviewIssue",
+        "origination.OriginationProductDefinition",
+        "origination.OriginationProductDefinitionEvent",
+        "origination.OriginationProductDocumentAssignment"
       ],
       "classification": "configuration",
       "column_count": 19,
@@ -2829,12 +2944,15 @@
       "direct_orm_writers": [
         "core/management/commands/seed_origination_packet_demo.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py"
+        "origination/admin.py",
+        "origination/origination_setup_admin.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py",
+        "origination/tests.py"
       ],
-      "django_model": "core.OriginationProductDefinition",
+      "django_model": "origination.OriginationProductDefinition",
       "domain": "origination",
       "explicit_indexes": [
         "core_origin_product_67c040_idx"
@@ -2842,27 +2960,35 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationProductDefinition",
-        "core.ProductVersion"
+        "core.ProductVersion",
+        "origination.OriginationProductDefinition"
       ],
       "purpose": "Versioned, inactive-by-default contract for one loan-origination form.",
       "retention": "Retain while referenced; retire or deactivate instead of deleting governed history.",
       "source_of_truth": true,
       "table": "core_originationproductdefinition",
       "used_by": [
-        "core/api/origination_views.py",
         "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/loan_origination.py",
-        "core/services/origination_document_catalogue.py",
-        "core/services/origination_documents.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_admin.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_document_catalogue.py",
+        "origination/services/origination_documents.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py",
+        "origination/tests.py",
+        "origination/tests_migrations.py",
+        "origination/views.py"
       ]
     },
     {
@@ -2875,19 +3001,21 @@
       ],
       "direct_orm_writers": [
         "core/management/commands/upgrade_origination_commercial_contract.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py"
+        "origination/admin.py",
+        "origination/origination_setup_admin.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationProductDefinitionEvent",
+      "django_model": "origination.OriginationProductDefinitionEvent",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationProductDefinition"
+        "origination.OriginationProductDefinition"
       ],
       "purpose": "Append-only lifecycle history for a versioned origination product.",
       "retention": "Retained with the permanent workflow or compliance audit record.",
@@ -2895,18 +3023,23 @@
       "table": "core_originationproductdefinitionevent",
       "used_by": [
         "core/management/commands/upgrade_origination_commercial_contract.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_admin.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationApplicationDocument"
+        "origination.OriginationApplicationDocument"
       ],
       "classification": "business_assignment",
       "column_count": 13,
@@ -2915,17 +3048,17 @@
       ],
       "direct_orm_writers": [
         "core/management/commands/seed_origination_packet_demo.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_templates.py"
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationProductDocumentAssignment",
+      "django_model": "origination.OriginationProductDocumentAssignment",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "compatibility",
       "parents": [
         "auth.User",
-        "core.OriginationDocumentTemplate",
-        "core.OriginationProductDefinition"
+        "origination.OriginationDocumentTemplate",
+        "origination.OriginationProductDefinition"
       ],
       "purpose": "Version-policy assignment between a legacy product definition and document family.",
       "retention": "Retained for historical product-definition and application compatibility.",
@@ -2934,10 +3067,14 @@
       "used_by": [
         "core/management/commands/seed_origination_packet_demo.py",
         "core/services/database_catalog.py",
-        "core/services/origination_documents.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_documents.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
@@ -2947,10 +3084,10 @@
       "column_count": 15,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py"
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py"
       ],
-      "django_model": "core.OriginationReportingValue",
+      "django_model": "origination.OriginationReportingValue",
       "domain": "origination",
       "explicit_indexes": [
         "orig_report_field_text_idx",
@@ -2961,16 +3098,20 @@
       ],
       "lifecycle": "active",
       "parents": [
-        "core.LoanOriginationApplication",
-        "core.OriginationDataField"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationDataField"
       ],
       "purpose": "Rebuildable typed projection of explicitly reportable application values.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationreportingvalue",
       "used_by": [
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -2982,10 +3123,10 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_evidence.py",
-        "core/services/origination_god_mode.py"
+        "origination/services/origination_evidence.py",
+        "origination/services/origination_god_mode.py"
       ],
-      "django_model": "core.OriginationRequirementEvidence",
+      "django_model": "origination.OriginationRequirementEvidence",
       "domain": "origination",
       "explicit_indexes": [
         "orig_evid_app_req_status_idx"
@@ -2993,16 +3134,20 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication"
+        "origination.LoanOriginationApplication"
       ],
       "purpose": "Audited Drive-backed evidence for one snapshotted product requirement.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationrequirementevidence",
       "used_by": [
-        "core/api/origination_views.py",
-        "core/services/origination_evidence.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_evidence.py",
+        "origination/services/origination_god_mode.py",
+        "origination/views.py"
       ]
     },
     {
@@ -3014,33 +3159,36 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/loan_origination.py"
+        "origination/services/loan_origination.py"
       ],
-      "django_model": "core.OriginationReviewerNotice",
+      "django_model": "origination.OriginationReviewerNotice",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication",
-        "core.OriginationSigningPackage"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationSigningPackage"
       ],
       "purpose": "Persistent in-app attention item for an Origination checker.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationreviewernotice",
       "used_by": [
-        "core/api/origination_views.py",
-        "core/services/loan_origination.py",
-        "core/services/origination_god_mode.py"
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_god_mode.py",
+        "origination/views.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationOtpChallenge",
-        "core.OriginationSigningAction",
-        "core.OriginationSigningRequestEvent"
+        "origination.OriginationOtpChallenge",
+        "origination.OriginationSigningAction",
+        "origination.OriginationSigningRequestEvent"
       ],
       "classification": "authoritative_record",
       "column_count": 28,
@@ -3048,31 +3196,35 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_esign.py"
+        "origination/services/origination_esign.py"
       ],
-      "django_model": "core.OriginationSignerSession",
+      "django_model": "origination.OriginationSignerSession",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "temporary",
       "parents": [
         "auth.User",
-        "core.OriginationSigningPackage"
+        "origination.OriginationSigningPackage"
       ],
       "purpose": "Revocable bearer session for one signer of one immutable packet.",
       "retention": "Service-managed bounded retention; see the owning service and deployment settings.",
       "source_of_truth": true,
       "table": "core_originationsignersession",
       "used_by": [
-        "core/api/origination_views.py",
-        "core/services/origination_esign.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_god_mode.py",
+        "origination/views.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationSigningAction",
-        "core.OriginationSigningActionInvalidation"
+        "origination.OriginationSigningAction",
+        "origination.OriginationSigningActionInvalidation"
       ],
       "classification": "authoritative_record",
       "column_count": 14,
@@ -3080,29 +3232,33 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_esign.py",
-        "core/services/origination_signing.py"
+        "origination/services/origination_esign.py",
+        "origination/services/origination_signing.py"
       ],
-      "django_model": "core.OriginationSigningAction",
+      "django_model": "origination.OriginationSigningAction",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationSignerSession",
-        "core.OriginationSigningAction",
-        "core.OriginationSigningPackage",
-        "core.OriginationStampAsset"
+        "origination.OriginationSignerSession",
+        "origination.OriginationSigningAction",
+        "origination.OriginationSigningPackage",
+        "origination.OriginationStampAsset"
       ],
       "purpose": "Append-only evidence for one simulated or provider-verified slot action.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationsigningaction",
       "used_by": [
-        "core/services/origination_esign.py",
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_signing.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_signing.py"
       ]
     },
     {
@@ -3114,31 +3270,35 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_final_review.py"
+        "origination/services/origination_final_review.py"
       ],
-      "django_model": "core.OriginationSigningActionInvalidation",
+      "django_model": "origination.OriginationSigningActionInvalidation",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationSigningAction"
+        "origination.OriginationSigningAction"
       ],
       "purpose": "Append-only checker evidence invalidating one otherwise immutable action.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationsigningactioninvalidation",
       "used_by": [
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationReviewerNotice",
-        "core.OriginationSignerSession",
-        "core.OriginationSigningAction"
+        "origination.OriginationReviewerNotice",
+        "origination.OriginationSignerSession",
+        "origination.OriginationSigningAction"
       ],
       "classification": "authoritative_record",
       "column_count": 44,
@@ -3146,9 +3306,9 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_esign.py"
+        "origination/services/origination_esign.py"
       ],
-      "django_model": "core.OriginationSigningPackage",
+      "django_model": "origination.OriginationSigningPackage",
       "domain": "origination",
       "explicit_indexes": [
         "core_origin_applica_3a6bd3_idx"
@@ -3156,22 +3316,27 @@
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.LoanOriginationApplication",
-        "core.OriginationConsentPolicyVersion"
+        "origination.LoanOriginationApplication",
+        "origination.OriginationConsentPolicyVersion"
       ],
       "purpose": "Stable cross-system link from one frozen revision to e-signatures.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationsigningpackage",
       "used_by": [
-        "core/api/origination_views.py",
         "core/management/commands/repair_origination_frozen_packet.py",
-        "core/services/loan_origination.py",
-        "core/services/origination_esign.py",
-        "core/services/origination_evidence.py",
-        "core/services/origination_final_review.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_signing.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_evidence.py",
+        "origination/services/origination_final_review.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_signing.py",
+        "origination/tests_migrations.py",
+        "origination/views.py"
       ]
     },
     {
@@ -3181,9 +3346,9 @@
       "column_count": 8,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/origination_esign.py"
+        "origination/services/origination_esign.py"
       ],
-      "django_model": "core.OriginationSigningRequestEvent",
+      "django_model": "origination.OriginationSigningRequestEvent",
       "domain": "origination",
       "explicit_indexes": [
         "core_osre_token_created_idx",
@@ -3191,21 +3356,25 @@
       ],
       "lifecycle": "active",
       "parents": [
-        "core.OriginationSignerSession"
+        "origination.OriginationSignerSession"
       ],
       "purpose": "Minimal append-only database throttle evidence for public signing writes.",
       "retention": "Retained with the permanent workflow or compliance audit record.",
       "source_of_truth": true,
       "table": "core_originationsigningrequestevent",
       "used_by": [
-        "core/services/origination_esign.py",
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_god_mode.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationSigningAction"
+        "origination.OriginationSigningAction"
       ],
       "classification": "authoritative_record",
       "column_count": 13,
@@ -3214,9 +3383,10 @@
         "core.OperationalLocation"
       ],
       "direct_orm_writers": [
-        "core/services/origination_god_mode.py"
+        "origination/admin.py",
+        "origination/services/origination_god_mode.py"
       ],
-      "django_model": "core.OriginationStampAsset",
+      "django_model": "origination.OriginationStampAsset",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
@@ -3229,15 +3399,19 @@
       "source_of_truth": true,
       "table": "core_originationstampasset",
       "used_by": [
-        "core/services/origination_esign.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_signing.py"
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_esign.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_signing.py"
       ]
     },
     {
       "application_area": "Origination",
       "children": [
-        "core.OriginationDocumentTemplate"
+        "origination.OriginationDocumentTemplate"
       ],
       "classification": "authoritative_record",
       "column_count": 8,
@@ -3245,25 +3419,29 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/services/origination_god_mode.py",
-        "core/services/origination_templates.py"
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_templates.py"
       ],
-      "django_model": "core.OriginationTemplateConfigurationRevision",
+      "django_model": "origination.OriginationTemplateConfigurationRevision",
       "domain": "origination",
       "explicit_indexes": [],
       "lifecycle": "active",
       "parents": [
         "auth.User",
-        "core.OriginationDocumentTemplate"
+        "origination.OriginationDocumentTemplate"
       ],
       "purpose": "Append-only saved calibration revision for one immutable source PDF.",
       "retention": "Retained with the owning business record according to its workflow policy.",
       "source_of_truth": true,
       "table": "core_originationtemplateconfigurationrevision",
       "used_by": [
-        "core/services/origination_god_mode.py",
-        "core/services/origination_templates.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/admin.py",
+        "origination/catalogue.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_templates.py"
       ]
     },
     {
@@ -3300,6 +3478,7 @@
       "used_by": [
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_identity.py",
         "core/services/invoice_parser.py",
         "core/services/jawabu_case360.py",
@@ -3359,7 +3538,8 @@
         "core/services/group_reset.py",
         "core/services/sheet_sync.py",
         "core/services/sheets.py",
-        "core/services/storage.py"
+        "core/services/storage.py",
+        "origination/tests.py"
       ],
       "django_model": "core.ParsedMessage",
       "domain": "complaints",
@@ -3382,6 +3562,7 @@
         "core/services/commands.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_imports.py",
+        "core/services/complaint_publication.py",
         "core/services/complaint_register.py",
         "core/services/database_catalog.py",
         "core/services/fresh_database_baseline.py",
@@ -3391,7 +3572,9 @@
         "core/services/sheet_sync.py",
         "core/services/sheets.py",
         "core/services/storage.py",
-        "core/services/workflow_catalog.py"
+        "core/services/workflow_catalog.py",
+        "core/services/workflow_links.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -3425,6 +3608,7 @@
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
         "core/services/document_signoffs.py",
+        "core/services/invoice_cleanup.py",
         "core/services/jawabu_case360.py",
         "core/services/payment_documents.py",
         "core/services/portal_full_reset.py",
@@ -3648,7 +3832,8 @@
         "core/services/complaint_cases.py",
         "core/services/deduplication.py",
         "core/services/group_reset.py",
-        "core/services/sheet_sync.py"
+        "core/services/sheet_sync.py",
+        "origination/tests.py"
       ],
       "django_model": "core.ProcessedMessage",
       "domain": "complaints",
@@ -3668,7 +3853,8 @@
         "core/services/group_reset.py",
         "core/services/reporting_relationships.py",
         "core/services/sheet_sync.py",
-        "core/services/storage.py"
+        "core/services/storage.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -3678,7 +3864,6 @@
         "core.EmergencyAccessGrant",
         "core.JawabuApprovalDelegation",
         "core.JawabuFarmerMaster",
-        "core.OriginationDocumentProductEligibility",
         "core.ProductAlias",
         "core.ProductAvailability",
         "core.ProductMappingIssue",
@@ -3686,13 +3871,15 @@
         "core.SpinCreditRequest",
         "core.TatRepairJob",
         "core.TatTrackerCase",
-        "core.WorkflowTatDailyMetric"
+        "core.WorkflowTatDailyMetric",
+        "origination.OriginationDocumentProductEligibility"
       ],
       "classification": "authoritative_record",
       "column_count": 9,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/services/product_catalog_full_reset.py"
+        "core/services/product_catalog_full_reset.py",
+        "origination/tests.py"
       ],
       "django_model": "core.Product",
       "domain": "catalog",
@@ -3706,19 +3893,11 @@
       "used_by": [
         "core/api/views.py",
         "core/services/access_policies.py",
+        "core/services/activity_changes.py",
         "core/services/database_catalog.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/generic_jawabu_laf_seed.py",
-        "core/services/invoice_finance_origination_seed.py",
         "core/services/jawabu_customer_quality.py",
         "core/services/jawabu_pipeline.py",
-        "core/services/loan_origination.py",
-        "core/services/origination_fields.py",
-        "core/services/origination_god_mode.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_setup.py",
-        "core/services/origination_templates.py",
-        "core/services/origination_terminology.py",
         "core/services/payment_documents.py",
         "core/services/product_availability.py",
         "core/services/product_catalog.py",
@@ -3730,7 +3909,23 @@
         "core/services/tat_register.py",
         "core/services/tat_reporting.py",
         "core/services/tat_tracker.py",
-        "core/services/workflow_catalog.py"
+        "core/services/workflow_catalog.py",
+        "origination/admin.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_admin.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/loan_origination.py",
+        "origination/services/origination_fields.py",
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_setup.py",
+        "origination/services/origination_templates.py",
+        "origination/services/origination_terminology.py",
+        "origination/tests.py",
+        "payments/services.py"
       ]
     },
     {
@@ -3765,7 +3960,8 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/product_availability.py",
-        "core/services/product_catalog_full_reset.py"
+        "core/services/product_catalog_full_reset.py",
+        "origination/origination_setup_admin.py"
       ],
       "django_model": "core.ProductAvailability",
       "domain": "catalog",
@@ -3784,7 +3980,8 @@
         "core/services/product_catalog.py",
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
-        "core/services/tat_full_reset.py"
+        "core/services/tat_full_reset.py",
+        "origination/origination_setup_admin.py"
       ]
     },
     {
@@ -3807,7 +4004,8 @@
       "table": "core_productcustomattribute",
       "used_by": [
         "core/services/product_catalog.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/origination_setup_forms.py"
       ]
     },
     {
@@ -3829,9 +4027,10 @@
       "source_of_truth": true,
       "table": "core_productfee",
       "used_by": [
-        "core/services/origination_commercial_terms.py",
         "core/services/product_deletion.py",
-        "core/services/product_quotes.py"
+        "core/services/product_quotes.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/origination_commercial_terms.py"
       ]
     },
     {
@@ -3908,7 +4107,8 @@
       "table": "core_productrequirement",
       "used_by": [
         "core/services/product_catalog.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/origination_setup_forms.py"
       ]
     },
     {
@@ -3941,9 +4141,6 @@
       "application_area": "Catalog",
       "children": [
         "core.JawabuFarmerMaster",
-        "core.LoanOriginationApplication",
-        "core.OriginationCommercialException",
-        "core.OriginationProductDefinition",
         "core.ProductCustomAttribute",
         "core.ProductFee",
         "core.ProductRequirement",
@@ -3951,7 +4148,10 @@
         "core.ProductVersion",
         "core.ProductVersionEvent",
         "core.SpinCreditRequest",
-        "core.TatTrackerCase"
+        "core.TatTrackerCase",
+        "origination.LoanOriginationApplication",
+        "origination.OriginationCommercialException",
+        "origination.OriginationProductDefinition"
       ],
       "classification": "authoritative_record",
       "column_count": 24,
@@ -3961,7 +4161,9 @@
       "direct_orm_writers": [
         "core/services/fresh_database_baseline.py",
         "core/services/product_catalog.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/origination_setup_admin.py",
+        "origination/tests.py"
       ],
       "django_model": "core.ProductVersion",
       "domain": "catalog",
@@ -3980,17 +4182,23 @@
       "table": "core_productversion",
       "used_by": [
         "core/services/fresh_database_baseline.py",
-        "core/services/invoice_finance_origination_seed.py",
-        "core/services/origination_commercial_terms.py",
-        "core/services/origination_main_laf_seeds.py",
-        "core/services/origination_setup.py",
         "core/services/product_catalog.py",
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
         "core/services/product_quotes.py",
         "core/services/tat_configuration.py",
         "core/services/tat_setup.py",
-        "core/services/tat_tracker.py"
+        "core/services/tat_tracker.py",
+        "origination/admin.py",
+        "origination/migrations/0001_domain_ownership.py",
+        "origination/models.py",
+        "origination/origination_setup_admin.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/invoice_finance_origination_seed.py",
+        "origination/services/origination_commercial_terms.py",
+        "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_setup.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -4003,7 +4211,8 @@
       ],
       "direct_orm_writers": [
         "core/services/product_catalog.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/origination_setup_admin.py"
       ],
       "django_model": "core.ProductVersionEvent",
       "domain": "catalog",
@@ -4018,9 +4227,10 @@
       "source_of_truth": true,
       "table": "core_productversionevent",
       "used_by": [
-        "core/services/origination_setup.py",
         "core/services/product_catalog.py",
-        "core/services/product_deletion.py"
+        "core/services/product_deletion.py",
+        "origination/origination_setup_admin.py",
+        "origination/services/origination_setup.py"
       ]
     },
     {
@@ -4059,7 +4269,8 @@
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "core/services/sheet_sync.py",
-        "core/services/storage.py"
+        "core/services/storage.py",
+        "origination/tests.py"
       ],
       "django_model": "core.RawMessage",
       "domain": "complaints",
@@ -4080,7 +4291,8 @@
         "core/services/group_reset.py",
         "core/services/reporting_relationships.py",
         "core/services/sheet_sync.py",
-        "core/services/storage.py"
+        "core/services/storage.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -4098,7 +4310,8 @@
       "direct_orm_writers": [
         "core/api/portal_views.py",
         "core/services/portal_full_reset.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "requisitions/services.py"
       ],
       "django_model": "core.RequisitionBatch",
       "domain": "jawabu",
@@ -4127,7 +4340,8 @@
         "core/services/workflow_timeline.py",
         "hb_operations/models.py",
         "hb_operations/services.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "requisitions/services.py"
       ]
     },
     {
@@ -4286,7 +4500,8 @@
       ],
       "direct_orm_writers": [
         "core/services/spin_credit.py",
-        "core/services/workflow_pilot_purge.py"
+        "core/services/workflow_pilot_purge.py",
+        "origination/tests.py"
       ],
       "django_model": "core.SpinCreditRequest",
       "domain": "spin",
@@ -4317,7 +4532,9 @@
         "core/services/sheet_publication.py",
         "core/services/spin_credit.py",
         "core/services/workflow_data_mode.py",
-        "core/services/workflow_pilot_purge.py"
+        "core/services/workflow_links.py",
+        "core/services/workflow_pilot_purge.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -5021,7 +5238,8 @@
         "core/services/tat_tracker.py",
         "core/services/workflow_pilot_purge.py",
         "core/services/workflow_recognition.py",
-        "credit_assessments/tests.py"
+        "credit_assessments/tests.py",
+        "origination/tests.py"
       ],
       "django_model": "core.TatTrackerCase",
       "domain": "tat",
@@ -5063,6 +5281,7 @@
         "core/services/tat_tracker.py",
         "core/services/tat_update_dispatch.py",
         "core/services/workflow_data_mode.py",
+        "core/services/workflow_links.py",
         "core/services/workflow_pilot_purge.py",
         "core/services/workflow_recognition.py",
         "core/services/workflow_sla.py",
@@ -5070,7 +5289,8 @@
         "credit_assessments/models.py",
         "credit_assessments/services.py",
         "credit_assessments/tests.py",
-        "credit_assessments/views.py"
+        "credit_assessments/views.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -5417,11 +5637,11 @@
         "core/services/access_control.py",
         "core/services/access_control_reporting.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/origination_access.py",
         "core/services/staff_lifecycle.py",
         "core/services/workflow_access.py",
         "core/services/workflow_capabilities.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "origination/migrations/0003_independent_capabilities.py"
       ]
     },
     {
@@ -6097,6 +6317,7 @@
       "used_by": [
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_identity.py",
         "core/services/jawabu_pipeline.py",
         "core/services/portal_dashboard.py",
@@ -6141,6 +6362,7 @@
       "used_by": [
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
+        "core/services/invoice_cleanup.py",
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "payments/migrations/0001_initial.py",
@@ -6225,6 +6447,7 @@
       "column_count": 8,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "core/services/invoice_cleanup.py",
         "core/services/portal_full_reset.py",
         "payments/receipt_batches.py"
       ],
@@ -6244,6 +6467,8 @@
       "table": "payment_receipt_batch",
       "used_by": [
         "core/api/portal_views.py",
+        "core/services/invoice_cleanup.py",
+        "core/services/invoice_parser.py",
         "core/services/portal_full_reset.py",
         "payments/migrations/0004_payment_receipt_batches.py",
         "payments/models.py",
@@ -6261,6 +6486,8 @@
         "core.ParsedInvoice"
       ],
       "direct_orm_writers": [
+        "core/services/invoice_cleanup.py",
+        "core/services/invoice_parser.py",
         "core/services/portal_full_reset.py",
         "payments/receipt_batches.py"
       ],
@@ -6282,7 +6509,9 @@
       "table": "payment_receipt_item",
       "used_by": [
         "core/api/portal_views.py",
+        "core/services/invoice_cleanup.py",
         "core/services/invoice_identity.py",
+        "core/services/invoice_parser.py",
         "core/services/portal_full_reset.py",
         "payments/migrations/0004_payment_receipt_batches.py",
         "payments/models.py",
@@ -6397,7 +6626,7 @@
       "application_area": "Portal Recognition",
       "children": [],
       "classification": "immutable_event",
-      "column_count": 6,
+      "column_count": 7,
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/group_reset.py",
@@ -6429,8 +6658,8 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/api/portal_views.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "requisitions/services.py"
       ],
       "django_model": "requisitions.OrderSequenceEvent",
       "domain": "requisitions",
@@ -6449,7 +6678,8 @@
         "core/services/database_catalog.py",
         "core/services/portal_full_reset.py",
         "requisitions/migrations/0001_initial.py",
-        "requisitions/models.py"
+        "requisitions/models.py",
+        "requisitions/services.py"
       ]
     },
     {

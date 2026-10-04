@@ -21,7 +21,7 @@ def _approved_assets(
     expected_sha256: str = '',
 ) -> tuple[bytes, dict[str, Any]]:
     try:
-        from core.services.origination_templates import OriginationTemplateError, load_active_template
+        from origination.services.origination_templates import OriginationTemplateError, load_active_template
         return load_active_template(
             document_type, version=version, expected_sha256=expected_sha256,
         )

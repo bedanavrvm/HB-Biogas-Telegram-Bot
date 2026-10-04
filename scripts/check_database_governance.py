@@ -18,6 +18,7 @@ django.setup()
 
 from django.apps import apps  # noqa: E402
 from core.services.database_catalog import MODEL_OVERRIDES  # noqa: E402
+from origination.migrations._ownership import MODEL_NAMES as ADOPTED_ORIGINATION_MODELS
 
 
 ADOPTION_MIGRATION = 168
@@ -73,7 +74,12 @@ def errors() -> list[str]:
             findings.append(f'{label}: missing catalogue metadata: {", ".join(missing)}')
         domain = str(metadata.get('domain') or '')
         table = model._meta.db_table
-        if table.startswith('core_') or not NAME_PATTERN.fullmatch(table) or not table.startswith(f'{domain}_'):
+        adopted = (
+            model._meta.app_label == 'origination'
+            and model._meta.model_name in ADOPTED_ORIGINATION_MODELS
+            and metadata.get('legacy_db_table') == table == f'core_{model._meta.model_name}'
+        )
+        if not adopted and (table.startswith('core_') or not NAME_PATTERN.fullmatch(table) or not table.startswith(f'{domain}_')):
             findings.append(f'{label}: db_table must use the predictable <domain>_<entity>_<role> convention')
         if not str(model._meta.db_table_comment or '').strip():
             findings.append(f'{label}: add Meta.db_table_comment so PostgreSQL explains the table in place')

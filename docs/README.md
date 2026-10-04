@@ -7,6 +7,9 @@ documents take precedence.
 
 | Document | Purpose |
 |---|---|
+| [Origination separation release](origination-separation-release.md) | Independent app ownership and grants, future reference contract, local verification, rollout and rollback. |
+| [Complaints, TAT and Portal depth review - 3 October 2026](miniapp-depth-review-2026-10-03.md) | End-to-end workflow, permission, integrity, recovery and quality review; five reproduced findings and fresh Python/Playwright verification. |
+| [Codebase assessment — 3 October 2026](codebase-review-2026-10-03.md) | Source-based architecture, workflow and quality assessment, prioritized findings, and fresh verification limits for the reviewed commit. |
 | [Repository Data and Artifact Policy](repository-data-artifact-policy.md) | Rules, CI enforcement, audit procedure, and historical-response steps for customer data, exports, screenshots, credentials, and reviewed fixtures. |
 | [Mini App Idempotency Contract](miniapp-idempotency.md) | Write-route inventory, canonical request keys, client retry behavior, anonymous legacy diagnostics, and strict production enforcement. |
 | [Durable Job Runners](durable-job-runners.md) | Scheduled complaint-import and TAT-repair commands, leases, chunking, rollout, readiness, retry, cancellation, and incident handling. |

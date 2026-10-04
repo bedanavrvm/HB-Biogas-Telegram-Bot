@@ -6,15 +6,9 @@ from django.core import signing
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from core.models import (
-    OperationalLocation,
-    OriginationDocumentTemplate,
-    OriginationProductDefinition,
-    Product,
-    ProductAvailability,
-    ProductVersionEvent,
-)
-from core.services.origination_setup import (
+from origination.models import OriginationDocumentTemplate, OriginationProductDefinition
+from core.models import OperationalLocation, Product, ProductAvailability, ProductVersionEvent
+from origination.services.origination_setup import (
     OriginationSetupConflict,
     assert_expected_state,
     make_return_token,
@@ -35,7 +29,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.branch = OperationalLocation.objects.create(
             location_type='branch', name='Setup Branch', code='SETUP-BRANCH',
         )
-        self.dashboard_url = reverse('admin:core_origination_setup_dashboard')
+        self.dashboard_url = reverse('admin:origination_origination_setup_dashboard')
 
     def test_every_setup_route_requires_active_superuser(self):
         self.client.force_login(self.staff)
@@ -63,7 +57,7 @@ class OriginationSetupWorkspaceTests(TestCase):
             'sort_order': 10,
             'branches': [self.branch.pk],
         }
-        start_url = reverse('admin:core_origination_setup_start')
+        start_url = reverse('admin:origination_origination_setup_start')
         first = self.client.post(start_url, payload)
         second = self.client.post(start_url, payload)
         self.assertEqual(first.status_code, 302)
@@ -87,7 +81,7 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_changed_state_is_rejected_and_marks_completed_step_stale(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Conflict Loan',
             'code': 'conflict_loan', 'category': '', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
@@ -106,7 +100,7 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_stale_admin_write_returns_409_without_overwriting(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Concurrent Loan',
             'code': 'concurrent_loan', 'category': '', 'description': 'Original',
             'sort_order': 0, 'branches': [self.branch.pk],
@@ -117,7 +111,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         product.description = 'Newer value'
         product.save()
         response = self.client.post(reverse(
-            'admin:core_origination_setup_step', args=[definition.pk, 'identity'],
+            'admin:origination_origination_setup_step', args=[definition.pk, 'identity'],
         ), {
             'expected_tokens': json.dumps(expected), 'request_id': str(uuid.uuid4()),
             'name': product.name, 'code': product.code, 'category': product.category,
@@ -139,7 +133,7 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_calibration_accepts_only_signed_internal_workspace_return(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Return Loan',
             'code': 'return_loan', 'category': '', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
@@ -155,33 +149,33 @@ class OriginationSetupWorkspaceTests(TestCase):
         )
         token = make_return_token(definition_id=definition.pk)
         response = self.client.get(
-            reverse('admin:core_originationdocumenttemplate_calibrate', args=[template.pk]),
+            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk]),
             {'setup_return': token},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['calibration_back_url'], reverse(
-            'admin:core_origination_setup_step', args=[definition.pk, 'calibration'],
+            'admin:origination_origination_setup_step', args=[definition.pk, 'calibration'],
         ))
         invalid = self.client.get(
-            reverse('admin:core_originationdocumenttemplate_calibrate', args=[template.pk]),
+            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk]),
             {'setup_return': token + 'tampered'},
         )
         self.assertEqual(
             invalid.context['calibration_back_url'],
-            reverse('admin:core_origination_setup_dashboard'),
+            reverse('admin:origination_origination_setup_dashboard'),
         )
         self.assertContains(invalid, 'invalid or expired')
 
     def test_terms_step_posts_expected_state_contract(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Terms Loan',
             'code': 'terms_loan', 'category': '', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
         })
         definition = OriginationProductDefinition.objects.get(product_key='terms_loan')
         response = self.client.get(reverse(
-            'admin:core_origination_setup_step', args=[definition.pk, 'terms'],
+            'admin:origination_origination_setup_step', args=[definition.pk, 'terms'],
         ))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="expected_tokens"')
@@ -191,13 +185,13 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_product_overview_is_read_only_and_superuser_only(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Overview Loan',
             'code': 'overview_loan', 'category': 'Credit', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
         })
         definition = OriginationProductDefinition.objects.get(product_key='overview_loan')
-        url = reverse('admin:core_origination_setup_detail', args=[definition.pk])
+        url = reverse('admin:origination_origination_setup_detail', args=[definition.pk])
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Commercial terms')
@@ -208,10 +202,10 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(url).status_code, 403)
 
-    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
+    @override_settings(ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
     def test_guided_branch_availability_reaches_the_origination_product_api(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Visible Guided Loan',
             'code': 'visible_guided_loan', 'category': 'Credit', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
@@ -239,7 +233,7 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_terms_can_save_without_forcing_optional_repeatable_rows(self):
         self.client.force_login(self.superuser)
-        self.client.post(reverse('admin:core_origination_setup_start'), {
+        self.client.post(reverse('admin:origination_origination_setup_start'), {
             'request_id': str(uuid.uuid4()), 'name': 'Optional Rows Loan',
             'code': 'optional_rows_loan', 'category': '', 'description': '',
             'sort_order': 0, 'branches': [self.branch.pk],
@@ -271,11 +265,11 @@ class OriginationSetupWorkspaceTests(TestCase):
             'attributes-0-position': '0',
         }
         response = self.client.post(reverse(
-            'admin:core_origination_setup_step', args=[definition.pk, 'terms'],
+            'admin:origination_origination_setup_step', args=[definition.pk, 'terms'],
         ), payload)
         self.assertEqual(response.status_code, 302)
         replay = self.client.post(reverse(
-            'admin:core_origination_setup_step', args=[definition.pk, 'terms'],
+            'admin:origination_origination_setup_step', args=[definition.pk, 'terms'],
         ), payload)
         self.assertEqual(replay.status_code, 302)
         version.refresh_from_db()

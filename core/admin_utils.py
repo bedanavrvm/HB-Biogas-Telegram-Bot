@@ -155,11 +155,13 @@ def lightweight_date_hierarchy(model: type[models.Model], list_display: tuple[st
     return None
 
 
-def auto_register_unregistered_models() -> list[type[models.Model]]:
+def auto_register_unregistered_models(*, app_label=None) -> list[type[models.Model]]:
     """Register models missing from Django admin without replacing custom admins."""
     registered: list[type[models.Model]] = []
     for model in apps.get_models():
-        if model._meta.app_label == 'qa_tracker':
+        if app_label and model._meta.app_label != app_label:
+            continue
+        if model._meta.app_label == 'qa_tracker' or (model._meta.app_label == 'origination' and app_label != 'origination'):
             # QA models have scoped, purpose-built admins registered later.
             continue
         if model._meta.label in INLINE_ONLY_MODEL_LABELS:

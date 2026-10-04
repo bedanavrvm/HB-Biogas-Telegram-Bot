@@ -49,7 +49,7 @@ class ApiMutationVisitor(ast.NodeVisitor):
 
 def collect() -> Counter:
     findings: Counter = Counter()
-    for path in sorted((ROOT / 'core' / 'api').rglob('*.py')):
+    for path in sorted([*(ROOT / 'core' / 'api').rglob('*.py'), ROOT / 'origination' / 'views.py']):
         visitor = ApiMutationVisitor(path.relative_to(ROOT).as_posix())
         visitor.visit(ast.parse(path.read_text(encoding='utf-8'), filename=str(path)))
         findings.update('|'.join(record) for record in visitor.records)

@@ -1,7 +1,7 @@
 from django.test import SimpleTestCase
 
 from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
-from core.services.loan_origination import normalize_form_payload, validate_form_payload
+from origination.services.loan_origination import normalize_form_payload, validate_form_payload
 
 
 class KenyanIdentifierValidationTests(SimpleTestCase):

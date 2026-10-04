@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from core.services.invoice_finance_origination_seed import (
+from origination.services.invoice_finance_origination_seed import (
     FIELD_SPECS,
     SIGNER_RULES,
     InvoiceFinanceSeedError,

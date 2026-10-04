@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationDataField,
     OriginationDataFieldEvent,
@@ -18,13 +18,13 @@ from core.models import (
     OriginationReportingValue,
     OriginationSigningPackage,
 )
-from core.services.loan_origination import (
+from origination.services.loan_origination import (
     _package_review_scope_hash,
     prepare_signing_package,
     preview_context,
     validate_form_payload,
 )
-from core.services.origination_fields import (
+from origination.services.origination_fields import (
     OriginationFieldConflict,
     OriginationFieldError,
     attach_data_field,
@@ -38,7 +38,7 @@ from core.services.origination_fields import (
     resolve_review_issue,
     snapshot_form_schema,
 )
-from core.services.origination_templates import clone_product_version
+from origination.services.origination_templates import clone_product_version
 
 
 class OriginationDataFieldCatalogueTests(TestCase):
@@ -191,7 +191,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.client.force_login(self.superuser)
 
         response = self.client.post(
-            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            reverse('admin:origination_originationdatafield_change', args=[field.pk]),
             {
                 'label': field.label, 'aliases': '[]', 'category': field.category,
                 'data_type': OriginationDataField.TYPE_NATIONAL_ID,
@@ -223,7 +223,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.client.force_login(self.superuser)
 
         response = self.client.post(
-            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            reverse('admin:origination_originationdatafield_change', args=[field.pk]),
             {
                 'label': field.label, 'aliases': '[]', 'category': field.category,
                 'data_type': OriginationDataField.TYPE_NATIONAL_ID,
@@ -264,7 +264,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.client.force_login(self.superuser)
 
         response = self.client.post(
-            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            reverse('admin:origination_originationdatafield_change', args=[field.pk]),
             {
                 'label': field.label, 'aliases': '[]', 'category': field.category,
                 'data_type': field.data_type, 'source_type': field.source_type,
@@ -490,7 +490,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
         )
         self.client.force_login(self.superuser)
         url = reverse(
-            'admin:core_originationdocumenttemplate_calibration_field', args=[template.pk],
+            'admin:origination_originationdocumenttemplate_calibration_field', args=[template.pk],
         )
         body = {
             'schema_revision': 0,
@@ -559,7 +559,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
 
         response = self.client.post(
             reverse(
-                'admin:core_originationdocumenttemplate_calibration_field',
+                'admin:origination_originationdocumenttemplate_calibration_field',
                 args=[template.pk],
             ),
             {

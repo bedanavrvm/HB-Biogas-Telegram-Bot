@@ -95,7 +95,7 @@ class TelegramLauncherTests(TestCase):
     def test_origination_launcher_has_deployed_url_fallback(self):
         self.assertEqual(
             build_launcher_url('loan_origination', '-100launcher'),
-            'https://app.example.test/origination/',
+            'https://app.example.test/origination/?group_id=-100launcher',
         )
 
     @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)

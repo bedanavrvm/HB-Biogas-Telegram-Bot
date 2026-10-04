@@ -15,6 +15,8 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from typing import Any
 
+from core.services.workflow_links import include_record_reference
+
 from django.conf import settings
 from django.core import signing
 from django.core.exceptions import ObjectDoesNotExist
@@ -3509,6 +3511,7 @@ def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None
     return _tat_scope_allowed(user, 'tat.case.correct', case)
 
 
+@include_record_reference('case')
 def serialize_case_summary(
     case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None,
     workflow: dict | None = None, include_business_time: bool | None = None,

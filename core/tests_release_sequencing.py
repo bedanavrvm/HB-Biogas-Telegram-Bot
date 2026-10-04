@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 
 from core.models import ProductionReleaseAudit
 from core.production import ReadinessIssue, production_readiness_issues
-from core.services.origination_production import origination_signing_readiness_issues
+from origination.services.origination_production import origination_signing_readiness_issues
 from core.services.superuser_bootstrap import bootstrap_superuser_from_environment
 from core.services.tat_production import tat_production_readiness_issues
 

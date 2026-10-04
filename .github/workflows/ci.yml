@@ -48,7 +48,7 @@ jobs:
         run: python scripts/check_dependency_vulnerabilities.py
 
       - name: Run narrow Python correctness lint
-        run: ruff check config core scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker
+        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker
 
       - name: Check migrations
         env:
@@ -66,7 +66,7 @@ jobs:
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
-          python -m compileall config core
+          python -m compileall config core origination
           python manage.py check
           python manage.py collectstatic --noinput
 
@@ -95,7 +95,7 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
           coverage erase
-          coverage run --branch --source=core,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker manage.py test
+          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker manage.py test
           coverage json -o coverage.json
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
@@ -165,4 +165,4 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py makemigrations --check --dry-run
-          python manage.py test core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions --noinput --verbosity 1
+          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions --noinput --verbosity 1

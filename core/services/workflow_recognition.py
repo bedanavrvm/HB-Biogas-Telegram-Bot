@@ -330,7 +330,14 @@ def portal_performance_payload(user, *, access=None, period: str = '', include_p
 
 def _recognition_facts(user, *, group_id, start, end, period_kind, period_key):
     """Freeze group facts once; apply the viewer's *current* scope on every read."""
-    from core.models import AccessGrant, TatActionTask, TatActionTaskRecipient, TatTrackerCase, WORKFLOW_DATA_MODE_PILOT, WORKFLOW_DATA_MODE_PRODUCTION
+    from core.models import (
+        AccessGrant,
+        TatActionTask,
+        TatActionTaskRecipient,
+        TatTrackerCase,
+        WORKFLOW_DATA_MODE_PILOT,
+        WORKFLOW_DATA_MODE_PRODUCTION,
+    )
     from core.services.tat_reporting import _ReportContext, _metric_scope_q, _stage_samples, TERMINAL
     from core.services.tat_tracker import overall_tat_end
     from core.services.workflow_data_mode import WORKFLOW_TAT, mode_snapshot

@@ -7,6 +7,10 @@ products, LAFs, supporting documents, and Mini App access. It describes the
 current Admin interface. Do not use old root-level implementation notes as an
 operating manual.
 
+Ownership and access were updated on 4 October 2026. See the
+[separation release](origination-separation-release.md) before applying migrations
+or assigning grants.
+
 ## What the setup creates
 
 One usable loan product is assembled from several governed records:
@@ -33,7 +37,7 @@ immutable. A Superuser changes them by creating a new editable version, not by
 editing the published record in place.
 
 Mini App access is separate from Django Admin access. Officers and reviewers
-need an active `AccessGrant` for the `Jawabu Portal` workflow; `is_staff` alone
+need an active `AccessGrant` for the independent `Loan Origination` workflow; `is_staff` alone
 does not grant Mini App access.
 
 ## Before starting
@@ -350,13 +354,18 @@ available for new production applications.
 Open **Users**, then either select **Add staff user** or open an existing user and
 manage **Access grants**.
 
-Use workflow `Jawabu Portal` and the narrowest required branch/product scope:
+Use workflow **Loan Origination** and the narrowest required branch/product/group
+scope. Create fresh grants; Portal access is not inherited. For a dedicated group,
+select the **Loan Origination** group workflow preset. Historical applications have
+no group and require an applicable grant with no group restriction:
 
 | Role | Default Origination access |
 |---|---|
 | `JBL_OFFICER` | View, create, and edit their own applications. |
 | `OPERATIONS_ADMIN` | Prepare frozen review packets, review when separately permitted, and start approved signing packages. |
-| `BUSINESS_ADMIN` (Head of Rural) | View and review applications. |
+| `BUSINESS_ADMIN` | View and review applications. |
+| `BM`, `MANAGEMENT`, `CA` | View applicable signing work and complete their permitted staff slots. |
+| `IT` | All capabilities within the granted branch/product/group scope. |
 
 ### Signing and stamps during testing
 

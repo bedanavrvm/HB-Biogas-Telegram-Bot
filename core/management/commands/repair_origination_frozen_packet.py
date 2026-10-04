@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from core.models import OriginationSigningPackage
-from core.services.loan_origination import (
+from origination.models import OriginationSigningPackage
+from origination.services.loan_origination import (
     OriginationError,
     recover_legacy_frozen_package,
     reset_unrecoverable_package_for_review,

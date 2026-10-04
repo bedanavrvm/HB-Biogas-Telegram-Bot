@@ -1,5 +1,74 @@
 # Known Gaps and Verified Workarounds
 
+## Complaints, TAT and Portal depth review - 3 October 2026
+
+See [the focused implementation review](docs/miniapp-depth-review-2026-10-03.md)
+for source locations, reproduction details, test selections and failure
+classification. Python 3.12.10, the pinned Python dependencies, Playwright
+1.62.1 and Chromium are now installed locally. This supersedes the initial
+source assessment's unavailable-runtime limitation below.
+
+- Reproduced a TAT report authorization defect: its queryset combines scopes
+  from grants that do not authorize reports. Report access must retain the
+  capability and scope of one complete eligible grant.
+- Reproduced an empty Portal case queue for group-scoped staff even though
+  individual case permission allows their owned case. The central queryset
+  omits the group relation required by the generic scope resolver.
+- Reproduced complaint file-selection loss after a failed finish-created
+  upload, Pending cursor traversal dropping newer rows, and changed TAT retry
+  payloads returning unchanged state as successful receipt replays.
+- The full browser suite ran 186 tests: 185 passed and one stale Complaints
+  report fixture failed. The fixture lacks the current report summary/module
+  contract and assumes two chart slides; the current report has eight.
+- Two broad isolated SQLite backend selections ran 960 tests. Initial results
+  were 12 failure entries/6 errors/2 skips and 25 failure entries/3 errors/3
+  skips. Two logging failures came from the diagnostic harness and passed after
+  correcting it. Other failures/errors remain classified in the review.
+  Selected complaint modules had no failure/error entries; their concurrency
+  check was skipped. No PostgreSQL concurrency success is claimed.
+- Four focused synthetic database reproductions and the additional Node
+  finish-upload probe passed by asserting the observed defects. These are
+  reproduction results, not evidence of fixes.
+- System checks, migration drift, migration graph, architecture boundaries,
+  dependency parity, Python compilation and package consistency pass. The
+  official write inventory fails with 27 routes; environment-template parity
+  fails with 116 entries; the dependency exception expired before audit runs.
+- Local Node 26 is outside the repository's supported range, and Windows
+  Pango is absent, so native WeasyPrint import/layout is not verified. No live
+  Telegram/Google integration or production resource was changed.
+
+## Cross-workflow source assessment — 3 October 2026
+
+See [the codebase assessment](docs/codebase-review-2026-10-03.md) for the
+reviewed commit, source evidence, functional map and priorities. This was an
+analysis session; application behavior and production resources were not changed.
+
+- Legacy message deduplication hashes sender/content/time without group context.
+  Identical inputs in separate groups can share a globally unique processing
+  key. No production incident was reproduced. Review the intended scope and
+  historical retry compatibility before changing the key.
+- Unparsed invoice pages can log a 300-character document-text preview. Avoid
+  treating ordinary logs as sanitized evidence; review access/retention and
+  replace content diagnostics in a separately scoped fix.
+- Legacy deposit fallback parsing uses `float` before document preparation.
+  Canonical product quotes use Decimal; this finding does not establish an
+  incorrect payment. Review fallback normalization and output compatibility.
+- Database catalogue/checker app-label lists do not cover all installed local
+  apps. QA models are outside the checked-in catalogue, and the additional
+  bounded-model metadata checks omit the installed extracted-app labels.
+- Legacy unbound Telegram profiles can retain username-based initial binding
+  without activation proof. Review eligible enrollments before changing the
+  identity contract. Atomic rejection tests also deliberately retain no raw
+  intake rows; clarify rejection-evidence policy separately from case creation.
+- The dependency exception expired on 30 September. A supplemental source
+  cross-check identified 28 write-route inventory candidates; the official
+  Python checker and a fresh dependency audit were not run in this shell.
+- Fresh JavaScript syntax checks passed for 91 files, all nine Node test groups
+  passed, and all seven tracked Apps Scripts passed syntax checks. Python
+  discovery was retried but found only Windows Store aliases. Playwright was
+  unavailable. No fresh backend, browser, PostgreSQL, migration, restore or
+  live-integration success is claimed.
+
 ## Portal shared controls verification - 2 October 2026
 
 - The focused PostgreSQL inbox/dashboard suite passes all 18 tests; JavaScript
@@ -482,3 +551,22 @@ service levels**, until a drill is recorded:
 
 No production data reset, destructive Sheet cleanup, or migration is routine
 until the relevant recovery path has been checked.
+
+## Origination separation verification (4 October 2026)
+
+See [the ownership and reference release notes](docs/origination-separation-release.md)
+for the independent grant cutover, migration sequence and rollback limits.
+Local verification uses synthetic SQLite databases with external network access
+blocked. PostgreSQL table/column comments require the wired PostgreSQL CI job
+or staging verification; Windows also lacks the native Pango libraries needed
+for a full local WeasyPrint integration run.
+
+Six existing Origination tests fail on the unchanged `092ead8` baseline as well
+as the separated implementation: three legacy template-add presentation tests,
+the former product-bound template upload test, the supporting-document activation
+fixture with an empty form contract, and the packet-demo application fixture
+without a governed product version. These remain separate from the ownership
+change and must be reconciled with the current document catalogue contract.
+The repository also retains pre-existing broad gate failures in the Portal
+Ruff check, Mini App write inventory, environment parity and dependency exception
+expiry. A passing focused check does not establish a passing full release gate.

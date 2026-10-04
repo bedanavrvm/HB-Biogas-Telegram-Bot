@@ -15,18 +15,18 @@
     return text;
   }
   function changeHtml(change) {
-    const old = change.previous_recorded === false ? 'Previous value not recorded' : valueText(change.old_value);
-    const next = valueText(change.new_value);
+    const friendly = value => {
+      const text = valueText(value).replace(/\s+/g, ' ').trim();
+      return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+    };
+    const old = change.previous_recorded === false ? '—' : friendly(change.old_value);
+    const next = friendly(change.new_value);
     const heading = escape(change.label || 'Value');
-    if (old.length + next.length > 160 || /\n/.test(old + next)) {
-      return `<details class="activity-change-long"><summary>${heading}</summary><div><strong>Old</strong><span>${escape(old)}</span></div><div><strong>New</strong><span>${escape(next)}</span></div></details>`;
-    }
     return `<div class="activity-change"><strong>${heading}:</strong> <span>${escape(old)}</span> <span aria-label="changed to">→</span> <span>${escape(next)}</span></div>`;
   }
   function html(changes) {
     if (!Array.isArray(changes) || !changes.length) return '';
-    const rows = changes.map(changeHtml);
-    return `<div class="activity-changes">${rows.slice(0,3).join('')}${rows.length > 3 ? `<details><summary>Show all ${rows.length} changes</summary>${rows.slice(3).join('')}</details>` : ''}</div>`;
+    return `<div class="activity-changes">${changes.map(changeHtml).join('')}</div>`;
   }
   function append(node, changes) {
     const markup = html(changes);

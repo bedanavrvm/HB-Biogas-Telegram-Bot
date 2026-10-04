@@ -17,8 +17,9 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
+CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
 USAGE_ROOTS = (
+    ROOT / 'origination',
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
     ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition', ROOT / 'portal_recognition',
 )
@@ -266,7 +267,7 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'lifecycle': 'active',
         'retention': 'Retained with its FCA import and Jawabu workflow evidence.',
     },
-    'core.OriginationDocumentProductEligibility': {
+    'origination.OriginationDocumentProductEligibility': {
         'domain': 'origination',
         'purpose': 'Current product allowlist for one immutable Origination catalogue document version.',
         'classification': 'business_link',
@@ -274,7 +275,7 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'lifecycle': 'active',
         'retention': 'Retained while the catalogue document or product history requires it.',
     },
-    'core.OriginationProductDocumentAssignment': {
+    'origination.OriginationProductDocumentAssignment': {
         'domain': 'origination',
         'purpose': 'Version-policy assignment between a legacy product definition and document family.',
         'classification': 'business_assignment',
@@ -480,3 +481,8 @@ def column_comment(field) -> str:
         return f'Reference to {field.related_model._meta.db_table}; deletion behavior: {delete_name}.'
     label = str(field.verbose_name or field.name).strip()
     return f'{label[:1].upper()}{label[1:]} ({field.get_internal_type()}).'
+
+
+# The bounded app declares its own governance metadata.
+from origination.catalogue import MODEL_METADATA
+MODEL_OVERRIDES.update(MODEL_METADATA)

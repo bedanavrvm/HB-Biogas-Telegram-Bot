@@ -48,7 +48,7 @@ from core.services.access_policies import WORKFLOW_ROLES
 from core.services.business_admin import legacy_business_admin_cutover_issues
 from core.services.portal_permissions import portal_access_decision, scope_portal_case_queryset
 from core.services.portal_navigation import get_portal_nav_items
-from core.services.origination_access import queue_capabilities
+from origination.services.origination_access import queue_capabilities
 from core.services.telegram_identity import (
     TelegramAuthenticationError, user_access, validate_telegram_init_data,
 )

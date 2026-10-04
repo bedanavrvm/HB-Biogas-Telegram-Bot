@@ -5,30 +5,27 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
-    OperationalLocation,
     OriginationDataField,
     OriginationDocumentProductEligibility,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
     OriginationTemplateConfigurationRevision,
-    Product,
-    ProductAvailability,
-    ProductVersion,
 )
-from core.services.loan_origination import (
+from core.models import OperationalLocation, Product, ProductAvailability, ProductVersion
+from origination.services.loan_origination import (
     OriginationConflict,
     OriginationError,
     create_application,
     restart_application_with_main_laf,
 )
-from core.services.origination_commercial_terms import (
+from origination.services.origination_commercial_terms import (
     ensure_commercial_catalogue,
     merge_commercial_contract,
 )
-from core.services.origination_document_catalogue import catalogue_for_product
-from core.services.origination_documents import select_documents
+from origination.services.origination_document_catalogue import catalogue_for_product
+from origination.services.origination_documents import select_documents
 
 
 class OriginationDocumentCatalogueTests(TestCase):
@@ -99,12 +96,12 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertEqual(result['main_lafs'], [])
         self.assertIn('No published compatible Main LAF', result['reasons'][0])
 
-    @patch('core.api.origination_views._branch_creation_error', return_value=None)
-    @patch('core.api.origination_views._capability_error', return_value=None)
+    @patch('origination.views._branch_creation_error', return_value=None)
+    @patch('origination.views._capability_error', return_value=None)
     def test_public_create_rejects_cached_clients_without_catalogue_choice(
         self, _capability_error, _branch_error,
     ):
-        from core.api.origination_views import portal_origination_applications
+        from origination.views import portal_origination_applications
 
         request = RequestFactory().post(
             '/api/origination/api/applications/',
@@ -115,8 +112,8 @@ class OriginationDocumentCatalogueTests(TestCase):
             }),
             content_type='application/json',
         )
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
         response = portal_origination_applications(request)
         payload = json.loads(response.content)
 

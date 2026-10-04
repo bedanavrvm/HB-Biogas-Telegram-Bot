@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationApplicationEvent,
@@ -16,7 +16,7 @@ from core.models import (
     OriginationRequirementEvidence,
     OriginationSigningPackage,
 )
-from core.services.loan_origination import (
+from origination.services.loan_origination import (
     OriginationError,
     _package_review_scope_hash,
     _missing_application_requirements,
@@ -27,14 +27,14 @@ from core.services.loan_origination import (
     submit_for_review,
     validate_form_payload,
 )
-from core.services.origination_access import (
+from origination.services.origination_access import (
     DENIED,
     FULL,
     MASKED,
     application_presentation_mode,
     scope_application_queryset,
 )
-from core.services.origination_evidence import (
+from origination.services.origination_evidence import (
     remove_requirement_evidence,
     upload_requirement_evidence,
     validate_evidence_file,
@@ -148,16 +148,16 @@ class OriginationSafeWorkflowTests(TestCase):
             'expected_review_scope_hash': package.review_scope_sha256,
         }
 
-    @patch('core.services.origination_access.effective_capability_keys')
+    @patch('origination.services.origination_access.effective_capability_keys')
     def test_officer_sees_only_owned_applications_and_reviewer_gets_branch_queue(self, capabilities):
         from core.models import AccessGrant
         from core.services.telegram_identity import user_access
 
         AccessGrant.objects.create(
-            user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+            user=self.officer, workflow='loan_origination', role='JBL_OFFICER', branch='EMBU',
         )
-        access = user_access(self.officer, 'jawabu_portal')
-        capabilities.return_value = {'portal.origination.view', 'portal.origination.create'}
+        access = user_access(self.officer, 'loan_origination')
+        capabilities.return_value = {'origination.view', 'origination.create'}
 
         officer_scope = scope_application_queryset(
             LoanOriginationApplication.objects.all(), user=self.officer, access=access,
@@ -171,11 +171,11 @@ class OriginationSafeWorkflowTests(TestCase):
             DENIED,
         )
 
-        capabilities.return_value = {'portal.origination.view', 'portal.origination.review'}
+        capabilities.return_value = {'origination.view', 'origination.review'}
         AccessGrant.objects.create(
-            user=self.reviewer, workflow='jawabu_portal', role='OPERATIONS_ADMIN', branch='EMBU',
+            user=self.reviewer, workflow='loan_origination', role='OPERATIONS_ADMIN', branch='EMBU',
         )
-        reviewer_access = user_access(self.reviewer, 'jawabu_portal')
+        reviewer_access = user_access(self.reviewer, 'loan_origination')
         reviewer_scope = scope_application_queryset(
             LoanOriginationApplication.objects.all(), user=self.reviewer,
             access=reviewer_access,
@@ -201,19 +201,19 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertFalse(result.valid)
         self.assertEqual(set(result.errors), {'applicant_name', 'loan_amount'})
 
-    @patch('core.services.origination_access.effective_capability_keys')
+    @patch('origination.services.origination_access.effective_capability_keys')
     def test_view_only_presentation_is_masked(self, capabilities):
         from core.models import AccessGrant, WorkflowRoleCapability
         from core.services.telegram_identity import user_access
-        from core.services.loan_origination import serialize_application
+        from origination.services.loan_origination import serialize_application
 
-        capabilities.return_value = {'portal.origination.view'}
+        capabilities.return_value = {'origination.view'}
         AccessGrant.objects.create(
-            user=self.reviewer, workflow='jawabu_portal', role='OPERATIONS_ADMIN', branch='EMBU',
+            user=self.reviewer, workflow='loan_origination', role='OPERATIONS_ADMIN', branch='EMBU',
         )
         WorkflowRoleCapability.objects.filter(
-            workflow='jawabu_portal', role='OPERATIONS_ADMIN',
-            capability_key__in=['portal.origination.review', 'portal.origination.signing.start'],
+            workflow='loan_origination', role='OPERATIONS_ADMIN',
+            capability_key__in=['origination.review', 'origination.signing.start'],
         ).update(effect='deny', enabled=False)
         self.application.form_payload = {
             'applicant_name': 'Synthetic Applicant', 'loan_amount': '2500',
@@ -221,7 +221,7 @@ class OriginationSafeWorkflowTests(TestCase):
         self.application.save(update_fields=['form_payload'])
         mode = application_presentation_mode(
             self.application, user=self.reviewer,
-            access=user_access(self.reviewer, 'jawabu_portal'),
+            access=user_access(self.reviewer, 'loan_origination'),
         )
         payload = serialize_application(self.application, presentation=mode)
 
@@ -230,15 +230,15 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(payload['form_payload']['loan_amount'], '••••')
 
     def test_application_queue_filters_and_counts_before_pagination(self):
-        from core.api.origination_views import portal_origination_applications
+        from origination.views import portal_origination_applications
 
         self.application.status = LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
         self.application.save(update_fields=['status'])
         request = RequestFactory().get('/api/origination/api/applications/', {
             'queue': 'mine', 'page': '1', 'page_size': '1',
         })
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
 
         response = portal_origination_applications(request)
         payload = json.loads(response.content)
@@ -249,7 +249,7 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(payload['applications'][0]['id'], str(self.application.pk))
 
     def test_application_queue_never_returns_more_than_ten_and_clamps_page(self):
-        from core.api.origination_views import portal_origination_applications
+        from origination.views import portal_origination_applications
 
         LoanOriginationApplication.objects.bulk_create([
             LoanOriginationApplication(
@@ -264,8 +264,8 @@ class OriginationSafeWorkflowTests(TestCase):
         request = RequestFactory().get('/api/origination/api/applications/', {
             'queue': 'mine', 'page': '1', 'page_size': '25',
         })
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
 
         first = json.loads(portal_origination_applications(request).content)
 
@@ -277,32 +277,32 @@ class OriginationSafeWorkflowTests(TestCase):
         request = RequestFactory().get('/api/origination/api/applications/', {
             'queue': 'mine', 'page': '99', 'page_size': '25',
         })
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
         last = json.loads(portal_origination_applications(request).content)
 
         self.assertEqual(last['pagination']['page'], 2)
         self.assertEqual(len(last['applications']), 1)
 
-    @patch('core.api.origination_views._capability_error', return_value=None)
-    @patch('core.services.origination_access.effective_capability_keys')
+    @patch('origination.views._capability_error', return_value=None)
+    @patch('origination.services.origination_access.effective_capability_keys')
     def test_application_detail_denies_another_officers_record(
         self, capabilities, _capability_error,
     ):
-        from core.api.origination_views import portal_origination_application_detail
+        from origination.views import portal_origination_application_detail
 
-        capabilities.return_value = {'portal.origination.view', 'portal.origination.create'}
+        capabilities.return_value = {'origination.view', 'origination.create'}
         request = RequestFactory().get('/api/origination/api/applications/other/')
-        request.portal_user = self.officer
-        request.portal_access = {'branches': ['Embu'], 'roles': ['JBL_OFFICER']}
+        request.origination_user = self.officer
+        request.origination_access = {'branches': ['Embu'], 'roles': ['JBL_OFFICER']}
 
         response = portal_origination_application_detail(request, str(self.other_application.pk))
 
         self.assertEqual(response.status_code, 403)
 
-    @patch('core.api.origination_views._capability_error', return_value=None)
+    @patch('origination.views._capability_error', return_value=None)
     def test_stale_draft_patch_returns_structured_revision_conflict(self, _capability_error):
-        from core.api.origination_views import portal_origination_application_detail
+        from origination.views import portal_origination_application_detail
 
         self.application.form_payload = {
             'applicant_name': 'Server Applicant', 'loan_amount': '2000',
@@ -321,8 +321,8 @@ class OriginationSafeWorkflowTests(TestCase):
             content_type='application/json',
             HTTP_IDEMPOTENCY_KEY='stale-phone-save',
         )
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
 
         response = portal_origination_application_detail(
             request, str(self.application.pk),
@@ -336,11 +336,11 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(payload['current_revision'], 2)
         self.assertNotIn('application', payload)
 
-    @patch('core.api.origination_views._capability_error', return_value=None)
+    @patch('origination.views._capability_error', return_value=None)
     def test_invalid_draft_patch_identifies_field_without_logging_submitted_value(
         self, _capability_error,
     ):
-        from core.api.origination_views import portal_origination_application_detail
+        from origination.views import portal_origination_application_detail
 
         request = RequestFactory().patch(
             f'/api/origination/api/applications/{self.application.pk}/',
@@ -355,10 +355,10 @@ class OriginationSafeWorkflowTests(TestCase):
             content_type='application/json',
             HTTP_IDEMPOTENCY_KEY='invalid-draft-save',
         )
-        request.portal_user = self.officer
-        request.portal_access = None
+        request.origination_user = self.officer
+        request.origination_access = None
 
-        with self.assertLogs('core.api.origination_views', level='WARNING') as captured:
+        with self.assertLogs('origination.views', level='WARNING') as captured:
             response = portal_origination_application_detail(
                 request, str(self.application.pk),
             )
@@ -541,7 +541,7 @@ class OriginationSafeWorkflowTests(TestCase):
         )
 
         with patch(
-            'core.services.origination_documents.render_packet',
+            'origination.services.origination_documents.render_packet',
             return_value=(b'%PDF-safe-review', [{'key': 'primary', 'rendered_sha256': 'e' * 64}]),
         ):
             package, replayed = prepare_review_package(

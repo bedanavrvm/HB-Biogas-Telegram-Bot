@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
-from core.models import (
+from origination.models import (
     LoanOriginationApplication,
     OriginationOtpChallenge,
     OriginationProductDefinition,
@@ -18,10 +18,10 @@ from core.models import (
     OriginationSigningActionInvalidation,
     OriginationSigningPackage,
 )
-from core.services.loan_origination import (
+from origination.services.loan_origination import (
     OriginationError, _package_review_scope_hash, serialize_application,
 )
-from core.services.origination_esign import (
+from origination.services.origination_esign import (
     _legacy_session_token,
     _session_token,
     create_signer_session,
@@ -36,12 +36,12 @@ from core.services.origination_esign import (
     verify_otp,
     serialize_public_session,
 )
-from core.services.origination_signing import (
+from origination.services.origination_signing import (
     render_verified_package,
     serialize_test_signing,
     verified_packet_version,
 )
-from core.api.origination_views import (
+from origination.views import (
     portal_origination_current_signing_packet,
     portal_origination_signed_packet,
 )
@@ -115,7 +115,7 @@ class OriginationVerifiedSigningTests(TestCase):
 
     def test_verified_render_uses_frozen_unsigned_bytes(self):
         with patch(
-            'core.services.origination_documents.render_packet',
+            'origination.services.origination_documents.render_packet',
             side_effect=AssertionError('live application must not be rendered'),
         ):
             rendered = render_verified_package(self.package)
@@ -146,7 +146,7 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertEqual(serialize_public_session(session)['packet_version'], expected_version)
 
         with patch(
-            'core.api.origination_views.render_verified_package', return_value=b'%PDF-current',
+            'origination.views.render_verified_package', return_value=b'%PDF-current',
         ) as render, patch(
             'core.services.partnership_laf_preview.render_pdf_page', return_value=(b'jpeg-page', 2),
         ):
@@ -166,9 +166,9 @@ class OriginationVerifiedSigningTests(TestCase):
             f'/api/origination/api/applications/{self.application.pk}/current-signing-packet/',
             {'package_id': str(self.package.pk), 'page': '1'},
         )
-        request.portal_user = self.actor
+        request.origination_user = self.actor
         with patch(
-            'core.api.origination_views.render_verified_package', return_value=b'%PDF-current',
+            'origination.views.render_verified_package', return_value=b'%PDF-current',
         ), patch(
             'core.services.partnership_laf_preview.render_pdf_page', return_value=(b'jpeg-page', 2),
         ):
@@ -217,8 +217,8 @@ class OriginationVerifiedSigningTests(TestCase):
         challenge.refresh_from_db()
         self.assertEqual(challenge.attempts_remaining, 4)
 
-        with patch('core.services.origination_esign.transaction.on_commit') as on_commit, patch(
-            'core.services.origination_esign.render_verified_package',
+        with patch('origination.services.origination_esign.transaction.on_commit') as on_commit, patch(
+            'origination.services.origination_esign.render_verified_package',
             return_value=b'synthetic-signed-pdf',
         ):
             verified = verify_otp(
@@ -240,14 +240,14 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertFalse(serialized['signing_package']['test_signing']['test_mode'])
         self.assertEqual(serialized['signing_package']['test_signing']['slots'], [])
         self.assertTrue(serialized['signing_package']['verified_signing']['enabled'])
-        with patch('core.services.origination_esign.archive_signed_package') as archive:
+        with patch('origination.services.origination_esign.archive_signed_package') as archive:
             on_commit.call_args.args[0]()
         archive.assert_called_once_with(
             package_id=self.package.pk, actor=None,
             request_id=f'auto-archive:{self.package.pk}:{self.package.signed_document_hash[:16]}',
         )
         with patch(
-            'core.services.origination_esign.archive_signed_package',
+            'origination.services.origination_esign.archive_signed_package',
             side_effect=RuntimeError('synthetic post-commit failure'),
         ):
             on_commit.call_args.args[0]()
@@ -375,7 +375,7 @@ class OriginationVerifiedSigningTests(TestCase):
 
     def test_invitation_sms_is_short_and_places_complete_url_on_own_line(self):
         session, token, _replayed = self._session('sms-format')
-        with patch('core.services.origination_esign._send_sms', return_value={
+        with patch('origination.services.origination_esign._send_sms', return_value={
             'id': 'synthetic-message', 'status': 'Accepted',
         }) as send:
             send_signing_invitation(session, token, request_id='sms-format-send')
@@ -422,7 +422,7 @@ class OriginationVerifiedSigningTests(TestCase):
             {'package_id': str(self.package.pk), 'download': '1'},
             HTTP_X_REQUEST_ID='signed-download-test',
         )
-        request.portal_user = self.actor
+        request.origination_user = self.actor
 
         with patch('core.services.order_approval.GoogleDriveMediaStorage') as storage:
             storage.return_value.download.return_value = signed

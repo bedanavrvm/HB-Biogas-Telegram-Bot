@@ -21,11 +21,11 @@ for (const app of ['portal', 'complaint_cases', 'tat_tracker']) {
       ]));
       await expect(page.locator('.activity-change').first()).toContainText('Kiambu → Nakuru');
       await expect(page.locator('.activity-change').nth(1)).toContainText('2000 → 0');
-      await page.locator('.activity-change-long summary').click();
-      await expect(page.locator('.activity-change-long')).toContainText('Old');
+      await expect(page.locator('.activity-change')).toHaveCount(5);
+      await expect(page.locator('.activity-change').nth(2)).toContainText('Earlier note → Updated explanation');
+      await expect(page.locator('#activity details')).toHaveCount(0);
       await expect(page.locator('#activity img')).toHaveCount(0);
-      await page.getByText('Show all 5 changes', {exact:true}).click();
-      await expect(page.locator('#activity')).toContainText('Previous value not recorded');
+      await expect(page.locator('.activity-change').nth(3)).toContainText('— → 0712345678');
       await expect(page.locator('#activity')).toContainText('02 Oct 2026');
       expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({path:info.outputPath(`${app}-${width}.png`),animations:'disabled'});

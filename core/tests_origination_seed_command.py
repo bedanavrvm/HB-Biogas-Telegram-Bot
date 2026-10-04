@@ -10,13 +10,13 @@ from core.management.commands.seed_origination_packet_demo import (
     SUPPORTING_DOCUMENT_KEY,
     _synthetic_pdf,
 )
-from core.models import (
+from origination.models import (
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
     OriginationProductDocumentAssignment,
 )
-from core.services.loan_origination import create_application
+from origination.services.loan_origination import create_application
 
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-drive-root')

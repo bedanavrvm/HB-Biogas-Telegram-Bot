@@ -39,7 +39,26 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuCaseComment, JawabuCustomer, JawabuCustomerPhoneHistory, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.models import (
+    AccessGrant,
+    ComplianceAuditEvent,
+    GroupSheetConfiguration,
+    InvoiceUploadBatch,
+    JawabuCaseComment,
+    JawabuCustomer,
+    JawabuCustomerPhoneHistory,
+    JawabuFarmerMaster,
+    JawabuMediaAccessEvent,
+    JawabuPipelineEvent,
+    LiveSheetRecordChange,
+    MediaAttachment,
+    ParsedInvoice,
+    PaymentDocument,
+    PortalCaseWorkspace,
+    RequisitionBatch,
+    UserProfile,
+    WorkflowRoleCapability,
+)
 from core.services.jawabu_comments import master_comment_history
 from core.services.jawabu_pipeline import (
     append_jbl_media_links,

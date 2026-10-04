@@ -12,16 +12,35 @@ import uuid
 from django.db import connection, transaction
 from django.db.models import Q
 
+from origination.models import LoanOriginationApplication
 from core.models import (
-    DocumentPhysicalSignoff, FcaImportRecord, GroupSheetConfiguration,
-    IntegrationOperation, InvoiceNameChangeBatch, InvoiceNameChangeItem,
-    InvoiceNameChangeLetterArtifact, InvoiceUploadBatch, JawabuApprovalRecord,
-    JawabuCaseComment, JawabuCustomer, JawabuFarmerMaster, JawabuFarmerUploadBatch,
-    JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange,
-    LocationMappingIssue, MediaAttachment, ParsedInvoice, PaymentDocument,
-    ProductMappingIssue, RequisitionBatch, ComplaintCaseControl,
-    LoanOriginationApplication, JawabuRelatedPerson, JawabuHouseholdRelationship,
-    WorkflowTimelineAnnotation, JawabuVisitRecord,
+    DocumentPhysicalSignoff,
+    FcaImportRecord,
+    GroupSheetConfiguration,
+    IntegrationOperation,
+    InvoiceNameChangeBatch,
+    InvoiceNameChangeItem,
+    InvoiceNameChangeLetterArtifact,
+    InvoiceUploadBatch,
+    JawabuApprovalRecord,
+    JawabuCaseComment,
+    JawabuCustomer,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
+    JawabuMediaAccessEvent,
+    JawabuPipelineEvent,
+    LiveSheetRecordChange,
+    LocationMappingIssue,
+    MediaAttachment,
+    ParsedInvoice,
+    PaymentDocument,
+    ProductMappingIssue,
+    RequisitionBatch,
+    ComplaintCaseControl,
+    JawabuRelatedPerson,
+    JawabuHouseholdRelationship,
+    WorkflowTimelineAnnotation,
+    JawabuVisitRecord,
 )
 from hb_operations.models import HomeBiogasAction, HomeBiogasActionEvent
 from payments.models import (

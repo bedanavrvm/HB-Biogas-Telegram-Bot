@@ -5,7 +5,7 @@ import json
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from core.services.origination_production import origination_signing_readiness_issues
+from origination.services.origination_production import origination_signing_readiness_issues
 
 
 class Command(BaseCommand):

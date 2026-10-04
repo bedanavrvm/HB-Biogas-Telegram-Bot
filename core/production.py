@@ -15,6 +15,7 @@ PLACEHOLDER_MARKERS = (
 )
 
 MINIAPP_AUTH_SETTINGS = (
+    ('origination', 'ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
     ('portal', 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
     ('complaint-cases', 'COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
     ('tat-tracker', 'TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
@@ -23,6 +24,7 @@ MINIAPP_AUTH_SETTINGS = (
 )
 
 TELEGRAM_AUTH_AGE_SETTINGS = (
+    ('origination', 'ORIGINATION_WEBAPP_AUTH_MAX_AGE_SECONDS'),
     ('shared', 'TELEGRAM_AUTH_MAX_AGE_SECONDS'),
     ('portal', 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS'),
     ('complaint-cases', 'COMPLAINT_CASES_WEBAPP_AUTH_MAX_AGE_SECONDS'),
@@ -233,7 +235,7 @@ def production_security_readiness_issues(
     if conditional_enabled and check_database:
         try:
             from django.db import OperationalError, ProgrammingError
-            from core.models import OriginationConsentPolicyVersion
+            from origination.models import OriginationConsentPolicyVersion
 
             policy = OriginationConsentPolicyVersion.objects.filter(
                 status=OriginationConsentPolicyVersion.STATUS_ACTIVE,

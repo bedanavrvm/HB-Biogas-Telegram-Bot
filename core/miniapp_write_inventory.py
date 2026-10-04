@@ -91,13 +91,13 @@ _add(
 
 _ORIGINATION_AUTH = 'Canonical Telegram identity through portal_auth_required'
 _ORIGINATION_SCOPE = 'Origination AccessGrant capability plus application branch/ownership scope'
-_ORIGINATION_KEY = 'portal_auth_required -> canonical request identity'
+_ORIGINATION_KEY = 'origination_auth_required -> canonical request identity'
 _ORIGINATION_REPLAY = 'Request-keyed append-only event plus application revision/state constraints'
 
 _add(
     'loan_origination_applications',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.create',
+    capability='origination.create',
     scope='Authorized branch and active product availability',
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Application create request key and product/schema snapshot uniqueness',
@@ -105,22 +105,22 @@ _add(
 _add(
     'loan_origination_application_detail',
     methods=('PATCH',), authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.create', scope=_ORIGINATION_SCOPE,
+    capability='origination.create', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Draft request key plus optimistic application revision and payload conflict check',
 )
 _add(
     'loan_origination_quote_preview loan_origination_submit loan_origination_confirm_signing '
-    'loan_origination_recall loan_origination_document_selection loan_origination_document_fields',
+    'loan_origination_recall loan_origination_restart loan_origination_document_selection loan_origination_document_fields',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.create', scope=_ORIGINATION_SCOPE,
+    capability='origination.create', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY, domain_replay=_ORIGINATION_REPLAY,
 )
 _add(
     'loan_origination_preview loan_origination_document_preview '
     'loan_origination_packet_preview loan_origination_review_packet_preview',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.view', scope=_ORIGINATION_SCOPE,
+    capability='origination.view', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Revision-bound deterministic render and request-keyed preview event',
 )
@@ -128,7 +128,7 @@ _add(
     'loan_origination_review loan_origination_final_review '
     'loan_origination_correction_takeover loan_origination_reviewer_notice_seen',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.review', scope=_ORIGINATION_SCOPE,
+    capability='origination.review', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY, domain_replay=_ORIGINATION_REPLAY,
 )
 _add(
@@ -138,21 +138,21 @@ _add(
     'loan_origination_signing_requirements loan_origination_test_signing_action '
     'loan_origination_test_signing_preview',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.signing.start', scope=_ORIGINATION_SCOPE,
+    capability='origination.signing.start', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Request-key uniqueness plus immutable package/session/document hashes',
 )
 _add(
     'loan_origination_staff_signature',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.signing.staff', scope=_ORIGINATION_SCOPE,
+    capability='origination.signing.staff', scope=_ORIGINATION_SCOPE,
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Signer-slot/request uniqueness plus exact packet hash binding',
 )
 _add(
     'loan_origination_evidence_upload loan_origination_evidence_remove',
     authentication=_ORIGINATION_AUTH,
-    capability='portal.origination.create or portal.origination.signing.start',
+    capability='origination.create or origination.signing.start',
     scope='Application, requirement, actor, branch, and evidence ownership',
     request_key_binding=_ORIGINATION_KEY,
     domain_replay='Request key, evidence slot/count constraints, file hash, and durable Drive operation',

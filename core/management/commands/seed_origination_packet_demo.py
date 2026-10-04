@@ -9,18 +9,18 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from core.models import (
+from origination.models import (
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
     OriginationProductDocumentAssignment,
 )
-from core.services.origination_fields import (
+from origination.services.origination_fields import (
     attach_data_field,
     attach_data_field_to_template,
     create_data_field,
 )
-from core.services.origination_templates import (
+from origination.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
     initial_template_configuration,

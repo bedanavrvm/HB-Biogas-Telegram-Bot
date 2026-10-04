@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from core.services.origination_main_laf_seeds import (
+from origination.services.origination_main_laf_seeds import (
     DEFINITIONS_BY_KEY,
     MainLafSeedError,
     apply_seed,
