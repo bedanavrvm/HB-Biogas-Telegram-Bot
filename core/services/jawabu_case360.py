@@ -392,9 +392,9 @@ def _sla_status(minutes: Decimal | None, target: Any) -> str:
     return 'within'
 
 
-def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any]:
+def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_events=None, targets=None, holidays=None) -> dict[str, Any]:
     now = now or timezone.now()
-    events = list(farmer.pipeline_events.order_by('occurred_at', 'created_at'))
+    events = list(farmer.pipeline_events.order_by('occurred_at', 'created_at')) if events is None else list(events)
     # A new-unit application starts a fresh TAT cycle. Older events remain in the
     # timeline for audit, but must not be paired with milestones in the new cycle.
     application_events = [event for event in events if event.action == 'application_imported']
@@ -402,7 +402,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
     if application_events:
         current_cycle_started_at = application_events[-1].occurred_at
         current_events = [event for event in events if event.occurred_at >= current_cycle_started_at]
-    targets = _tat_targets()
+    targets = _tat_targets() if targets is None else targets
     milestone_events = {}
     for event in current_events:
         if event.action in dict(MILESTONES):
@@ -410,7 +410,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
     # HB events are maintained in their bounded post-order domain.  Project
     # them into this read-only Portal TAT view without duplicating their state.
     from hb_operations.models import HomeBiogasActionEvent
-    hb_events = HomeBiogasActionEvent.objects.filter(
+    hb_events = hb_events if hb_events is not None else HomeBiogasActionEvent.objects.filter(
         action__farmer=farmer,
         event_type__in=['order.released_to_hb', 'installation.progressed', 'commissioning.completed'],
     ).order_by('created_at', 'pk')
@@ -471,9 +471,9 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             intervals = _deferral_intervals(current_events, start_event.occurred_at, end_at)
             excluded_seconds = _excluded_deferral_seconds(current_events, start_event.occurred_at, end_at)
             raw_wall_clock_minutes = wall_clock_minutes_between(start_event.occurred_at, end_at) or Decimal('0')
-            raw_business_minutes = business_minutes_between(start_event.occurred_at, end_at) or Decimal('0')
+            raw_business_minutes = business_minutes_between(start_event.occurred_at, end_at, holidays=holidays) or Decimal('0')
             excluded_business_minutes = sum(
-                (business_minutes_between(interval_start, interval_end) or Decimal('0') for interval_start, interval_end in intervals),
+                (business_minutes_between(interval_start, interval_end, holidays=holidays) or Decimal('0') for interval_start, interval_end in intervals),
                 Decimal('0'),
             )
             minutes = max(Decimal('0'), raw_wall_clock_minutes - (excluded_seconds / Decimal('60'))).quantize(Decimal('0.01'))

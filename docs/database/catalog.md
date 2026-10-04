@@ -783,7 +783,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuCaseComment`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`
-- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
+- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawaburelatedperson`
 
@@ -2180,7 +2180,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`
-- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
 
 ### `hb_operations_action_root`
 

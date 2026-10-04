@@ -7,6 +7,7 @@ documents take precedence.
 
 | Document | Purpose |
 |---|---|
+| [Portal report insights](portal-report-insights.md) | Interactive report charts, metric/date definitions, current scopes, drill-down/export consistency, deployment and rollback. |
 | [Origination separation release](origination-separation-release.md) | Independent app ownership and grants, future reference contract, local verification, rollout and rollback. |
 | [Complaints, TAT and Portal depth review - 3 October 2026](miniapp-depth-review-2026-10-03.md) | End-to-end workflow, permission, integrity, recovery and quality review; five reproduced findings and fresh Python/Playwright verification. |
 | [Codebase assessment — 3 October 2026](codebase-review-2026-10-03.md) | Source-based architecture, workflow and quality assessment, prioritized findings, and fresh verification limits for the reviewed commit. |

@@ -1,92 +1,90 @@
-/* Fixed, capability-scoped Portal reports. The custom designer remains dormant. */
+/* Portal insights: current grants and every chart selection are checked server-side. */
 (() => {
   'use strict';
-
-  const api = () => window.PortalMiniAppApi || {};
-  const state = { preset: 'pipeline', page: 1, result: null, loading: false, tg: null };
-  const labels = { pipeline: 'Pipeline workload', outcomes: 'Visit & decision outcomes', finance: 'Orders & finance' };
-  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
-  const root = () => document.getElementById('portal-reports-root');
-  const requestId = () => window.crypto?.randomUUID?.() || `portal-report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const filters = () => ({
-    from: document.getElementById('portal-report-from')?.value || '',
-    to: document.getElementById('portal-report-to')?.value || '',
-    branch: document.getElementById('portal-report-branch')?.value || '',
-    county: document.getElementById('portal-report-county')?.value || '',
-    stage: document.getElementById('portal-report-stage')?.value || '',
+  const root=()=>document.getElementById('portal-reports-root');
+  const labels={pipeline:'Pipeline',outcomes:'Visits & decisions',finance:'Orders & finance'};
+  const stages={jbl_visit:'Awaiting visit',credit:'Credit analysis',final_review:'Final review',order:'Ready for order',ordered:'Ordered',deferred:'On hold',rejected:'Rejected',withdrawn:'Withdrawn'};
+  const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  function pref(value){try{if(value)localStorage.setItem('portal-report-display',value);return localStorage.getItem('portal-report-display');}catch(_){return null;}}
+  const s={preset:'pipeline',result:null,applied:{},intent:{},sequence:0,tg:null,charts:[],observer:null,display:pref()==='list'?'list':'carousel',types:{},index:0,loading:false,exporting:false,error:'',origin:null,page:1,scroll:0,resumeScroll:null};
+  const id=()=>crypto.randomUUID?.() || `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  function fmt(v,type){if(v===null||v===undefined||v==='')return '—';if(type==='number')return new Intl.NumberFormat('en-KE',{maximumFractionDigits:2}).format(v);if(type==='date'){const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleDateString('en-GB',{timeZone:'Africa/Nairobi'});}return esc(type==='choice'?stages[v]||v:v);}
+  function destroy(){s.charts.forEach(c=>c.destroy());s.charts=[];s.observer?.disconnect();s.observer=null;}
+  function month(){const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Nairobi',year:'numeric',month:'2-digit'}).formatToParts(new Date());return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}`;}
+  function filterSheet(){
+    const f=s.applied,o=s.result.filter_options,mode=f.date_mode || (s.preset==='pipeline'?'all':'month');
+    const select=(key,label,values)=>`<label>${label}<select name="${key}"><option value="">All</option>${values.map(v=>`<option value="${esc(v)}"${f[key]===v?' selected':''}>${esc(key==='stage'?stages[v]:v)}</option>`).join('')}</select></label>`;
+    return `<dialog id="portal-report-dialog" aria-labelledby="portal-report-filter-title"><form id="portal-report-filters"><header><h2 id="portal-report-filter-title">Filter ${labels[s.preset].toLowerCase()}</h2><button type="button" data-action="close" aria-label="Close filters without applying">×</button></header><div class="portal-report-filter-fields">
+    ${select('branch','Branch',o.branches||[])}${select('county','County',o.counties||[])}${select('product','Product',o.products||[])}
+    <label class="portal-report-wide">Case search<input type="search" name="search" maxlength="120" placeholder="Name or case reference" value="${esc(f.search||'')}"></label>
+    ${s.preset==='pipeline'?select('stage','Stage',['jbl_visit','credit','final_review','order','ordered','deferred','rejected','withdrawn']):''}
+    <label>Dates<select name="date_mode">${[['all','Any Time'],['month','Specific Month'],['custom','Custom Range']].map(([v,l])=>`<option value="${v}"${v===mode?' selected':''}>${l}</option>`).join('')}</select></label>
+    <label data-date="month">Month<input type="month" name="month" value="${esc(f.month||month())}"></label><label data-date="custom">From<input type="date" name="from" value="${esc(f.from||'')}"></label><label data-date="custom">To<input type="date" name="to" value="${esc(f.to||'')}"></label>
+    <label>Time grouping<select name="granularity">${['day','week','month','year'].map(v=>`<option value="${v}"${v===(f.granularity||'month')?' selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')}</select></label></div><footer><button type="button" class="btn btn-secondary" data-action="reset">Reset</button><button type="submit" class="btn btn-primary">Apply filters</button></footer></form></dialog>`;
+  }
+  function chartMarkup(c){
+    const types=c.type==='line'?['line','bar']:c.datasets.length<=1&&c.labels.length<=8&&c.unit==='cases'?['bar','doughnut']:['bar','line'];
+    if(!types.includes(s.types[c.id]))s.types[c.id]=c.type==='line'?'line':'bar';
+    return `<article class="portal-insight-chart" data-chart="${esc(c.id)}"><header><h3>${esc(c.title)}</h3><div role="group" aria-label="${esc(c.title)} chart type">${types.map(t=>`<button type="button" data-type="${t}" data-key="${esc(c.id)}" aria-pressed="${t===s.types[c.id]}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></header><p class="portal-chart-context">${esc(c.context||'')}</p><div class="portal-chart-canvas"><canvas role="img" aria-label="${esc(c.title)}"></canvas><p class="portal-chart-state" role="status" hidden></p></div>
+    ${c.sample_counts?`<p class="portal-chart-context">${c.bucket_keys.map((b,i)=>`${esc(c.labels[i])}: ${c.sample_counts[b]||0} samples`).join(' · ')}</p>`:''}
+    <div class="portal-chart-drill"><select data-series aria-label="${esc(c.title)} series">${c.datasets.map(d=>`<option value="${esc(d.key)}">${esc(d.label)}</option>`).join('')}</select><select data-bucket aria-label="${esc(c.title)} cases"><option value="">Choose cases…</option>${c.bucket_keys.map((b,i)=>`<option value="${esc(b)}">${esc(c.labels[i])}</option>`).join('')}</select><button type="button" class="btn btn-secondary" data-action="drill" disabled>Show cases</button></div></article>`;
+  }
+  function render(){
+    const target=root();if(!target)return;destroy();const r=s.result;
+    const tabs=`<div class="portal-curated-tabs" role="tablist" aria-label="Report sections">${Object.entries(labels).map(([k,l])=>`<button type="button" role="tab" data-preset="${k}" aria-selected="${k===s.preset}" class="${k===s.preset?'active':''}">${l}</button>`).join('')}</div>`;
+    if(!r){target.innerHTML=`${tabs}<div class="empty-state" role="status">${s.error?`${esc(s.error)} <button class="btn btn-secondary" data-action="retry">Try again</button><button class="btn btn-secondary" data-action="reset">Reset filters</button>`:'Loading reports…'}</div>`;return;}
+    const f=s.applied,p=r.pagination,selected=r.charts.find(c=>c.id===f.chart_key),selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||'';
+    const description=[f.branch||'All branches',f.county,f.product,stages[f.stage],f.search,r.period?`${fmt(r.period.from,'date')} – ${fmt(r.period.to,'date')}`:'Any time'].filter(Boolean).map(esc).join(' · ');
+    target.innerHTML=`${tabs}<div class="portal-report-controls"><button class="portal-report-filter-bar" type="button" data-action="filters" aria-haspopup="dialog"><strong>Filters</strong><span>${description}</span><span aria-hidden="true">›</span></button><button class="btn btn-secondary" type="button" data-action="export"${s.exporting?' disabled':''}>Export XLSX</button></div><p class="portal-report-status" role="status">${s.loading?'Updating report…':esc(s.error)}${s.error?' <button type="button" data-action="retry">Try again</button>':''}</p>
+    <div class="portal-curated-summary">${Object.entries(r.summary).map(([l,v])=>`<div><strong>${fmt(v,'number')}</strong><span>${esc(l)}</span></div>`).join('')}</div>
+    <div class="portal-chart-toolbar"><div role="group" aria-label="Chart display">${['carousel','list'].map(v=>`<button type="button" data-display="${v}" aria-pressed="${s.display===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join('')}</div><nav aria-label="Chart pages"${s.display==='list'?' hidden':''}><button type="button" data-action="previous" aria-label="Previous chart">‹</button><span id="portal-chart-position" aria-live="polite"></span><button type="button" data-action="next" aria-label="Next chart">›</button></nav></div>
+    <section id="portal-insight-charts" class="portal-insight-charts ${s.display}" aria-label="Portal report charts" tabindex="0">${r.charts.map(chartMarkup).join('')}</section>
+    ${f.chart_key?`<button type="button" class="portal-chart-selection" data-action="clear">${esc(selected?.title||'Chart selection')} · ${esc(selection)} · ${esc(f.series_key)} × Clear</button>`:''}
+    <section class="portal-curated-results"><div class="portal-results-heading"><div><h2>Supporting cases</h2><span>${r.total_rows.toLocaleString()} matching cases</span></div><div class="miniapp-table-zoom" data-miniapp-table-zoom="portal-curated"><span>Table size</span><button type="button" data-miniapp-table-zoom-out aria-label="Zoom table out">−</button><button type="button" data-miniapp-table-zoom-reset>100%</button><button type="button" data-miniapp-table-zoom-in aria-label="Zoom table in">+</button></div></div>
+    ${r.total_rows>r.shown_rows_limit?`<p class="portal-chart-context">Charts cover all matching cases. Table and export show up to ${r.shown_rows_limit.toLocaleString()} cases.</p>`:''}
+    <div class="portal-report-table-wrap" data-miniapp-table-zoom-target><table class="portal-report-table"><thead><tr>${r.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map(row=>`<tr>${r.columns.map(c=>`<td>${c.key==='case_id'&&/^[0-9a-f-]{36}$/.test(row.record_id||'')?`<a href="/portal/cases/${esc(row.record_id)}/">${fmt(row[c.key],c.type)}</a>`:fmt(row[c.key],c.type)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${r.columns.length}">No cases match these filters.</td></tr>`}</tbody></table></div>
+    <div class="pagination"><button type="button" class="btn btn-secondary" data-page="${p.page-1}"${p.page<=1?' disabled':''}>Previous</button><span>${p.page} / ${p.pages}</span><button type="button" class="btn btn-secondary" data-page="${p.page+1}"${p.page>=p.pages?' disabled':''}>Next</button></div></section>${filterSheet()}`;
+    window.MiniAppComponents?.bindTableZoom?.(target.querySelector('[data-miniapp-table-zoom]'),'portal-curated-table-zoom');
+    const box=target.querySelector('#portal-insight-charts');box.addEventListener('scroll',position,{passive:true});box.addEventListener('keydown',e=>{if(e.target===box&&s.display==='carousel'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();move(e.key==='ArrowRight'?1:-1);}});
+    target.querySelector('dialog').addEventListener('close',()=>{target.querySelector('#portal-report-filters')?.reset();dates();target.querySelector('[data-action="filters"]')?.focus();});if(s.resumeScroll!==null){box.scrollLeft=s.resumeScroll;s.resumeScroll=null;}position();draw();
+  }
+  function position(){const box=root()?.querySelector('#portal-insight-charts');if(!box)return;s.index=Math.max(0,Math.min(box.children.length-1,Math.round(box.scrollLeft/(box.clientWidth+12))));root().querySelector('#portal-chart-position').textContent=`${s.index+1} of ${box.children.length}`;root().querySelector('[data-action="previous"]').disabled=s.index===0;root().querySelector('[data-action="next"]').disabled=s.index>=box.children.length-1;}
+  function move(d){const box=root()?.querySelector('#portal-insight-charts');box?.scrollTo({left:(s.index+d)*(box.clientWidth+12),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}
+  async function draw(){
+    const target=root(),r=s.result,seq=s.sequence;if(!target||!r)return;
+    try{if(!window.Chart)await window.MiniAppAssetLoader.loadScript(window.PORTAL_CONFIG?.chartScript,'Chart');}catch(_){if(root()===target)target.querySelectorAll('.portal-chart-state').forEach(p=>{p.hidden=false;p.textContent='Charts unavailable. Use the table or export below.';});return;}
+    if(root()!==target||s.result!==r||seq!==s.sequence)return;
+    const style=getComputedStyle(target),text=style.getPropertyValue('--text-primary').trim()||'#344054',grid=style.getPropertyValue('--border-color').trim()||'#e2e8f0',colors=['#2481cc','#168354','#d14343','#9261d5','#d69416'];
+    r.charts.forEach(c=>{const card=target.querySelector(`[data-chart="${c.id}"]`),canvas=card.querySelector('canvas'),type=s.types[c.id];
+      if(!c.labels.length){canvas.hidden=true;const p=card.querySelector('.portal-chart-state');p.hidden=false;p.textContent=c.unit==='hours'?'Timing unavailable for this period.':'No matching data.';return;}
+      const pie=type==='doughnut',datasets=c.datasets.map((d,i)=>({label:d.label,data:d.values.map(Number),backgroundColor:pie?c.labels.map((_,j)=>colors[j%colors.length]):colors[i%colors.length],borderColor:colors[i%colors.length],borderWidth:type==='line'?2:0,pointRadius:2,tension:.2}));
+      s.charts.push(new window.Chart(canvas,{type,data:{labels:c.labels.map(l=>l.length>25?l.slice(0,24)+'…':l),datasets},options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:type==='bar'&&c.type!=='line'?'y':'x',onClick:(_e,elements)=>{if(elements.length){const e=elements[0];drill(c,c.bucket_keys[e.index],c.datasets[e.datasetIndex].key);}},plugins:{legend:{display:pie||datasets.length>1,position:'bottom',labels:{color:text,boxWidth:10}},tooltip:{callbacks:{title:items=>items.length?c.labels[items[0].dataIndex]:'',label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.raw,'number')}${c.unit==='KES'?' KES':c.unit==='hours'?' hours':''}`}}},scales:pie?{}:{x:{beginAtZero:true,ticks:{color:text,maxRotation:0,maxTicksLimit:6},grid:{color:grid}},y:{beginAtZero:true,ticks:{color:text,precision:c.unit==='cases'?0:undefined},grid:{color:grid}}}}}));});
+    if(window.ResizeObserver){s.observer=new ResizeObserver(()=>s.charts.forEach(c=>c.resize()));s.observer.observe(target.querySelector('#portal-insight-charts'));}
+  }
+  const close=()=>root()?.querySelector('dialog')?.close();
+  function dates(){const form=root()?.querySelector('#portal-report-filters');if(!form)return;form.querySelectorAll('[data-date]').forEach(l=>{l.hidden=l.dataset.date!==form.elements.date_mode.value;l.querySelector('input').required=!l.hidden;});}
+  const drill=(c,bucket,series)=>load(1,{...s.applied,chart_key:c.id,bucket_key:bucket,series_key:series});
+  async function load(page=1,filters={}){
+    if(!root())return;const seq=++s.sequence,preset=s.preset;s.intent={...filters};s.loading=true;s.error='';if(!s.result)render();else root().querySelector('.portal-report-status').textContent='Updating report…';
+    try{const response=await window.PortalMiniAppApi.postJson('/reports/workspace/',{preset,filters:{...filters},page,client_request_id:id()},s.tg);if(seq!==s.sequence||!root())return;if(!response.ok||!response.data?.ok)throw new Error(response.data?.error||'The report could not be loaded.');s.result=response.data.result;s.applied={...s.result.applied_filters};s.loading=false;render();}
+    catch(e){if(seq===s.sequence&&root()){s.error=e.message;s.loading=false;render();}}
+  }
+  async function exportXlsx(){if(s.exporting||s.loading)return;s.exporting=true;const seq=s.sequence,b=root()?.querySelector('[data-action="export"]');if(b){b.disabled=true;b.textContent='Preparing…';}
+    try{const response=await window.PortalMiniAppApi.postJson('/reports/workspace/export/',{preset:s.preset,filters:{...s.applied},prepare_download:true,client_request_id:id()},s.tg);if(!response.ok||!response.data?.ok)throw new Error(response.data?.error||'The export could not be prepared.');if(seq===s.sequence)window.PortalAppShell?.downloadPortalFile?.({url:response.data.download_url,filename:response.data.filename});}
+    catch(e){window.PortalAppShell?.showToast?.(e.message,'error');}finally{s.exporting=false;const button=root()?.querySelector('[data-action="export"]');if(button){button.disabled=false;button.textContent='Export XLSX';}}}
+  document.addEventListener('click',e=>{
+    if(!root()?.contains(e.target))return;
+    const preset=e.target.closest('[data-preset]');if(preset){s.preset=preset.dataset.preset;s.result=null;s.applied={};return load();}
+    const display=e.target.closest('[data-display]');if(display){s.display=display.dataset.display;pref(s.display);return render();}
+    const type=e.target.closest('[data-type]');if(type){s.types[type.dataset.key]=type.dataset.type;return render();}
+    const page=e.target.closest('[data-page]');if(page&&!page.disabled)return load(Number(page.dataset.page),s.applied);
+    const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;
+    if(action==='filters'){root().querySelector('dialog').showModal();dates();}if(action==='close')close();if(action==='reset'){close();load();}if(action==='retry')load(1,s.intent);if(action==='export')exportXlsx();if(action==='previous'||action==='next')move(action==='next'?1:-1);
+    if(action==='clear'){const f={...s.applied};['chart_key','bucket_key','series_key'].forEach(k=>delete f[k]);load(1,f);}
+    if(action==='drill'){const card=b.closest('[data-chart]');drill(s.result.charts.find(c=>c.id===card.dataset.chart),card.querySelector('[data-bucket]').value,card.querySelector('[data-series]').value);}
   });
-  function format(value, type) {
-    if (value === null || value === undefined || value === '') return '—';
-    if (type === 'number') {
-      const number = Number(value);
-      return Number.isFinite(number) ? number.toLocaleString('en-KE', {maximumFractionDigits: 2}) : escapeHtml(value);
-    }
-    if (type === 'date') {
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? escapeHtml(value) : parsed.toLocaleDateString('en-GB');
-    }
-    return escapeHtml(value);
-  }
-  function toast(message, tone = 'info') { window.PortalAppShell?.showToast?.(message, tone); }
-  function tabs() {
-    return `<div class="portal-curated-tabs" role="tablist">${Object.entries(labels).map(([key, label]) => `<button type="button" role="tab" data-curated-preset="${key}" aria-selected="${state.preset === key}" class="${state.preset === key ? 'active' : ''}">${escapeHtml(label)}</button>`).join('')}</div>`;
-  }
-  function filterMarkup(result) {
-    const applied = result?.applied_filters || {};
-    const options = result?.filter_options || {};
-    const period = result?.period || {};
-    const select = (id, title, values, selected) => `<label><span>${title}</span><select id="${id}"><option value="">All</option>${(values || []).map(value => `<option${String(value) === String(selected || '') ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label>`;
-    return `<form id="portal-curated-filters" class="portal-curated-filters">
-      ${state.preset === 'pipeline' ? '' : `<label><span>From</span><input id="portal-report-from" type="date" value="${escapeHtml(applied.from || period.from || '')}"></label><label><span>To</span><input id="portal-report-to" type="date" value="${escapeHtml(applied.to || period.to || '')}"></label>`}
-      ${select('portal-report-branch', 'Branch', options.branches, applied.branch)}
-      ${select('portal-report-county', 'County', options.counties, applied.county)}
-      ${state.preset === 'pipeline' ? `<label><span>Stage</span><select id="portal-report-stage"><option value="">All stages</option>${['jbl_visit','credit','final_review','order','ordered','deferred','rejected'].map(value => `<option value="${value}"${value === applied.stage ? ' selected' : ''}>${escapeHtml(value.replaceAll('_', ' '))}</option>`).join('')}</select></label>` : ''}
-      <button class="btn btn-secondary" type="submit"><i data-lucide="filter"></i> Apply</button>
-      <button class="btn btn-secondary" type="button" data-curated-export><i data-lucide="download"></i> XLSX</button>
-    </form>`;
-  }
-  function chartMarkup(chart) {
-    if (chart.error) return `<article class="portal-curated-chart"><strong>${escapeHtml(chart.title)}</strong><p>${escapeHtml(chart.error)}</p></article>`;
-    const max = Math.max(1, ...(chart.values || []).map(Number));
-    return `<article class="portal-curated-chart"><strong>${escapeHtml(chart.title)}</strong><div>${(chart.labels || []).map((label, index) => `<span><em>${escapeHtml(label)}</em><i style="--bar:${Math.max(2, Number(chart.values[index] || 0) / max * 100)}%"></i><b>${format(chart.values[index], 'number')}</b></span>`).join('') || '<p>No data for these filters.</p>'}</div>${chart.notice ? `<small>${escapeHtml(chart.notice)}</small>` : ''}</article>`;
-  }
-  function render() {
-    const target = root(); if (!target) return;
-    const result = state.result;
-    if (!result) { target.innerHTML = `${tabs()}<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading ${escapeHtml(labels[state.preset])}…</div></div>`; return; }
-    const pages = result.pagination || {page:1, pages:1};
-    target.innerHTML = `${tabs()}${filterMarkup(result)}
-      <div class="portal-curated-summary">${Object.entries(result.summary || {}).map(([label, value]) => `<div><strong>${format(value, typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) ? 'number' : '')}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>
-      <div class="portal-curated-charts">${(result.charts || []).map(chartMarkup).join('')}</div>
-      <section class="portal-curated-results"><div class="stage-summary-heading portal-results-heading"><div><h2>Supporting cases</h2><span>${Number(result.total_rows || 0).toLocaleString()} in scope</span></div><div class="miniapp-table-zoom" data-miniapp-table-zoom="portal-curated"><span>Table size</span><button type="button" data-miniapp-table-zoom-out aria-label="Zoom table out">−</button><button type="button" data-miniapp-table-zoom-reset>100%</button><button type="button" data-miniapp-table-zoom-in aria-label="Zoom table in">+</button></div></div><div class="portal-report-table-wrap" data-miniapp-table-zoom-target><table class="portal-report-table"><thead><tr>${result.columns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${result.rows.map(row => `<tr>${result.columns.map(column => `<td>${format(row[column.key], column.type)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${result.columns.length}">No cases match these filters.</td></tr>`}</tbody></table></div>
-      <div class="pagination"><button class="btn btn-secondary" data-curated-page="${pages.page - 1}" ${pages.page <= 1 ? 'disabled' : ''}>Previous</button><span>${pages.page} / ${pages.pages}</span><button class="btn btn-secondary" data-curated-page="${pages.page + 1}" ${pages.page >= pages.pages ? 'disabled' : ''}>Next</button></div></section>`;
-    window.lucide?.createIcons?.();
-    window.MiniAppComponents?.bindTableZoom?.(target.querySelector('[data-miniapp-table-zoom="portal-curated"]'), 'portal-curated-table-zoom');
-  }
-  async function load(page = 1, suppliedFilters = null) {
-    if (state.loading || !root()) return;
-    state.loading = true; state.page = page; if (!state.result) render();
-    try {
-      const response = await api().postJson('/reports/workspace/', {preset: state.preset, filters: suppliedFilters || filters(), page, client_request_id: requestId()}, state.tg);
-      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The report could not be loaded.');
-      state.result = response.data.result; render();
-    } catch (error) {
-      if (root()) root().innerHTML = `${tabs()}<div class="empty-state"><div class="es-title">Report unavailable</div><div class="es-sub">${escapeHtml(error.message)}</div><button class="btn btn-secondary" data-curated-retry>Retry</button></div>`;
-    } finally { state.loading = false; }
-  }
-  async function exportXlsx() {
-    const key = requestId();
-    const response = await api().postJson('/reports/workspace/export/', {preset:state.preset, filters:filters(), prepare_download:true, client_request_id:key}, state.tg);
-    if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The report could not be exported.');
-    window.PortalAppShell?.downloadPortalFile?.({url:response.data.download_url, filename:response.data.filename});
-  }
-  document.addEventListener('click', event => {
-    if (!root()?.contains(event.target)) return;
-    const preset = event.target.closest('[data-curated-preset]'); if (preset) { state.preset = preset.dataset.curatedPreset; state.result = null; return load(1, {}); }
-    const page = event.target.closest('[data-curated-page]'); if (page && !page.disabled) return load(Number(page.dataset.curatedPage));
-    if (event.target.closest('[data-curated-retry]')) return load(state.page);
-    if (event.target.closest('[data-curated-export]')) exportXlsx().catch(error => toast(error.message, 'error'));
-  });
-  document.addEventListener('submit', event => { if (event.target.id === 'portal-curated-filters') { event.preventDefault(); load(1); } });
-  window.PortalMiniAppReports = { load(options = {}) { state.tg = options.tg || state.tg; state.result = null; return load(1, {}); }, unmount() { state.result = null; }, canHandleBack() { return false; }, handleBack() { return false; } };
+  document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.name==='date_mode')dates();if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
+  document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(f.date_mode==='all'){delete f.month;delete f.from;delete f.to;}else if(f.date_mode==='month'){delete f.from;delete f.to;}else delete f.month;close();load(1,f);});
+  const theme=()=>{if(root()&&s.result){destroy();draw();}};
+  window.PortalMiniAppReports={load(options={}){const returning=s.origin===root();s.tg?.offEvent?.('themeChanged',theme);s.tg=options.tg||s.tg;s.tg?.onEvent?.('themeChanged',theme);s.result=null;if(!returning){s.applied={};s.page=1;}else s.resumeScroll=s.scroll;return load(returning?s.page:1,returning?s.applied:{});},unmount(){s.origin=root();s.page=s.result?.pagination.page||1;s.scroll=root()?.querySelector('#portal-insight-charts')?.scrollLeft||0;++s.sequence;close();destroy();s.tg?.offEvent?.('themeChanged',theme);s.result=null;s.loading=false;},canHandleBack(){return Boolean(root()?.querySelector('dialog')?.open);},handleBack(){if(!this.canHandleBack())return false;close();return true;}};
 })();

@@ -8,6 +8,8 @@ from TAT, SPIN and Complaint Cases are not joined by mutable identifiers.
 from __future__ import annotations
 
 import logging
+import json
+from types import SimpleNamespace
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -771,101 +773,67 @@ def _curated_period(filters: dict[str, Any]) -> tuple[date, date]:
     return start, end
 
 
-def _curated_queryset(*, preset: str, filters: Any, user, access: dict | None):
-    if preset not in CURATED_REPORT_FIELDS:
-        raise PortalReportingError('Choose Pipeline, Outcomes, or Orders & Finance.')
-    filters = filters if isinstance(filters, dict) else {}
+def _curated_dataset(*, preset, filters, user, access):
+    from core.services.portal_report_insights import prepare, insights
     queryset = scoped_case_queryset(user=user, access=access)
-    for key in ('branch', 'county'):
-        value = str(filters.get(key) or '').strip()
-        if value:
-            queryset = queryset.filter(**{f'{key}__iexact': value})
-    if preset == 'pipeline':
-        stage = str(filters.get('stage') or '').strip()
-        if stage:
-            queryset = queryset.filter(workflow_state__iexact=stage)
-        period = None
-    else:
-        start, end = _curated_period(filters)
-        period = {'from': start.isoformat(), 'to': end.isoformat()}
-        if preset == 'outcomes':
-            queryset = queryset.filter(
-                Q(jbl_visit_date__range=(start, end))
-                | Q(credit_decided_at__date__range=(start, end))
-                | Q(final_decided_at__date__range=(start, end))
-            )
-        else:
-            queryset = queryset.filter(
-                Q(requisition_date__range=(start, end)) | Q(invoice_date__range=(start, end))
-            )
-    return queryset, filters, period
+    # The HTTP boundary supplies current grant tuples. Re-resolve them here as
+    # well for direct callers and user-bound export downloads.
+    if access is not None and 'grants' in access:
+        from core.services.telegram_identity import user_access
+        from core.services.workflow_access import scope_workflow_queryset
+        current = user_access(user, 'jawabu_portal')
+        queryset = scope_workflow_queryset(
+            queryset, user, 'jawabu_portal', 'portal.reports.view', access=current,
+            branch_field='branch', product_field='product__code',
+            group_field='group_configuration__group_id',
+        ) if current.get('authorized') else queryset.none()
+    queryset, filters, period, choices = prepare(preset, filters, queryset)
+    queryset, charts, summary = insights(preset, queryset, filters, period)
+    return queryset, filters, period, choices, charts, summary
+
+
+def _curated_rows(queryset, selected):
+    from core.services.jawabu_pipeline import current_workflow_state
+    expressions = {field.expression for field in selected}
+    expressions.update({'pk', 'workflow_state', 'deferred_until', 'order_number', 'final_decision',
+                        'credit_decision', 'jbl_visit_status', 'jbl_visit_date'})
+    rows = []
+    for raw in queryset.values(*sorted(expressions)):
+        raw['workflow_state'] = current_workflow_state(SimpleNamespace(**raw))
+        row = {field.key: _report_value(field, raw.get(field.expression)) for field in selected}
+        row['record_id'] = str(raw['pk'])
+        rows.append(row)
+    return rows
 
 
 def run_curated_report(*, preset: str, filters: Any, user, access: dict | None, page: int = 1) -> dict[str, Any]:
-    """Run one server-owned Portal report without exposing the report builder."""
-    queryset, filters, period = _curated_queryset(preset=preset, filters=filters, user=user, access=access)
+    """Full-scope insights with independently bounded supporting-case pages."""
+    queryset, filters, period, choices, charts, summary = _curated_dataset(
+        preset=preset, filters=filters, user=user, access=access,
+    )
     queryset = queryset.order_by('-updated_at', 'id')
     total = queryset.count()
     page = max(1, int(page or 1))
-    pages = max(1, min((min(total, MAX_TABLE_ROWS) + PAGE_SIZE - 1) // PAGE_SIZE, (MAX_TABLE_ROWS + PAGE_SIZE - 1) // PAGE_SIZE))
+    pages = max(1, (min(total, MAX_TABLE_ROWS) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = min(page, pages)
     selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
-    rows = [
-        {field.key: _report_value(field, raw.get(field.expression)) for field in selected}
-        for raw in queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE].values(*[field.expression for field in selected])
-    ]
-    if preset == 'pipeline':
-        summary = {
-            'Active cases': total,
-            'Awaiting visit': queryset.filter(Q(workflow_state='jbl_visit') | Q(workflow_state='', jbl_visit_date=None)).count(),
-            'Credit analysis': queryset.filter(Q(workflow_state='credit') | Q(workflow_state='', jbl_visit_date__isnull=False, credit_decision='')).count(),
-            'Ready for order': queryset.filter(final_decision__iexact='approved', order_number='').count(),
-        }
-        charts = [chart_payload_from_config({'title': 'Cases by pipeline stage', 'chart_type': 'bar', 'dimension_field': 'workflow_state', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset)]
-    elif preset == 'outcomes':
-        summary = {
-            'Cases with activity': total,
-            'Visits recorded': queryset.exclude(jbl_visit_date=None).count(),
-            'Credit decisions': queryset.exclude(credit_decided_at=None).count(),
-            'Final decisions': queryset.exclude(final_decided_at=None).count(),
-        }
-        charts = [
-            chart_payload_from_config({'title': 'Visit outcomes', 'chart_type': 'bar', 'dimension_field': 'jbl_visit_status', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset),
-            chart_payload_from_config({'title': 'Final decisions', 'chart_type': 'doughnut', 'dimension_field': 'final_decision', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset),
-        ]
-    else:
-        totals = queryset.aggregate(invoice=Sum('invoice_amount'), payment=Sum('payment'), hb=Sum('deposit_paid_hbg'), jbl=Sum('system_deposit_paid_jbl'), balance=Sum('balance_due'))
-        summary = {
-            'Official orders': queryset.exclude(order_number='').values('order_number').distinct().count(),
-            'Invoices': queryset.exclude(invoice_number='').count(),
-            'Invoice amount': _json_value(totals['invoice'] or Decimal('0')),
-            'Outstanding balance': _json_value(totals['balance'] or Decimal('0')),
-        }
-        charts = [chart_payload_from_config({'title': 'Invoice amount by branch', 'chart_type': 'bar', 'dimension_field': 'branch', 'metric_field': 'invoice_amount', 'aggregation': 'sum', 'date_bucket': ''}, queryset)]
-    choices = {
-        'branches': list(queryset.exclude(branch='').order_by('branch').values_list('branch', flat=True).distinct()[:100]),
-        'counties': list(queryset.exclude(county='').order_by('county').values_list('county', flat=True).distinct()[:100]),
-    }
+    rows = _curated_rows(queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE], selected)
     return {
-        'preset': preset,
-        'period': period,
-        'applied_filters': {key: str(value) for key, value in filters.items() if value not in (None, '')},
+        'preset': preset, 'period': period, 'applied_filters': filters,
         'summary': summary,
         'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
-        'rows': rows,
-        'total_rows': total,
-        'shown_rows_limit': min(total, MAX_TABLE_ROWS),
+        'rows': rows, 'total_rows': total, 'shown_rows_limit': min(total, MAX_TABLE_ROWS),
         'pagination': {'page': page, 'page_size': PAGE_SIZE, 'pages': pages},
-        'charts': charts,
-        'filter_options': choices,
-        'run_at': timezone.now().isoformat(),
+        'charts': charts, 'filter_options': choices, 'run_at': timezone.now().isoformat(),
     }
 
 
 def export_curated_report(*, preset: str, filters: Any, user, access: dict | None) -> bytes:
-    queryset, filters, period = _curated_queryset(preset=preset, filters=filters, user=user, access=access)
+    queryset, filters, period, choices, charts, summary = _curated_dataset(
+        preset=preset, filters=filters, user=user, access=access,
+    )
     selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
-    rows = list(queryset.order_by('-updated_at', 'id')[:MAX_TABLE_ROWS].values(*[field.expression for field in selected]))
+    rows = _curated_rows(queryset.order_by('-updated_at', 'id')[:MAX_TABLE_ROWS], selected)
     workbook = Workbook()
     details = workbook.active
     details.title = 'Report details'
@@ -873,11 +841,19 @@ def export_curated_report(*, preset: str, filters: Any, user, access: dict | Non
     details.append(['Generated at', timezone.localtime().strftime('%d-%m-%Y %H:%M')])
     details.append(['Period', f'{period["from"]} to {period["to"]}' if period else 'Live snapshot'])
     details.append(['Rows exported', len(rows)])
+    details.append(['Matching cases', queryset.count()])
+    details.append(['Export limit', MAX_TABLE_ROWS])
+    details.append(['Filters', json.dumps(filters, sort_keys=True)])
+    if preset == 'finance':
+        details.append(['Financial basis', 'Current recorded values; not historical cash flow'])
     data_sheet = workbook.create_sheet('Data')
     data_sheet.append([field.label for field in selected])
     for row in rows:
-        values = [_report_value(field, row.get(field.expression)) for field in selected]
+        values = [row[field.key] for field in selected]
         data_sheet.append([value if value is None or isinstance(value, (str, int, float, bool)) else str(value) for value in values])
+        for cell in data_sheet[data_sheet.max_row]:
+            if isinstance(cell.value, str):
+                cell.data_type = 's'
     for cell in data_sheet[1]:
         cell.font = Font(bold=True)
     output = BytesIO()

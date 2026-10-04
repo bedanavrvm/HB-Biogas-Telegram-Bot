@@ -621,11 +621,11 @@
       <p class="meta">Curated live operational views for workload, outcomes, and finance</p>
     </header>
     {% if not report_view or report_view == 'catalogue' %}<section class="portal-report-notice" role="note">
-      <strong>Controlled reporting</strong>
-      <span>Figures come from scoped Django records. No customer data is joined from TAT, SPIN, Complaints, media, comments, or Drive.</span>
+      <strong>Your operational overview</strong>
+      <span>Explore workload, decisions and finance for the cases you can access.</span>
     </section>{% endif %}
     <div id="portal-reports-root" class="portal-reports-root" aria-live="polite">
-      <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading report definitions...</div></div>
+      <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading reports...</div></div>
     </div>
   </section>
   {% endif %}
