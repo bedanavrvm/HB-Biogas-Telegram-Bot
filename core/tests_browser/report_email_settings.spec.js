@@ -6,6 +6,36 @@ const root=path.resolve(__dirname,'../..');
 const script=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.js'),'utf8');
 const style=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.css'),'utf8');
 
+test('Portal Add report opens recipients and cadence in the real Settings shell with delivery disabled',async({page})=>{
+  const {mountPortalShell}=require('./fixtures/portal_shell');
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
+  const section=template.match(/<section id="portal-report-email-settings"[^]*?<\/section>/)[0].replace(' hidden>','>');
+  await page.setViewportSize({width:360,height:740});
+  await mountPortalShell(page,`<main class="page active">${section}</main>`);
+  await page.addScriptTag({content:script});
+  await page.evaluate(()=>window.MiniAppReportEmailSettings.mount(document.getElementById('portal-report-email-manager'),async()=>({data:{enabled:false,presets:['pipeline','outcomes','finance'],groups:[{id:1,label:'Synthetic group'}],schedules:[]}})));
+  await page.getByRole('button',{name:'Manage reports'}).click();
+  await page.getByRole('button',{name:'Add report'}).click();
+  await expect(page.getByLabel('Recipients',{exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Frequency',exact:true})).toBeVisible();
+  await expect(page.getByLabel('Time (Nairobi)',{exact:true})).toBeVisible();
+  await page.screenshot({path:'test-results/portal-add-report-real-settings.png',fullPage:true});
+});
+
+test('Add report remains usable without WebView crypto helpers and focuses the editor',async({page})=>{
+  await page.setContent('<section id="settings"></section>');
+  await page.addScriptTag({content:script});
+  await page.evaluate(()=>{
+    Object.defineProperty(window.crypto,'randomUUID',{value:undefined,configurable:true});
+    Object.defineProperty(window.crypto,'getRandomValues',{value:undefined,configurable:true});
+    window.MiniAppReportEmailSettings.mount(document.getElementById('settings'),async()=>({data:{enabled:false,presets:['pipeline'],groups:[{id:1,label:'Synthetic group'}],schedules:[]}}));
+  });
+  await page.getByRole('button',{name:'Manage reports'}).click();
+  await page.getByRole('button',{name:'Add report'}).click();
+  await expect(page.getByLabel('Report name',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('Report name',{exact:true})).toBeFocused();
+});
+
 for(const app of ['portal','tat','complaints']) {
   test(`${app} recipient settings fit mobile and save configured addresses`,async({page})=>{
     for(const width of [320,360,390,430]) {

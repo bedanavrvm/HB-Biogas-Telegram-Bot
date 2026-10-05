@@ -9,7 +9,15 @@
     const node = (tag, text, className) => { const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n; };
     const icon = path => { const n = document.createElementNS('http://www.w3.org/2000/svg','svg'); n.setAttribute('viewBox','0 0 24 24'); n.setAttribute('fill','none'); n.setAttribute('stroke','currentColor'); n.setAttribute('stroke-width','2'); n.setAttribute('aria-hidden','true'); const p=document.createElementNS(n.namespaceURI,'path'); p.setAttribute('d',path); n.append(p); return n; };
     const button = (label, action, path) => { const b=node('button', path ? '' : label, path ? 'report-email-icon' : ''); b.type='button'; b.setAttribute('aria-label',label); b.title=label; if(path)b.append(icon(path)); b.addEventListener('click',action); return b; };
-    const uuid = () => window.crypto.randomUUID ? window.crypto.randomUUID() : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g,c=>(Number(c)^window.crypto.getRandomValues(new Uint8Array(1))[0]&15>>Number(c)/4).toString(16));
+    // These are idempotency identifiers, not authentication tokens. Older
+    // WebViews must still be able to open the editor without crypto helpers.
+    const uuid = () => {
+      try {
+        if(typeof window.crypto?.randomUUID === 'function')return window.crypto.randomUUID();
+        if(typeof window.crypto?.getRandomValues === 'function')return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g,c=>(Number(c)^window.crypto.getRandomValues(new Uint8Array(1))[0]&15>>Number(c)/4).toString(16));
+      } catch(error) { /* Restricted WebView: use a non-security request key. */ }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.floor(Math.random()*16);return(c==='x'?r:(r&3)|8).toString(16);});
+    };
     const head=node('div','', 'report-email-head'); head.append(node('h3',host.id==='portal-report-email-manager'?'Schedules':'Email reports'));
     const manage=button('Manage reports',load); head.append(manage);
     const content=node('div'); content.hidden=true;
@@ -35,7 +43,17 @@
       content.append(button('Add report',()=>edit(null)));
       if(editing)renderForm();
     }
-    function edit(s) { editing=s ? {...s} : {id:uuid(),revision:0,send_time:'08:00',frequency:'daily',recipients:[],preset:data.presets[0],group_configuration:data.groups[0]?.id}; render(); }
+    function edit(s) {
+      try {
+        editing=s ? {...s} : {id:uuid(),revision:0,send_time:'08:00',frequency:'daily',recipients:[],preset:data.presets[0],group_configuration:data.groups[0]?.id};
+        render();
+        const first=content.querySelector('input[name="title"]');
+        first?.scrollIntoView({block:'center'});
+        first?.focus({preventScroll:true});
+      } catch(error) {
+        status.textContent='Could not open report settings. Refresh and try again.';
+      }
+    }
     function renderForm() {
       const form=node('form','', 'report-email-form');
       function field(key,label,options,type) { const wrap=node('label',label,key==='recipients'?'report-email-wide':''); const input=node(key==='recipients'?'textarea':options?'select':'input'); input.name=key; if(options)for(const [value,text] of options){const o=node('option',text);o.value=value;input.append(o);} else if(type)input.type=type; if(key==='recipients'){input.rows=3;input.placeholder='One email address per line';} input.value=key==='recipients'?editing.recipients.join('\n'):(editing[key] || ''); if(['title','group_configuration','recipients'].includes(key))input.required=true; wrap.append(input);form.append(wrap); }

@@ -1242,3 +1242,8 @@ any new transition/SLA audit evidence that must be retained, then run:
 ```powershell
 python manage.py migrate core 0072_miniapp_drafts
 ```
+# Report schedule editor recovery - 5 October 2026
+
+- Add report tolerates unavailable/restricted WebView crypto helpers, scrolls
+  to and focuses the editor, and reports opening failures visibly. Regression
+  coverage includes the actual Portal Settings shell with sending disabled.
