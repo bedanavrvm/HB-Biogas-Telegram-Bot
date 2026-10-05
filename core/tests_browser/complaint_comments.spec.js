@@ -17,6 +17,8 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.setViewportSize({ width: 320, height: 800 });
   await page.setContent(template);
   await page.addStyleTag({ path: asset('complaint_cases.css') });
+  await page.addStyleTag({ path: asset('activity_changes.css') });
+  await page.addScriptTag({ path: asset('activity_changes.js') });
   await page.evaluate(initData => {
     document.body.dataset.groupId = '-100-comment-fixture';
     const item = { case_id: 'synthetic-comment', id: 'synthetic-comment', reference_number: 'CMP-TEST',
@@ -24,6 +26,7 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
       description: 'Synthetic burner issue', status: 'OPEN', revision: 1, hb_comment_count: 0,
       category: 'Product issue', branch: 'Training branch', source_attribution: {type:'officer', label:'Recorded by an officer'}, resolution_comments: [], updates: [{note:'Complaint recorded.', updated_by:'Training officer', created_at:'02-Oct-2026 13:30', status:'Open', actor_affiliation:'JBL'}], evidence: [] };
     window.__commentWrites = [];
+    window.__complaintFixture = item;
     const webApp = { initData, BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {} };
     window.Telegram = { WebApp: webApp };
     window.MiniAppUtils = { initTelegram: () => webApp, setCloseProtection() {}, haptic() {} };
@@ -89,6 +92,27 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.locator('#detailBackBtn').click();
   await expect(page.locator('#caseList .hb-comment-count')).toHaveAttribute('aria-label', '1 HB comments');
   await page.screenshot({ path: testInfo.outputPath('hb-comment-queue.png'), fullPage: true });
+  await page.evaluate(() => {
+    window.__complaintFixture.updates = [
+      {action:'updated',action_group:'one-edit',old_status:'Open',status:'Open',updated_by:'Training officer',actor_affiliation:'JBL',created_at:'05-Oct-2026 10:00',display_changes:[{field:'county_code',label:'County',old_value:'KE-21',new_value:'KE-22',old_display:'Murang’a',new_display:'Kiambu',previous_recorded:true}]},
+      {action:'updated',action_group:'one-edit',old_status:'Open',status:'Open',updated_by:'Training officer',actor_affiliation:'JBL',created_at:'05-Oct-2026 10:00',display_changes:[{field:'village',label:'Village',old_value:'Old village',new_value:'New village',previous_recorded:true},{field:'priority',label:'Priority',old_value:'normal',new_value:'high',previous_recorded:true}]},
+      {action:'commented',status:'Open',updated_by:'Training HB',actor_affiliation:'HB',created_at:'05-Oct-2026 09:00',note:'A technician is assigned.'},
+      {action:'commented',status:'Open',updated_by:'Training HB',actor_affiliation:'HB',created_at:'05-Oct-2026 09:00',note:'The customer has been contacted.'},
+      {action:'created',status:'Open',updated_by:'Training officer',actor_affiliation:'JBL',created_at:'02-Oct-2026 13:30',note:'Complaint recorded.',changes:[{field:'priority',label:'Priority',new_value:'normal',previous_recorded:false}]},
+    ];
+  });
+  await page.locator('#caseList .case-row').click();
+  await expect(page.locator('#activityList .history-item')).toHaveCount(4);
+  await expect(page.locator('#activityList')).toContainText('County: Murang’a → Kiambu');
+  await expect(page.locator('#activityList')).not.toContainText('KE-21');
+  await expect(page.locator('#activityList')).not.toContainText('Priority');
+  await expect(page.locator('#activityList')).not.toContainText('Complaint recorded.');
+  await expect(page.locator('#activityList .history-heading').filter({hasText:'Complaint recorded by'})).toHaveCount(1);
+  await expect(page.locator('#activityList .history-heading').filter({hasText:'Updated by'})).toHaveCount(1);
+  await expect(page.locator('#activityList .history-heading').filter({hasText:'Comment by'})).toHaveCount(2);
+  await page.setViewportSize({width:320,height:800});
+  await page.locator('#activityList').scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath('compact-readable-history-320.png'),fullPage:true});
   expect(await page.evaluate(() => window.__commentWrites)).toHaveLength(1);
   expect(errors).toEqual([]);
 });

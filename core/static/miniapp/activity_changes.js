@@ -22,8 +22,8 @@
     return `<details class="activity-long-text"><summary><span class="activity-text-excerpt">${escape(text.slice(0, 100))}… </span><span class="activity-read-more">Read more</span><span class="activity-read-less">Show less</span></summary><div>${escape(text)}</div></details>`;
   }
   function changeHtml(change, context) {
-    const old = valueText(change.old_value);
-    const next = valueText(change.new_value);
+    const old = valueText(change.old_display ?? change.old_value);
+    const next = valueText(change.new_display ?? change.new_value);
     const label = change.label || 'Value';
     const previous = change.previous_recorded !== false && !blank(change.old_value);
     if (blank(change.new_value)) return previous ? `<div class="activity-change">${escape(label)} removed</div>` : '';

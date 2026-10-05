@@ -895,28 +895,44 @@
   function renderActivity(items) {
     const node = $('activityList'); node.replaceChildren();
     if (!items.length) { node.appendChild(textNode('p', 'No complaint history available.', 'muted')); return; }
+    const grouped = [], groups = new Map();
     items.forEach(item => {
+      // Only records explicitly tied to the same operation may share an entry.
+      // Separate comments/actions are never merged just because their times match.
+      const key = item.action_group && item.action !== 'commented'
+        ? JSON.stringify([item.action_group, item.action, item.updated_by, item.actor_affiliation]) : '';
+      const existing = key && groups.get(key);
+      if (existing) {
+        existing.notes = [...new Set([...existing.notes, item.note].filter(Boolean))];
+        existing.changes.push(...(item.display_changes || item.changes || []));
+      } else {
+        const entry = {...item, notes:item.note ? [item.note] : [], changes:[...(item.display_changes || item.changes || [])]};
+        grouped.push(entry);
+        if (key) groups.set(key, entry);
+      }
+    });
+    grouped.forEach(item => {
       const row = document.createElement('div'); row.className = 'item history-item';
-      let action = 'Updated by';
-      if (item.action === 'commented') action = 'Comment by';
-      else if (item.status === 'Closed') action = 'Resolved by';
-      else if (item.status === 'Reopened') action = 'Reopened by';
-      else if (item.status === 'Open') action = 'Complaint recorded by';
-      else if (item.status === 'Review Needed') action = 'More information requested by';
+      const actions = {created:'Complaint recorded by', commented:'Comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
+      const action = actions[item.action] || (item.status === 'Closed' ? 'Resolved by' : item.status === 'Reopened' ? 'Reopened by' : !item.old_status && item.status === 'Open' ? 'Complaint recorded by' : 'Updated by');
+      const creation = action === 'Complaint recorded by';
       const content = document.createElement('div');
       const affiliation = ['JBL', 'HB'].includes(item.actor_affiliation) ? item.actor_affiliation : 'Role unknown';
       const heading = document.createElement('div'); heading.className = 'history-heading';
       const affiliationClass = affiliation === 'Role unknown' ? 'unknown' : affiliation.toLowerCase();
       heading.append(textNode('strong', `${action} ${item.updated_by || 'Unknown actor'}`), textNode('span', affiliation, `history-affiliation history-affiliation-${affiliationClass}`));
       content.append(heading);
-      if (item.note) {
+      const noteText = item.notes.filter(note => !/^(complaint recorded|complaint (marked as )?resolved|the case (is now fully|was) resolved)[.!]?$/i.test(String(note).trim())).join('\n');
+      if (noteText) {
         const note = document.createElement('div');
-        if (window.MiniAppActivityChanges) note.innerHTML = window.MiniAppActivityChanges.textHtml(displayHistoryNote(item.note));
-        else note.textContent = displayHistoryNote(item.note);
+        if (window.MiniAppActivityChanges) note.innerHTML = window.MiniAppActivityChanges.textHtml(displayHistoryNote(noteText));
+        else note.textContent = displayHistoryNote(noteText);
         content.append(note);
       }
       content.append(textNode('small', item.created_at || '', 'muted'));
-      window.MiniAppActivityChanges?.append(content, item.changes, {title: action, detail: item.note});
+      const changes = creation ? [] : item.changes.filter(change =>
+        !['priority', 'status'].includes(change.field) && !(item.notes.length && change.field === 'resolution_details'));
+      window.MiniAppActivityChanges?.append(content, changes, {title: action, detail: noteText});
       row.append(iconNode(item.status === 'Closed' ? 'circle-check' : 'history', 'item-icon'), content);
       node.appendChild(row);
     });

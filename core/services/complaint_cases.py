@@ -1917,6 +1917,35 @@ def complaint_actor_affiliation(actor: ComplaintCaseActor, update: CaseUpdate) -
     return ''
 
 
+def complaint_display_changes(changes, locations, categories):
+    """Human labels for the read projection; immutable recorded values stay intact."""
+    fields = {change['field'] for change in changes}
+    location_fields = {'county_code': ('county', 'county'),
+                       'sub_county_code': ('sub_county', 'sub_county'),
+                       'branch_code': ('branch', 'branch')}
+    result = []
+    for change in changes:
+        field = change['field']
+        if field == 'priority':
+            continue
+        item = dict(change)
+        if field in location_fields:
+            kind, text_field = location_fields[field]
+            if text_field in fields:
+                continue  # One county change, not its name AND its storage code.
+            for side in ('old', 'new'):
+                value = change.get(f'{side}_value')
+                if value:
+                    item[f'{side}_display'] = locations.get((kind, value), f'Unknown {kind.replace("_", "-")}')
+        elif field == 'category_key':
+            for side in ('old', 'new'):
+                value = change.get(f'{side}_value')
+                if value:
+                    item[f'{side}_display'] = categories.get(value, 'Unknown category')
+        result.append(item)
+    return result
+
+
 def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]:
     """One read-only history with immutable affiliation and legacy evidence."""
     from core.models import ComplianceAuditEvent
@@ -1937,6 +1966,13 @@ def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]
     for update in updates:
         row = serialize_update(update)
         event = recorded.get(update.client_request_id) if update.client_request_id else None
+        if event:
+            row['action'] = event.action
+            row['action_group'] = str(event.pk)
+        elif not row['action']:
+            row['action'] = ('created' if not update.old_status else
+                             'resolved' if update.new_status == 'Closed' else
+                             'reopened' if update.new_status == 'Reopened' else 'updated')
         row['changes'] = recorded_changes(event.before_values, event.after_values, labels=history_labels) if event else recorded_changes(
             {'status': update.old_status} if update.old_status else {}, {'status': update.new_status})
         evidence = metadata.get(str(update.pk), {})
@@ -1955,6 +1991,17 @@ def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',
                      'created_at': format_datetime(case.date_resolved), 'actor_affiliation': ''})
+    codes = {change.get(f'{side}_value') for row in rows for change in row.get('changes', [])
+             if change['field'] in {'county_code', 'sub_county_code', 'branch_code'}
+             for side in ('old', 'new') if change.get(f'{side}_value')}
+    category_keys = {change.get(f'{side}_value') for row in rows for change in row.get('changes', [])
+                     if change['field'] == 'category_key'
+                     for side in ('old', 'new') if change.get(f'{side}_value')}
+    locations = {(kind, code): name for kind, code, name in
+                 OperationalLocation.objects.filter(code__in=codes).values_list('location_type', 'code', 'name')} if codes else {}
+    categories = dict(ComplaintCategory.objects.filter(key__in=category_keys).values_list('key', 'label')) if category_keys else {}
+    for row in rows:
+        row['display_changes'] = complaint_display_changes(row.get('changes', []), locations, categories)
     return rows
 
 

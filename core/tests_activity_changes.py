@@ -10,6 +10,49 @@ from payments.services import _payment_activity_changes
 
 
 class ActivityChangesTests(SimpleTestCase):
+    def test_complaint_labels_hide_codes_priority_and_duplicate_locations(self):
+        from core.services.complaint_cases import complaint_display_changes
+
+        changes = recorded_changes(
+            {'county_code': 'KE-21', 'category_key': 'burner', 'priority': 'normal'},
+            {'county_code': 'KE-22', 'category_key': 'installation', 'priority': 'high'})
+        readable = complaint_display_changes(changes,
+            {('county', 'KE-21'): 'Murang’a', ('county', 'KE-22'): 'Kiambu'},
+            {'burner': 'Burner issue', 'installation': 'Installation issue'})
+        self.assertEqual([row['field'] for row in readable], ['county_code', 'category_key'])
+        self.assertEqual(readable[0]['old_display'], 'Murang’a')
+        self.assertEqual(readable[0]['new_display'], 'Kiambu')
+        self.assertEqual(readable[1]['new_display'], 'Installation issue')
+        self.assertEqual(changes[0]['old_value'], 'KE-21')
+        self.assertNotIn('old_display', changes[0])
+        duplicate = recorded_changes({'county': 'Murang’a', 'county_code': 'KE-21'},
+                                     {'county': 'Kiambu', 'county_code': 'KE-22'})
+        self.assertEqual([row['field'] for row in complaint_display_changes(duplicate, {}, {})], ['county'])
+        self.assertEqual(complaint_display_changes(changes, {}, {})[0]['old_display'], 'Unknown county')
+
+    @patch('core.services.complaint_cases.ComplaintCategory.objects.filter')
+    @patch('core.services.complaint_cases.OperationalLocation.objects.filter')
+    @patch('core.services.complaint_cases.ComplaintCaseEvent.objects.filter')
+    @patch('core.models.ComplianceAuditEvent.objects.filter')
+    def test_complaint_history_uses_action_and_resolves_catalogue_names(self, audit, events, locations, categories):
+        from core.services.complaint_cases import complaint_history
+
+        audit.return_value.values_list.return_value = [('update', {'actor_affiliation': 'JBL'})]
+        events.return_value = [SimpleNamespace(pk='operation', request_id='request', action='details_completed',
+            before_values={'county_code': 'KE-21', 'priority': 'normal'},
+            after_values={'county_code': 'KE-22', 'priority': 'high'})]
+        locations.return_value.values_list.return_value = [('county', 'KE-21', 'Murang’a'), ('county', 'KE-22', 'Kiambu')]
+        update = SimpleNamespace(pk='update', old_status='Open', new_status='Open', resolution_text='',
+            updated_by='Training officer', created_at=datetime.now(timezone.utc), gps_link='',
+            source='mini_app_review_completion', client_request_id='request')
+        rows = complaint_history(SimpleNamespace(resolution_details=''), [update])
+        self.assertEqual(rows[0]['action'], 'details_completed')
+        self.assertEqual(rows[0]['action_group'], 'operation')
+        self.assertEqual(rows[0]['changes'][0]['old_value'], 'KE-21')
+        self.assertEqual(rows[0]['display_changes'][0]['old_display'], 'Murang’a')
+        self.assertEqual(len(rows[0]['display_changes']), 1)
+        categories.assert_not_called()
+
     def test_only_allowlisted_actual_changes_and_distinct_missing_history(self):
         changes = recorded_changes({'county': 'Kiambu', 'amount': 0, 'comment': ''},
                                    {'county': 'Nakuru', 'amount': 0, 'comment': 'New note',
