@@ -1021,6 +1021,7 @@ def tat_tracker_settings(request):
     from django.contrib.auth import get_user_model
     from core.services.miniapp_settings import account_summary_payload, preference_payload, tat_settings_payload
     from core.services.tat_update_dispatch import attention_count
+    from report_delivery.services import can_manage
     from core.services.workflow_data_mode import WORKFLOW_TAT, serialize_mode
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if not actor:
@@ -1028,6 +1029,7 @@ def tat_tracker_settings(request):
     try:
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'tat_tracker'),
+            'report_email_allowed': can_manage(actor, workflow='tat_tracker'),
             'account': account_summary_payload(
                 actor,
                 'tat_tracker',

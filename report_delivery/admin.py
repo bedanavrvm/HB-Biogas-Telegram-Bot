@@ -24,7 +24,7 @@ class ScopedForm(forms.ModelForm):
         values = super().clean()
         if not all(key in values for key in ('group_configuration', 'branch', 'product')):
             return values
-        for key in ('group_configuration', 'branch', 'product'):
+        for key in ('group_configuration', 'branch', 'product', 'workflow'):
             setattr(self.instance, key, values[key])
         if not can_manage(self.actor, self.instance):
             raise ValidationError('Your Portal IT grant does not cover this entire report scope.')
@@ -40,6 +40,12 @@ class ScheduleForm(ScopedForm):
 
     def clean(self):
         values = super().clean()
+        for key in ('preset', 'county'):
+            if key in values:
+                setattr(self.instance, key, values[key])
+        if 'preset' in values:
+            from .sources import validate_source
+            validate_source(self.instance)
         if len(values.get('recipients', [])) > 50:
             raise ValidationError('Use up to 50 approved recipients per schedule.')
         for recipient in values.get('recipients', []):
@@ -63,10 +69,10 @@ class RecipientForm(ScopedForm):
 
 class ScopedAdmin(ModelAdmin):
     def has_module_permission(self, request):
-        return request.user.is_staff and can_manage(request.user)
+        return request.user.is_staff and any(can_manage(request.user, workflow=w) for w in ('jawabu_portal', 'tat_tracker', 'complaint_cases'))
 
     def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request) and can_manage(request.user, obj)
+        return self.has_module_permission(request) and (obj is None or can_manage(request.user, obj))
 
     has_change_permission = has_view_permission
 
@@ -171,7 +177,7 @@ class DeliveryAdmin(ModelAdmin):
     readonly_fields = fields
 
     def has_module_permission(self, request):
-        return request.user.is_staff and can_manage(request.user)
+        return request.user.is_staff and any(can_manage(request.user, workflow=w) for w in ('jawabu_portal', 'tat_tracker', 'complaint_cases'))
 
     def has_view_permission(self, request, obj=None):
         return self.has_module_permission(request) and (obj is None or can_manage(request.user, obj.schedule))

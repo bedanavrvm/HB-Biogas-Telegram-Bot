@@ -27,6 +27,8 @@ def report_basis(preset):
         'pipeline': 'Current backlog at generation time.',
         'finance': 'Period activity; financial amounts are current recorded values, not historical cash flow.',
         'outcomes': 'Actions recorded during the selected period.',
+        'tat': 'Completed-period TAT outcomes; current authorized operational data only.',
+        'complaints': 'Complaints reported in this period; resolution status is current at generation.',
     }[preset]
 
 
@@ -113,7 +115,7 @@ def report_pdf(snapshot, configuration=None):
 
 def build_payload(snapshot, email, configuration):
     period = configuration['period']
-    stem = f'portal-{snapshot["preset"]}-{period["to"]}'
+    stem = f'{snapshot["preset"]}-report-{period["to"]}'
     payload = {
         'from': settings.REPORT_EMAIL_FROM, 'to': [email],
         'subject': f'{snapshot["preset"].title()} report · {period["from"]} to {period["to"]}',

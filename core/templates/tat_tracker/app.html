@@ -250,6 +250,7 @@
         <p>Your access, work defaults, and authorised TAT configuration controls.</p>
       </section>
       <section id="tatSettingsAccount" class="form-card miniapp-settings-account" aria-live="polite" hidden></section>
+      <section id="tatReportEmailSettings" class="form-card" hidden></section>
       <form id="personalSettingsForm" class="form-card">
         <div class="form-heading">
           <span class="settings-eyebrow">MY WORKSPACE</span>
@@ -480,6 +481,8 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=115"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=1">
+  <script src="{% static 'miniapp/report_email_settings.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=116"></script>
 </body>
 </html>

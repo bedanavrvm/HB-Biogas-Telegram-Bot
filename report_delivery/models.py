@@ -8,6 +8,7 @@ from django.utils import timezone
 
 
 class ScopedConfiguration(models.Model):
+    workflow = models.CharField(max_length=24, default='jawabu_portal', choices=[('jawabu_portal', 'Portal'), ('tat_tracker', 'TAT'), ('complaint_cases', 'Complaints')], db_comment='Owning report workflow; approvals never transfer between Mini Apps.')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Stable configuration identity.')
     group_configuration = models.ForeignKey('core.GroupSheetConfiguration', on_delete=models.PROTECT, related_name='%(class)s_report_configurations', db_comment='Owning Portal group; never inferred from an email address.')
     branch = models.CharField(max_length=120, blank=True, db_comment='Permitted branch; blank means all branches in the owning group.')
@@ -29,7 +30,7 @@ class ApprovedRecipient(ScopedConfiguration):
     class Meta:
         db_table = 'report_delivery_recipient_root'
         db_table_comment = 'Authoritative approved email recipients and group/branch/product disclosure boundaries; retained until explicit administrative removal.'
-        constraints = [models.UniqueConstraint(fields=['group_configuration', 'email', 'branch', 'product'], name='report_recipient_scope_unique')]
+        constraints = [models.UniqueConstraint(fields=['workflow', 'group_configuration', 'email', 'branch', 'product'], name='report_recipient_scope_unique')]
         ordering = ['email']
 
     def __str__(self):
@@ -38,7 +39,7 @@ class ApprovedRecipient(ScopedConfiguration):
 
 class ReportSchedule(ScopedConfiguration):
     title = models.CharField(max_length=100, db_comment='Short operator-facing schedule name.')
-    preset = models.CharField(max_length=12, choices=[(v, v.title()) for v in ('pipeline', 'outcomes', 'finance')], db_comment='Allowlisted Portal report preset.')
+    preset = models.CharField(max_length=12, choices=[(v, v.title()) for v in ('pipeline', 'outcomes', 'finance', 'tat', 'complaints')], db_comment='Allowlisted report preset for the owning workflow.')
     county = models.CharField(max_length=120, blank=True, db_comment='Optional narrowing county filter.')
     recipients = models.ManyToManyField(ApprovedRecipient, related_name='schedules', through='ScheduleRecipient')
     frequency = models.CharField(max_length=12, default='daily', choices=[(v, v.title()) for v in ('daily', 'weekly', 'monthly', 'quarterly')], db_comment='Completed Nairobi calendar period cadence.')

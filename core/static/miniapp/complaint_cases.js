@@ -564,6 +564,7 @@
       const actorRoles = Array.isArray(data.actor.roles) && data.actor.roles.length
         ? data.actor.roles : [data.actor.role].filter(Boolean);
       $('actorLine').textContent = [data.actor.name, ...actorRoles].join(' · ');
+      if ($('complaintSettingsBtn')) $('complaintSettingsBtn').hidden = !(data.report_email_allowed ?? actorRoles.some(role => ['IT', 'SUPERUSER'].includes(String(role).toUpperCase())));
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
@@ -1882,6 +1883,7 @@
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   function returnPrevious() {
+    if ($('complaintSettingsOverlay') && !$('complaintSettingsOverlay').hidden) { closeComplaintSettings(); return; }
     if (state.reportFilterSheetOpen) { closeComplaintReportFilters(); return; }
     if (!$('mediaViewerOverlay').hidden) { closeMediaViewer(); return; }
     if (!$('cameraOverlay').hidden) { closeCamera(); return; }
@@ -1998,6 +2000,32 @@
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); });
   document.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', returnPrevious));
+  function closeComplaintSettings() {
+    $('complaintSettingsOverlay').hidden = true;
+    $('complaintSettingsBtn').focus();
+    if (!$('detailView').hidden || !$('globalView').hidden || !$('createView').hidden) telegram?.BackButton?.show();
+    else telegram?.BackButton?.hide();
+  }
+  $('complaintSettingsBtn')?.addEventListener('click', () => {
+    window.MiniAppReportEmailSettings?.mount($('complaintReportEmailSettings'), payload => json('settings/reports/', payload));
+    $('complaintSettingsOverlay').hidden = false;
+    $('complaintSettingsClose').focus();
+    telegram?.BackButton?.show();
+  });
+  $('complaintSettingsClose')?.addEventListener('click', closeComplaintSettings);
+  $('complaintSettingsOverlay')?.addEventListener('click', event => { if (event.target === event.currentTarget) closeComplaintSettings(); });
+  document.addEventListener('keydown', event => {
+    const overlay=$('complaintSettingsOverlay');
+    if(!overlay || overlay.hidden)return;
+    if(event.key==='Escape') { event.preventDefault(); closeComplaintSettings(); }
+    if(event.key==='Tab') {
+      const controls=[...overlay.querySelectorAll('button,input,select,textarea')].filter(n=>!n.disabled && n.offsetParent!==null);
+      if(!controls.length)return;
+      const first=controls[0],last=controls[controls.length-1];
+      if(event.shiftKey && document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus();}
+    }
+  });
   $('refreshBtn').addEventListener('click', () => {
     if (!$('queueView').hidden) { state.page = 1; loadCases(); refreshCounts(); }
     else if (!$('globalView').hidden) refreshGlobal();

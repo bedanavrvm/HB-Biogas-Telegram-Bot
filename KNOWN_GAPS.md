@@ -1,5 +1,18 @@
 # Known Gaps and Verified Workarounds
 
+## Workflow-owned email settings - 5 October 2026
+
+Portal, TAT and Complaints now provide IT-only schedule and recipient settings
+for their own reports. A fresh isolated SQLite selection passed 78 backend
+tests; the focused browser selection passed 15 tests, including mobile widths
+and Complaints Settings navigation. PostgreSQL concurrency and real Resend
+delivery remain unverified; sending remains off by default.
+
+An additional broader selection exposed an existing clock-sensitive Complaints
+timing fixture: it fixes case dates at 2 October but evaluates ages against the
+current date. Its expected age bucket no longer holds on 5 October. This is not
+a passing test and was not silently changed as part of email settings.
+
 ## Scheduled Portal email rollout - 5 October 2026
 
 Resend delivery is disabled by default. Local checks use synthetic cases and

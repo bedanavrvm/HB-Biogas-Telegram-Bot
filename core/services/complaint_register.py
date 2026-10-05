@@ -443,11 +443,12 @@ def _timing_summary(queryset, filters, granularity):
 
 def complaint_report_summary(
     *, filters: dict[str, Any] | None = None, granularity: str = 'month',
+    base_queryset=None,
 ) -> dict[str, Any]:
     granularity = str(granularity or 'month').strip().casefold()
     if granularity not in REPORT_TIME_GROUPS:
         raise ComplaintCaseError('Time grouping must be Day, Week, Month or Year.')
-    base_queryset = _base_queryset()
+    base_queryset = _base_queryset() if base_queryset is None else base_queryset
     queryset = _apply_report_filters(base_queryset, filters or {})
     metrics = queryset.aggregate(
         total=Count('pk'),

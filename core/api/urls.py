@@ -4,7 +4,7 @@ URL routing for the core API.
 from django.urls import include, path
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
-from report_delivery.views import resend_webhook
+from report_delivery.views import resend_webhook, tat_report_settings, complaint_report_settings
 from .miniapp_diagnostic_views import (
     miniapp_diagnostic_session_start,
     miniapp_diagnostic_signals,
@@ -64,6 +64,7 @@ from .portal_views import (
     portal_navigation,
     portal_settings,
     portal_report_send_now,
+    portal_report_settings,
     portal_tat_target_settings,
     portal_approval_delegations,
     portal_approval_delegation_revoke,
@@ -244,6 +245,9 @@ from .complaint_case_views import (
 
 urlpatterns = [
     path('report-delivery/resend/webhook/', resend_webhook, name='report_resend_webhook'),
+    path('tat-tracker/settings/reports/', tat_report_settings, name='tat_report_settings'),
+    path('complaints/settings/reports/', complaint_report_settings, name='complaint_report_settings'),
+    path('portal/settings/reports/', portal_report_settings, name='portal_report_settings'),
     path('', include('origination.urls')),
     path('staff/activate/', legacy_get_redirect('staff_telegram_activation_page'), name='legacy_api_staff_telegram_activation_page'),
     path('staff/activate/submit/', staff_telegram_activation_submit, name='staff_telegram_activation_submit'),

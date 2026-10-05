@@ -1652,7 +1652,7 @@ def _portal_setting_options(request, actor) -> dict:
         'report_email': {
             'allowed': can_manage(actor),
             'enabled': bool(settings.REPORT_EMAIL_DELIVERY_ENABLED and settings.RESEND_API_KEY and settings.REPORT_EMAIL_FROM),
-            'active_schedules': allowed_configurations(actor, ReportSchedule).filter(active=True).count() if can_manage(actor) else 0,
+            'active_schedules': allowed_configurations(actor, ReportSchedule, workflow='jawabu_portal').filter(active=True).count() if can_manage(actor) else 0,
         },
         'operations': {
             'health': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
@@ -1662,6 +1662,20 @@ def _portal_setting_options(request, actor) -> dict:
             'tat_targets': has_capability(actor, 'jawabu_portal', 'portal.tat.targets.manage', access=access),
         },
     }
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_report_settings(request):
+    from report_delivery.views import report_settings_response
+    try:
+        payload = json.loads(request.body or '{}')
+        if not isinstance(payload, dict):
+            raise ValueError
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'Review the report settings.'}, status=400)
+    return report_settings_response(request.portal_user, 'jawabu_portal', payload)
 
 
 @portal_auth_required
@@ -1681,7 +1695,7 @@ def portal_report_send_now(request):
         if not isinstance(payload, dict):
             raise ValueError
         key = payload.get('client_request_id') or payload.get('request_key')
-        schedules = list(allowed_configurations(actor, ReportSchedule).filter(active=True).order_by('pk')[:51])
+        schedules = list(allowed_configurations(actor, ReportSchedule, workflow='jawabu_portal').filter(active=True).order_by('pk')[:51])
         if len(schedules) > 50:
             return JsonResponse({'ok': False, 'error': 'Choose individual schedules in Admin; this action supports up to 50.'}, status=400)
         count = 0

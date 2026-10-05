@@ -23,9 +23,10 @@
   <main class="complaint-app" aria-label="Complaints">
     <header id="appHeader" class="app-top">
       <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
-      <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button>
+      <div style="display:flex;gap:4px;flex-shrink:0"><button id="complaintSettingsBtn" class="icon-button" type="button" aria-label="Settings" title="Settings" hidden><svg class="lucide" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z"/></svg></button><button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button></div>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="complaintSettingsOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintSettingsTitle" hidden><section class="report-email-sheet"><div class="report-email-head"><h3 id="complaintSettingsTitle">Settings</h3><button id="complaintSettingsClose" class="icon-button" type="button" aria-label="Close settings">×</button></div><div id="complaintReportEmailSettings"></div></section></div>
     <section id="errorBanner" class="error-banner" role="alert" aria-live="assertive" hidden>
       <div class="error-banner-copy"><strong id="errorBannerTitle">Action needed</strong><p id="errorBannerMessage"></p><small id="errorBannerReference" hidden></small></div>
       <div class="error-banner-actions"><button id="errorBannerRetry" type="button" hidden>Try Again</button><button id="errorBannerCloseApp" type="button" hidden>Close Mini App</button><button id="errorBannerDismiss" type="button">Dismiss</button></div>
@@ -145,6 +146,8 @@
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=8"></script>
   <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=58"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=1">
+  <script src="{% static 'miniapp/report_email_settings.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=59"></script>
 </body>
 </html>

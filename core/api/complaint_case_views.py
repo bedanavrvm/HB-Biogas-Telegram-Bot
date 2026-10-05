@@ -221,6 +221,8 @@ def complaint_cases_bootstrap(request):
     from core.services.miniapp_settings import account_summary_payload, preference_payload
     from core.services.telegram_identity import user_access
     data = bootstrap_data(group_config, actor)
+    from report_delivery.services import can_manage
+    data['report_email_allowed'] = can_manage(actor.user, workflow='complaint_cases')
     data['access_policy_version'] = policy_version()
     data['personal'] = preference_payload(actor.user, 'complaint_cases')
     access = user_access(actor.user, 'complaint_cases', group_configuration=group_config)

@@ -2133,6 +2133,7 @@
     state.personalPreference = personal;
     state.portalSettings = data.data || {};
     const reportEmail = data.data?.report_email || {};
+    if (reportEmail.allowed) window.MiniAppReportEmailSettings?.mount(el('portal-report-email-manager'), payload => portalApi.postJson('/api/portal/settings/reports/', payload));
     if (el('portal-report-email-settings')) el('portal-report-email-settings').hidden = !reportEmail.allowed;
     if (el('portal-report-email-send')) el('portal-report-email-send').disabled = !reportEmail.enabled || !reportEmail.active_schedules;
     if (el('portal-report-email-status')) el('portal-report-email-status').textContent = !reportEmail.enabled ? 'IT must configure email delivery first.' : `${reportEmail.active_schedules || 0} active schedule(s)`;

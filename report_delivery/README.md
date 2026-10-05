@@ -1,4 +1,35 @@
-# Scheduled Portal reports
+# Scheduled Mini App reports
+
+## Mini App Settings: Portal, TAT and Complaints
+
+Each app now owns its email report schedules and recipient approvals. Portal
+offers Pipeline, Outcomes and Finance; TAT offers completed-period TAT outcomes;
+Complaints offers complaints received in the selected period with their current
+resolution status. No cross-workflow customer joins are made.
+
+IT opens **Settings → Email reports → Manage reports** in Portal/TAT. In
+Complaints, the header **gear icon** opens the Settings panel. Add a report,
+choose its group, cadence and Nairobi sending time, enter recipient addresses
+(one per line), choose Active, and Save. Confirming approves those addresses
+for that app and selected branch/product scope. Blank scope fields mean the
+whole selected group; narrower IT grants cannot approve broader scope.
+
+The pencil edits a schedule; the send icon queues that schedule immediately.
+The existing Portal Send reports now control queues all active Portal schedules
+only. Closing Complaints Settings returns to the same screen and retains
+unsaved fields. Credentials remain in deployment environment settings, never
+in the Mini App. Suppressed addresses require explicit Admin review.
+
+TAT reports use the existing Period Performance cohort and operational data-mode
+rules. Complaints reports use reported dates; their resolution values are current,
+not reconstructed historical status. Both Excel attachments are capped at 2,000
+rows, with full-scope counts stated in the PDF. One shared runner handles all apps.
+
+Apply `0003_remove_approvedrecipient_report_recipient_scope_unique_and_more`:
+existing schedules/approvals retain Portal ownership. Pause the runner and export
+or remove TAT/Complaints configurations before reversing with
+`python manage.py migrate report_delivery 0002_alter_approvedrecipient_authorized_by_and_more`.
+Removing workflow ownership while retaining cross-app schedules is unsafe.
 
 Portal Pipeline, Outcomes and Finance reports can be emailed through Resend.
 This is independent of Gmail credit appraisal ingestion. Sending is **off by
@@ -7,9 +38,8 @@ scheduler.
 
 ## Operator setup
 
-1. Apply reviewed migrations `report_delivery.0001_initial` and
-   `0002_alter_approvedrecipient_authorized_by_and_more` in your approved
-   release process. It creates only delivery/configuration tables.
+1. Apply reviewed `report_delivery` migrations through `0003` in your approved
+   release process. These changes affect only delivery/configuration tables.
 2. In Resend, verify an organization-owned sending domain using the DNS records
    it supplies. Configure SPF/DKIM and the organization's DMARC policy. Disable
    open/click tracking for this reporting domain.

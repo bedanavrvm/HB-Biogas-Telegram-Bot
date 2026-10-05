@@ -22,12 +22,13 @@ PAYLOAD_DAYS = 30
 METADATA_DAYS = 180
 
 
-def can_manage(user, configuration=None):
+def can_manage(user, configuration=None, *, workflow='jawabu_portal'):
     if not user or not user.is_active:
         return False
     if user.is_superuser:
         return True
-    grants = AccessGrant.objects.filter(user=user, active=True, workflow='jawabu_portal', role__iexact='IT')
+    workflow = getattr(configuration, 'workflow', workflow)
+    grants = AccessGrant.objects.filter(user=user, active=True, workflow=workflow, role__iexact='IT')
     if configuration is None:
         return grants.exists()
     # A blank requested branch/product means the whole group. Narrow grants
@@ -40,19 +41,22 @@ def can_manage(user, configuration=None):
     )
 
 
-def require_manage(user, configuration=None):
-    if not can_manage(user, configuration):
-        raise PermissionDenied('Portal IT access is required for this report scope.')
+def require_manage(user, configuration=None, *, workflow='jawabu_portal'):
+    if not can_manage(user, configuration, workflow=workflow):
+        raise PermissionDenied('IT access is required for this app and report scope.')
 
 
-def allowed_configurations(user, model):
-    if not can_manage(user):
+def allowed_configurations(user, model, *, workflow=None):
+    if not user or not user.is_active:
         return model.objects.none()
     if user.is_superuser:
-        return model.objects.all()
+        return model.objects.filter(workflow=workflow) if workflow else model.objects.all()
     scope = Q(pk__in=[])
-    for grant in AccessGrant.objects.filter(user=user, active=True, workflow='jawabu_portal', role__iexact='IT'):
-        clause = Q()
+    grants = AccessGrant.objects.filter(user=user, active=True, workflow__in=['jawabu_portal', 'tat_tracker', 'complaint_cases'], role__iexact='IT')
+    if workflow:
+        grants = grants.filter(workflow=workflow)
+    for grant in grants:
+        clause = Q(workflow=grant.workflow)
         if grant.group_configuration_id:
             clause &= Q(group_configuration_id=grant.group_configuration_id)
         if grant.branch:
@@ -64,6 +68,10 @@ def allowed_configurations(user, model):
 
 
 def validate_recipient(schedule, recipient):
+    from .sources import validate_source
+    validate_source(schedule)
+    if recipient.workflow != schedule.workflow:
+        raise ValidationError('Recipients must be approved separately for this app.')
     if not recipient.active or recipient.suppressed:
         raise ValidationError('This recipient is paused or suppressed. IT must review it before sending.')
     if recipient.group_configuration_id != schedule.group_configuration_id:
@@ -77,11 +85,15 @@ def validate_recipient(schedule, recipient):
 
 
 def recipient_stamp(recipient):
-    return hashlib.sha256(json.dumps({
+    values = {
         'email': recipient.email, 'group': recipient.group_configuration_id,
         'branch': recipient.branch, 'product': recipient.product,
         'actor': recipient.authorized_by_id,
-    }, sort_keys=True).encode()).hexdigest()
+    }
+    # Keep unchanged queued Portal reports valid across the ownership migration.
+    if recipient.workflow != 'jawabu_portal':
+        values['workflow'] = recipient.workflow
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
 def _month_shift(day, count):
@@ -139,7 +151,7 @@ def _configuration(schedule, recipient, occurrence):
     # Pipeline is a current backlog snapshot, not a historical pipeline.
     filters.update({'date_mode': 'all'} if schedule.preset == 'pipeline' else {'date_mode': 'custom', **period})
     return {
-        'revision': schedule.revision, 'group': schedule.group_configuration_id,
+        'revision': schedule.revision, 'group': schedule.group_configuration_id, 'workflow': schedule.workflow,
         'approved_by': schedule.authorized_by_id, 'recipient_approved_by': recipient.authorized_by_id,
         'preset': schedule.preset, 'filters': filters, 'period': period,
         'due_at': occurrence.isoformat(), 'recipient_stamp': recipient_stamp(recipient),
@@ -229,6 +241,8 @@ def validate_delivery(delivery):
     schedule, recipient = delivery.schedule, delivery.recipient
     require_manage(schedule.authorized_by, schedule)
     validate_recipient(schedule, recipient)
+    if delivery.configuration.get('workflow', 'jawabu_portal') != schedule.workflow:
+        raise ValidationError('The report app changed; queue a fresh report.')
     if not schedule.recipients.filter(pk=recipient.pk).exists():
         raise ValidationError('This recipient is no longer assigned to the schedule.')
     if not schedule.group_configuration.enabled:
@@ -253,6 +267,10 @@ def capture_report(schedule, configuration):
         if connection.vendor == 'postgresql':
             with connection.cursor() as cursor:
                 cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        if schedule.workflow != 'jawabu_portal':
+            from .sources import capture_workflow_report
+            snapshot = capture_workflow_report(schedule, configuration)
+            return json.loads(json.dumps(snapshot, cls=DjangoJSONEncoder))
         snapshot = capture_curated_report(
             preset=configuration['preset'], filters=configuration['filters'],
             user=schedule.authorized_by, access=user_access(schedule.authorized_by, 'jawabu_portal'),
@@ -268,7 +286,7 @@ def preview_report(schedule, actor):
     return capture_report(schedule, {'preset': schedule.preset, 'filters': {
         **{key: getattr(schedule, key) for key in ('branch', 'product', 'county') if getattr(schedule, key)},
         **({'date_mode': 'all'} if schedule.preset == 'pipeline' else {'date_mode': 'custom', **completed_period(schedule, due)}),
-    }})
+    }, 'period': completed_period(schedule, due)})
 
 
 def _finish(delivery, **changes):

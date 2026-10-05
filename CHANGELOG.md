@@ -1,5 +1,11 @@
 # Changelog
 
+## 5 October 2026 — Workflow-owned report email settings
+
+- Portal and TAT Settings, plus a header Settings panel in Complaints, now let IT configure their own report schedules and recipients without Admin navigation.
+- Shared delivery retains per-app recipient approvals, complete-grant scope checks, revision conflicts and idempotent background sends. TAT and Complaints adapters reuse their own report sources.
+- Migration report_delivery.0003 assigns existing settings to Portal. Sending remains disabled by default; production migrations, PostgreSQL locking and live provider delivery require operator verification. See report_delivery/README.md for reversal precautions.
+
 ## Scheduled Portal email reports - 5 October 2026
 
 - Added scoped approved recipients, daily/weekly/monthly/quarterly schedules,

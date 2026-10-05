@@ -1677,6 +1677,10 @@
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
     const configuration = result.data.configuration || {};
+    if ($('tatReportEmailSettings')) {
+      $('tatReportEmailSettings').hidden = !result.data.report_email_allowed;
+      if (result.data.report_email_allowed) window.MiniAppReportEmailSettings?.mount($('tatReportEmailSettings'), payload => api('/api/tat-tracker/settings/reports/', payload));
+    }
     if (utils.renderSettingsAccount) utils.renderSettingsAccount($('tatSettingsAccount'), result.data.account || {});
     if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
     const workflowMode = result.data.workflow_mode || state.workflowMode || {};

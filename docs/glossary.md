@@ -11,8 +11,11 @@ respective service modules.
 ## Canonical staff access
 
 **Approved report recipient:** An email destination explicitly permitted to receive
-reports for one group and its approved branch/product scope. This approval does
-not grant Portal access.
+reports for one Mini App, group and its approved branch/product scope. This
+approval does not grant Mini App access or transfer to another workflow.
+
+**Scheduled Mini App report:** A recurring report owned by Portal, TAT or
+Complaints, sent to that app's approved recipients for a completed Nairobi period.
 
 **Scheduled Portal report:** A recurring Pipeline, Outcomes or Finance report for
 one completed Nairobi calendar period, with current-snapshot data clearly

@@ -1,4 +1,5 @@
 import json
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from django.conf import settings
 from django.db import transaction
@@ -13,6 +14,47 @@ from .resend import verify_webhook
 from .services import reconcile_webhooks
 
 EVENTS = {'email.sent', 'email.delivered', 'email.delivery_delayed', 'email.bounced', 'email.complained', 'email.failed'}
+
+
+def report_settings_response(actor, workflow, payload):
+    from .settings import settings_action
+    try:
+        if not isinstance(payload, dict):
+            raise ValidationError('Review the report settings.')
+        return JsonResponse({'ok': True, 'data': settings_action(actor, workflow, payload)})
+    except PermissionDenied:
+        return JsonResponse({'ok': False, 'error': 'IT access is required for this app.'}, status=403)
+    except (ValidationError, ValueError, TypeError) as exc:
+        message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else 'Review the selected report settings.'
+        return JsonResponse({'ok': False, 'error': message}, status=400)
+
+
+@csrf_exempt
+@require_POST
+def tat_report_settings(request):
+    from core.api.views import _tat_context, _tat_json_body
+    from django.contrib.auth import get_user_model
+    payload = _tat_json_body(request)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'Review the report settings.'}, status=400)
+    _, _, _, user, error = _tat_context(payload)
+    if error:
+        return error
+    actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
+    return report_settings_response(actor, 'tat_tracker', payload)
+
+
+@csrf_exempt
+@require_POST
+def complaint_report_settings(request):
+    from core.api.complaint_case_views import _context, _json_body
+    payload = _json_body(request)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'Review the report settings.'}, status=400)
+    _, actor, error = _context(request, payload)
+    if error:
+        return error
+    return report_settings_response(actor.user, 'complaint_cases', payload)
 
 
 @csrf_exempt  # Signed provider raw-body HMAC is the authentication boundary.

@@ -168,7 +168,8 @@
         "core/services/staff_access_readiness.py",
         "hb_operations/tests.py",
         "origination/tests.py",
-        "report_delivery/tests.py"
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.AccessGrant",
       "domain": "access",
@@ -218,7 +219,8 @@
         "origination/tests.py",
         "origination/tests_migrations.py",
         "report_delivery/services.py",
-        "report_delivery/tests.py"
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -355,7 +357,8 @@
         "core/services/complaint_cases.py",
         "core/services/complaint_publication.py",
         "core/services/group_reset.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.ComplaintCaseControl",
       "domain": "complaints",
@@ -380,7 +383,8 @@
         "core/services/complaint_publication.py",
         "core/services/complaint_register.py",
         "core/services/group_reset.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -961,7 +965,8 @@
         "hb_operations/tests.py",
         "origination/tests.py",
         "payments/tests.py",
-        "report_delivery/tests.py"
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.GroupSheetConfiguration",
       "domain": "platform",
@@ -1029,7 +1034,9 @@
         "payments/receipt_batches.py",
         "payments/tests.py",
         "report_delivery/models.py",
+        "report_delivery/settings.py",
         "report_delivery/tests.py",
+        "report_delivery/tests_settings.py",
         "requisitions/models.py"
       ]
     },
@@ -3550,7 +3557,8 @@
         "core/services/sheet_sync.py",
         "core/services/sheets.py",
         "core/services/storage.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.ParsedMessage",
       "domain": "complaints",
@@ -3585,7 +3593,8 @@
         "core/services/storage.py",
         "core/services/workflow_catalog.py",
         "core/services/workflow_links.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -3844,7 +3853,8 @@
         "core/services/deduplication.py",
         "core/services/group_reset.py",
         "core/services/sheet_sync.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.ProcessedMessage",
       "domain": "complaints",
@@ -3865,7 +3875,8 @@
         "core/services/reporting_relationships.py",
         "core/services/sheet_sync.py",
         "core/services/storage.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -3936,7 +3947,8 @@
         "origination/services/origination_templates.py",
         "origination/services/origination_terminology.py",
         "origination/tests.py",
-        "payments/services.py"
+        "payments/services.py",
+        "report_delivery/sources.py"
       ]
     },
     {
@@ -4281,7 +4293,8 @@
         "core/services/group_reset.py",
         "core/services/sheet_sync.py",
         "core/services/storage.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "core.RawMessage",
       "domain": "complaints",
@@ -4303,7 +4316,8 @@
         "core/services/reporting_relationships.py",
         "core/services/sheet_sync.py",
         "core/services/storage.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -6727,13 +6741,14 @@
         "report_delivery.ScheduleRecipient"
       ],
       "classification": "authoritative_record",
-      "column_count": 11,
+      "column_count": 12,
       "cross_domain_parents": [
         "auth.User",
         "core.GroupSheetConfiguration"
       ],
       "direct_orm_writers": [
         "report_delivery/services.py",
+        "report_delivery/settings.py",
         "report_delivery/tests.py"
       ],
       "django_model": "report_delivery.ApprovedRecipient",
@@ -6754,7 +6769,9 @@
         "report_delivery/migrations/0001_initial.py",
         "report_delivery/models.py",
         "report_delivery/services.py",
-        "report_delivery/tests.py"
+        "report_delivery/settings.py",
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
@@ -6764,7 +6781,7 @@
         "report_delivery.ScheduleRecipient"
       ],
       "classification": "authoritative_record",
-      "column_count": 17,
+      "column_count": 18,
       "cross_domain_parents": [
         "auth.User",
         "core.GroupSheetConfiguration"
@@ -6792,7 +6809,9 @@
         "report_delivery/migrations/0001_initial.py",
         "report_delivery/models.py",
         "report_delivery/services.py",
-        "report_delivery/tests.py"
+        "report_delivery/settings.py",
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ]
     },
     {
