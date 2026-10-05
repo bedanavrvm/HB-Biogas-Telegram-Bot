@@ -547,6 +547,7 @@ def log_jbl_visit(
     visit_date: date,
     officer: str,
     visit_status: str,
+    reason_code: str = '',
     comment: str = '',
     sender: str = '',
     latitude: float | None = None,
@@ -724,6 +725,7 @@ def log_jbl_visit(
         new_values={
             'visit_date': visit_date.isoformat(),
             'status': visit_status,
+            'reason_code': reason_code,
             'comment': str(comment or '').strip(),
         },
         actor_user=actor_user,
@@ -840,6 +842,7 @@ def complete_jbl_visit(
     visit_date: date,
     officer: str,
     visit_status: str,
+    reason_code: str = '',
     comment: str = '',
     sender: str = '',
     latitude: float | None = None,
@@ -893,6 +896,12 @@ def complete_jbl_visit(
     if already_completed:
         farmer.refresh_from_db()
         return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
+    if reason_code:
+        from core.services.jawabu_approvals import validate_pipeline_reason, JawabuApprovalError
+        try:
+            reason_code = validate_pipeline_reason(decision=visit_status, reason_code=reason_code, comment=comment)
+        except JawabuApprovalError as exc:
+            return False, ' '.join(exc.messages), {'evidence_saved': False}
     for category, files in categories.items():
         if category not in JBL_MEDIA_CATEGORIES:
             return False, 'Choose a valid visit media category.', {'evidence_saved': False}
@@ -952,6 +961,7 @@ def complete_jbl_visit(
             visit_date=visit_date,
             officer=officer,
             visit_status=visit_status,
+            reason_code=reason_code,
             comment=comment,
             sender=sender,
             latitude=latitude,

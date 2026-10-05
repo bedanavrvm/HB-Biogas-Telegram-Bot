@@ -438,7 +438,7 @@
       : sections.order?.order_number ? 'Ordered'
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Intake received');
     return `<header class="case360-hero">
-      <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
+      <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><div class="case360-bio">${systemName ? `<span>${deps.escapeHtml(systemName)}</span>` : ''}${identity.national_id ? `<span>ID ${deps.escapeHtml(identity.national_id)}</span>` : ''}${identity.primary_phone ? `<a class="portal-phone-link" href="tel:${deps.escapeHtml(String(identity.primary_phone).replace(/[^+0-9]/g, ''))}">${deps.escapeHtml(identity.primary_phone)}</a>` : ''}${intake.branch ? `<span>${deps.escapeHtml(intake.branch)}</span>` : ''}</div></div>
       <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
     </header>${caseStageFlow(sections, workflowState)}`;
   }
@@ -492,10 +492,11 @@
         <span>${deps.escapeHtml(caseDocumentKind(item))}</span>
         <strong title="${deps.escapeHtml(item.name || 'Document')}">${deps.escapeHtml(item.name || 'Document')}</strong>
         <div class="case360-document-actions">
-          ${item.preview_url ? `<button type="button" class="media-link case360-document-preview" data-document-index="${index}">View in app</button>` : ''}
-          ${item.open_url ? `<button type="button" class="media-link case360-document-open" data-document-index="${index}">Open externally</button>` : ''}
+          ${item.preview_url ? `<button type="button" class="media-link case360-document-preview" data-document-index="${index}" aria-label="Preview document" title="Preview document"><i data-lucide="eye" aria-hidden="true"></i></button>` : ''}
+          ${item.open_url ? `<button type="button" class="media-link case360-document-open" data-document-index="${index}" aria-label="Open document externally" title="Open externally"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}
         </div>
       </article>`).join('') : '<div class="empty-state">No linked documents.</div>';
+    if (window.lucide) window.lucide.createIcons();
     target.querySelectorAll('.case360-document-preview').forEach(button => button.addEventListener('click', () => {
       const item = items[Number(button.dataset.documentIndex)];
       if (item) openClientMediaPreview(item);
@@ -505,7 +506,7 @@
       if (!item) return;
       if (item.kind === 'visit_media') openClientMediaExternally(item, target, button);
       else if (item.prepare_external) {
-        const label = button.textContent;
+        const label = button.innerHTML;
         button.disabled = true;
         button.textContent = 'Preparing...';
         try {
@@ -516,7 +517,7 @@
           deps.showToast(error.message || 'Could not open this document externally.', 'error');
         } finally {
           button.disabled = false;
-          button.textContent = label;
+          button.innerHTML = label;
         }
       } else deps.openPortalLink(item.open_url);
     }));
@@ -880,6 +881,7 @@
       stopJblLiveCamera();
       resetJblMediaSelections();
       formEl.innerHTML = buildJblForm(farmer);
+      wireDecisionReasonFields('jbl');
       footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>';
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireJblDateInput();
@@ -1192,10 +1194,10 @@
       <p class="jbl-section-label">Lead details</p>
       <div class="form-section form-grid jbl-details-grid jbl-new-lead-fields">
         <div class="form-row" data-jbl-field="customer_name"><label>Customer name <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-name" type="text" maxlength="255" autocomplete="name" placeholder="Full name"><small class="jbl-field-error" data-error-message-for="customer_name"></small></div>
-        <div class="form-row" data-jbl-field="national_id"><label>National ID / Maisha Namba <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="1 to 9 digits"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
+        <div class="form-row" data-jbl-field="national_id"><label>National ID <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="1 to 9 digits"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
         <div class="form-row" data-jbl-field="primary_phone"><label>Primary mobile number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="e.g. 0712 345 678"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
         <div class="form-row" data-jbl-field="deposit_paid_hbg"><label>HB deposit paid <small>Optional</small></label><input id="jbl-new-lead-hb-deposit" type="text" inputmode="decimal" maxlength="16" placeholder="KES amount"><small class="jbl-field-error" data-error-message-for="deposit_paid_hbg"></small></div>
-        <div class="form-row" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
+        <div class="form-row form-row-wide" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
       </div>` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
@@ -1204,12 +1206,13 @@
       ${newLeadFields}
       <p class="jbl-section-label">Visit details</p>
       <div class="form-section form-grid jbl-details-grid">
-        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
+        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
-        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row" data-jbl-field="county"><label>County <span aria-hidden="true">*</span></label><select id="jbl-county" required><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
-        <div class="form-row" data-jbl-field="sub_county"><label>Constituency <span aria-hidden="true">*</span></label><select id="jbl-sub-county" required><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
-        <div class="form-row" data-jbl-field="village"><label for="jbl-village">Village / landmark <span aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village or landmark" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
+        <div class="form-row form-row-wide"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        ${decisionReasonMarkup('jbl', false)}
+        <div class="form-row" data-jbl-field="county"><label>County <span class="required-marker" aria-hidden="true">*</span></label><select id="jbl-county" required><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
+        <div class="form-row" data-jbl-field="sub_county"><label>Constituency <span class="required-marker" aria-hidden="true">*</span></label><select id="jbl-sub-county" required><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
+        <div class="form-row form-row-wide" data-jbl-field="village"><label for="jbl-village">Village / landmark <span class="required-marker" aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village or landmark" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
@@ -1844,7 +1847,15 @@
 
   function applyJblVisitDraft(draft) {
     if (!draft?.values) return false;
+    // JSON storage does not guarantee key order. Populate outcome-dependent
+    // reason choices before restoring the selected reason.
+    const status = el('jbl-status');
+    if (status && draft.values['jbl-status'] !== undefined) {
+      status.value = draft.values['jbl-status'];
+      status.dispatchEvent(new Event('change', {bubbles: true}));
+    }
     Object.entries(draft.values).forEach(([id, value]) => {
+      if (id === 'jbl-status') return;
       const field = el(id);
       if (!field) return;
       if (field.tagName === 'SELECT' && value && !Array.from(field.options).some(option => option.value === value)) {
@@ -1852,6 +1863,7 @@
       }
       field.value = value;
     });
+    el('jbl-reason-code')?.dispatchEvent(new Event('change', {bubbles: true}));
     if (jblLocationRefresh && ('jbl-county' in draft.values || 'jbl-sub-county' in draft.values)) {
       jblLocationRefresh(draft.values['jbl-county'] || '', draft.values['jbl-sub-county'] || '');
     }
@@ -2071,7 +2083,7 @@
     const errors = {};
     if (state().selectedFarmer?.is_new_jbl_lead) {
       if (!el('jbl-new-lead-name')?.value.trim()) errors.customer_name = 'Enter the customer name.';
-      if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID / Maisha Namba using 1 to 9 digits only.';
+      if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID using 1 to 9 digits only.';
       if (!normalizeKenyanMobile(el('jbl-new-lead-phone')?.value || '')) errors.primary_phone = 'Enter a valid Kenyan mobile number.';
     }
     const status = el('jbl-status')?.value || '';
@@ -2437,34 +2449,36 @@
   }
 
   function decisionReasonMarkup(prefix, includeOtherNote) {
-    const options = (state().metaApprovalReasons || []).map(item =>
-      `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`
-    ).join('');
     return `<div class="form-row form-row-wide decision-reason-row" id="${prefix}-reason-row" hidden>
       <label for="${prefix}-reason-code">Decision reason <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label>
-      <select id="${prefix}-reason-code"><option value="">- Select a reason -</option>${options}</select>
+      <select id="${prefix}-reason-code"><option value="">- Select a reason -</option></select>
       <small class="jbl-field-error" id="${prefix}-reason-error" role="alert"></small>
     </div>${includeOtherNote ? `<div class="form-row form-row-wide decision-other-note" id="${prefix}-other-note-row" hidden>
-      <label for="${prefix}-decision-comment">Explain this decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label>
+      <label for="${prefix}-decision-comment">Comment <span id="${prefix}-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label>
       <textarea id="${prefix}-decision-comment" rows="2" placeholder="Briefly explain the decision"></textarea>
       <small class="jbl-field-error" id="${prefix}-comment-error" role="alert"></small>
     </div>` : ''}`;
   }
 
   function decisionNeedsReason(value) {
-    return ['Rejected', 'Deferred / On Hold'].includes(String(value || '').trim());
+    return ['Rejected', 'Rejected by JBL', 'Deferred / On Hold'].includes(String(value || '').trim());
   }
 
   function wireDecisionReasonFields(prefix) {
-    const decision = el(`${prefix}-decision`);
+    const decision = el(`${prefix}-decision`) || (prefix === 'jbl' ? el('jbl-status') : null);
     const reason = el(`${prefix}-reason-code`);
     const reasonRow = el(`${prefix}-reason-row`);
-    const note = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : null);
+    const note = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : prefix === 'jbl' ? el('jbl-comment') : null);
     const noteRow = el(`${prefix}-other-note-row`);
     const noteRequiredMarker = el(`${prefix}-comment-required`);
     if (!decision || !reason || !reasonRow) return;
     const syncReason = () => {
       const required = decisionNeedsReason(decision.value);
+      const kind = decision.value === 'Deferred / On Hold' ? 'deferred' : 'rejected';
+      if (reason.dataset.kind !== kind) {
+        reason.innerHTML = '<option value="">Select a reason</option>' + (state().metaPipelineReasons?.[kind] || []).map(item => `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`).join('');
+        reason.dataset.kind = kind;
+      }
       reasonRow.hidden = !required;
       reason.required = required;
       reason.setAttribute('aria-required', String(required));
@@ -2472,15 +2486,16 @@
         reason.value = '';
         if (el(`${prefix}-reason-error`)) el(`${prefix}-reason-error`).textContent = '';
       }
-      const needsNote = required && reason.value === 'other';
-      if (noteRow) noteRow.hidden = !needsNote;
+      const needsNote = required && ['r07','d12'].includes(reason.value);
+      if (prefix === 'jbl') {
+        const help = el('jbl-reason-error');
+        if (help) help.textContent = reason.value === 'r05' ? 'Consent refused or cannot be obtained; use Deferred if the decision is pending.' : reason.value === 'd05' ? 'Additional livestock is expected before proceeding.' : needsNote ? 'Explain the other reason in Comment.' : '';
+      }
+      if (noteRow) noteRow.hidden = !required;
       if (noteRequiredMarker) noteRequiredMarker.hidden = !needsNote;
       if (note) {
         note.required = needsNote;
         note.setAttribute('aria-required', String(needsNote));
-        if (!needsNote && noteRow) {
-          note.value = '';
-        }
         if (!needsNote && el(`${prefix}-comment-error`)) el(`${prefix}-comment-error`).textContent = '';
       }
     };
@@ -2492,7 +2507,7 @@
   function validateDecisionReason(prefix, decisionValue, commentValue = '') {
     const reason = el(`${prefix}-reason-code`);
     const reasonError = el(`${prefix}-reason-error`);
-    const comment = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : null);
+    const comment = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : prefix === 'jbl' ? el('jbl-comment') : null);
     const commentError = el(`${prefix}-comment-error`);
     if (reasonError) reasonError.textContent = '';
     if (commentError) commentError.textContent = '';
@@ -2502,7 +2517,7 @@
       reason?.focus();
       return null;
     }
-    if (reason.value === 'other' && !String(comment?.value || commentValue || '').trim()) {
+    if (['r07','d12'].includes(reason.value) && !String(comment?.value || commentValue || '').trim()) {
       if (commentError) commentError.textContent = 'Explain the decision when reason is Other.';
       (comment || el('final-comment'))?.focus();
       return null;
@@ -2816,6 +2831,8 @@
     }
     if (!isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
+    const visitReason = validateDecisionReason('jbl', visitStatus);
+    if (visitReason === null) return deps.showToast('Choose the visit reason.', 'error');
     if (!commitJblDisplayDate({ showError: false })) {
       showJblFieldErrors({ visit_date: 'Enter a valid visit date in dd-mm-yy format.' });
       return;
@@ -2866,6 +2883,7 @@
     formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
     formData.set('visit_date', el('jbl-date')?.value || '');
     formData.set('visit_status', visitStatus);
+    formData.set('reason_code', visitReason);
     formData.set('officer', el('jbl-officer')?.value || '');
     formData.set('county', el('jbl-county')?.value || '');
     formData.set('sub_county', el('jbl-sub-county')?.value || '');

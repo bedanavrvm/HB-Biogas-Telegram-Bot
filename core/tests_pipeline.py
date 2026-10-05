@@ -1569,6 +1569,7 @@ class PortalMiniAppAuthTestCase(TestCase):
                 'values': {
                     'jbl-date': '2026-08-03',
                     'jbl-status': 'JBL Visit Completed',
+                    'jbl-reason-code': '',
                     'jbl-officer': 'Portal User',
                     'jbl-county': 'Kiambu',
                     'jbl-sub-county': 'Ruiru',
@@ -2829,7 +2830,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
             {'workflow_revision': self.farmer.workflow_revision, 'visit_date': '2026-07-01',
-             'visit_status': 'Deferred / On Hold', 'county': 'Meru', 'sub_county': 'Imenti', 'village': '   '},
+             'visit_status': 'Deferred / On Hold', 'reason_code': 'd03', 'county': 'Meru', 'sub_county': 'Imenti', 'village': '   '},
             HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='missing-village-api',
             HTTP_IDEMPOTENCY_KEY='missing-village-api',
         )
@@ -2842,7 +2843,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
             {'client_request_id': 'missing-location-api', 'workflow_revision': self.farmer.workflow_revision,
-             'visit_date': '2026-07-01', 'visit_status': 'Deferred / On Hold', 'village': 'Market'},
+             'visit_date': '2026-07-01', 'visit_status': 'Deferred / On Hold', 'reason_code': 'd03', 'village': 'Market'},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(set(response.json()['field_errors']), {'county', 'sub_county'})

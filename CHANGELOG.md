@@ -1,5 +1,18 @@
 # Changelog
 
+## 5 October 2026 — Compact Portal workspaces and decision reasons
+
+- JBL Visit, Credit and Final Review use separate rejection/deferment reasons.
+  Codes stay internal; Other reason requires a comment. Historical reasons and
+  payment-review options are preserved, with server validation before visit uploads.
+- FarmUp offers paged, read-only original source rows. Visit drafts retain the reason.
+- Settings summaries, archive/document actions, invoice comparisons and Case History
+  use compact Portal spacing. Routine invoice matching no longer asks for a review
+  note; existing protected conflict confirmation still does. Chart grouping is in options.
+- No schema migration or new dependency. Deploy the versioned assets together.
+  Validation uses synthetic browser fixtures and an isolated SQLite test database;
+  production PostgreSQL, live Telegram and external integrations remain unverified.
+
 ## 5 October 2026 — Branded report emails and filtered sends
 
 - New report emails provide a JBL management overview with the detailed Excel attached; PDF attachments are removed. Bare sender addresses display as JBL BOT.

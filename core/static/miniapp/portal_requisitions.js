@@ -489,6 +489,7 @@
       return;
     }
     sequenceRevision = Number(row?.revision || 0);
+    if (el('requisition-sequence-panel-summary')) el('requisition-sequence-panel-summary').textContent = (response.data?.sequences || []).map(item => `${item.partner === 'ECOCONSERVE' ? 'Eco' : 'HB'}: ${item.next_number}`).join(' · ') || 'Not initialized';
     sequenceGroupId = String(row?.group_id || '');
     if (el('requisition-sequence-next')) el('requisition-sequence-next').value = row?.next_number || '';
     if (status) status.textContent = row
@@ -764,8 +765,8 @@
           : driveRetryNeeded
             ? '<button class="btn btn-secondary" id="batch-detail-retry-sync">Retry Drive storage</button>'
             : '<span class="badge badge-grey">Legacy batch has no stored final form</span>'}
-      <button class="btn btn-secondary" id="batch-detail-preview" aria-label="Preview in App" title="Preview in App"><i data-lucide="file-search" aria-hidden="true"></i></button>
-      <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
+      <button class="btn btn-secondary" id="batch-detail-preview" aria-label="Preview order" title="Preview order"><i data-lucide="eye" aria-hidden="true"></i></button>
+      <button class="btn btn-secondary" id="batch-detail-upload" aria-label="Upload invoices" title="Upload invoices"><i data-lucide="upload" aria-hidden="true"></i></button>
     `;
     window.lucide?.createIcons();
     if (inv.last_invoice_upload_status) {

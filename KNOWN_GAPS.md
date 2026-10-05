@@ -1,5 +1,23 @@
 # Known Gaps and Verified Workarounds
 
+## Portal density validation — 5 October 2026
+
+The isolated SQLite pipeline selection is not green. A comparison with HEAD
+backend modules reproduced 25 failures and one error across 192 existing tests,
+including stale screen-route expectations, invoice fixtures missing official
+requisitions, preview availability and legacy generation assertions. Logs:
+`test-results/portal-density-baseline.txt` and `portal-density-backend.txt`.
+The current 215-test selection has exactly the same failing test names.
+Do not treat the focused passing tests as full pipeline certification; use the
+current supported routes and finalized-order fixtures for manual verification.
+
+The new reason/source-row and affected approval/location/draft checks pass
+(26 tests). The combined 72 browser layout/interaction checks pass using synthetic
+fixtures, including narrow widths, dark themes, source paging and report controls.
+PostgreSQL, device Telegram WebView and live Sheets/Drive are not verified.
+The local Python environment is 3.14 while the project targets 3.12; Ruff is
+not installed locally. Run the pinned CI environment for release certification.
+
 ## Immediate report sending - 5 October 2026
 
 Send now wakes a bounded worker after commit; it no longer relies on an operator

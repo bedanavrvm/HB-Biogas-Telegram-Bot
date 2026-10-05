@@ -39,6 +39,40 @@ REASON_CODES = (
     ('other', 'Other'),
 )
 REASON_CODE_VALUES = {value for value, _label in REASON_CODES}
+REJECTED_REASONS = (
+    ('r01', 'Affordability'), ('r02', 'Poor credit history'), ('r03', 'Multi-funded'),
+    ('r04', 'Insufficient livestock'), ('r05', 'Missing Consent'),
+    ('r06', 'Policy not met'), ('r07', 'Other reason'),
+)
+DEFERRED_REASONS = (
+    ('d01', 'Customer deciding'), ('d02', 'KYC pending'), ('d03', 'Customer unavailable'),
+    ('d04', 'Site not prepared'), ('d05', 'Not enough livestock'), ('d06', 'Deposit pending'),
+    ('d07', 'Family/spouse deciding'), ('d08', 'Health/personal circumstances'),
+    ('d09', 'Land/ownership issue pending'), ('d10', 'Reassessment pending'),
+    ('d11', 'Existing Loan Not Cleared'), ('d12', 'Other reason'),
+)
+
+
+def validate_pipeline_reason(*, decision: str, reason_code: str = '', comment: str = '') -> str:
+    """New Portal decisions use distinct lists; historical reasons stay intact."""
+    code = str(reason_code or '').strip().casefold()
+    if decision in {'Rejected', 'Rejected by JBL'}:
+        options = REJECTED_REASONS
+    elif decision == 'Deferred / On Hold':
+        options = DEFERRED_REASONS
+    else:
+        options = ()
+    if not options:
+        if code:
+            raise JawabuApprovalError('This outcome does not need a decision reason.')
+        return ''
+    if code not in dict(options):
+        raise JawabuApprovalError('Choose a reason for this outcome.')
+    if code in {'r07', 'd12'} and not str(comment or '').strip():
+        raise JawabuApprovalError('Explain the other reason.')
+    return code
+
+
 NON_POSITIVE_DECISIONS = {
     JawabuApprovalRecord.DECISION_CONDITIONAL,
     JawabuApprovalRecord.DECISION_REJECTED,
@@ -88,6 +122,9 @@ def validate_reason(*, decision: str, reason_code: str = '', comment: str = '') 
     normalized_decision = decision_code(decision)
     code = str(reason_code or '').strip().casefold()
     note = str(comment or '').strip()
+    if code in dict(REJECTED_REASONS + DEFERRED_REASONS):
+        label = 'Rejected' if normalized_decision == JawabuApprovalRecord.DECISION_REJECTED else 'Deferred / On Hold' if normalized_decision == JawabuApprovalRecord.DECISION_DEFERRED else ''
+        return normalized_decision, validate_pipeline_reason(decision=label, reason_code=code, comment=note)
     if normalized_decision in NON_POSITIVE_DECISIONS:
         if code not in REASON_CODE_VALUES:
             raise JawabuApprovalError('Choose a structured reason for this decision.')
@@ -325,6 +362,8 @@ def require_effective_approval(farmer, gate: str, *, payment_document=None) -> N
 def record_approval(*, farmer, gate: str, decision: str, reason_code: str = '', comment: str = '',
                     conditions: list[str] | None = None, actor=None, actor_label: str = '', access: dict | None = None,
                     payment_document=None) -> JawabuApprovalRecord:
+    if gate == JawabuApprovalRecord.GATE_PAYMENT_REVIEW and str(reason_code or '').strip().casefold() in dict(REJECTED_REASONS + DEFERRED_REASONS):
+        raise JawabuApprovalError('Choose a valid payment review reason.')
     normalized_decision, normalized_reason = validate_reason(
         decision=decision, reason_code=reason_code, comment=comment,
     )
@@ -530,6 +569,7 @@ def approval_payload(farmer) -> dict:
             'state': record.status if record else 'legacy',
             'decision': record.decision if record else '',
             'reason_code': record.reason_code if record else '',
+            'reason_label': dict(REASON_CODES + REJECTED_REASONS + DEFERRED_REASONS).get(record.reason_code, record.reason_code) if record else '',
             'invalidation_reason': record.invalidation_reason if record and record.status == record.STATUS_INVALIDATED else '',
             'expires_at': record.expires_at.isoformat() if record and record.expires_at else None,
             'conditions_pending': record.conditions.filter(satisfied_at__isnull=True).count() if record else 0,

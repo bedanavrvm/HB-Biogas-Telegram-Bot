@@ -977,7 +977,7 @@
 
   async function matchInvoiceToFarmer(farmerId, hasConflict) {
     if (!state.selectedInvoice?.id) return;
-    let note = el('invoice-match-note')?.value || '';
+    let note = '';
     if (hasConflict) {
       const values = await openInvoiceWorkflowSheet('Confirm invoice conflict', '<p class="invoice-card-warning">This applicant already has an invoice. Continue only when this is a deliberate correction.</p><div class="form-row"><label>Reason</label><textarea name="note" rows="3" required></textarea></div>', 'Continue matching');
       if (!values) return;

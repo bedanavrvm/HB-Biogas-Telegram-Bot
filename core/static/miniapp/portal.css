@@ -5026,3 +5026,78 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
   .pagination { flex-wrap:wrap; }
   .pagination-pages .pagination-page:not(.is-current),.pagination-pages .pagination-ellipsis { display:none; }
 }
+/* Portal operational density: one spacing/action vocabulary across records. */
+.portal-app :is(.history-document-card,.invoice-pool-card,.invoice-match-candidate,.batch-card,.invoice-record-section,.case360-section){padding:12px;gap:8px;border-radius:12px}
+.portal-app :is(.history-document-title,.invoice-section-heading h3,.case360-section h3){margin:0;color:var(--tg-theme-button-color,#2481cc);font-size:14px}
+.portal-app :is(.history-document-card,.invoice-match-candidate,.batch-client-row) .fc-sub{margin-top:4px;line-height:1.4;font-size:12px}
+.portal-app :is(.history-document-actions,.batch-action-row,.invoice-card-actions){display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin-top:4px}
+.portal-app :is(.history-document-actions,.batch-action-row,.batch-card) :is(.miniapp-icon-button,.portal-finance-icon,.btn:has(>i:only-child)){width:40px;height:40px;min-width:40px;padding:8px;flex:0 0 40px}
+.portal-app :is(.history-document-actions,.batch-action-row,.batch-card) svg{width:20px;height:20px;flex-shrink:0}
+.portal-app .history-document-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}
+.portal-app .history-document-card>.history-document-actions{grid-column:2;grid-row:1 / span 3;margin:0}
+.portal-app .history-document-card>:not(.history-document-actions){grid-column:1;min-width:0;overflow-wrap:anywhere}
+.portal-app .history-document-card>.physical-signoff{grid-column:1 / -1}
+.portal-app .invoice-card-heading{align-items:center;gap:8px;margin:0}
+.portal-app .invoice-card-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
+.portal-app .invoice-card-customer{margin:4px 0;font-size:14px;line-height:1.4}
+.portal-app .invoice-identity-comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.portal-app .invoice-identity-comparison>div{padding:8px;border-radius:8px;background:var(--tg-theme-secondary-bg-color,#f2f6fa);border-left:3px solid var(--tg-theme-button-color,#2481cc);min-width:0;overflow-wrap:anywhere}
+.portal-app .invoice-identity-comparison small{font-size:12px;color:var(--tg-theme-button-color,#2481cc);font-weight:600}
+.portal-app #invoice-match-summary{border-left:3px solid var(--tg-theme-button-color,#2481cc);border-radius:8px;background:var(--tg-theme-secondary-bg-color,#f2f6fa);padding:8px}
+.portal-app .invoice-match-candidate .fc-badges{margin-top:4px!important}
+.portal-app .case360-sections{gap:8px}
+.portal-app :is(.case360-panel,.case360-panel-heading,.case360-section>summary,.case360-header){padding:12px}
+.portal-app .case360-panel-heading{margin-bottom:8px;border-left:3px solid var(--tg-theme-button-color,#2481cc)}
+.portal-app .case360-panel-heading p{margin:4px 0;font-size:12px}
+.portal-app .case360-timeline article{padding-top:8px;padding-bottom:8px}
+.portal-app .case360-timeline-entry-heading{display:flex;justify-content:space-between;gap:8px}
+.portal-app .case360-tat-list>div{padding:8px 12px}
+.portal-app .case360-documents article{padding:8px 12px;gap:8px}
+.portal-app .portal-settings-card{padding:12px;margin-bottom:12px}
+.portal-app .portal-settings-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;min-height:40px}
+.portal-app .portal-settings-summary span{font-size:12px;text-align:right;color:var(--text-muted)}
+.portal-app .portal-settings-summary:after{content:'›';font-size:20px}
+.portal-app details[open]>.portal-settings-summary:after{transform:rotate(90deg)}
+.portal-app .portal-settings-grid{gap:8px;margin-top:8px}
+.portal-app .portal-settings-heading p{margin:4px 0 8px}
+.portal-app .portal-readiness-heading{padding:8px 0;gap:8px}
+.portal-app .portal-readiness-details>summary{cursor:pointer;display:flex;justify-content:space-between;padding:8px 0;font-size:13px}
+.portal-app .portal-health-grid{gap:8px}
+.portal-app .portal-health-check{padding:8px}
+.portal-app .farmup-source-pages{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px}
+.portal-app .required-marker{color:#dc2626}
+@media(max-width:430px){
+ .portal-app .invoice-identity-comparison{grid-template-columns:1fr}
+ .portal-app .invoice-identity-comparison>div{display:grid;grid-template-columns:92px minmax(0,1fr);gap:4px 8px}
+ .portal-app .invoice-identity-comparison>div>span{grid-column:2}
+ .portal-app .history-document-card{grid-template-columns:minmax(0,1fr) auto}
+ .portal-app .history-document-actions{max-width:92px}
+ .portal-app :is(#batch-detail-summary,#requisition-preview-summary){grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+ .portal-app :is(#batch-detail-summary,#requisition-preview-summary)>div{padding:8px}
+}
+.portal-app .case360-document{display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:8px}
+.portal-app .case360-document>strong{overflow-wrap:anywhere;min-width:0}
+.portal-app .case360-document-actions{display:flex;gap:6px}
+.portal-app .case360-document-actions button{width:40px;height:40px;padding:8px;display:inline-flex;justify-content:center;align-items:center;border:1px solid var(--border-color,#e3e6eb);border-radius:8px}
+.portal-app .case360-document-actions svg{width:20px;height:20px}
+.portal-app .portal-chart-interval{font-size:12px;color:var(--text-muted);font-weight:400;text-transform:capitalize}
+.portal-app .case360-tat-row{padding:8px 12px}
+.portal-app details.case360-section{padding:0}
+.portal-app .required-marker[hidden]{display:none!important}
+.portal-app .jbl-visit-sheet .jbl-details-grid .form-row-wide{grid-column:1 / -1;border-right:0}
+.portal-app .case360-documents .case360-document{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:8px;align-items:center}
+.portal-app .case360-documents .case360-document>strong{white-space:normal;overflow-wrap:anywhere;text-overflow:clip;font-size:13px}
+.portal-app .case360-documents .case360-document-actions{grid-column:3;grid-row:1;display:flex;gap:4px;flex-wrap:nowrap}
+.portal-app .case360-documents .case360-document-actions button{width:40px;min-width:40px;height:40px;min-height:40px;flex:0 0 40px;padding:8px}
+.portal-app .case360-hero{padding:12px;gap:8px;margin-bottom:8px;border-left:3px solid var(--color-primary)}
+.portal-app .case360-bio{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:13px;color:var(--text-muted)}
+.portal-app .case360-bio>span{min-width:0;overflow-wrap:anywhere}
+.portal-app .case360-section summary p{font-size:12px;line-height:1.4}
+.portal-app .invoice-record-section :is(dt,dd,.fc-sub){font-size:13px;line-height:1.4}
+.portal-app .invoice-match-comparison>div{border-left:3px solid var(--color-primary);padding:6px 8px;background:var(--bg-muted)}
+.portal-app .invoice-match-comparison span{font-size:13px;overflow-wrap:anywhere}
+.portal-app .portal-batch-extras{border-top:1px solid var(--border-color);margin-top:8px;padding-top:4px}
+.portal-app .portal-batch-extras>summary{min-height:32px;display:flex;align-items:center;cursor:pointer;font-size:13px;color:var(--color-primary)}
+.portal-app .portal-archive-card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+.portal-app .portal-archive-card-head>div:first-child{min-width:0;overflow-wrap:anywhere}
+.portal-app .portal-archive-card-head>div:last-child{display:grid!important;grid-template-columns:repeat(2,40px);gap:4px!important}

@@ -189,7 +189,10 @@ test('search debounce is cancelled when reports unmount',async({page})=>{
 
 test('time grouping uses applied filters and chart options remain collapsed',async({page})=>{
   await open(page);await expect(page.locator('[data-chart="stages"] [data-granularity]')).toHaveCount(0);
-  await page.locator('[data-action="next"]').click();await page.locator('[data-chart="received"] [data-granularity="week"]').click();
+  await page.locator('[data-action="next"]').click();
+  await expect(page.locator('[data-chart="received"] [data-granularity="week"]')).toBeHidden();
+  await page.locator('[data-chart="received"] .portal-chart-settings summary').click();
+  await page.locator('[data-chart="received"] [data-granularity="week"]').click();
   await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.filters.granularity)).toBe('week');
   await expect(page.locator('[data-chart="received"] [data-granularity="week"]')).toHaveAttribute('aria-pressed','true');
   await expect(page.locator('[data-chart="received"] .portal-chart-settings')).not.toHaveAttribute('open');

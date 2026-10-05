@@ -637,24 +637,24 @@
     </form>
     <div id="portal-settings-operations-panel" data-required-capability="portal.settings.operations.view" hidden>
     <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
-    <section id="portal-tat-target-settings" class="portal-settings-card" data-required-capability="portal.tat.targets.manage" hidden>
-      <div class="portal-settings-heading"><span class="settings-eyebrow">IT ONLY · PORTAL TAT</span><h2>Pipeline TAT targets</h2><p>Targets apply to work that starts after you save. Earlier stages retain the target that governed when they began.</p></div>
-      <form id="portal-tat-target-form">
+    <details id="portal-tat-target-settings" class="portal-settings-card" data-required-capability="portal.tat.targets.manage" hidden>
+      <summary class="portal-settings-summary"><strong>Pipeline targets</strong><span id="portal-tat-target-settings-summary">Loading targets…</span></summary>
+      <p class="field-help">New stages use saved targets; earlier stages retain theirs.</p><form id="portal-tat-target-form">
         <div class="portal-settings-grid"><label>Overall target (minutes)<input id="portal-tat-overall-target" type="number" min="1" inputmode="numeric" placeholder="Optional"></label></div>
         <div id="portal-tat-stage-targets" class="portal-settings-grid" aria-live="polite"></div>
         <div class="portal-settings-action-row"><small id="portal-tat-target-status">Loading targets…</small><button type="submit" class="btn btn-primary">Save TAT targets</button></div>
       </form>
-    </section>
+    </details>
     <section id="portal-report-email-settings" class="portal-settings-card" hidden>
       <div class="portal-settings-heading"><h2>Email reports</h2><p>Send approved report schedules in the background.</p></div>
       <div class="portal-settings-action-row"><small id="portal-report-email-status" aria-live="polite"></small><button type="button" class="btn btn-primary" id="portal-report-email-send">Send reports now</button></div>
       <div id="portal-report-email-manager"></div>
     </section>
-    <section id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
-      <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order numbers</h2><p>HB and Eco-conserve use separate official number registers.</p></div>
+    <details id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
+      <summary class="portal-settings-summary"><strong>Order numbers</strong><span id="requisition-sequence-panel-summary">Loading numbers…</span></summary>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Fulfilment partner<select id="requisition-sequence-partner"><option value="HB">HB</option><option value="ECOCONSERVE">Eco-conserve</option></select></label><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
       <div class="portal-settings-action-row"><small id="requisition-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="requisition-sequence-save">Save official number</button></div>
-    </section>
+    </details>
     <section id="portal-payment-sequence-settings" class="portal-settings-card" data-required-capability="portal.payment.sequence.manage" hidden>
       <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official payment number</h2><p>Set the next number only when aligning the Portal with the official payment register.</p></div>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next payment number<input id="payments-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="payments-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
@@ -849,10 +849,6 @@
         <div class="form-row">
           <label for="invoice-match-search">Farmer search</label>
           <input type="search" id="invoice-match-search" placeholder="Name, ID, phone, order, or customer no">
-        </div>
-        <div class="form-row">
-          <label for="invoice-match-note">Review note</label>
-          <textarea id="invoice-match-note" rows="3" placeholder="Optional note for audit trail"></textarea>
         </div>
       </div>
       <div id="invoice-match-candidates" class="farmer-list"></div>

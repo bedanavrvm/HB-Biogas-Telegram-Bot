@@ -2247,6 +2247,7 @@ def portal_performance(request):
 PORTAL_JBL_VISIT_DRAFT_FIELDS = (
     'jbl-date',
     'jbl-status',
+    'jbl-reason-code',
     'jbl-officer',
     'jbl-county',
     'jbl-sub-county',
@@ -2295,7 +2296,7 @@ def portal_meta(request):
     }
     carto_key = str(getattr(settings, 'CARTO_BASEMAP_API_KEY', '') or '').strip()
     carto_key_query = f'?key={quote(carto_key, safe="")}' if carto_key else ''
-    from core.services.jawabu_approvals import REASON_CODES
+    from core.services.jawabu_approvals import REASON_CODES, REJECTED_REASONS, DEFERRED_REASONS
 
     response = JsonResponse({
         'ok': True,
@@ -2313,6 +2314,10 @@ def portal_meta(request):
         'approval_reasons': [
             {'value': value, 'label': label} for value, label in REASON_CODES
         ],
+        'pipeline_reasons': {
+            'rejected': [{'value': value, 'label': label} for value, label in REJECTED_REASONS],
+            'deferred': [{'value': value, 'label': label} for value, label in DEFERRED_REASONS],
+        },
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
         'approval_delegation_gates': delegation_gates,
@@ -2900,6 +2905,15 @@ def portal_farmup_detail(request, batch_id: str):
         FARMUP_EDITABLE_FIELDS, archive_operation_ids, farmup_revision_token,
         serialize_import_batch,
     )
+    if 'source_page' in request.GET:
+        from core.services.portal_imports import source_table_page, PortalImportError
+        try:
+            pages = max(1, (int(batch.total_rows or 0) + 49) // 50)
+            page = min(pages, max(1, int(request.GET.get('source_page') or 1)))
+            return JsonResponse({'ok': True, 'source_table': source_table_page(batch, page=page, page_size=50),
+                                 'pagination': {'page': page, 'pages': pages}})
+        except (ValueError, PortalImportError) as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     payload = serialize_import_batch(
         batch, include_rows=True,
         archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
@@ -3710,6 +3724,7 @@ def portal_log_jbl_visit(request, farmer_id: str):
 _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
     'jbl-date': 32,
     'jbl-status': 80,
+    'jbl-reason-code': 8,
     'jbl-officer': 255,
     'jbl-county': 255,
     'jbl-sub-county': 255,
@@ -3719,6 +3734,16 @@ _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
     'jbl-lng': 64,
     'jbl-location-unavailable': 255,
 }
+
+
+def _portal_pipeline_reason_error(body, decision, comment):
+    from core.services.jawabu_approvals import validate_pipeline_reason, JawabuApprovalError
+    try:
+        validate_pipeline_reason(decision=decision, reason_code=body.get('reason_code', ''), comment=comment)
+    except JawabuApprovalError as exc:
+        message = ' '.join(exc.messages)
+        return JsonResponse({'ok': False, 'error': message, 'field_errors': {'reason_code': message}}, status=400)
+    return None
 
 
 def _portal_jbl_visit_draft_payload(body: dict) -> dict:
@@ -4044,6 +4069,8 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'Refresh the app and capture both LAF pages.',
                              'code': 'visit_document_capture_upgrade_required'}, status=426)
     visit_status = str(body.get('visit_status') or '').strip()
+    if (reason_error := _portal_pipeline_reason_error(body, visit_status, body.get('comment', ''))):
+        return reason_error
     # A rejected or deferred visit can be recorded without evidence.  Require
     # the separate media capability only when this request writes evidence, or
     # when the selected outcome must carry evidence to move the case forward.
@@ -4072,6 +4099,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             categorized_files=categorized_files,
             visit_date=visit_date,
             visit_status=visit_status,
+            reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or sender,
             comment=str(body.get('comment') or '').strip(),
             sender=sender,
@@ -4913,6 +4941,8 @@ def portal_set_credit_decision(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not decision:
         return JsonResponse({'ok': False, 'error': 'decision is required.'}, status=400)
+    if (reason_error := _portal_pipeline_reason_error(body, decision, decision_comment)):
+        return reason_error
 
     sender = _portal_sender_from_request(request)
     try:
@@ -5021,6 +5051,8 @@ def portal_set_final_decision(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not final_decision:
         return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
+    if (reason_error := _portal_pipeline_reason_error(body, final_decision, decision_comment)):
+        return reason_error
 
     sender = _portal_sender_from_request(request)
     try:
@@ -7620,6 +7652,8 @@ def portal_create_and_complete_jbl_lead(request):
         'LAF_PAGE_1': 'laf_page_1', 'LAF_PAGE_2': 'laf_page_2', 'JBL_VISIT_PHOTO': 'jbl_visit_photo_files',
     }.items()}
     visit_status = str(body.get('visit_status') or '').strip()
+    if (reason_error := _portal_pipeline_reason_error(body, visit_status, body.get('comment', ''))):
+        return reason_error
     valid, error, code = validate_jbl_visit_upload_batch(categorized_files)
     if not valid:
         return JsonResponse({'ok': False, 'error': error, 'code': code, 'field_errors': {'jbl_visit_photo_files': error}}, status=400)
@@ -7655,6 +7689,7 @@ def portal_create_and_complete_jbl_lead(request):
     try:
         ok, error, result = complete_jbl_visit(
             farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status,
+            reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or _portal_sender_from_request(request), comment=str(body.get('comment') or '').strip(),
             sender=_portal_sender_from_request(request), latitude=latitude, longitude=longitude,
             location_unavailable_reason=str(body.get('location_unavailable_reason') or '').strip(),

@@ -308,7 +308,7 @@
     const tools = `<div class="farmup-toolbar"><label class="farmup-search-field"><i aria-hidden="true">${icon('search')}</i><input id="farmup-search" type="search" value="${escapeHtml(search)}" placeholder="Search rows, names or IDs" aria-label="Search FarmUp rows"></label><div class="farmup-toolbar-actions"><div class="farmup-mode-toggle" role="group" aria-label="Review layout"><button type="button" data-farmup-mode="table" aria-label="Table review" title="Table review">${icon('table-2')}</button><button type="button" data-farmup-mode="carousel" aria-label="Swipe review" title="Swipe review">${icon('gallery-horizontal')}</button></div><button class="btn btn-secondary ${needsReviewOnly ? 'active' : ''}" id="farmup-review-filter" aria-pressed="${needsReviewOnly}">Needs review</button><details class="farmup-bulk-actions"><summary aria-label="More row actions" title="More row actions">${icon('sliders-horizontal')}</summary><div><button type="button" id="farmup-select-all">${icon('list-checks')} Select eligible</button><button type="button" id="farmup-clear-all">${icon('pause')} Hold all</button><button type="button" id="farmup-exclude-selected">${icon('circle-minus')} Exclude selected</button><button type="button" id="farmup-restore-excluded">${icon('undo-2')} Restore exclusions</button></div></details></div></div>`;
     const review = active.mapping?.state === 'needs_mapping' ? '' : `${tools}<div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div id="farmup-grid-wrap" class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div><div id="farmup-carousel" class="farmup-carousel" hidden></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Selected rows commit now; other rows stay held.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
     const routeBack = Boolean(node('portal-screen')?.dataset.farmupBatchId);
-    target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to monthly list" title="Back to monthly list">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'Monthly list')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'Monthly farmer list')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Find missing updates</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
+    target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to monthly list" title="Back to monthly list">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'Monthly list')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'Monthly farmer list')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Find missing updates</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}<details class="portal-import-source" id="farmup-source"><summary>Source rows</summary><div id="farmup-source-content"></div></details>`;
     const actions = target.querySelector('.portal-import-review-heading .portal-import-actions');
     if (can('portal.publication.retry') && active.publication?.failed_operation_ids?.length) {
       actions?.insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-secondary" id="farmup-retry-sync">Retry Sheet updates</button>`);
@@ -316,6 +316,9 @@
     const repairButton = node('farmup-repair');
     if (repairButton) repairButton.textContent = 'Find missing updates';
     renderMapping(); window.lucide?.createIcons?.();
+    node('farmup-source')?.addEventListener('toggle', event => {
+      if (event.target.open && !node('farmup-source-content')?.childElementCount) loadSourceRows();
+    });
     showPublicationReceipt();
     if (active.mapping?.state !== 'needs_mapping') { try { await loadGridAssets(); if (active && activeScreen()) { initializeGrid(); setReviewMode(reviewMode); updateSummary(); } } catch (error) { feedback(error.message, 'error'); } }
   }
@@ -418,6 +421,25 @@
       window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); await load({silent:true});
       api.wakePublicationPump?.();
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
+  }
+  async function loadSourceRows(page = 1) {
+    const batchId = active?.id, target = node('farmup-source-content');
+    if (!batchId || !target) return;
+    const requestNumber = (target._sourceRequest || 0) + 1;
+    target._sourceRequest = requestNumber;
+    target.textContent = 'Loading source rows…';
+    try {
+      const result = await api.apiFetch(`/farmup/${encodeURIComponent(batchId)}/?source_page=${page}`, {}, tg);
+      if (active?.id !== batchId || !target.isConnected || target._sourceRequest !== requestNumber) return;
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Source rows unavailable.');
+      const table = result.data.source_table || {}, paging = result.data.pagination || {};
+      target.innerHTML = `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${(table.headers || []).map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead><tbody>${(table.rows || []).map(row => `<tr>${row.map(v => `<td>${escapeHtml(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="farmup-source-pages"><button type="button" data-source-page="${paging.page - 1}" ${paging.page <= 1 ? 'disabled' : ''}>Previous</button><span>${paging.page} / ${paging.pages}</span><button type="button" data-source-page="${paging.page + 1}" ${paging.page >= paging.pages ? 'disabled' : ''}>Next</button></div>`;
+      target.querySelectorAll('[data-source-page]').forEach(button => button.addEventListener('click', () => loadSourceRows(Number(button.dataset.sourcePage))));
+    } catch (error) {
+      if (active?.id !== batchId || !target.isConnected || target._sourceRequest !== requestNumber) return;
+      target.innerHTML = `<p role="alert">${escapeHtml(error.message)}</p><button type="button">Retry</button>`;
+      target.querySelector('button')?.addEventListener('click', () => loadSourceRows(page));
+    }
   }
   async function retryFailedSync() {
     const ids = active?.publication?.failed_operation_ids || [];

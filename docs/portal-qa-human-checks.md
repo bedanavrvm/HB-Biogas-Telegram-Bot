@@ -1,5 +1,24 @@
 # Portal QA: human verification
 
+## Compact workspaces and decisions
+
+- In JBL Visit, Credit and Final Review, select Rejected and Deferred in turn.
+  Check that each has its own concise reason list, without staff-facing codes.
+  A reason is required; only Other reason requires a comment. Approvals need no reason.
+- Recover a JBL Visit draft: the selected reason must return with its outcome.
+  Existing decisions keep their original reasons. Payment review is unchanged.
+- In FarmUp, expand Source rows and page through the original CSV. Viewing it
+  must not alter selected rows, matching, validation, or committed records.
+- In Settings, targets and order numbers are collapsed summaries. Expand them
+  to edit; failures in System readiness must remain apparent.
+- Check archive cards, invoice suggestions, Document History and Case History
+  at 320–430px and desktop, in light and dark themes. Long names must wrap within
+  their column; preview/external actions remain distinguishable and aligned.
+- In Case History Documents, preview and external-open icons must appear on
+  first render and after asynchronous document loading. Return to the same case.
+- In reports, open chart options to change day/week/month/year grouping.
+  The chosen grouping and applied filters must reach the table/export together.
+
 ## Reports
 
 - Check Pipeline, Outcomes and Finance at 320–430px: export stays beside the
