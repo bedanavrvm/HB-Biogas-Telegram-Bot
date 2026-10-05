@@ -1,5 +1,19 @@
 # Changelog
 
+## 5 October 2026 — Branded report email layout
+
+- Report emails follow the reviewed Jawabu navy/green reference, using the
+  existing logo as an inline image, aligned summary tiles and paired breakdowns.
+- Mobile figures wrap into two columns; tables stack. Durations and percentages
+  use concise labels and readable values without changing the source/export data.
+- Retains JBL BOT sender naming, the Excel attachment, scope warnings and exact
+  frozen retry payloads. No fake download URL, new dependency or migration.
+- 69 email-domain backend tests and 28 browser checks passed; the final
+  presentation helpers also passed a focused 7-test rerun. Screenshots inspected
+  at 320px and desktop, including large Finance values and TAT durations.
+- Local validation uses synthetic reports and mocked delivery; live inbox
+  rendering and provider acceptance of the inline logo remain operator checks.
+
 ## 5 October 2026 — Compact Portal workspaces and decision reasons
 
 - JBL Visit, Credit and Final Review use separate rejection/deferment reasons.

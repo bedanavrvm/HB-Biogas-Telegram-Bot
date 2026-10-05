@@ -9,6 +9,19 @@ you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
 Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
+The shared email layout uses Jawabu navy/green branding, compact coloured
+headline figures, readable duration/percentage values and paired breakdowns.
+On phones, headline figures form two columns and breakdown tables stack.
+The existing project logo is embedded as a local base64 inline attachment using
+[Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
+remote image URL, tracking pixel or new hosting is needed. If the packaged logo
+is unavailable, text branding remains and the report can still be sent.
+The Excel remains the only report file; the logo is an additional inline image.
+The attachment notice is not a fake download button or a public report link.
+New formatting affects only emails, never captured metrics or workbook cells.
+Actual Gmail/Outlook rendering and client-controlled dark-mode inversion still
+require inbox verification; local browser previews are not that certification.
+
 In Portal Reports, TAT Reports or Complaints Data Overview, tap the envelope
 beside Excel export, enter one address and Send. The current applied filters,
 including search/chart selections, are captured when the dialog opens. The

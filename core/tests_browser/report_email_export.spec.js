@@ -5,21 +5,36 @@ const {test, expect} = require('playwright/test');
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'core/static/miniapp/report_email_export.js');
 const css = path.join(root, 'core/static/miniapp/report_email_export.css');
-let emailPreview;
-function renderPreview() {
-  if (emailPreview) return emailPreview;
+const emailPreviews = new Map();
+function renderPreview(preset='complaints') {
+  if (emailPreviews.has(preset)) return emailPreviews.get(preset);
   const {execFileSync}=require('node:child_process');
   const python=path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
   const code=`import os,json
 os.environ['DJANGO_SETTINGS_MODULE']='config.settings'
 import django
 django.setup()
-from report_delivery.rendering import email_context
-from django.template.loader import render_to_string
+from report_delivery.rendering import build_payload
 snapshot={'preset':'complaints','period':{'from':'2026-10-01','to':'2026-10-05'},'run_at':'2026-10-05T09:30:00+03:00','summary':{'Complaints received':128,'Open':37,'Resolved':91,'Needs details':0,'Median resolution (hours)':18.5,'Median HB response (hours)':4.2,'Resolved on time (%)':87.5},'charts':[{'title':'Complaint categories','labels':['Installation follow-up','Commissioning','Unit maintenance','Customer support'],'datasets':[{'label':'Complaints','values':[54,32,27,15]}]}],'total_rows':128,'exported_rows':128,'rows':[],'applied_filters':{'branch':'Training branch','status':'Open'},'export_limit':2000}
-print(json.dumps(render_to_string('report_delivery/email.html',email_context(snapshot))))`;
-  emailPreview=JSON.parse(execFileSync(fs.existsSync(python)?python:'python',['-c',code],{cwd:root,encoding:'utf8',env:{...process.env,DJANGO_SECRET_KEY:'synthetic-email-preview-only-abcdefghijklmnopqrstuvwxyz0123456789',DATABASE_URL:'sqlite:///unused-email-preview.sqlite3'}}));
-  return emailPreview;
+snapshot['xlsx_content']='c3ludGhldGlj'
+snapshot['charts'].append({'title':'Complaints by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':'Complaints','values':[90,38]}]})
+snapshot['preset']=${JSON.stringify(preset)}
+if snapshot['preset']=='tat':
+    snapshot.update(summary={'Cases received':128,'Completed cases':91,'Disbursed':80,'Declined':11,'Within or near target (%)':87.5,'Median TAT (minutes)':150,'No target available':3},charts=[])
+    snapshot['applied_filters']={'branch':'Training branch','view':'performance'}
+elif snapshot['preset']=='finance':
+    snapshot.update(summary={'Cases in scope':128,'Invoice total (KES)':123456789,'Paid (KES)':95000000,'Outstanding (KES)':28456789},charts=[{'title':'Financial amounts by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':s,'values':[123456789,98456789]} for s in ['Invoice','Paid','Balance','Deposit']]}])
+elif snapshot['preset']=='empty':
+    snapshot.update(preset='complaints',summary={},charts=[],total_rows=0,exported_rows=0)
+payload=build_payload(snapshot,'management@example.invalid',{})
+html=payload['html']
+for attachment in payload['attachments']:
+    if attachment.get('content_id'):
+        html=html.replace('cid:'+attachment['content_id'],'data:'+attachment['content_type']+';base64,'+attachment['content'])
+print(json.dumps(html))`;
+  const html=JSON.parse(execFileSync(fs.existsSync(python)?python:'python',['-c',code],{cwd:root,encoding:'utf8',env:{...process.env,DJANGO_SECRET_KEY:'synthetic-email-preview-only-abcdefghijklmnopqrstuvwxyz0123456789',DATABASE_URL:'sqlite:///unused-email-preview.sqlite3'}}));
+  emailPreviews.set(preset,html);
+  return html;
 }
 
 for (const app of ['portal', 'tat_tracker', 'complaint_cases']) for (const width of [320,360,390,430,1280]) {
@@ -88,12 +103,43 @@ test('Real report templates load the shared email control before their controlle
   }
 });
 
-for(const width of [320,390,640])test(`Generated management email fits ${width}px`,async({page},info)=>{
+for(const width of [320,390,760])test(`Generated management email fits ${width}px`,async({page},info)=>{
+  await page.route(/^https?:\/\//,route=>route.abort());
   await page.setViewportSize({width,height:900});await page.setContent(renderPreview());
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await expect(page.getByRole('heading',{name:'Complaints overview',exact:true})).toBeVisible();
+  expect(await page.locator('.brand-logo').evaluate(img=>img.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByText('Median resolution',{exact:true})).toBeVisible();
+  await expect(page.getByText('87.50%',{exact:true})).toBeVisible();
+  const metrics=await page.locator('.metric').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
+  expect(Math.abs(metrics[0].y-metrics[1].y)).toBeLessThan(1);
+  expect(Math.abs(metrics[0].width-metrics[1].width)).toBeLessThan(1);
+  if(width<=600) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
+  else expect(Math.abs(metrics[2].y-metrics[0].y)).toBeLessThan(1);
+  const panels=await page.locator('.breakdown-panel').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
+  if(width<=600) expect(panels[1].y).toBeGreaterThan(panels[0].y);
+  else expect(Math.abs(panels[1].y-panels[0].y)).toBeLessThan(1);
   await page.screenshot({path:info.outputPath(`management-email-${width}.png`),fullPage:true});
 });
+
+for(const preset of ['tat','finance','empty']) for(const width of [320,760]) {
+  test(`${preset} management email fits ${width}px without invented links`,async({page},info)=>{
+    await page.route(/^https?:\/\//,route=>route.abort());
+    await page.setViewportSize({width,height:900});await page.setContent(renderPreview(preset));
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await expect(page.getByText('Detailed Excel attached',{exact:true})).toBeVisible();
+    await expect(page.locator('a')).toHaveCount(0);
+    if(preset==='tat') await expect(page.getByText('2 hr 30 min',{exact:true})).toBeVisible();
+    if(preset==='finance') {
+      await expect(page.locator('.breakdown-multi')).toHaveCount(1);
+      await expect(page.locator('.breakdown-multi td').first()).toHaveText('123,456,789');
+      const values=await page.locator('.metric-value').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().height));
+      expect(Math.max(...values)).toBeLessThanOrEqual(32);
+    }
+    if(preset==='empty') await expect(page.getByText('0 of 0 matching cases.',{exact:true})).toBeVisible();
+    await page.screenshot({path:info.outputPath(`management-${preset}-${width}.png`),fullPage:true});
+  });
+}
 
 test('Real TAT report header keeps email beside export and strips launch credentials',async({page},info)=>{
   await page.setViewportSize({width:320,height:740});

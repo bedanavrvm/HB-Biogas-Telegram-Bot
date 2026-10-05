@@ -17,6 +17,66 @@ from .rendering import build_payload
 from .views import report_export_response
 
 
+class EmailPresentationTests(SimpleTestCase):
+    def snapshot(self, **changes):
+        return {'preset': 'complaints', 'summary': {'Complaints received': 12, 'Open': 6, 'Resolved': 6, 'Needs details': 0},
+                'charts': [], 'rows': [], 'exported_rows': 12, 'total_rows': 12,
+                'xlsx_content': base64.b64encode(b'synthetic-workbook').decode(),
+                'applied_filters': {}, 'period': {'from': '2026-10-01', 'to': '2026-10-05'},
+                'run_at': '2026-10-05T09:00:00+03:00', **changes}
+
+    def test_logo_is_local_inline_and_excel_bytes_are_unchanged(self):
+        from .rendering import BRAND_LOGO_PATH
+        snapshot = self.snapshot()
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        self.assertEqual(payload['attachments'][0]['content'], snapshot['xlsx_content'])
+        logo = payload['attachments'][1]
+        self.assertEqual(base64.b64decode(logo['content']), BRAND_LOGO_PATH.read_bytes())
+        self.assertEqual(logo['content_type'], 'image/png')
+        self.assertIn('src="cid:' + logo['content_id'] + '"', payload['html'])
+        self.assertNotIn('https://', payload['html'])
+        self.assertNotIn('report_download_url', payload['html'])
+
+    def test_missing_logo_keeps_delivery_and_text_brand(self):
+        with patch('report_delivery.rendering.BRAND_LOGO_PATH') as logo:
+            logo.read_bytes.side_effect = FileNotFoundError
+            payload = build_payload(self.snapshot(), 'management@example.invalid', {})
+        self.assertEqual(len(payload['attachments']), 1)
+        self.assertNotIn('src="cid:', payload['html'])
+        self.assertIn('JAWABU BIASHARA', payload['html'])
+
+    def test_readable_duration_percent_zero_and_missing_values_without_mutation(self):
+        from copy import deepcopy
+        from .rendering import email_context
+        snapshot = self.snapshot(summary={'Median resolution (hours)': 62, 'Median HB response (hours)': 0.25,
+                                          'Median TAT (minutes)': 0, 'Resolved on time (%)': 87.5,
+                                          'Missing timing (hours)': None, 'Open': 0})
+        before = deepcopy(snapshot)
+        context = email_context(snapshot)
+        self.assertEqual([m['value'] for m in context['metrics']], ['2 days 14 hr', '15 min', '0 min', '87.50%', '—', '0'])
+        self.assertEqual(context['metrics'][0]['label'], 'Median resolution')
+        self.assertEqual(snapshot, before)
+        self.assertEqual(email_context(self.snapshot(summary={'Median resolution (hours)': 24.25}))['metrics'][0]['value'], '1 day 15 min')
+
+    def test_breakdowns_pair_small_tables_but_keep_multi_series_full_width(self):
+        from .rendering import email_context
+        charts = [{'title': title, 'labels': ['Training branch'], 'datasets': [{'label': 'Cases', 'values': [3]}]}
+                  for title in ['Categories', 'Branches']]
+        charts.append({'title': 'Finance', 'labels': ['Training branch'],
+                       'datasets': [{'label': str(i), 'values': [i]} for i in range(4)]})
+        context = email_context(self.snapshot(charts=charts))
+        self.assertEqual([len(group) for group in context['breakdown_groups']], [2, 1])
+        self.assertEqual(len(context['breakdown_groups'][1][0]['headers']), 4)
+
+    def test_empty_report_and_long_scope_are_escaped(self):
+        payload = build_payload(self.snapshot(summary={}, total_rows=0, exported_rows=0,
+                                             applied_filters={'branch': '<script>Training</script>'}),
+                                'management@example.invalid', {})
+        self.assertIn('0 of 0 matching cases', payload['html'])
+        self.assertIn('&lt;script&gt;Training&lt;/script&gt;', payload['html'])
+        self.assertNotIn('<script>', payload['html'])
+
+
 class ExportSummaryTests(SimpleTestCase):
     def test_tat_summary_matches_current_or_completed_action_view(self):
         from types import SimpleNamespace
@@ -155,7 +215,8 @@ class OneOffTests(TestCase):
         self.assertEqual(workbook['Data'].max_row, 2)
         payload = build_payload(snapshot, delivery.destination, delivery.configuration)
         self.assertEqual(payload['from'], 'JBL BOT <reports@example.invalid>')
-        self.assertEqual(len(payload['attachments']), 1)
+        self.assertEqual(len(payload['attachments']), 2)
+        self.assertEqual(payload['attachments'][1]['content_id'], 'jawabu-report-logo')
         self.assertIn('Detailed Excel attached', payload['html'])
         self.assertNotIn('Synthetic matching case', payload['html'])
 
