@@ -9,7 +9,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration
-from .models import ApprovedRecipient, ReportSchedule
+from .models import ApprovedRecipient, ReportSchedule, ReportDelivery
 from .services import allowed_configurations, require_manage, queue_schedule, next_occurrence
 from .sources import PRESETS, validate_source
 
@@ -30,7 +30,11 @@ def configuration_payload(actor, workflow):
         broad = actor.is_superuser or any(not g.branch for g in eligible)
         names = global_branch_choices() if broad else sorted({g.branch for g in eligible if g.branch})
         branch_scopes[str(group.pk)] = ([{'value':'', 'label':'All branches'}] if broad else []) + [{'value':name, 'label':name} for name in names]
+    pending_ids = list(ReportDelivery.objects.filter(schedule__in=allowed_configurations(actor, ReportSchedule, workflow=workflow),status__in=['queued','retry','processing']).order_by('created_at').values_list('pk',flat=True)[:100])
+    from .dispatch import wake_deliveries
+    wake_deliveries(pending_ids)
     return {'allowed': True, 'enabled': bool(settings.REPORT_EMAIL_DELIVERY_ENABLED and settings.RESEND_API_KEY and settings.REPORT_EMAIL_FROM),
+            'pending_delivery_ids': [str(pk) for pk in pending_ids],
             'branches_by_group': branch_scopes,
             'presets': PRESETS[workflow], 'groups': [{'id': g.pk, 'label': str(g)} for g in groups],
             'schedules': [{'id': str(s.pk), 'revision': s.revision, 'title': s.title, 'preset': s.preset,
@@ -114,7 +118,22 @@ def settings_action(actor, workflow, payload):
         if schedule is None:
             raise ValidationError('Choose a report schedule in this app.')
         deliveries = queue_schedule(schedule.pk, actor=actor, request_key=payload.get('client_request_id'))
-        return {'queued': len(deliveries), 'message': 'Report queued for background delivery.'}
+        from .dispatch import wake_deliveries
+        ids = [str(d.pk) for d in deliveries]
+        wake_deliveries(ids)
+        return {'queued': len(deliveries), 'delivery_ids': ids, 'message': 'Sending report. You can keep using the app.'}
+    elif action == 'status':
+        ids = payload.get('delivery_ids')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 2500:
+            raise ValidationError('Choose the report deliveries to check.')
+        ids = {uuid.UUID(str(pk)) for pk in ids}
+        deliveries = list(ReportDelivery.objects.filter(pk__in=ids, schedule__in=allowed_configurations(actor, ReportSchedule, workflow=workflow)))
+        if len(deliveries) != len(ids):
+            raise ValidationError('These deliveries are not available in this app or access scope.')
+        from .dispatch import wake_deliveries
+        wake_deliveries(d.pk for d in deliveries if d.status in {'queued', 'retry', 'processing'})
+        return {'deliveries': [{'id':str(d.pk), 'status':d.status, 'issue':d.issue,
+                               'next_attempt_at':d.next_attempt_at.isoformat()} for d in deliveries]}
     elif action != 'list':
         raise ValidationError('Choose a valid report action.')
     return configuration_payload(actor, workflow)

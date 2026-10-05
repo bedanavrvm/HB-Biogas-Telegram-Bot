@@ -6,6 +6,27 @@ const root=path.resolve(__dirname,'../..');
 const script=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.js'),'utf8');
 const style=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.css'),'utf8');
 
+for(const outcome of ['accepted','failed'])test(`Send report automatically checks delivery and shows ${outcome}`,async({page})=>{
+  await page.setContent('<section id="settings"></section>');await page.addScriptTag({content:script});
+  await page.evaluate(()=>{
+    window.confirm=()=>true;window.sent=0;
+    const schedule={id:'synthetic-schedule',title:'Synthetic report',frequency:'daily',active:true,recipients:['reports@example.invalid']};
+    window.MiniAppReportEmailSettings.mount(document.getElementById('settings'),async p=>{
+      if(p.action==='list')return {data:{enabled:true,presets:['pipeline'],groups:[{id:1,label:'Synthetic'}],schedules:[schedule]}};
+      if(p.action==='send'){window.sent++;return {data:{message:'Sending report.',delivery_ids:['00000000-0000-4000-8000-000000000001']}};}
+      return new Promise(resolve=>window.deliveryStatus=resolve);
+    });
+  });
+  await page.getByRole('button',{name:'Manage reports'}).click();
+  await page.getByRole('button',{name:'Send Synthetic report',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Send Synthetic report',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Send Synthetic report',exact:true}).evaluate(b=>b.click());
+  expect(await page.evaluate(()=>window.sent)).toBe(1);
+  await page.evaluate(outcome=>window.deliveryStatus({data:{deliveries:[{status:outcome,issue:outcome==='failed'?'Check the verified sender and delivery settings in Resend.':''}]}}),outcome);
+  await expect(page.getByRole('status')).toHaveText(outcome==='accepted'?'1 accepted by email provider':'Check the verified sender and delivery settings in Resend.');
+  await expect(page.getByRole('button',{name:'Send Synthetic report',exact:true})).toBeEnabled();
+});
+
 test('Portal Add report opens recipients and cadence in the real Settings shell with delivery disabled',async({page})=>{
   const {mountPortalShell}=require('./fixtures/portal_shell');
   const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');

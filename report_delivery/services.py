@@ -226,12 +226,15 @@ def reserve_due(*, now=None, limit=20):
     return reserved
 
 
-def claim_delivery(*, now=None):
+def claim_delivery(*, now=None, delivery_ids=None):
     now = now or timezone.now()
     eligible = Q(status__in=['queued', 'retry'], next_attempt_at__lte=now) | Q(status='processing', lease_until__lte=now)
     # Compare-and-swap also protects local SQLite runs; PostgreSQL supports the
     # runner's concurrent invocations without holding locks during HTTP/PDF work.
-    for pk in ReportDelivery.objects.filter(eligible).order_by('next_attempt_at', 'created_at').values_list('pk', flat=True)[:20]:
+    pending = ReportDelivery.objects.filter(eligible)
+    if delivery_ids is not None:
+        pending = pending.filter(pk__in=delivery_ids)
+    for pk in pending.order_by('next_attempt_at', 'created_at').values_list('pk', flat=True)[:20]:
         token = uuid.uuid4()
         if ReportDelivery.objects.filter(pk=pk).filter(eligible).update(status='processing', lease_token=token, lease_until=now + timedelta(seconds=LEASE_SECONDS)):
             return ReportDelivery.objects.select_related('schedule__authorized_by', 'recipient__authorized_by').get(pk=pk)

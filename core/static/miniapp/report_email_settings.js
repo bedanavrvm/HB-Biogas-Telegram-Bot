@@ -6,6 +6,8 @@
     host.classList.add('report-email-settings');
     let data = {}, editing = null, busy = false;
     const keys = new Map();
+    const sending = new Set();
+    let watchVersion = 0;
     const node = (tag, text, className) => { const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n; };
     const icon = path => { const n = document.createElementNS('http://www.w3.org/2000/svg','svg'); n.setAttribute('viewBox','0 0 24 24'); n.setAttribute('fill','none'); n.setAttribute('stroke','currentColor'); n.setAttribute('stroke-width','2'); n.setAttribute('aria-hidden','true'); const p=document.createElementNS(n.namespaceURI,'path'); p.setAttribute('d',path); n.append(p); return n; };
     const button = (label, action, path) => { const b=node('button', path ? '' : label, path ? 'report-email-icon' : ''); b.type='button'; b.setAttribute('aria-label',label); b.title=label; if(path)b.append(icon(path)); b.addEventListener('click',action); return b; };
@@ -23,6 +25,37 @@
     const content=node('div'); content.hidden=true;
     const status=node('p','', 'report-email-status'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite');
     host.append(head,status,content);
+    const deliveryMessage = rows => {
+      const counts={};rows.forEach(r=>counts[r.status]=(counts[r.status]||0)+1);
+      const parts=[];
+      if(counts.delivered)parts.push(`${counts.delivered} delivered`);
+      if(counts.accepted)parts.push(`${counts.accepted} accepted by email provider`);
+      if(counts.skipped)parts.push(`${counts.skipped} skipped: no matching data`);
+      const issues=[...new Set(rows.filter(r=>['failed','blocked','uncertain','bounced','complained'].includes(r.status)).map(r=>r.issue||'Delivery failed. Check report deliveries in Admin.'))];
+      parts.push(...issues);
+      if(counts.retry)parts.push('Retry pending; check again shortly.');
+      if(counts.queued||counts.processing)parts.push('Sending report…');
+      return parts.join(' · ') || 'Checking report delivery…';
+    };
+    async function watchDeliveries(ids, scheduleId, version, pass=0) {
+      if(!ids?.length)return;
+      try {
+        const response=await request({action:'status',delivery_ids:ids});
+        const rows=(response.data||response).deliveries||[];
+        if(version===watchVersion)status.textContent=deliveryMessage(rows);
+        if(rows.length && rows.every(r=>!['queued','processing','retry'].includes(r.status))){
+          sending.delete(scheduleId);
+          if(rows.every(r=>['accepted','delivered','skipped'].includes(r.status)))keys.delete(scheduleId);
+          host.querySelectorAll('[data-report-send]').forEach(b=>b.disabled=!data.enabled||sending.has(b.dataset.reportSend));
+          return;
+        }
+        if(pass<20)window.setTimeout(()=>watchDeliveries(ids,scheduleId,version,pass+1),3000);
+        else {sending.delete(scheduleId);status.textContent+=' Refresh to check progress.';host.querySelectorAll('[data-report-send]').forEach(b=>b.disabled=!data.enabled||sending.has(b.dataset.reportSend));}
+      } catch(error) {
+        sending.delete(scheduleId);status.textContent='Delivery status could not be checked. Refresh to check progress; do not send a new copy.';
+        host.querySelectorAll('[data-report-send]').forEach(b=>b.disabled=!data.enabled||sending.has(b.dataset.reportSend));
+      }
+    }
     async function call(payload) {
       if(busy)return null;
       busy=true; const controls=[...host.querySelectorAll('button')].map(b=>[b,b.disabled]); controls.forEach(([b])=>b.disabled=true);
@@ -30,16 +63,17 @@
       catch(error) { status.textContent=error.message || 'Could not save report settings. Try again.'; return null; }
       finally { busy=false; controls.forEach(([b,disabled])=>b.disabled=disabled); }
     }
-    async function load() { const result=await call({action:'list'}); if(!result)return; data=result; content.hidden=false; manage.textContent='Refresh'; render(); }
+    async function load() { const result=await call({action:'list'}); if(!result)return; data=result; content.hidden=false; manage.textContent='Refresh'; render();if(data.pending_delivery_ids?.length)watchDeliveries(data.pending_delivery_ids,'',++watchVersion); }
     async function send(s) {
+      if(sending.has(s.id))return;
       if(!window.confirm(`Send ${s.title} to its approved recipients now?`))return;
       if(!keys.has(s.id))keys.set(s.id,uuid());
       const result=await call({action:'send',id:s.id,client_request_id:keys.get(s.id)});
-      if(result){keys.delete(s.id);status.textContent=result.message; window.MiniAppRuntime?.showToast(result.message,{tone:'success'});}
+      if(result){status.textContent=result.message; window.MiniAppRuntime?.showToast(result.message,{tone:'success'});if(result.delivery_ids?.length){sending.add(s.id);host.querySelectorAll('[data-report-send]').forEach(b=>b.disabled=!data.enabled||sending.has(b.dataset.reportSend));watchDeliveries(result.delivery_ids,s.id,++watchVersion);}else keys.delete(s.id);}
     }
     function render() {
       content.replaceChildren(); status.textContent=data.enabled ? 'Approved recipients only. Sending runs in the background.' : 'Email delivery is not configured. You can save schedules now.';
-      for(const s of data.schedules || []) { const row=node('div','', 'report-email-row'); const copy=node('div','', 'report-email-copy'); copy.append(node('strong',s.title),node('small',`${s.active?'Active':'Paused'} · ${s.frequency} · ${s.recipients.length} recipient(s)`)); row.append(copy,button(`Edit ${s.title}`,()=>edit(s),'M16 3l5 5-12 12H4v-5L16 3z')); const sendButton=button(`Send ${s.title}`,()=>send(s),'M22 2L9 15M22 2l-7 20-6-7-7-6L22 2z'); sendButton.disabled=!data.enabled; row.append(sendButton); content.append(row); }
+      for(const s of data.schedules || []) { const row=node('div','', 'report-email-row'); const copy=node('div','', 'report-email-copy'); copy.append(node('strong',s.title),node('small',`${s.active?'Active':'Paused'} · ${s.frequency} · ${s.recipients.length} recipient(s)`)); row.append(copy,button(`Edit ${s.title}`,()=>edit(s),'M16 3l5 5-12 12H4v-5L16 3z')); const sendButton=button(`Send ${s.title}`,()=>send(s),'M22 2L9 15M22 2l-7 20-6-7-7-6L22 2z'); sendButton.dataset.reportSend=s.id;sendButton.disabled=!data.enabled||sending.has(s.id); row.append(sendButton); content.append(row); }
       content.append(button('Add report',()=>edit(null)));
       if(editing)renderForm();
     }

@@ -1698,11 +1698,14 @@ def portal_report_send_now(request):
         schedules = list(allowed_configurations(actor, ReportSchedule, workflow='jawabu_portal').filter(active=True).order_by('pk')[:51])
         if len(schedules) > 50:
             return JsonResponse({'ok': False, 'error': 'Choose individual schedules in Admin; this action supports up to 50.'}, status=400)
-        count = 0
+        deliveries = []
         with transaction.atomic():
             for schedule in schedules:
-                count += len(queue_schedule(schedule.pk, actor=actor, request_key=key))
-        return JsonResponse({'ok': True, 'queued': count, 'message': f'{count} report email(s) queued for background delivery.' if count else 'No active report schedules in your scope.'}, status=202)
+                deliveries.extend(queue_schedule(schedule.pk, actor=actor, request_key=key))
+            from report_delivery.dispatch import wake_deliveries
+            wake_deliveries(d.pk for d in deliveries)
+        count = len(deliveries)
+        return JsonResponse({'ok': True, 'queued': count, 'delivery_ids': [str(d.pk) for d in deliveries], 'message': f'Sending {count} report email(s). You can keep using the app.' if count else 'No active report schedules in your scope.'}, status=202)
     except PermissionDenied:
         return JsonResponse({'ok': False, 'error': 'Portal IT access is required.'}, status=403)
     except (ValueError, TypeError, ValidationError):

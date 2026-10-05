@@ -2161,6 +2161,24 @@
   }
 
   let pendingReportEmailKey = '';
+  async function checkPortalReportDelivery(ids, button, pass=0) {
+    try {
+      const result=await portalApi.postJson('/settings/reports/', {action:'status',delivery_ids:ids}, tg);
+      if(!result.ok||!result.data?.ok)throw new Error('Could not check delivery.');
+      const rows=result.data.data?.deliveries||[];
+      const pending=rows.some(row=>['queued','processing','retry'].includes(row.status));
+      const issues=[...new Set(rows.filter(row=>row.issue).map(row=>row.issue))];
+      const accepted=rows.filter(row=>['accepted','delivered'].includes(row.status)).length;
+      const message=issues.length?issues.join(' · '):pending?'Sending reports…':`${accepted} report email(s) accepted by the email provider.`;
+      if(el('portal-report-email-status'))el('portal-report-email-status').textContent=message;
+      if(pending&&pass<20){window.setTimeout(()=>checkPortalReportDelivery(ids,button,pass+1),3000);return;}
+      if(!pending&&rows.length&&rows.every(row=>['accepted','delivered','skipped'].includes(row.status)))pendingReportEmailKey='';
+      delete button.dataset.reportSending;button.disabled=false;
+    } catch(error) {
+      if(el('portal-report-email-status'))el('portal-report-email-status').textContent='Could not check delivery. Refresh before sending another copy.';
+      delete button.dataset.reportSending;button.disabled=false;
+    }
+  }
   document.addEventListener('click', async event => {
     const button = event.target.closest('#portal-report-email-send');
     if (!button || button.disabled) return;
@@ -2170,16 +2188,17 @@
     try {
       const result = await portalApi.postJson('/settings/reports/send/', { client_request_id: pendingReportEmailKey }, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not queue report emails.');
-      pendingReportEmailKey = '';
+      if(!result.data.delivery_ids?.length)pendingReportEmailKey = '';
       const message = result.data.message || 'Report emails queued.';
       if (el('portal-report-email-status')) el('portal-report-email-status').textContent = message;
       showToast(message, 'success');
+      if(result.data.delivery_ids?.length){button.dataset.reportSending='true';checkPortalReportDelivery(result.data.delivery_ids,button);}
     } catch (error) {
       // Preserve the action key when the response is lost: retry reserves the
       // same deliveries rather than disclosing the same report twice.
       showToast(error.message || 'Could not queue report emails.', 'error');
     } finally {
-      button.disabled = false;
+      if(button.dataset.reportSending!=='true')button.disabled = false;
     }
   });
 

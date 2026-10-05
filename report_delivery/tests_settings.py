@@ -75,14 +75,33 @@ class SettingsTests(TestCase):
             validate_recipient(schedule,recipient)
 
     @override_settings(REPORT_EMAIL_DELIVERY_ENABLED=True,RESEND_API_KEY='synthetic',REPORT_EMAIL_FROM='reports@example.invalid')
-    def test_send_action_only_queues_and_reuses_uuid(self):
+    def test_send_action_starts_after_commit_and_reuses_uuid(self):
         schedule=save_configuration(self.user,'tat_tracker',self.payload)
         request={'action':'send','id':str(schedule.pk),'client_request_id':str(uuid.uuid4())}
-        with patch('report_delivery.resend.send_email') as provider:
-            settings_action(self.user,'tat_tracker',request)
-            settings_action(self.user,'tat_tracker',request)
+        with patch('report_delivery.dispatch.Thread') as thread, patch('report_delivery.resend.send_email') as provider:
+            with self.captureOnCommitCallbacks(execute=True):
+                first=settings_action(self.user,'tat_tracker',request)
+                second=settings_action(self.user,'tat_tracker',request)
+                thread.assert_not_called()
+            self.assertTrue(thread.called)
+            self.assertEqual(first['delivery_ids'],second['delivery_ids'])
+            # Do not execute a real thread in the transaction test harness.
+            from report_delivery.dispatch import _slots
+            for _ in thread.call_args_list:
+                _slots.release()
         provider.assert_not_called()
         self.assertEqual(schedule.deliveries.count(),1)
+
+    def test_delivery_status_cannot_cross_apps_or_scope(self):
+        schedule=save_configuration(self.user,'tat_tracker',self.payload)
+        from report_delivery.services import queue_schedule
+        delivery=queue_schedule(schedule.pk,actor=self.user,request_key=uuid.uuid4())[0]
+        data=settings_action(self.user,'tat_tracker',{'action':'status','delivery_ids':[str(delivery.pk)]})
+        self.assertEqual(data['deliveries'][0]['status'],'queued')
+        other=get_user_model().objects.create_user(username='synthetic-other-report-it')
+        AccessGrant.objects.create(user=other,workflow='complaint_cases',role='IT',group_configuration=self.group)
+        with self.assertRaises(ValidationError):
+            settings_action(other,'complaint_cases',{'action':'status','delivery_ids':[str(delivery.pk)]})
 
     def test_tat_adapter_supplies_period_group_and_scope(self):
         schedule=save_configuration(self.user,'tat_tracker',{**self.payload,'branch':'A','product':'X'})

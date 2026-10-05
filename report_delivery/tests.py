@@ -81,6 +81,29 @@ class DeliveryTests(TransactionTestCase):
         self.assertEqual(first[0].pk, second[0].pk)
         self.assertEqual(ReportDelivery.objects.count(), 1)
 
+    def test_immediate_worker_submits_once_without_a_scheduler(self):
+        from report_delivery.dispatch import wake_deliveries
+        delivery=self.queue()
+        ReportDelivery.objects.filter(pk=delivery.pk).update(payload={'to':['approved@example.invalid'],'subject':'Synthetic'})
+        def thread(**kwargs):
+            result=Mock()
+            result.start.side_effect=kwargs['target']
+            return result
+        with patch('report_delivery.dispatch.Thread',side_effect=thread), patch('report_delivery.dispatch.connections.close_all'), patch('report_delivery.dispatch.close_old_connections'), patch('report_delivery.resend.send_email',return_value='synthetic-immediate-email') as provider:
+            wake_deliveries([delivery.pk])
+            wake_deliveries([delivery.pk])
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status,'accepted')
+        provider.assert_called_once()
+
+    def test_immediate_worker_claims_only_requested_deliveries(self):
+        first=self.queue()
+        other=self.queue()
+        claimed=claim_delivery(delivery_ids=[other.pk],now=NOW)
+        self.assertEqual(claimed.pk,other.pk)
+        first.refresh_from_db()
+        self.assertEqual(first.status,'queued')
+
     def test_queue_scheduler_and_retry_lock_only_the_owned_row(self):
         # PostgreSQL rejects FOR UPDATE across nullable authorizer joins.
         # Exercise the real service paths; SQLite does not enforce this rule.

@@ -1,5 +1,9 @@
 # Scheduled Mini App reports
 
+Send now starts immediately after commit without a shell command. Delivery
+progress appears in Settings; the web request does not wait for generation or
+submission. The recurring scheduler remains a separate operator setup below.
+
 ## Mini App Settings: Portal, TAT and Complaints
 
 Each app now owns its email report schedules and recipient approvals. Portal
@@ -65,9 +69,15 @@ scheduler.
    python manage.py process_report_deliveries --apply --limit 5 --max-seconds 50
    ```
 
-   This is an explicitly scheduled email runner, not a change to Portal Sheet
-   publication. Without it, queued emails remain queued. No browser timer or
-   request thread performs delivery. The minute cadence controls dispatch
+   This runner is for unattended recurring schedules, not Portal Sheet
+   publication. **Send now does not require it:** after the reservation commits,
+   a bounded background thread claims the requested reports and submits them.
+   The HTTP request never waits for PDF generation or Resend. Settings checks
+   display acceptance or a safe failure reason. Reopening Settings wakes pending
+   work after an interrupted process; durable leases and provider keys prevent
+   duplicate submission. Two workers per process, at most 50 claims per wake,
+   protect the web service. Worker restarts can interrupt progress; this is not
+   an always-on job service. The minute cadence controls unattended dispatch
    latency, not five messages per schedule every minute: each occurrence is
    reserved once. More than five ready recipient deliveries drain across later
    invocations; retries obey backoff.
@@ -77,7 +87,9 @@ scheduler.
 - **Portal Settings → Email reports → Send reports now**: visible only to IT
   (or active Superusers). Confirm to queue all active schedules within your
   complete grant scopes. The app remains usable. It cannot widen recipient
-  scope or send arbitrary addresses. Expect dispatch on the next runner pass.
+  scope or send arbitrary addresses. It starts immediate background processing
+  and checks delivery status automatically. Provider acceptance is not proof
+  of inbox delivery; verified webhooks establish Delivered status.
 - **Admin schedule → Preview / Send / Pause**: preview makes no provider call;
   Send now queues all assigned recipients; Queue test queues only the selected
   approved recipient. Tests use real approved addresses when delivery is enabled.

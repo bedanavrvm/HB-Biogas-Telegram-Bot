@@ -2317,7 +2317,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `report_delivery/services.py`, `report_delivery/tests.py`
-- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/tests.py`
+- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`
 
 ### `report_delivery_recipient_link`
 
@@ -2338,7 +2338,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
 - Children: `report_delivery.ReportDelivery`, `report_delivery.ScheduleRecipient`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`
+- Direct ORM writers: `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
 - Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
 
 ### `report_delivery_schedule_root`
@@ -2349,7 +2349,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
 - Children: `report_delivery.ReportDelivery`, `report_delivery.ScheduleRecipient`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `report_delivery/admin.py`, `report_delivery/tests.py`
+- Direct ORM writers: `report_delivery/admin.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
 - Used by: `core/api/portal_views.py`, `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
 
 ### `report_delivery_webhook_event`

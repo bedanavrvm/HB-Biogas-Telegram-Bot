@@ -1256,3 +1256,9 @@ python manage.py migrate core 0072_miniapp_drafts
 - Add report tolerates unavailable/restricted WebView crypto helpers, scrolls
   to and focuses the editor, and reports opening failures visibly. Regression
   coverage includes the actual Portal Settings shell with sending disabled.
+# Immediate manual email dispatch - 5 October 2026
+
+- Send now starts bounded, post-commit processing for its exact durable delivery
+  IDs in Portal, TAT and Complaints; it no longer requires a shell command.
+- Settings shows provider acceptance or a safe failure reason and wakes pending
+  work on reopening. Unattended recurring schedules still require the runner.

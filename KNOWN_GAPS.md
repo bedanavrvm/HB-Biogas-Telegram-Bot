@@ -1,5 +1,16 @@
 # Known Gaps and Verified Workarounds
 
+## Immediate report sending - 5 October 2026
+
+Send now wakes a bounded worker after commit; it no longer relies on an operator
+running a command. Pending work survives restarts in Django and is woken on
+Settings/status requests. This is best-effort process-local execution, not an
+always-on scheduler: unattended recurring reports and retries while no one uses
+the app still need the existing runner. Provider acceptance is distinct from
+verified delivery. Local validation passed 49 backend and 11 browser tests with
+synthetic data/mocked Resend; live inbox delivery and local PostgreSQL execution
+have not been verified in this session.
+
 ## Workflow-owned email settings - 5 October 2026
 
 Portal, TAT and Complaints now provide IT-only schedule and recipient settings

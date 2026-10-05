@@ -6706,6 +6706,7 @@
         "report_delivery/migrations/0001_initial.py",
         "report_delivery/models.py",
         "report_delivery/services.py",
+        "report_delivery/settings.py",
         "report_delivery/tests.py"
       ]
     },
@@ -6749,7 +6750,8 @@
       "direct_orm_writers": [
         "report_delivery/services.py",
         "report_delivery/settings.py",
-        "report_delivery/tests.py"
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "report_delivery.ApprovedRecipient",
       "domain": "report_delivery",
@@ -6788,7 +6790,8 @@
       ],
       "direct_orm_writers": [
         "report_delivery/admin.py",
-        "report_delivery/tests.py"
+        "report_delivery/tests.py",
+        "report_delivery/tests_settings.py"
       ],
       "django_model": "report_delivery.ReportSchedule",
       "domain": "report_delivery",
