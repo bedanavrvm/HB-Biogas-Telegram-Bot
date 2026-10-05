@@ -33,7 +33,7 @@ async function open(page,{chartsUnavailable=false}={}) {
   await expect(page.locator('.portal-insight-chart')).toHaveCount(5);
 }
 
-for(const width of [320,360,390,430,1280])for(const preset of ['pipeline','outcomes','finance']) {
+for(const width of [320,360,390,430,768,1280])for(const preset of ['pipeline','outcomes','finance']) {
   test(`${preset} reports fit ${width}px and support chart views`,async({page},info)=>{
     await page.setViewportSize({width,height:900});await page.emulateMedia({reducedMotion:'reduce'});await open(page);
     if(preset!=='pipeline')await page.locator(`[data-preset="${preset}"]`).click();
@@ -49,6 +49,7 @@ for(const width of [320,360,390,430,1280])for(const preset of ['pipeline','outco
     expect(await page.evaluate(()=>Object.values(Chart.instances).some(c=>c.config.type==='doughnut'))).toBe(true);
     await page.evaluate(()=>{document.documentElement.style.setProperty('--tg-theme-text-color','#f4f4f8');document.documentElement.style.setProperty('--tg-theme-bg-color','#17171e');document.documentElement.style.setProperty('--tg-theme-secondary-bg-color','#20202c');document.documentElement.style.setProperty('--tg-theme-hint-color','#a8a8b3');window.__theme();});
     await expect(page.locator('#portal-report-grid .ag-row').first()).toBeVisible();
+    await expect(page.locator('#portal-report-grid .ag-cell[col-id="customer_name"]').first()).toHaveCSS('color','rgb(244, 244, 248)');
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:info.outputPath(`${preset}-${width}-dark.png`),fullPage:true});
     await page.evaluate(()=>PortalMiniAppReports.unmount());expect(await page.evaluate(()=>Object.keys(Chart.instances).length)).toBe(0);
@@ -70,6 +71,90 @@ test('draft filters cancel cleanly; drill, paging and export share applied filte
   await page.locator('[data-page="2"]').click();await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.page)).toBe(2);
   await expect(page.locator('#portal-report-grid a[href="/portal/cases/00000000-0000-0000-0000-000000000001/"]')).toContainText('JBL-100');
   await page.locator('[data-action="clear"]').click();await expect(page.locator('.portal-chart-selection')).toHaveCount(0);
+});
+
+async function clickChartDatum(page, chartId, index=0, dataset=0) {
+  const canvas=page.locator(`[data-chart="${chartId}"] canvas`);
+  await canvas.scrollIntoViewIfNeeded();
+  const point=await canvas.evaluate((node,{index,dataset})=>{
+    const chart=Chart.getChart(node),element=chart.getDatasetMeta(dataset).data[index];
+    const center=element.getCenterPoint(),rect=node.getBoundingClientRect();
+    return {x:rect.left+center.x,y:rect.top+center.y};
+  },{index,dataset});
+  await page.mouse.click(point.x,point.y);
+}
+
+test('real bar and line clicks filter cases in place, preserve table state and export selection',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:'reduce'});await open(page);
+  await page.evaluate(()=>{window.__gridNode=document.querySelector('#portal-report-grid');window.__chartIds=Object.keys(Chart.instances);});
+  await clickChartDatum(page,'stages');
+  await expect(page.locator('.portal-chart-selection')).toContainText('Training branch');
+  await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.filters.bucket_key)).toBe('training');
+  expect(await page.evaluate(()=>document.querySelector('#portal-report-grid')===window.__gridNode)).toBe(true);
+  expect(await page.evaluate(()=>Object.keys(Chart.instances))).toEqual(await page.evaluate(()=>window.__chartIds));
+  await expect(page.getByRole('region',{name:'Case results'}).or(page.locator('.portal-curated-results'))).toBeFocused();
+  await page.locator('[data-miniapp-table-zoom-in]').click();
+  await page.getByRole('button',{name:'Next',exact:true}).click();
+  await expect(page.locator('[data-miniapp-table-zoom-reset]')).toHaveText('110%');
+  await expect(page.locator('#portal-report-grid .ag-cell[col-id="row_number"]').first()).toHaveText('51');
+  await page.locator('[data-action="export"]').click();
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.chart_key)).toBe('stages');
+  await page.locator('[data-action="clear"]').click();await expect(page.locator('.portal-chart-selection')).toHaveCount(0);
+  await page.locator('[data-action="next"]').click();await expect(page.locator('#portal-chart-position')).toHaveText('2 of 5');
+  await clickChartDatum(page,'received',1);
+  await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.filters.chart_key)).toBe('received');
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.bucket_key)).toBe('other');
+  await expect(page.locator('#portal-chart-position')).toHaveText('2 of 5');
+  expect(await page.evaluate(()=>document.querySelector('#portal-report-grid')===window.__gridNode)).toBe(true);
+});
+
+for(const count of [0,1,7,8,50])test(`grid uses space appropriate to ${count} results`,async({page})=>{
+  await page.setViewportSize({width:320,height:844});await open(page);
+  await page.evaluate(count=>{const original=window.__result;window.__result=body=>{const r=original(body);r.total_rows=count;r.pagination.pages=1;r.rows=Array.from({length:count},(_,i)=>({...r.rows[0],case_id:`JBL-${100+i}`}));return r;};return PortalMiniAppReports.load();},count);
+  const height=await page.locator('#portal-report-grid').evaluate(n=>n.offsetHeight);
+  expect(height).toBeLessThanOrEqual(36+Math.max(1,Math.min(8,count))*36+20);
+  if(count>=8)await expect(page.locator('#portal-report-grid .ag-row[row-index="7"]')).toBeVisible();
+  if(!count)await expect(page.locator('#portal-report-grid')).toContainText('No cases match these filters.');
+  await expect(page.locator('.pagination')).toBeHidden();
+});
+
+test('mobile charts have no offscreen-card height and search sits next to results',async({page},info)=>{
+  await page.setViewportSize({width:320,height:844});await open(page);
+  const box=await page.locator('#portal-insight-charts').boundingBox(),card=await page.locator('[data-chart="stages"]').boundingBox();
+  expect(box.height-card.height).toBeLessThan(3);
+  expect(card.height).toBeLessThan(270);
+  const search=await page.locator('#portal-report-search').boundingBox(),grid=await page.locator('#portal-report-grid').boundingBox();
+  expect(search.y).toBeGreaterThan(card.y+card.height);
+  expect(grid.y-search.y-search.height).toBeLessThan(65);
+  await page.screenshot({path:info.outputPath('compact-results-320.png'),fullPage:true});
+});
+
+test('failed chart selection retains results and retry updates the same grid',async({page})=>{
+  await open(page);
+  await page.evaluate(()=>{
+    window.__savedGrid=document.querySelector('#portal-report-grid');
+    const original=PortalMiniAppApi.postJson;let fail=true;
+    PortalMiniAppApi.postJson=async(...args)=>{if(fail){fail=false;throw new Error('Synthetic network failure');}return original(...args);};
+  });
+  await clickChartDatum(page,'stages');
+  await expect(page.locator('.portal-report-status')).toContainText('Synthetic network failure');
+  await expect(page.locator('#portal-report-grid')).toContainText('Synthetic reporting customer');
+  await page.getByRole('button',{name:'Try again',exact:true}).click();
+  await expect(page.locator('.portal-chart-selection')).toContainText('Training branch');
+  expect(await page.evaluate(()=>window.__savedGrid===document.querySelector('#portal-report-grid'))).toBe(true);
+});
+
+test('latest chart selection wins and empty plot clicks do not change filters',async({page})=>{
+  await open(page);await page.evaluate(()=>{window.__holdNext=true;});
+  await clickChartDatum(page,'stages',0);
+  await expect.poll(()=>page.evaluate(()=>Boolean(window.__release))).toBe(true);
+  await clickChartDatum(page,'stages',1);
+  await expect(page.locator('.portal-chart-selection')).toContainText('Other training branch');
+  await page.evaluate(()=>window.__release());
+  await expect(page.locator('.portal-chart-selection')).toContainText('Other training branch');
+  const calls=await page.evaluate(()=>window.__calls.length);
+  await page.locator('[data-chart="stages"] canvas').click({position:{x:2,y:2}});
+  expect(await page.evaluate(()=>window.__calls.length)).toBe(calls);
 });
 
 test('mobile controls align, search survives filters, and the grid fits eight rows',async({page},info)=>{
