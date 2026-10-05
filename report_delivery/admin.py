@@ -170,17 +170,19 @@ class ScheduleAdmin(ScopedAdmin):
 
 @admin.register(ReportDelivery)
 class DeliveryAdmin(ModelAdmin):
-    list_display = ('id', 'schedule', 'recipient', 'status', 'attempts', 'next_attempt_at', 'issue', 'retry_link')
+    list_display = ('id', 'schedule', 'recipient', 'destination', 'requested_by', 'status', 'attempts', 'next_attempt_at', 'issue', 'retry_link')
     list_filter = ('status',)
     # Customer-bearing snapshots/attachments are never exposed as raw admin JSON.
-    fields = ('schedule', 'recipient', 'occurrence', 'status', 'attempts', 'provider_id', 'payload_hash', 'first_attempt_at', 'next_attempt_at', 'last_event_at', 'issue', 'error_code', 'created_at', 'updated_at', 'retry_link')
+    fields = ('schedule', 'recipient', 'destination', 'requested_by', 'occurrence', 'status', 'attempts', 'provider_id', 'payload_hash', 'first_attempt_at', 'next_attempt_at', 'last_event_at', 'issue', 'error_code', 'created_at', 'updated_at', 'retry_link')
     readonly_fields = fields
 
     def has_module_permission(self, request):
         return request.user.is_staff and any(can_manage(request.user, workflow=w) for w in ('jawabu_portal', 'tat_tracker', 'complaint_cases'))
 
     def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request) and (obj is None or can_manage(request.user, obj.schedule))
+        return self.has_module_permission(request) and (obj is None or request.user.is_superuser or
+            (obj.schedule_id is None and obj.requested_by_id == request.user.pk) or
+            (obj.schedule_id is not None and can_manage(request.user, obj.schedule)))
 
     has_change_permission = has_view_permission
 
@@ -191,7 +193,12 @@ class DeliveryAdmin(ModelAdmin):
         return False
 
     def get_queryset(self, request):
-        return ReportDelivery.objects.filter(schedule__in=allowed_configurations(request.user, ReportSchedule)).select_related('schedule', 'recipient')
+        from django.db.models import Q
+        queryset = ReportDelivery.objects.all()
+        if not request.user.is_superuser:
+            queryset = queryset.filter(Q(schedule__in=allowed_configurations(request.user, ReportSchedule)) |
+                                       Q(schedule__isnull=True, requested_by=request.user))
+        return queryset.select_related('schedule', 'recipient', 'requested_by')
 
     @admin.display(description='Retry')
     def retry_link(self, obj):

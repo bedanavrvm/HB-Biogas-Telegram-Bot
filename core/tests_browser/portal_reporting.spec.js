@@ -230,3 +230,17 @@ test('keyboard chart navigation, modal back handling and empty charts',async({pa
   await page.evaluate(()=>{const result=window.__result;window.__result=body=>{const r=result(body);r.charts.forEach(c=>{c.labels=[];c.bucket_keys=[];c.datasets=[];});r.rows=[];r.total_rows=0;return r;};return PortalMiniAppReports.load();});
   await expect(page.locator('.portal-chart-state').first()).toContainText('No matching data');await expect(page.locator('#portal-report-grid')).toContainText('No cases match');
 });
+
+test('Email action shares real Portal search/drill filters and stays beside export',async({page},info)=>{
+  await page.setViewportSize({width:320,height:900});await open(page);
+  await page.addStyleTag({path:asset('report_email_export.css')});await page.addScriptTag({path:asset('report_email_export.js')});
+  await page.evaluate(()=>{const post=PortalMiniAppApi.postJson;PortalMiniAppApi.postJson=async(url,body)=>{
+    if(url.includes('/email/')){window.__calls.push({url,body});return {ok:true,data:{ok:true,status:'accepted',delivery_id:'synthetic'}};}return post(url,body);
+  };});
+  await page.locator('#portal-report-search').fill('Synthetic');await page.waitForTimeout(450);
+  await page.getByRole('button',{name:'Email report',exact:true}).click();await page.getByLabel('Email address').fill('management@example.invalid');
+  await page.screenshot({path:info.outputPath('portal-real-email-320.png'),fullPage:true});
+  await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.report-email-dialog [role=status]')).toHaveText('Accepted for delivery.');
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.search)).toBe('Synthetic');
+  await page.keyboard.press('Escape');await expect(page.locator('dialog.report-email-dialog')).toHaveCount(0);
+});

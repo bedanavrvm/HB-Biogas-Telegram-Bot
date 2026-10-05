@@ -7,6 +7,8 @@ from xml.etree import ElementTree
 
 from django.conf import settings
 from django.utils import timezone
+from django.template.loader import render_to_string
+from decimal import Decimal, InvalidOperation
 
 from core.services.portal_reporting import curated_snapshot_xlsx
 
@@ -114,22 +116,18 @@ def report_pdf(snapshot, configuration=None):
 
 
 def build_payload(snapshot, email, configuration):
-    period = configuration['period']
-    stem = f'{snapshot["preset"]}-report-{period["to"]}'
+    context = email_context(snapshot, configuration)
+    stem = f'{snapshot["preset"]}-report-{snapshot["run_at"][:10]}'
+    sender = settings.REPORT_EMAIL_FROM
+    if sender and '<' not in sender:
+        sender = f'JBL BOT <{sender}>'
     payload = {
-        'from': settings.REPORT_EMAIL_FROM, 'to': [email],
-        'subject': f'{snapshot["preset"].title()} report · {period["from"]} to {period["to"]}',
-        'html': report_html(snapshot, configuration),
-        'text': '\n'.join([f'{snapshot["preset"].title()} report: {period["from"]} to {period["to"]}',
-                           f'Generated: {snapshot["run_at"]}',
-                           report_basis(snapshot['preset']),
-                           'Filters: ' + (', '.join(f'{key}: {value}' for key, value in snapshot['applied_filters'].items() if key in {'branch', 'product', 'county'}) or 'All approved cases in this group'),
-                           *[f'{key}: {value}' for key, value in snapshot['summary'].items()],
-                           f'Excel: {len(snapshot["rows"])} of {snapshot["total_rows"]} matching cases. Limit {snapshot["export_limit"]}.',
-                           'Confidential: for approved recipients only.']),
+        'from': sender, 'to': [email],
+        'subject': f'JBL · {context["title"]} · {context["period"]}',
+        'html': render_to_string('report_delivery/email.html', context),
+        'text': render_to_string('report_delivery/email.txt', context),
         'attachments': [
-            {'filename': stem + '.pdf', 'content': base64.b64encode(report_pdf(snapshot, configuration)).decode()},
-            {'filename': stem + '.xlsx', 'content': base64.b64encode(curated_snapshot_xlsx(snapshot)).decode()},
+            {'filename': stem + '.xlsx', 'content': snapshot.get('xlsx_content') or base64.b64encode(curated_snapshot_xlsx(snapshot)).decode()},
         ],
     }
     if settings.REPORT_EMAIL_REPLY_TO:
@@ -137,3 +135,50 @@ def build_payload(snapshot, email, configuration):
     if len(json.dumps(payload).encode()) > MAX_PAYLOAD_BYTES:
         raise ReportTooLarge('Report attachments exceed the safe email size limit. Narrow the schedule scope.')
     return payload
+
+
+def email_context(snapshot, configuration=None):
+    def date_label(value):
+        return datetime.fromisoformat(str(value)[:10]).strftime('%d-%b-%Y')
+
+    filters = snapshot.get('applied_filters', {})
+    period = snapshot.get('period') or (configuration or {}).get('period')
+    start = period.get('from') if period else filters.get('date_from') or filters.get('from')
+    end = period.get('to') if period else filters.get('date_to') or filters.get('to')
+    period_text = (f'{date_label(start)} – {date_label(end)}' if start and end else
+                   f'From {date_label(start)}' if start else f'Through {date_label(end)}' if end else 'Current snapshot')
+    generated = timezone.localtime(datetime.fromisoformat(snapshot['run_at'])).strftime('%d-%b-%Y · %H:%M EAT')
+    titles = {'pipeline': 'Pipeline overview', 'finance': 'Finance overview', 'outcomes': 'Case outcomes',
+              'tat': 'TAT overview', 'complaints': 'Complaints overview'}
+    metrics = []
+    for label, value in snapshot['summary'].items():
+        display = '—'
+        if value is not None:
+            try:
+                number = Decimal(str(value))
+                display = f'{number:,.0f}' if number == number.to_integral_value() else f'{number:,.2f}'
+            except (InvalidOperation, ValueError):
+                display = str(value)
+        metrics.append({'label': label, 'value': display})
+    excluded = {'date_mode', 'month', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group'}
+    scope = [{'label': key.replace('_', ' ').capitalize(), 'value': str(value).replace('_', ' ') if key in {'stage', 'view', 'sla_state', 'date_basis'} else str(value)}
+             for key, value in filters.items() if value not in (None, '') and key not in excluded]
+    breakdowns = []
+    for chart in snapshot.get('charts', []):
+        labels = chart.get('labels', [])
+        datasets = chart.get('datasets', [])
+        if not labels or not datasets:
+            continue
+        breakdowns.append({'title': chart['title'], 'headers': [d.get('label', '') for d in datasets],
+                           'rows': [{'label': label, 'values': [d.get('values', [])[i] if i < len(d.get('values', [])) else '—' for d in datasets]}
+                                    for i, label in enumerate(labels[:8])], 'more': len(labels) > 8})
+    exported = snapshot.get('exported_rows', len(snapshot.get('rows', [])))
+    basis = report_basis(snapshot['preset'])
+    if snapshot['preset'] == 'tat' and filters.get('view', 'current') == 'current':
+        basis = 'Current workload at generation time, narrowed by your selected filters.'
+    if snapshot['preset'] == 'complaints' and filters.get('date_basis') not in (None, '', 'reported'):
+        basis = 'Complaints matching the selected activity dates; status is current at generation.'
+    return {'title': titles.get(snapshot['preset'], 'Report overview'), 'period': period_text, 'generated': generated,
+            'basis': basis, 'metrics': metrics, 'headline': metrics[:4],
+            'remaining': metrics[4:], 'filters': scope, 'breakdowns': breakdowns,
+            'total': snapshot['total_rows'], 'exported': exported, 'truncated': exported < snapshot['total_rows']}

@@ -4,7 +4,7 @@ for name, purpose, classification, retention in (
     ('ApprovedRecipient', 'Approved report recipient and explicit disclosure scope.', 'authoritative_record', 'Retain until explicit administrative removal; protected while deliveries reference it.'),
     ('ReportSchedule', 'Scoped recurring Portal report configuration and Nairobi dispatch cadence.', 'authoritative_record', 'Retain until administrative removal; protected while deliveries reference it.'),
     ('ScheduleRecipient', 'Explicit approved recipient membership in a report schedule.', 'configuration_state', 'Retain with schedule configuration.'),
-    ('ReportDelivery', 'Durable per-recipient submission, retry ownership and provider delivery evidence.', 'authoritative_record', 'Erase payload and report snapshot after 30 days; delete delivery metadata after 180 days.'),
+    ('ReportDelivery', 'Durable scheduled or one-off export submission, requester/destination evidence and retry ownership; one-off destinations do not approve recurring disclosure.', 'authoritative_record', 'Erase payload and report snapshot after 30 days; delete delivery metadata including one-off destination after 180 days.'),
     ('WebhookReceipt', 'Verified immutable provider event receipt and replay guard.', 'immutable_event', 'Delete provider receipt metadata after 180 days.'),
 ):
     MODEL_METADATA['report_delivery.' + name] = {

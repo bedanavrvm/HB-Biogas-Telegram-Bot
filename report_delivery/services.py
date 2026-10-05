@@ -242,6 +242,9 @@ def claim_delivery(*, now=None, delivery_ids=None):
 
 
 def validate_delivery(delivery):
+    if delivery.schedule_id is None:
+        from .one_off import validate_export
+        return validate_export(delivery)
     schedule, recipient = delivery.schedule, delivery.recipient
     require_manage(schedule.authorized_by, schedule)
     validate_recipient(schedule, recipient)
@@ -262,7 +265,7 @@ def validate_delivery(delivery):
         raise ValidationError('This schedule is paused.')
 
 
-def capture_report(schedule, configuration):
+def capture_report(schedule, configuration, *, delivery=None):
     from core.services.portal_reporting import capture_curated_report
     from core.services.telegram_identity import user_access
     # PostgreSQL sees one committed database snapshot across aggregate and row
@@ -271,6 +274,9 @@ def capture_report(schedule, configuration):
         if connection.vendor == 'postgresql':
             with connection.cursor() as cursor:
                 cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        if delivery is not None and delivery.schedule_id is None:
+            from .one_off import capture_export
+            return capture_export(delivery)
         if schedule.workflow != 'jawabu_portal':
             from .sources import capture_workflow_report
             snapshot = capture_workflow_report(schedule, configuration)
@@ -312,11 +318,12 @@ def process_delivery(delivery, *, now=None):
         return
     if not delivery.payload:
         try:
-            snapshot = capture_report(delivery.schedule, delivery.configuration)
-            if delivery.schedule.skip_empty and snapshot['total_rows'] == 0:
+            snapshot = (capture_report(None, delivery.configuration, delivery=delivery) if delivery.schedule_id is None
+                        else capture_report(delivery.schedule, delivery.configuration))
+            if delivery.schedule_id and delivery.schedule.skip_empty and snapshot['total_rows'] == 0:
                 _finish(delivery, status='skipped', error_code='empty_report')
                 return
-            payload = build_payload(snapshot, delivery.recipient.email, delivery.configuration)
+            payload = build_payload(snapshot, delivery.destination if delivery.schedule_id is None else delivery.recipient.email, delivery.configuration)
         except ReportTooLarge:
             _finish(delivery, status='failed', error_code='attachments_too_large')
             return
@@ -358,7 +365,11 @@ def process_delivery(delivery, *, now=None):
 @transaction.atomic
 def retry_delivery(delivery_id, actor):
     delivery = ReportDelivery.objects.select_for_update(of=('self',)).select_related('schedule__authorized_by', 'recipient__authorized_by').get(pk=delivery_id)
-    require_manage(actor, delivery.schedule)
+    if delivery.schedule_id is None:
+        if actor.pk != delivery.requested_by_id and not actor.is_superuser:
+            raise PermissionDenied('This delivery belongs to another user.')
+    else:
+        require_manage(actor, delivery.schedule)
     validate_delivery(delivery)
     if delivery.status not in {'failed', 'blocked'}:
         raise ValidationError('Only a failed or blocked, unaccepted delivery can be retried. Reconcile uncertain submissions with Resend first.')
@@ -390,7 +401,8 @@ def reconcile_webhooks(provider_id):
         delivery.status = status
         delivery.last_event_at = event.occurred_at
         if status in {'bounced', 'complained'}:
-            ApprovedRecipient.objects.filter(email__iexact=delivery.recipient.email).update(suppressed=True, suppression_reason=status)
+            email = delivery.destination if delivery.schedule_id is None else delivery.recipient.email
+            ApprovedRecipient.objects.filter(email__iexact=email).update(suppressed=True, suppression_reason=status)
     delivery.save(update_fields=['status', 'last_event_at', 'updated_at'])
 
 

@@ -72,8 +72,10 @@ class ScheduleRecipient(models.Model):
 class ReportDelivery(models.Model):
     STATUSES = [(v, v.replace('_', ' ').title()) for v in ('queued', 'processing', 'retry', 'accepted', 'delivered', 'delayed', 'bounced', 'complained', 'failed', 'blocked', 'skipped', 'uncertain')]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Durable provider idempotency identity.')
-    schedule = models.ForeignKey(ReportSchedule, on_delete=models.PROTECT, related_name='deliveries', db_comment='Schedule configuration retained for 180-day evidence.')
-    recipient = models.ForeignKey(ApprovedRecipient, on_delete=models.PROTECT, related_name='deliveries', db_comment='Single approved recipient; addresses are never shared.')
+    schedule = models.ForeignKey(ReportSchedule, null=True, blank=True, on_delete=models.PROTECT, related_name='deliveries', db_comment='Recurring schedule; null for an independently authorized one-off export.')
+    recipient = models.ForeignKey(ApprovedRecipient, null=True, blank=True, on_delete=models.PROTECT, related_name='deliveries', db_comment='Approved scheduled recipient; null for a one-off destination.')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='requested_report_deliveries', db_comment='One-off export actor; deletion revokes unsent delivery authority.')
+    destination = models.EmailField(blank=True, db_comment='One-off email destination, retained with delivery evidence for 180 days; never grants recurring recipient approval.')
     occurrence = models.CharField(max_length=100, db_comment='Scheduled occurrence or client-supplied manual action UUID.')
     configuration = models.JSONField(default=dict, db_comment='Frozen group, filters, revision, report period and authorization context.')
     status = models.CharField(max_length=12, choices=STATUSES, default='queued', db_comment='Authoritative delivery state; delivered does not imply read.')
@@ -110,7 +112,9 @@ class ReportDelivery(models.Model):
     class Meta:
         db_table = 'report_delivery_message_root'
         db_table_comment = 'Durable per-recipient report delivery and retry evidence; payload 30 days, metadata 180 days; source of truth for delivery only.'
-        constraints = [models.UniqueConstraint(fields=['schedule', 'recipient', 'occurrence'], name='report_delivery_occurrence_unique')]
+        constraints = [models.UniqueConstraint(fields=['schedule', 'recipient', 'occurrence'], name='report_delivery_occurrence_unique'),
+                       models.UniqueConstraint(fields=['requested_by', 'occurrence'], condition=models.Q(schedule__isnull=True), name='report_oneoff_request_unique'),
+                       models.CheckConstraint(condition=(models.Q(schedule__isnull=False, recipient__isnull=False, destination='') | (models.Q(schedule__isnull=True, recipient__isnull=True) & ~models.Q(destination=''))), name='report_delivery_kind_valid')]
         indexes = [models.Index(fields=['status', 'next_attempt_at'], name='report_delivery_due_idx'),
                    models.Index(fields=['provider_id'], name='report_delivery_provider_idx')]
         ordering = ['-created_at']

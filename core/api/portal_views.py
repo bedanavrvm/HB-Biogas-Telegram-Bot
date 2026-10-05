@@ -3231,6 +3231,17 @@ def portal_curated_report_export(request):
     return response
 
 
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_curated_report_email(request):
+    error = _portal_read_access_error(request, capability='portal.reports.view')
+    if error is not None:
+        return error
+    from report_delivery.views import report_export_response
+    return report_export_response(request.portal_user, 'jawabu_portal', _portal_request_data(request))
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'HEAD'])
 def portal_curated_report_download(request, token: str):

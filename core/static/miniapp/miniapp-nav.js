@@ -127,6 +127,13 @@
 
   function syncBackButton() {
     if (!tg?.BackButton) return;
+    if (window.MiniAppReportEmailExport?.isOpen()) {
+      clearBackHandler();
+      backHandler = () => window.MiniAppReportEmailExport.closeActive();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     const receiptPreview = document.getElementById('payment-receipt-preview');
     if (receiptPreview?.open) {
       clearBackHandler();

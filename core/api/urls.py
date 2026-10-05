@@ -4,7 +4,7 @@ URL routing for the core API.
 from django.urls import include, path
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
-from report_delivery.views import resend_webhook, tat_report_settings, complaint_report_settings
+from report_delivery.views import resend_webhook, tat_report_settings, complaint_report_settings, tat_report_email, complaint_report_email
 from .miniapp_diagnostic_views import (
     miniapp_diagnostic_session_start,
     miniapp_diagnostic_signals,
@@ -65,6 +65,7 @@ from .portal_views import (
     portal_settings,
     portal_report_send_now,
     portal_report_settings,
+    portal_curated_report_email,
     portal_tat_target_settings,
     portal_approval_delegations,
     portal_approval_delegation_revoke,
@@ -246,6 +247,8 @@ from .complaint_case_views import (
 urlpatterns = [
     path('report-delivery/resend/webhook/', resend_webhook, name='report_resend_webhook'),
     path('tat-tracker/settings/reports/', tat_report_settings, name='tat_report_settings'),
+    path('tat-tracker/reports/email/', tat_report_email, name='tat_report_email'),
+    path('complaints/reports/email/', complaint_report_email, name='complaint_report_email'),
     path('complaints/settings/reports/', complaint_report_settings, name='complaint_report_settings'),
     path('portal/settings/reports/', portal_report_settings, name='portal_report_settings'),
     path('', include('origination.urls')),
@@ -418,6 +421,7 @@ urlpatterns = [
     path('portal/reports/preview/', portal_report_preview, name='portal_report_preview'),
     path('portal/reports/workspace/', portal_curated_report, name='portal_curated_report'),
     path('portal/reports/workspace/export/', portal_curated_report_export, name='portal_curated_report_export'),
+    path('portal/reports/workspace/email/', portal_curated_report_email, name='portal_curated_report_email'),
     path('portal/reports/workspace/download/<str:token>/', portal_curated_report_download, name='portal_curated_report_download'),
     path('portal/reports/relationships/', portal_reporting_relationships, name='portal_reporting_relationships'),
     path('portal/reports/', portal_reports, name='portal_reports'),

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title>
+<style>@media(max-width:480px){.report-body{padding:20px!important}.metric{display:inline-block!important;width:50%!important;box-sizing:border-box;padding:12px 8px 12px 0!important}.report-title{font-size:24px!important}}</style></head>
+<body style="margin:0;background:#f2f5f8;color:#20344b;font-family:Arial,Helvetica,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden">{{ title }} · {{ period }}. {{ total }} matching cases. Detailed Excel attached.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;background:#fff;border:1px solid #e1e7ee;border-radius:12px">
+<tr><td style="padding:22px 28px;background:#173b59;color:#fff;border-radius:12px 12px 0 0"><table role="presentation" width="100%"><tr><td style="font-size:24px;font-weight:bold;letter-spacing:1px">JBL</td><td align="right" style="font-size:12px;color:#c6d9e8">JAWABU BIASHARA LIMITED<br>Operational reports</td></tr></table></td></tr>
+<tr><td class="report-body" style="padding:28px">
+<p style="margin:0 0 8px;color:#537185;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px">{{ period }}</p>
+<h1 class="report-title" style="margin:0 0 12px;font-size:28px;line-height:1.2;color:#173b59">{{ title }}</h1>
+<p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#627487">{{ basis }}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e1e7ee;border-bottom:1px solid #e1e7ee"><tr>
+{% for item in headline %}<td class="metric" width="25%" valign="top" style="padding:18px 10px 18px 0"><div style="font-size:26px;font-weight:bold;color:#173b59;line-height:1.2">{{ item.value }}</div><div style="font-size:12px;line-height:1.5;color:#627487;margin-top:6px">{{ item.label }}</div></td>{% endfor %}
+</tr></table>
+{% if remaining %}<table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;margin-top:16px">{% for item in remaining %}<tr><td style="padding:8px 0;border-bottom:1px solid #eef2f5">{{ item.label }}</td><td align="right" style="padding:8px 0;border-bottom:1px solid #eef2f5;font-weight:bold">{{ item.value }}</td></tr>{% endfor %}</table>{% endif %}
+{% for chart in breakdowns %}<h2 style="font-size:16px;margin:24px 0 10px;color:#173b59">{{ chart.title }}</h2><table width="100%" cellpadding="0" cellspacing="0" style="font-size:12px;border-collapse:collapse"><thead><tr><th align="left" style="padding:8px;background:#eef4f8">Breakdown</th>{% for header in chart.headers %}<th align="right" style="padding:8px;background:#eef4f8">{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in chart.rows %}<tr><td style="padding:8px;border-bottom:1px solid #eef2f5">{{ row.label }}</td>{% for value in row.values %}<td align="right" style="padding:8px;border-bottom:1px solid #eef2f5">{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% if chart.more %}<p style="font-size:12px;color:#627487">First 8 groups shown here. See Excel for detailed records.</p>{% endif %}{% endfor %}
+{% if filters %}<h2 style="font-size:14px;margin:24px 0 8px">Report scope</h2><p style="font-size:12px;line-height:1.6;margin:0;color:#627487">{% for filter in filters %}<strong>{{ filter.label }}:</strong> {{ filter.value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>{% endif %}
+<table role="presentation" width="100%" style="margin-top:24px;background:#eef6f3;border-radius:8px"><tr><td style="padding:16px;font-size:13px;line-height:1.6;color:#23614b"><strong>Detailed Excel attached</strong><br>{{ exported }} of {{ total }} matching cases.{% if truncated %}<br>The export limit was reached. Narrow the filters for a complete export.{% endif %}</td></tr></table>
+<p style="font-size:11px;color:#627487;margin:20px 0 0;line-height:1.6">Generated {{ generated }}<br>Confidential · Share only with authorized recipients.</p>
+</td></tr></table>
+<p style="font-size:11px;color:#6c7d8e;margin:16px 0">JBL BOT · Jawabu Biashara Limited</p>
+</td></tr></table></body></html>

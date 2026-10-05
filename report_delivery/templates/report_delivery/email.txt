@@ -1,0 +1,13 @@
+JBL BOT — {{ title }}
+{{ period }}
+Generated {{ generated }}
+
+{{ basis }}
+{% for item in metrics %}
+{{ item.label }}: {{ item.value }}{% endfor %}
+{% for filter in filters %}
+{{ filter.label }}: {{ filter.value }}{% endfor %}
+
+Detailed Excel attached: {{ exported }} of {{ total }} matching cases.
+{% if truncated %}Export limit reached. Narrow the filters for a complete export.{% endif %}
+Confidential — share only with authorized recipients.

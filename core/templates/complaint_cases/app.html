@@ -51,7 +51,7 @@
 
     <section id="globalView" hidden>
       <button id="reportBackBtn" class="back-button" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
-      <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><div class="report-export-actions"><button id="exportResultsBtn" class="primary" type="button" hidden>Export results</button><button id="exportAllBtn" type="button" hidden>Export all</button></div></div>
+      <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><div class="report-export-actions"><div class="report-email-actions"><button id="exportResultsBtn" class="primary" type="button" hidden>Export results</button><button id="emailResultsBtn" type="button" class="report-email-icon" aria-label="Email report" hidden></button></div><button id="exportAllBtn" type="button" hidden>Export all</button></div></div>
       <section id="downloadResult" class="download-result" role="status" aria-live="polite" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><div><strong id="downloadResultTitle">Download ready</strong><p id="downloadResultMessage"><span id="downloadFilename"></span> is ready.</p></div><div class="download-result-actions"><button id="openExportBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-external-link"></use></svg><span>Open Excel File</span></button><button id="downloadAgainBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Again</span></button></div></section>
       <button id="openComplaintReportFilters" class="complaint-report-filter-bar" type="button" aria-haspopup="dialog" aria-controls="complaintReportFilterOverlay"><span class="filter-bar-action"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><strong>Filters</strong><b id="complaintActiveFilterCount" hidden>0</b></span><span class="filter-bar-summary"><strong id="complaintFilterSummary">All complaints</strong><small id="reportPeriodLabel">All reporting dates</small></span><svg class="lucide filter-bar-chevron" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
@@ -148,6 +148,8 @@
   <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=2"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=2">
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=59"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
+  <script src="{% static 'miniapp/report_email_export.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=60"></script>
 </body>
 </html>

@@ -73,7 +73,7 @@
       </div>
       <div class="report-title-row">
         <div class="dashboard-heading"><p class="eyebrow">Operational Data</p><h2>TAT Reports</h2><p id="tatReportPeriod">Current workload</p></div>
-        <button id="tatReportExport" type="button" class="secondary compact-btn">Download XLSX</button>
+        <div class="report-email-actions"><button id="tatReportExport" type="button" class="secondary compact-btn">Download XLSX</button><button id="tatReportEmail" type="button" class="report-email-icon" aria-label="Email report"></button></div>
       </div>
       <nav class="report-mode-tabs" aria-label="TAT report type">
         <button type="button" class="active" data-report-view="current" aria-pressed="true">Current Workload</button>
@@ -483,6 +483,8 @@
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=2">
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=116"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
+  <script src="{% static 'miniapp/report_email_export.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=117"></script>
 </body>
 </html>

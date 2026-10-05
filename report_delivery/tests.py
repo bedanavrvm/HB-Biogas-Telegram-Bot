@@ -360,19 +360,17 @@ class DeliveryTests(TransactionTestCase):
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, 'blocked')
 
-    def test_report_payload_has_both_attachments_same_facts(self):
+    def test_report_email_and_excel_share_facts_without_pdf(self):
         from .rendering import build_payload
-        from pypdf import PdfReader
         JawabuFarmerMaster.objects.create(customer_name='Synthetic report case', group_configuration=self.group)
         configuration = self.queue().configuration
         snapshot = capture_report(self.schedule, configuration)
         payload = build_payload(snapshot, self.recipient.email, configuration)
         self.assertEqual(payload['to'], [self.recipient.email])
-        self.assertEqual(len(payload['attachments']), 2)
-        pdf = PdfReader(BytesIO(base64.b64decode(payload['attachments'][0]['content'])))
-        text = '\n'.join(page.extract_text() for page in pdf.pages)
-        self.assertIn('1 matching cases', text)
-        workbook = load_workbook(BytesIO(base64.b64decode(payload['attachments'][1]['content'])))
+        self.assertEqual(len(payload['attachments']), 1)
+        self.assertTrue(payload['attachments'][0]['filename'].endswith('.xlsx'))
+        self.assertIn('1 matching cases', payload['text'])
+        workbook = load_workbook(BytesIO(base64.b64decode(payload['attachments'][0]['content'])))
         self.assertEqual(workbook['Data'].max_row - 1, len(snapshot['rows']))
         self.assertIn('Cases in scope', payload['html'])
 

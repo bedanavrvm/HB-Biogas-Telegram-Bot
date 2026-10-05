@@ -4002,6 +4002,11 @@
   $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
   $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
   $('tatReportExport').addEventListener('click', exportTatReport);
+  window.MiniAppReportEmailExport?.attach($('tatReportEmail'), () => {
+    const {init_data, token, task_token, group_id, workflow_mode_version, page, page_size, ...filters} = reportPayload();
+    return {workflow:'tat_tracker', preset:'tat', title:state.report.view === 'current' ? 'TAT workload' : 'TAT period performance',
+      filters, telegram:tg, post:payload => api('/api/tat-tracker/reports/email/', payload), notify:(message,tone) => setStatus(message,tone === 'ok' ? 'ok' : 'error')};
+  });
   $('tatReportInitialRetry').addEventListener('click', () => {
     utils.impactWithFallback?.('light', 20);
     invalidateTatReportInsights();
@@ -4450,6 +4455,7 @@
   });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
+      if (window.MiniAppReportEmailExport?.closeActive()) return;
       if (state.assessmentPreview.open) return closeAssessmentPreview();
       if (state.report.filterSheetOpen) return closeTatReportFilters();
       if (state.filterSheetOpen) return closeQueueFilters();

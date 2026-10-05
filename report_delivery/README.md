@@ -1,4 +1,38 @@
-# Scheduled Mini App reports
+# Mini App email reports
+
+## Branded overview and filtered exports
+
+New emails contain the management overview and one Excel attachment, not a PDF.
+Project-owned templates provide JBL branding, key figures, readable dates and
+report scope. A bare `REPORT_EMAIL_FROM` address gets the display name JBL BOT;
+you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
+Explicitly configured display names are preserved. Existing frozen submissions
+retain their original bytes and attachments on retry.
+
+In Portal Reports, TAT Reports or Complaints Data Overview, tap the envelope
+beside Excel export, enter one address and Send. The current applied filters,
+including search/chart selections, are captured when the dialog opens. The
+email uses the same native workbook exporter as Download Excel. It never
+creates a recurring schedule or permanently approves that destination.
+Existing export permission is required; schedule management remains IT-only.
+Each reservation records its requester and destination; customer values and
+email addresses are not included in diagnostic logs. Access is checked again
+before disclosure; changed grants block the captured report rather than
+silently broadening or narrowing it. Suppression also applies to one-off sends.
+
+Close/Cancel/Escape/Telegram Back return to the existing report, without waiting
+for delivery. Queued and Sending are not proof of delivery: Accepted means
+Resend accepted it, while Delivered requires its signed webhook. Immediate
+dispatch is best-effort and database-leased; a process restart or occupied
+worker slots retains the queued work. Status checks and the existing processor
+can resume it; this does not introduce an unattended retry scheduler.
+
+Apply `python manage.py migrate report_delivery` through `0004_reportdelivery_one_off`.
+Rollback command: `python manage.py migrate report_delivery 0003_remove_approvedrecipient_report_recipient_scope_unique_and_more`.
+Disable sending first. Reversal is guarded if one-off evidence exists: retain
+the additive schema when rolling back application code, or restore a verified
+pre-release backup. No rollback automatically deletes disclosure evidence.
+Production migrations or test emails require explicit operator approval.
 
 Send now starts immediately after commit without a shell command. Delivery
 progress appears in Settings; the web request does not wait for generation or
@@ -29,7 +63,9 @@ in the Mini App. Suppressed addresses require explicit Admin review.
 TAT reports use the existing Period Performance cohort and operational data-mode
 rules. Complaints reports use reported dates; their resolution values are current,
 not reconstructed historical status. Both Excel attachments are capped at 2,000
-rows, with full-scope counts stated in the PDF. One shared runner handles all apps.
+rows for scheduled reports, with full-scope counts stated in the email. One-off
+sends retain the native download's limits (Portal 2,000; TAT 10,000; Complaints
+uses its existing register export). One shared runner handles all apps.
 
 Apply `0003_remove_approvedrecipient_report_recipient_scope_unique_and_more`:
 existing schedules/approvals retain Portal ownership. Pause the runner and export
@@ -44,7 +80,7 @@ scheduler.
 
 ## Operator setup
 
-1. Apply reviewed `report_delivery` migrations through `0003` in your approved
+1. Apply reviewed `report_delivery` migrations through `0004` in your approved
    release process. These changes affect only delivery/configuration tables.
 2. In Resend, verify an organization-owned sending domain using the DNS records
    it supplies. Configure SPF/DKIM and the organization's DMARC policy. Disable
@@ -72,7 +108,7 @@ scheduler.
    This runner is for unattended recurring schedules, not Portal Sheet
    publication. **Send now does not require it:** after the reservation commits,
    a bounded background thread claims the requested reports and submits them.
-   The HTTP request never waits for PDF generation or Resend. Settings checks
+   The HTTP request never waits for workbook generation or Resend. Settings checks
    display acceptance or a safe failure reason. Reopening Settings wakes pending
    work after an interrupted process; durable leases and provider keys prevent
    duplicate submission. Two workers per process, at most 50 claims per wake,
@@ -112,7 +148,7 @@ scheduler.
   the period's matching cases with **current recorded financial values**, not
   historical cash flow. These bases are stated in attachments and email.
 - Each recipient delivery captures summary, charts and case rows from one
-  database snapshot. Its PDF and XLSX serialize those same facts. Excel has the
+  database snapshot. Its email overview and XLSX serialize those same facts. Scheduled Excel has the
   Portal's existing 2,000-row limit; summaries/charts cover all matching cases.
   Both row count and limit are shown. Narrow the scope when all rows are needed.
 - Empty reports are sent unless Skip empty is selected. A failed report build
@@ -161,9 +197,19 @@ production parity. All provider calls in tests are mocked and all cases are
 synthetic. Run the Portal email Settings Playwright checks for mobile layout
 and single-flight confirmation behavior.
 
-Migration reversal: disable sending and stop the runner; export configuration
+Filtered send and presentation checks:
+
+```text
+python manage.py test report_delivery --noinput
+npx playwright test core/tests_browser/report_email_export.spec.js core/tests_browser/portal_reporting.spec.js core/tests_browser/complaint_reporting.spec.js
+```
+
+These use synthetic data and mocked delivery. Browser email previews verify
+layout, not Gmail/Outlook rendering or actual inbox delivery.
+
+Full app removal (not a routine rollback): disable sending and stop the runner; export configuration
 and history if required; run `python manage.py migrate report_delivery zero`.
-This deletes this app's records, not Portal cases or external emails. Reapply
+The one-off evidence guard described above must be respected. This deletes this app's records, not Portal cases or external emails. Reapply
 with `python manage.py migrate report_delivery`. Domain/DNS, provider delivery,
 production migrations and scheduler operation require operator verification;
 local tests do not prove them.

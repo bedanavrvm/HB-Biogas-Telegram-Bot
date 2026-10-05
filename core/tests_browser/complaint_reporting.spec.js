@@ -49,6 +49,8 @@ async function openReport(page) {
   await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
   await page.addScriptTag({ path: path.join(root, 'node_modules/ag-grid-community/dist/ag-grid-community.min.js') });
   await page.addScriptTag({ path: asset('complaint_report_charts.js') });
+  await page.addStyleTag({ path: asset('report_email_export.css') });
+  await page.addScriptTag({ path: asset('report_email_export.js') });
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await expect(page.locator('#globalWorkspaceBtn')).toBeVisible();
   await page.locator('#globalWorkspaceBtn').click();
@@ -121,6 +123,20 @@ test('empty timing charts remain honest and keyboard-friendly', async ({page})=>
   await page.locator('#complaintChartNext').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 8');
+});
+
+test('Real Complaints envelope sends current result filters without leaving the report',async({page},info)=>{
+  await page.setViewportSize({width:390,height:850});await openReport(page);
+  const email=await page.locator('#emailResultsBtn').boundingBox();const exportButton=await page.locator('#exportResultsBtn').boundingBox();
+  expect(Math.abs(email.y-exportButton.y)).toBeLessThan(4);
+  await page.evaluate(()=>{const post=ComplaintCasesMiniAppApi.postJson;ComplaintCasesMiniAppApi.postJson=async(route,payload)=>{
+    if(route==='reports/email/'){window.__emailPayload=payload;return {ok:true,status:'accepted',delivery_id:'synthetic'};}return post(route,payload);
+  };});
+  await page.getByRole('button',{name:'Email report',exact:true}).click();await page.getByLabel('Email address').fill('management@example.invalid');
+  await page.screenshot({path:info.outputPath('complaints-real-email-390.png'),fullPage:true});
+  await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.report-email-dialog [role=status]')).toHaveText('Accepted for delivery.');
+  expect(await page.evaluate(()=>window.__emailPayload.group_id)).toBe('-100-synthetic-report');
+  await page.getByRole('button',{name:'Close email report'}).click();await expect(page.locator('#globalView')).toBeVisible();
 });
 
 test('trend grouping stays synchronized and chart borders match their purpose', async ({page}, info)=>{

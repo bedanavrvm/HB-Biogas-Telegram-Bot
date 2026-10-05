@@ -1,5 +1,12 @@
 # Changelog
 
+## 5 October 2026 — Branded report emails and filtered sends
+
+- New report emails provide a JBL management overview with the detailed Excel attached; PDF attachments are removed. Bare sender addresses display as JBL BOT.
+- Portal, TAT and Complaints report screens share a compact envelope dialog. Export-authorized users may send their current filtered report to one address without creating a schedule or recipient approval.
+- One-off disclosure retains requester/destination evidence, idempotency, current-access checks, suppression and background dispatch. Download exporters remain the source for attachment structure and filtering.
+- Apply report_delivery.0004; see report_delivery/README.md for the guarded reversal command. Live PostgreSQL, Gmail/Outlook rendering and provider sending require operator verification; no production emails or migrations are performed here.
+
 ## 5 October 2026 — Workflow-owned report email settings
 
 - Portal and TAT Settings, plus a header Settings panel in Complaints, now let IT configure their own report schedules and recipients without Admin navigation.

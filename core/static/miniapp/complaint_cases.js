@@ -570,6 +570,7 @@
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
       $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
       $('exportResultsBtn').hidden = $('exportAllBtn').hidden;
+      if ($('emailResultsBtn')) $('emailResultsBtn').hidden = $('exportAllBtn').hidden;
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
       state.locationOptions = data.location_options || state.locationOptions;
       locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
@@ -1883,6 +1884,7 @@
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   function returnPrevious() {
+    if (window.MiniAppReportEmailExport?.closeActive()) return;
     if ($('complaintSettingsOverlay') && !$('complaintSettingsOverlay').hidden) { closeComplaintSettings(); return; }
     if (state.reportFilterSheetOpen) { closeComplaintReportFilters(); return; }
     if (!$('mediaViewerOverlay').hidden) { closeMediaViewer(); return; }
@@ -1994,6 +1996,10 @@
   }));
   $('exportAllBtn').addEventListener('click', () => prepareExport('all'));
   $('exportResultsBtn').addEventListener('click', () => prepareExport('results'));
+  window.MiniAppReportEmailExport?.attach($('emailResultsBtn'), () => ({
+    workflow:'complaint_cases', preset:'complaints', title:'Complaints overview', filters:currentTableFilters(), telegram,
+    post:payload => json('reports/email/', payload), notify:(message,tone) => notify(message,tone !== 'ok'),
+  }));
   $('complaintChartSelection').addEventListener('click', clearComplaintChartSelection);
   $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
