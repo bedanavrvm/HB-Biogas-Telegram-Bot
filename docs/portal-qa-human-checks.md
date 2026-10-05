@@ -1,5 +1,19 @@
 # Portal QA: human verification
 
+## Reports
+
+- Check Pipeline, Outcomes and Finance at 320–430px: export stays beside the
+  heading; chart options stay beside the title; no page-wide horizontal scrolling.
+- Search from the page, then apply/cancel/reset filters. Check dates display
+  clearly and results/export use the same applied selections.
+- Swipe charts or use the arrows. Open chart options and View cases only when
+  needed; date-grouping controls appear only on time-based charts.
+- Check eight table rows fit, including after zooming. Hold a cell to copy it;
+  expect the actual value in the confirmation. Open a case and return without
+  losing filters, chart position or pagination.
+- Check dark theme, empty results and failed chart loading. Cases and export
+  must remain usable if charts fail.
+
 ## Activity comparisons
 
 - Change an editable field, then check history: the field label and old → new

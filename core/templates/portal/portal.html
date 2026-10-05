@@ -616,14 +616,6 @@
 
   {% if active_screen == 'reports' %}
   <section id="page-reports" class="page{% if active_screen == 'reports' %} active{% endif %}" data-required-capability="portal.reports.view">
-    <header>
-      <h1>Reports</h1>
-      <p class="meta">Curated live operational views for workload, outcomes, and finance</p>
-    </header>
-    {% if not report_view or report_view == 'catalogue' %}<section class="portal-report-notice" role="note">
-      <strong>Your operational overview</strong>
-      <span>Explore workload, decisions and finance for the cases you can access.</span>
-    </section>{% endif %}
     <div id="portal-reports-root" class="portal-reports-root" aria-live="polite">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading reports...</div></div>
     </div>
