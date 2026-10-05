@@ -31,6 +31,15 @@ class SettingsTests(TestCase):
         self.assertEqual(ApprovedRecipient.objects.get().workflow,'tat_tracker')
         self.assertIsNotNone(second.next_run_at)
 
+    def test_branch_options_use_complete_current_workflow_grants(self):
+        narrow = get_user_model().objects.create_user(username='synthetic-branch-options-it')
+        AccessGrant.objects.create(user=narrow,workflow='tat_tracker',role='IT',branch='Nakuru',group_configuration=self.group)
+        AccessGrant.objects.create(user=narrow,workflow='jawabu_portal',role='IT',branch='Meru',group_configuration=self.group)
+        data=settings_action(narrow,'tat_tracker',{'action':'list'})
+        self.assertEqual(data['branches_by_group'][str(self.group.pk)],[{'value':'Nakuru','label':'Nakuru'}])
+        broad=settings_action(self.user,'tat_tracker',{'action':'list'})
+        self.assertIn({'value':'','label':'All branches'},broad['branches_by_group'][str(self.group.pk)])
+
     def test_other_apps_require_their_own_it_grants(self):
         with self.assertRaises(PermissionDenied):
             save_configuration(self.user,'jawabu_portal', {**self.payload,'preset':'pipeline'})

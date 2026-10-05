@@ -57,10 +57,13 @@
     function renderForm() {
       const form=node('form','', 'report-email-form');
       function field(key,label,options,type) { const wrap=node('label',label,key==='recipients'?'report-email-wide':''); const input=node(key==='recipients'?'textarea':options?'select':'input'); input.name=key; if(options)for(const [value,text] of options){const o=node('option',text);o.value=value;input.append(o);} else if(type)input.type=type; if(key==='recipients'){input.rows=3;input.placeholder='One email address per line';} input.value=key==='recipients'?editing.recipients.join('\n'):(editing[key] || ''); if(['title','group_configuration','recipients'].includes(key))input.required=true; wrap.append(input);form.append(wrap); }
-      field('title','Report name',null,'text'); field('group_configuration','Group',data.groups.map(g=>[g.id,g.label]));
+      field('title','Report name',null,'text');
+      const group=node('input');group.type='hidden';group.name='group_configuration';group.value=editing.group_configuration || '';form.append(group);
       field('preset','Report',data.presets.map(p=>[p,p==='tat'?'TAT outcomes':p==='complaints'?'Complaints overview':p[0].toUpperCase()+p.slice(1)]));
       field('frequency','Frequency',['daily','weekly','monthly','quarterly'].map(v=>[v,v[0].toUpperCase()+v.slice(1)])); field('send_time','Time (Nairobi)',null,'time');
-      field('branch','Branch (blank = all)',null,'text');
+      const branches=(data.branches_by_group?.[String(editing.group_configuration)] || [{value:'',label:'All branches'}]).map(b=>[b.value,b.label]);
+      if(editing.branch && !branches.some(b=>b[0]===editing.branch))branches.push([editing.branch,editing.branch]);
+      field('branch','Branch',branches);
       if(!data.presets.includes('complaints'))field('product','Product code (blank = all)',null,'text');
       if(data.presets.includes('pipeline'))field('county','County (optional)',null,'text');
       field('recipients','Recipients');

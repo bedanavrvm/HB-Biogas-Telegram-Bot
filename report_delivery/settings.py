@@ -22,7 +22,16 @@ def configuration_payload(actor, workflow):
         if not grants.filter(group_configuration__isnull=True).exists():
             groups = groups.filter(pk__in=grants.values('group_configuration_id'))
     schedules = allowed_configurations(actor, ReportSchedule, workflow=workflow).prefetch_related('recipients')[:100]
+    from core.services.branches import global_branch_choices
+    branch_scopes = {}
+    grants = list(actor.access_grants.filter(active=True, workflow=workflow, role__iexact='IT'))
+    for group in groups:
+        eligible = [g for g in grants if not g.group_configuration_id or g.group_configuration_id == group.pk]
+        broad = actor.is_superuser or any(not g.branch for g in eligible)
+        names = global_branch_choices() if broad else sorted({g.branch for g in eligible if g.branch})
+        branch_scopes[str(group.pk)] = ([{'value':'', 'label':'All branches'}] if broad else []) + [{'value':name, 'label':name} for name in names]
     return {'allowed': True, 'enabled': bool(settings.REPORT_EMAIL_DELIVERY_ENABLED and settings.RESEND_API_KEY and settings.REPORT_EMAIL_FROM),
+            'branches_by_group': branch_scopes,
             'presets': PRESETS[workflow], 'groups': [{'id': g.pk, 'label': str(g)} for g in groups],
             'schedules': [{'id': str(s.pk), 'revision': s.revision, 'title': s.title, 'preset': s.preset,
                            'group_configuration': s.group_configuration_id, 'branch': s.branch, 'product': s.product,

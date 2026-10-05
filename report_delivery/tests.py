@@ -81,6 +81,25 @@ class DeliveryTests(TransactionTestCase):
         self.assertEqual(first[0].pk, second[0].pk)
         self.assertEqual(ReportDelivery.objects.count(), 1)
 
+    def test_queue_scheduler_and_retry_lock_only_the_owned_row(self):
+        # PostgreSQL rejects FOR UPDATE across nullable authorizer joins.
+        # Exercise the real service paths; SQLite does not enforce this rule.
+        from django.db.models.query import QuerySet
+        original = QuerySet.select_for_update
+        locks = []
+
+        def lock(queryset, *args, **kwargs):
+            locks.append((queryset.model, kwargs.get('of')))
+            return original(queryset, *args, **kwargs)
+
+        with patch.object(QuerySet, 'select_for_update', lock):
+            delivery = self.queue()
+            reserve_due(now=NOW)
+            delivery.status = 'failed'
+            delivery.save(update_fields=['status'])
+            retry_delivery(delivery.pk, self.actor)
+        self.assertEqual(locks, [(ReportSchedule, ('self',)), (ReportSchedule, ('self',)), (ReportDelivery, ('self',))])
+
     def test_each_recipient_has_separate_reservation(self):
         other = ApprovedRecipient.objects.create(email='second@example.invalid', group_configuration=self.group, authorized_by=self.actor)
         self.schedule.recipients.add(other)

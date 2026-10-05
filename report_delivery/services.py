@@ -165,7 +165,8 @@ def queue_schedule(schedule_id, *, actor, request_key, recipient_id=None, now=No
         key = str(uuid.UUID(str(request_key)))
     except (ValueError, TypeError, AttributeError):
         raise ValidationError('Reopen this action and try again.')
-    schedule = ReportSchedule.objects.select_for_update().select_related('authorized_by').get(pk=schedule_id)
+    # Authorizers are nullable; PostgreSQL cannot lock their outer-join side.
+    schedule = ReportSchedule.objects.select_for_update(of=('self',)).select_related('authorized_by').get(pk=schedule_id)
     require_manage(actor, schedule)
     require_manage(schedule.authorized_by, schedule)
     recipients = schedule.recipients.select_related('authorized_by')
@@ -197,7 +198,7 @@ def reserve_due(*, now=None, limit=20):
     reserved = 0
     for pk in list(ids):
         with transaction.atomic():
-            schedule = ReportSchedule.objects.select_for_update().select_related('authorized_by').get(pk=pk)
+            schedule = ReportSchedule.objects.select_for_update(of=('self',)).select_related('authorized_by').get(pk=pk)
             if not schedule.active or not schedule.next_run_at or schedule.next_run_at > now:
                 continue
             due = latest_occurrence(schedule, now)
@@ -353,7 +354,7 @@ def process_delivery(delivery, *, now=None):
 
 @transaction.atomic
 def retry_delivery(delivery_id, actor):
-    delivery = ReportDelivery.objects.select_for_update().select_related('schedule__authorized_by', 'recipient__authorized_by').get(pk=delivery_id)
+    delivery = ReportDelivery.objects.select_for_update(of=('self',)).select_related('schedule__authorized_by', 'recipient__authorized_by').get(pk=delivery_id)
     require_manage(actor, delivery.schedule)
     validate_delivery(delivery)
     if delivery.status not in {'failed', 'blocked'}:

@@ -1244,6 +1244,15 @@ python manage.py migrate core 0072_miniapp_drafts
 ```
 # Report schedule editor recovery - 5 October 2026
 
+- Report manual queuing, scheduled reservation and retry lock only their owned
+  row, avoiding PostgreSQL's nullable-authorizer outer-join FOR UPDATE error.
+
+- Fixed Portal email Settings' doubled API prefix and unpacked its actual
+  response/error envelope. Browser regression now uses the real API client.
+- Complaints header actions stay right-aligned on one row; Settings has a
+  compact section divider, aligned fields and equal-width Save/Cancel actions.
+- Removed the Group dropdown and replaced free-text Branch with scoped choices.
+
 - Add report tolerates unavailable/restricted WebView crypto helpers, scrolls
   to and focuses the editor, and reports opening failures visibly. Regression
   coverage includes the actual Portal Settings shell with sending disabled.

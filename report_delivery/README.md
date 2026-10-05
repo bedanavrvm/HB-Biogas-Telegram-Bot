@@ -9,9 +9,11 @@ resolution status. No cross-workflow customer joins are made.
 
 IT opens **Settings → Email reports → Manage reports** in Portal/TAT. In
 Complaints, the header **gear icon** opens the Settings panel. Add a report,
-choose its group, cadence and Nairobi sending time, enter recipient addresses
+choose its cadence and Nairobi sending time, enter recipient addresses
 (one per line), choose Active, and Save. Confirming approves those addresses
-for that app and selected branch/product scope. Blank scope fields mean the
+for that app and retained group/selected branch/product scope. The group is
+kept internally, not exposed as a dropdown. Branches use configured scoped
+choices, not free text. Blank scope fields mean the
 whole selected group; narrower IT grants cannot approve broader scope.
 
 The pencil edits a schedule; the send icon queues that schedule immediately.

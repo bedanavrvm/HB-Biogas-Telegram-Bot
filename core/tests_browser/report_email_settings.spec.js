@@ -13,12 +13,19 @@ test('Portal Add report opens recipients and cadence in the real Settings shell 
   await page.setViewportSize({width:360,height:740});
   await mountPortalShell(page,`<main class="page active">${section}</main>`);
   await page.addScriptTag({content:script});
-  await page.evaluate(()=>window.MiniAppReportEmailSettings.mount(document.getElementById('portal-report-email-manager'),async()=>({data:{enabled:false,presets:['pipeline','outcomes','finance'],groups:[{id:1,label:'Synthetic group'}],schedules:[]}})));
+  await page.addScriptTag({path:path.join(root,'core/static/miniapp/portal_api.js')});
+  await page.evaluate(()=>{window.reportRequests=[];window.fetch=async url=>{window.reportRequests.push(url);return new Response(JSON.stringify({ok:true,data:{enabled:false,presets:['pipeline','outcomes','finance'],groups:[{id:1,label:'Synthetic group'}],schedules:[]}}),{status:200,headers:{'Content-Type':'application/json'}});};});
+  const source=fs.readFileSync(path.join(root,'core/static/miniapp/portal.js'),'utf8');
+  const binding=source.match(/    if \(reportEmail.allowed\) window.MiniAppReportEmailSettings[^]*?\n    if \(el\('portal-report-email-settings'\)\)/)[0].split("\n    if (el(")[0];
+  await page.addScriptTag({content:`const reportEmail={allowed:true};const el=id=>document.getElementById(id);const portalApi=window.PortalMiniAppApi;const tg=null;${binding}`});
   await page.getByRole('button',{name:'Manage reports'}).click();
+  expect(await page.evaluate(()=>window.reportRequests)).toEqual(['/api/portal/settings/reports/']);
   await page.getByRole('button',{name:'Add report'}).click();
   await expect(page.getByLabel('Recipients',{exact:true})).toBeVisible();
   await expect(page.getByRole('combobox',{name:'Frequency',exact:true})).toBeVisible();
   await expect(page.getByLabel('Time (Nairobi)',{exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Group',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('combobox',{name:'Branch',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/portal-add-report-real-settings.png',fullPage:true});
 });
 
@@ -105,6 +112,18 @@ test('Complaints header settings closes with Back and preserves the report edito
   },initData);
   await page.addScriptTag({content:script});
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/complaint_cases.js')});
+  for(const width of [320,360,390,430]) {
+  await page.setViewportSize({width,height:740});
+  const brand=await page.locator('.app-brand').boundingBox();
+  const refresh=await page.locator('#refreshBtn').boundingBox();
+  const settings=await page.locator('#complaintSettingsBtn').boundingBox();
+  expect(settings.x).toBeGreaterThan(brand.x+brand.width-1);
+  expect(Math.abs(refresh.y-settings.y)).toBeLessThan(2);
+  expect(refresh.x+refresh.width).toBeGreaterThan(width-20);
+  expect(Math.abs(refresh.y+refresh.height/2-(brand.y+brand.height/2))).toBeLessThan(3);
+  await page.screenshot({path:`test-results/complaints-header-settings-${width}.png`});
+  }
+  await page.setViewportSize({width:320,height:740});
   await page.locator('#complaintSettingsBtn').click();await expect(page.locator('#complaintSettingsOverlay')).toBeVisible();
   await page.getByRole('button',{name:'Manage reports'}).click();await page.getByRole('button',{name:'Add report'}).click();
   await page.getByLabel('Recipients',{exact:true}).fill('reports@example.invalid');

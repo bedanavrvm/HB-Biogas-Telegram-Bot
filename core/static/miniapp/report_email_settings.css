@@ -21,6 +21,15 @@
 .report-email-settings [hidden] { display:none!important; }
 .report-email-sheet { width:min(540px,100%); max-height:90dvh; overflow:auto; padding:16px; border-radius:16px 16px 0 0; background:var(--tg-theme-bg-color,#fff); box-sizing:border-box; }
 #complaintSettingsOverlay { align-items:flex-end; }
-.complaint-app .app-top { padding-right:8px; }
+.complaint-app .app-top { flex-direction:row; flex-wrap:nowrap; padding-right:8px; }
+.complaint-app .app-top .app-brand { flex:1 1 0; min-width:0; }
+.complaint-app .app-top .app-brand h1,.complaint-app .app-top .app-brand p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.complaint-app .app-top > div:not(.app-brand) { margin-left:auto; align-self:center; }
+.complaint-app .report-email-sheet { padding:14px; }
+.complaint-app .report-email-sheet > .report-email-head { padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--line,#e3e6eb); }
+.complaint-app .report-email-sheet > .report-email-head > .icon-button { width:40px; min-width:40px; height:40px; min-height:40px; flex:0 0 40px; padding:0; }
+.complaint-app .report-email-sheet .report-email-form { padding:12px; border:1px solid var(--line,#e3e6eb); border-radius:12px; background:var(--surface,#fff); }
+.complaint-app .report-email-sheet .report-email-actions { display:grid; grid-template-columns:1fr 1fr; }
+.complaint-app .report-email-sheet .report-email-actions button { width:100%; }
 .complaint-app .app-top > div:not(.app-brand) .icon-button { position:static; transform:none; flex:0 0 40px; }
 @media(max-width:360px) { .report-email-form { grid-template-columns:minmax(0,1fr); } }
