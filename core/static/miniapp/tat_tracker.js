@@ -2468,13 +2468,13 @@
             <div class="event-header">
               <strong class="event-stage">${escapeHtml(eventTitle)}</strong>
             </div>
-            ${eventValue ? `<div class="event-detail">${escapeHtml(eventValue)}</div>` : ''}
+            ${eventValue ? `<div class="event-detail">${window.MiniAppActivityChanges?.textHtml(eventValue) || escapeHtml(eventValue)}</div>` : ''}
             <div class="event-meta">${escapeHtml(eventActorDisplay)} &middot; ${escapeHtml(eventAt || '')}</div>
             ${event.artifact?.url ? `<a class="event-artifact-link" href="${escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}
           </div>
         `;
         events.appendChild(row);
-        if (!event.redacted) window.MiniAppActivityChanges?.append(row.querySelector('.event-body'), event.changes);
+        if (!event.redacted) window.MiniAppActivityChanges?.append(row.querySelector('.event-body'), event.changes, {title: eventTitle, detail: eventValue});
       });
     }
   }

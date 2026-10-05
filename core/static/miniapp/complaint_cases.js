@@ -909,10 +909,14 @@
       const affiliationClass = affiliation === 'Role unknown' ? 'unknown' : affiliation.toLowerCase();
       heading.append(textNode('strong', `${action} ${item.updated_by || 'Unknown actor'}`), textNode('span', affiliation, `history-affiliation history-affiliation-${affiliationClass}`));
       content.append(heading);
-      const noteShownInChanges = (item.changes || []).some(change => change.field === 'resolution_details' && String(change.new_value || '') === String(item.note || ''));
-      if (!noteShownInChanges) content.append(textNode('p', displayHistoryNote(item.note)));
+      if (item.note) {
+        const note = document.createElement('div');
+        if (window.MiniAppActivityChanges) note.innerHTML = window.MiniAppActivityChanges.textHtml(displayHistoryNote(item.note));
+        else note.textContent = displayHistoryNote(item.note);
+        content.append(note);
+      }
       content.append(textNode('small', item.created_at || '', 'muted'));
-      window.MiniAppActivityChanges?.append(content, item.changes);
+      window.MiniAppActivityChanges?.append(content, item.changes, {title: action, detail: item.note});
       row.append(iconNode(item.status === 'Closed' ? 'circle-check' : 'history', 'item-icon'), content);
       node.appendChild(row);
     });

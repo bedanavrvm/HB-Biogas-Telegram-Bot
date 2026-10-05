@@ -524,7 +524,8 @@
       : '<div class="empty-state"><div class="es-title">No likely duplicates</div><div class="es-sub">Checked invoice no, ID, and phone.</div></div>';
     const eventHtml = events.length
       ? events.map(function (event) {
-        return '<div class="batch-client-row"><div class="name">' + escapeHtml(event.action || '-') + ' ' + (event.actor ? '<span class="meta">by ' + escapeHtml(event.actor) + '</span>' : '') + '</div>' + (window.MiniAppActivityChanges?.html(event.changes) || '') + '<div class="meta">' + escapeHtml(fmtDate(event.created_at)) + (event.note ? ' | ' + escapeHtml(event.note) : '') + '</div></div>';
+        const title = String(event.action || 'Invoice updated').replace(/_/g, ' ').replace(/^./, character => character.toUpperCase());
+        return '<div class="batch-client-row"><div class="name">' + escapeHtml(title) + ' ' + (event.actor ? '<span class="meta">by ' + escapeHtml(event.actor) + '</span>' : '') + '</div>' + (window.MiniAppActivityChanges?.html(event.changes, {title, detail: event.note}) || '') + (event.note ? '<div>' + (window.MiniAppActivityChanges?.textHtml(event.note) || escapeHtml(event.note)) + '</div>' : '') + '<div class="meta">' + escapeHtml(fmtDate(event.created_at)) + '</div></div>';
       }).join('')
       : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
     target.innerHTML = [

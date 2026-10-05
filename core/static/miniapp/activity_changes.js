@@ -14,23 +14,42 @@
     }
     return text;
   }
-  function changeHtml(change) {
-    const friendly = value => {
-      const text = valueText(value).replace(/\s+/g, ' ').trim();
-      return text.length > 160 ? `${text.slice(0, 157)}…` : text;
-    };
-    const old = change.previous_recorded === false ? '—' : friendly(change.old_value);
-    const next = friendly(change.new_value);
-    const heading = escape(change.label || 'Value');
-    return `<div class="activity-change"><strong>${heading}:</strong> <span>${escape(old)}</span> <span aria-label="changed to">→</span> <span>${escape(next)}</span></div>`;
+  const blank = value => value === null || value === undefined || String(value).trim() === '';
+  const normalized = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  function textHtml(value) {
+    const text = String(value);
+    if (text.length <= 160) return escape(text);
+    return `<details class="activity-long-text"><summary><span class="activity-text-excerpt">${escape(text.slice(0, 100))}… </span><span class="activity-read-more">Read more</span><span class="activity-read-less">Show less</span></summary><div>${escape(text)}</div></details>`;
   }
-  function html(changes) {
+  function changeHtml(change, context) {
+    const old = valueText(change.old_value);
+    const next = valueText(change.new_value);
+    const label = change.label || 'Value';
+    const previous = change.previous_recorded !== false && !blank(change.old_value);
+    if (blank(change.new_value)) return previous ? `<div class="activity-change">${escape(label)} removed</div>` : '';
+    // A status transition is the outcome of an action, not a correction.
+    const outcome = /^(status|decision|installation_status|commissioning_status)$/.test(change.field || '') ||
+      (change.field === 'value' && labels[String(change.new_value)]);
+    if (normalized(context.detail) === normalized(next) ||
+        (outcome && normalized(context.title).includes(normalized(next)))) return '';
+    return `<div class="activity-change"><span class="activity-change-label">${escape(label)}:</span> ${previous && !outcome ? `${textHtml(old)} <span aria-label="changed to">→</span> ` : ''}${textHtml(next)}</div>`;
+  }
+  function html(changes, context = {}) {
     if (!Array.isArray(changes) || !changes.length) return '';
-    return `<div class="activity-changes">${changes.map(changeHtml).join('')}</div>`;
+    const seen = new Set();
+    const rows = changes.filter(change => {
+      if (change.previous_recorded !== false && change.old_value === change.new_value) return false;
+      const key = JSON.stringify([change.field || change.label, change.old_value, change.new_value]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map(change => changeHtml(change, context)).filter(Boolean);
+    if (!rows.length) return '';
+    return `<div class="activity-changes">${rows.slice(0, 2).join('')}${rows.length > 2 ? `<details class="activity-more"><summary>More changes (${rows.length - 2})</summary>${rows.slice(2).join('')}</details>` : ''}</div>`;
   }
-  function append(node, changes) {
-    const markup = html(changes);
-    if (markup) node.insertAdjacentHTML('beforeend', markup);
+  function append(node, changes, context) {
+    const markup = html(changes, context);
+    if (markup && node) node.insertAdjacentHTML('beforeend', markup);
   }
-  window.MiniAppActivityChanges = {html, append, valueText};
+  window.MiniAppActivityChanges = {html, append, valueText, textHtml};
 })();

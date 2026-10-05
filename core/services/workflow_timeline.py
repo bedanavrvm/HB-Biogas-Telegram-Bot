@@ -182,11 +182,11 @@ def _group_same_moment_activity(entries: list[dict[str, Any]]) -> list[dict[str,
                 detail='',
                 kind='event',
             )
-            parent['title'] = 'Customer record synchronized'
+            parent['title'] = 'Customer details updated'
             parent['children'] = []
             remaining.append(parent)
         _append_timeline_children(parent, children)
-        parent['detail'] = f"{len(children)} customer field{'s' if len(children) != 1 else ''} synchronized from {source.title() if source else 'the source record'}."
+        parent['detail'] = f"{len(children)} fields updated from {source.title() if source else 'the import'}."
         remaining = [entry for entry in remaining if entry not in children]
 
     # A completed JBL visit can write its completion receipt, generic media

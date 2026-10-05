@@ -1,2 +1,9 @@
-.activity-changes { margin:6px 0; font-size:12px; line-height:1.5; color:inherit; min-width:0; }
-.activity-changes .activity-change { display:block; padding:3px 0; overflow-wrap:anywhere; white-space:normal; }
+.activity-changes { margin:4px 0; font-size:12px; line-height:1.4; color:inherit; min-width:0; }
+.activity-changes .activity-change { display:block; padding:1px 0; overflow-wrap:anywhere; white-space:normal; }
+.activity-change-label { font-weight:600; }
+.activity-more, .activity-long-text { margin:2px 0; }
+.activity-more > summary, .activity-long-text > summary { cursor:pointer; font-size:12px; overflow-wrap:anywhere; }
+.activity-long-text > div { white-space:pre-wrap; overflow-wrap:anywhere; }
+.activity-read-less, .activity-long-text[open] > summary .activity-text-excerpt, .activity-long-text[open] > summary .activity-read-more { display:none; }
+.activity-long-text[open] > summary .activity-read-less { display:inline; }
+.activity-more > summary:focus-visible, .activity-long-text > summary:focus-visible { outline:2px solid var(--tg-theme-button-color, #2481cc); outline-offset:2px; }

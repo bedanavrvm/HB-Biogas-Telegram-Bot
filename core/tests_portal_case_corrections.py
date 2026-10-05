@@ -25,7 +25,7 @@ class CaseTimelineProjectionTests(SimpleTestCase):
         self.assertEqual([entry['action'] for entry in grouped], ['jbl_visit_completed', 'application_imported'])
         self.assertEqual([child['source_event_id'] for child in grouped[0]['children']], ['laf'])
         self.assertEqual({child['source_event_id'] for child in grouped[1]['children']}, {'field-name', 'field-id'})
-        self.assertEqual(grouped[1]['detail'], '2 customer fields synchronized from Farmup.')
+        self.assertEqual(grouped[1]['detail'], '2 fields updated from Farmup.')
 
 
 class PortalCaseCorrectionTests(TestCase):
