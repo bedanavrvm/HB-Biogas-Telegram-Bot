@@ -11,12 +11,25 @@ retain their original bytes and attachments on retry.
 
 The shared email layout uses Jawabu navy/green branding, compact coloured
 headline figures, readable duration/percentage values and paired breakdowns.
-On phones, headline figures form two columns and breakdown tables stack.
+Segoe UI/Helvetica Neue/Arial fallbacks use 16px body/table text, 14px supporting
+labels, 18px section headings, a 26px title and 30px headline figures. Long
+amounts get wider cards rather than reduced font sizes. On phones, ordinary
+headline figures form two columns, financial figures use full width, and
+breakdown tables stack.
 The existing project logo is embedded as a local base64 inline attachment using
 [Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
 remote image URL, tracking pixel or new hosting is needed. If the packaged logo
 is unavailable, text branding remains and the report can still be sent.
-The Excel remains the only report file; the logo is an additional inline image.
+The first three non-empty captured chart definitions are considered for offline
+PNG graphs using the existing Pillow dependency. Up to eight categories and
+four series fit the mobile renderer; longer/unreadable labels, unsupported
+chart types and failed rendering fall back to HTML breakdowns. No captured
+values are truncated or changed: breakdowns list every category, including
+missing values, and remain visible when images are blocked. PNGs use the same
+inline Content-ID mechanism as the logo. No interactive tabs, remote assets,
+public links, browser process or additional dependency is required.
+The Excel remains the only report file; logo/graphs are additional inline images.
+The existing serialized 10-MiB ceiling includes all inline image bytes.
 The attachment notice is not a fake download button or a public report link.
 New formatting affects only emails, never captured metrics or workbook cells.
 Actual Gmail/Outlook rendering and client-controlled dark-mode inversion still

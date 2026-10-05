@@ -76,6 +76,93 @@ class EmailPresentationTests(SimpleTestCase):
         self.assertIn('&lt;script&gt;Training&lt;/script&gt;', payload['html'])
         self.assertNotIn('<script>', payload['html'])
 
+    def chart(self, **changes):
+        return {'title': 'Complaints by branch', 'labels': ['Training branch', 'Second branch'],
+                'datasets': [{'label': 'Complaints', 'values': [5, 0]}], **changes}
+
+    def test_larger_typography_and_full_width_amounts(self):
+        from .rendering import email_context
+        snapshot = self.snapshot(summary={'Cases': 12, 'Invoice total (KES)': '123456789'})
+        context = email_context(snapshot)
+        self.assertTrue(context['roomy_headline'])
+        self.assertEqual(context['headline_width'], 50)
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        self.assertIn("'Segoe UI','Helvetica Neue',Arial,sans-serif", payload['html'])
+        self.assertNotIn('font-size:12px', payload['html'])
+        self.assertIn('font-size:30px', payload['html'])
+        self.assertIn('123,456,789', payload['html'])
+
+    def test_charts_are_offline_inline_pngs_and_snapshot_is_unchanged(self):
+        from copy import deepcopy
+        from io import BytesIO
+        from PIL import Image
+        snapshot = self.snapshot(charts=[self.chart()])
+        before = deepcopy(snapshot)
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        graph = payload['attachments'][2]
+        self.assertEqual(graph['content_type'], 'image/png')
+        self.assertIn('src="cid:' + graph['content_id'] + '"', payload['html'])
+        self.assertIn('Values are listed in the breakdown below.', payload['html'])
+        with Image.open(BytesIO(base64.b64decode(graph['content']))) as image:
+            self.assertEqual(image.format, 'PNG')
+            self.assertEqual(image.width, 600)
+        self.assertEqual(payload['attachments'][0]['content'], before['xlsx_content'])
+        self.assertEqual(snapshot, before)
+        self.assertNotIn('https://', payload['html'])
+        self.assertNotIn('<script', payload['html'])
+
+    def test_only_first_three_nonempty_charts_are_considered(self):
+        charts = [self.chart(labels=[])] + [self.chart(title=f'Graph {i}') for i in range(5)]
+        payload = build_payload(self.snapshot(charts=charts), 'management@example.invalid', {})
+        graphs = [a for a in payload['attachments'] if a.get('content_id', '').startswith('jawabu-report-chart')]
+        self.assertEqual(len(graphs), 3)
+        self.assertEqual(len({a['content_id'] for a in graphs}), 3)
+        self.assertIn('Graph 4', payload['html'])  # Tables remain for the remaining graphs.
+
+    def test_dense_chart_retains_every_group_in_html_fallback(self):
+        labels = [f'Training group {i}' for i in range(12)]
+        payload = build_payload(self.snapshot(charts=[self.chart(labels=labels,
+                                     datasets=[{'label': 'Cases', 'values': list(range(12))}])]),
+                                'management@example.invalid', {})
+        self.assertEqual(len(payload['attachments']), 2)
+        for label in labels:
+            self.assertIn(label, payload['html'])
+        self.assertNotIn('First 8 groups', payload['html'])
+
+    def test_chart_render_failure_keeps_report_tables_and_workbook(self):
+        with patch('report_delivery.email_charts.chart_png', side_effect=OSError('synthetic font failure')):
+            payload = build_payload(self.snapshot(charts=[self.chart()]), 'management@example.invalid', {})
+        self.assertEqual(len(payload['attachments']), 2)
+        self.assertIn('Training branch', payload['html'])
+        self.assertNotIn('class="report-graph"', payload['html'])
+
+    def test_png_zero_negative_sparse_line_and_multi_series(self):
+        from .email_charts import chart_png
+        for chart in [self.chart(), self.chart(datasets=[{'label': 'Cases', 'values': [-2, 4]}]),
+                      self.chart(type='line', labels=['01 Oct', '02 Oct'],
+                                 datasets=[{'label': 'Cases', 'values': [0, 2]}]),
+                      self.chart(datasets=[{'label': 'Cases', 'values': [5]}]),
+                      self.chart(datasets=[{'label': 'Cases', 'values': [0, 0]}]),
+                      self.chart(datasets=[{'label': 'Cases', 'values': [5, None]}]),
+                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(4)])]:
+            with self.subTest(chart=chart):
+                self.assertTrue(chart_png(chart).startswith(b'\x89PNG'))
+
+    def test_unreadable_or_nonfinite_charts_use_tables(self):
+        from .email_charts import chart_png
+        for chart in [self.chart(labels=['x' * 200]), self.chart(type='pie'),
+                      self.chart(datasets=[{'label': 'Cases', 'values': [None, None]}]),
+                      self.chart(datasets=[{'label': 'Cases', 'values': ['NaN', 0]}]),
+                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(5)])]:
+            with self.subTest(chart=chart):
+                self.assertIsNone(chart_png(chart))
+
+    def test_chart_bytes_are_included_in_existing_payload_limit(self):
+        from .rendering import ReportTooLarge
+        with patch('report_delivery.rendering.MAX_PAYLOAD_BYTES', 1024):
+            with self.assertRaises(ReportTooLarge):
+                build_payload(self.snapshot(charts=[self.chart()]), 'management@example.invalid', {})
+
 
 class ExportSummaryTests(SimpleTestCase):
     def test_tat_summary_matches_current_or_completed_action_view(self):
@@ -163,17 +250,28 @@ class OneOffTests(TestCase):
     def test_one_off_worker_freezes_and_submits_once(self):
         from .resend import SubmissionError
         delivery = self.queue(payload={**self.payload, 'filters':{}})
-        with patch('report_delivery.resend.send_email', side_effect=SubmissionError('network', retryable=True, ambiguous=True)) as provider:
+        snapshot = {'preset': 'pipeline', 'summary': {'Cases in scope': 1}, 'total_rows': 1,
+                    'rows': [], 'xlsx_content': base64.b64encode(b'synthetic-workbook').decode(),
+                    'run_at': '2026-10-05T09:00:00+03:00', 'applied_filters': {},
+                    'charts': [{'title': 'Pipeline', 'labels': ['Visit'],
+                                'datasets': [{'label': 'Cases', 'values': [1]}]}]}
+        with patch('report_delivery.services.capture_report', return_value=snapshot), \
+             patch('report_delivery.resend.send_email', side_effect=SubmissionError('network', retryable=True, ambiguous=True)) as provider:
             process_delivery(claim_delivery())
         delivery.refresh_from_db()
         original = delivery.payload
         self.assertEqual(delivery.status, 'retry')
         self.assertEqual(original['to'], [self.payload['email']])
+        self.assertEqual(original['attachments'][2]['content_id'], 'jawabu-report-chart-1')
         from django.utils import timezone
         ReportDelivery.objects.filter(pk=delivery.pk).update(next_attempt_at=timezone.now())
-        with patch('report_delivery.services.capture_report') as capture, patch('report_delivery.resend.send_email', return_value='synthetic-provider'):
+        with patch('report_delivery.services.capture_report') as capture, \
+             patch('report_delivery.rendering.build_payload') as render, \
+             patch('report_delivery.resend.send_email', return_value='synthetic-provider') as provider:
             process_delivery(claim_delivery())
         capture.assert_not_called()
+        render.assert_not_called()
+        self.assertEqual(provider.call_args.args[0], original)
         delivery.refresh_from_db()
         self.assertEqual(delivery.payload, original)
         self.assertEqual(delivery.status, 'accepted')
@@ -215,7 +313,7 @@ class OneOffTests(TestCase):
         self.assertEqual(workbook['Data'].max_row, 2)
         payload = build_payload(snapshot, delivery.destination, delivery.configuration)
         self.assertEqual(payload['from'], 'JBL BOT <reports@example.invalid>')
-        self.assertEqual(len(payload['attachments']), 2)
+        self.assertGreaterEqual(len(payload['attachments']), 2)
         self.assertEqual(payload['attachments'][1]['content_id'], 'jawabu-report-logo')
         self.assertIn('Detailed Excel attached', payload['html'])
         self.assertNotIn('Synthetic matching case', payload['html'])

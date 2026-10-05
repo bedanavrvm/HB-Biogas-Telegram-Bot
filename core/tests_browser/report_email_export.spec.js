@@ -20,7 +20,7 @@ snapshot['xlsx_content']='c3ludGhldGlj'
 snapshot['charts'].append({'title':'Complaints by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':'Complaints','values':[90,38]}]})
 snapshot['preset']=${JSON.stringify(preset)}
 if snapshot['preset']=='tat':
-    snapshot.update(summary={'Cases received':128,'Completed cases':91,'Disbursed':80,'Declined':11,'Within or near target (%)':87.5,'Median TAT (minutes)':150,'No target available':3},charts=[])
+    snapshot.update(summary={'Cases received':128,'Completed cases':91,'Disbursed':80,'Declined':11,'Within or near target (%)':87.5,'Median TAT (minutes)':150,'No target available':3},charts=[{'title':'Completed actions','type':'line','labels':['01 Oct','02 Oct','03 Oct'],'datasets':[{'label':'Completed','values':[21,32,38]}]}])
     snapshot['applied_filters']={'branch':'Training branch','view':'performance'}
 elif snapshot['preset']=='finance':
     snapshot.update(summary={'Cases in scope':128,'Invoice total (KES)':123456789,'Paid (KES)':95000000,'Outstanding (KES)':28456789},charts=[{'title':'Financial amounts by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':s,'values':[123456789,98456789]} for s in ['Invoice','Paid','Balance','Deposit']]}])
@@ -109,6 +109,11 @@ for(const width of [320,390,760])test(`Generated management email fits ${width}p
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await expect(page.getByRole('heading',{name:'Complaints overview',exact:true})).toBeVisible();
   expect(await page.locator('.brand-logo').evaluate(img=>img.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.locator('.report-graph')).toHaveCount(2);
+  expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.naturalWidth===600))).toBe(true);
+  expect(await page.locator('.metric-label').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('14px');
+  expect(await page.locator('.breakdown-table').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('16px');
+  expect(await page.locator('.email-container').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('Segoe UI');
   await expect(page.getByText('Median resolution',{exact:true})).toBeVisible();
   await expect(page.getByText('87.50%',{exact:true})).toBeVisible();
   const metrics=await page.locator('.metric').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
@@ -134,12 +139,22 @@ for(const preset of ['tat','finance','empty']) for(const width of [320,760]) {
       await expect(page.locator('.breakdown-multi')).toHaveCount(1);
       await expect(page.locator('.breakdown-multi td').first()).toHaveText('123,456,789');
       const values=await page.locator('.metric-value').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().height));
-      expect(Math.max(...values)).toBeLessThanOrEqual(32);
+      expect(Math.max(...values)).toBeLessThanOrEqual(36);
     }
     if(preset==='empty') await expect(page.getByText('0 of 0 matching cases.',{exact:true})).toBeVisible();
     await page.screenshot({path:info.outputPath(`management-${preset}-${width}.png`),fullPage:true});
   });
 }
+
+test('Image-blocked management email retains readable breakdown values',async({page},info)=>{
+  await page.route(/^https?:\/\//,route=>route.abort());
+  await page.setViewportSize({width:320,height:900});await page.setContent(renderPreview());
+  await page.locator('img').evaluateAll(images=>images.forEach(img=>img.remove()));
+  await expect(page.locator('.breakdown-table')).toHaveCount(2);
+  await expect(page.locator('.breakdown-table').first().getByText('54',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('management-images-blocked-320.png'),fullPage:true});
+});
 
 test('Real TAT report header keeps email beside export and strips launch credentials',async({page},info)=>{
   await page.setViewportSize({width:320,height:740});

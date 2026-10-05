@@ -1,5 +1,18 @@
 # Changelog
 
+## 5 October 2026 — Readable report emails and static graphs
+
+- Preserves the approved Jawabu design with larger Segoe UI font fallbacks:
+  16px body/tables, 14px labels and 30px figures. Long amounts use wider cards.
+- New Portal, TAT and Complaints emails embed up to three offline PNG graphs;
+  full HTML breakdowns remain readable with blocked images or rendering failures.
+  No unreliable interactive tabs, public links, new dependencies or migration.
+- Excel bytes, scoped report facts and frozen retry payloads are unchanged.
+  Actual Gmail/Outlook rendering remains an authorized operator check.
+- Validation: 77 email-domain tests passed using isolated SQLite and mocked
+  delivery; 29 Playwright checks passed. Mobile/desktop screenshots inspected
+  for Complaints, TAT and Finance, including blocked images and long amounts.
+
 ## 5 October 2026 — Branded report email layout
 
 - Report emails follow the reviewed Jawabu navy/green reference, using the

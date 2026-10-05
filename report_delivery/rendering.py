@@ -169,6 +169,24 @@ def report_pdf(snapshot, configuration=None):
 
 def build_payload(snapshot, email, configuration):
     context = email_context(snapshot, configuration)
+    from .email_charts import chart_png
+    chart_attachments = []
+    context['email_graphs'] = []
+    for index, chart in enumerate(c for c in snapshot.get('charts', []) if c.get('labels') and c.get('datasets')):
+        if index >= 3:
+            break
+        try:
+            content = chart_png(chart)
+        except (OSError, ValueError, RuntimeError):
+            # A presentation failure must not block the canonical Excel report.
+            content = None
+        if content is None:
+            continue
+        content_id = f'jawabu-report-chart-{index + 1}'
+        chart_attachments.append({'filename': f'report-chart-{index + 1}.png', 'content_type': 'image/png',
+                                  'content_id': content_id, 'content': base64.b64encode(content).decode()})
+        context['email_graphs'].append({'title': chart['title'], 'src': 'cid:' + content_id,
+                                        'alt': chart['title'] + '. Values are listed in the breakdown below.'})
     try:
         logo = {'filename': 'jawabu-logo.png', 'content_type': 'image/png',
                 'content_id': BRAND_LOGO_ID, 'content': base64.b64encode(BRAND_LOGO_PATH.read_bytes()).decode()}
@@ -187,7 +205,7 @@ def build_payload(snapshot, email, configuration):
         'text': render_to_string('report_delivery/email.txt', context),
         'attachments': [
             {'filename': stem + '.xlsx', 'content': snapshot.get('xlsx_content') or base64.b64encode(curated_snapshot_xlsx(snapshot)).decode()},
-        ] + ([logo] if logo else []),
+        ] + ([logo] if logo else []) + chart_attachments,
     }
     if settings.REPORT_EMAIL_REPLY_TO:
         payload['reply_to'] = settings.REPORT_EMAIL_REPLY_TO
@@ -221,12 +239,12 @@ def email_context(snapshot, configuration=None):
             continue
         headers = [d.get('label', '') for d in datasets]
         rows = []
-        for i, label in enumerate(labels[:8]):
+        for i, label in enumerate(labels):
             values = [_email_metric('', d.get('values', [])[i] if i < len(d.get('values', [])) else None)['value']
                       for d in datasets]
             rows.append({'label': label, 'values': values,
                          'cells': [{'label': header, 'value': value} for header, value in zip(headers, values)]})
-        breakdowns.append({'title': chart['title'], 'headers': headers, 'rows': rows, 'more': len(labels) > 8})
+        breakdowns.append({'title': chart['title'], 'headers': headers, 'rows': rows})
     # Small breakdowns share a row; multi-series financial tables need full width.
     breakdown_groups, pending = [], []
     for chart in breakdowns:
@@ -248,10 +266,13 @@ def email_context(snapshot, configuration=None):
         basis = 'Current workload at generation time, narrowed by your selected filters.'
     if snapshot['preset'] == 'complaints' and filters.get('date_basis') not in (None, '', 'reported'):
         basis = 'Complaints matching the selected activity dates; status is current at generation.'
+    roomy_headline = any(item['long_value'] for item in metrics[:4])
+    headline_columns = min(2 if roomy_headline else 4, len(metrics)) or 1
     return {'title': titles.get(snapshot['preset'], 'Report overview'), 'period': period_text, 'generated': generated,
             'basis': basis, 'metrics': metrics, 'headline': metrics[:4],
             'remaining': metrics[4:], 'filters': scope, 'breakdowns': breakdowns,
-            'headline_width': 100 // max(1, min(4, len(metrics))),
+            'headline_width': 100 // headline_columns, 'roomy_headline': roomy_headline,
+            'headline_rows': [metrics[i:i + headline_columns] for i in range(0, min(4, len(metrics)), headline_columns)],
             'remaining_rows': [metrics[i:i + 3] for i in range(4, len(metrics), 3)],
             'breakdown_groups': breakdown_groups, 'logo_src': 'cid:' + BRAND_LOGO_ID,
             'total': snapshot['total_rows'], 'exported': exported, 'truncated': exported < snapshot['total_rows']}

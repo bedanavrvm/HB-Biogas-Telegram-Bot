@@ -8,29 +8,29 @@
   <meta name="color-scheme" content="light">
   <title>{{ title }}</title>
   <style>
+    table,td,th{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;line-height:1.5}
     @media(max-width:600px){
       .email-outer{padding:12px 8px!important}
       .email-body{padding:16px 12px!important}
       .brand-logo{width:118px!important}
       .brand-name{font-size:14px!important;line-height:1.4!important}
-      .report-title{font-size:22px!important}
+      .report-title{font-size:26px!important}
       .report-heading,.report-generated{display:block!important;width:100%!important;text-align:left!important}
       .report-generated{padding:8px 0 0!important}
       .metric-row{font-size:0!important}
       .metric{display:inline-block!important;width:50%!important;box-sizing:border-box;vertical-align:top!important;padding:4px!important}
       .metric-last-odd{width:100%!important}
-      .metric-value{font-size:24px!important;line-height:30px!important}
-      .metric-value-long{font-size:16px!important}
+      .metric-roomy{width:100%!important}
       .secondary-metric{display:block!important;width:100%!important;box-sizing:border-box;padding:4px 0!important}
       .breakdown-panel{display:block!important;width:100%!important;box-sizing:border-box;padding:0 0 16px!important}
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#f2f4f8;color:#1f2a4d;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45">
+<body style="margin:0;padding:0;background-color:#f2f4f8;color:#1f2a4d;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5">
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{{ title }} · {{ period }}. {{ total }} matching cases. Detailed Excel attached.</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2f4f8"><tr><td class="email-outer" align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="760" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table class="email-container" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:760px;background-color:#ffffff;border:1px solid #e1e4ee;border-radius:8px">
+<table class="email-container" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;width:100%;max-width:760px;background-color:#ffffff;border:1px solid #e1e4ee;border-radius:8px">
   <tr><td style="padding:16px;background-color:#2e3480;border-bottom:5px solid #6cbe45;border-radius:8px 8px 0 0">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
       <td valign="middle" style="width:176px">
@@ -39,56 +39,62 @@
           {% else %}<span style="color:#2e3480;font-size:24px;font-weight:bold">JBL</span>{% endif %}
         </td></tr></table>
       </td>
-      <td class="brand-name" valign="middle" align="right" style="padding-left:12px;color:#ffffff;font-size:19px;line-height:1.4;font-weight:bold">JAWABU BIASHARA<br><span style="color:#a6dd89;font-size:12px;letter-spacing:1px">LIMITED</span></td>
+      <td class="brand-name" valign="middle" align="right" style="padding-left:12px;color:#ffffff;font-size:19px;line-height:1.4;font-weight:bold">JAWABU BIASHARA<br><span style="color:#a6dd89;font-size:14px;letter-spacing:1px">LIMITED</span></td>
     </tr></table>
   </td></tr>
   <tr><td class="email-body" style="padding:20px 20px 16px">
-    <p style="margin:0 0 8px;color:#4a5578;font-size:12px;font-weight:bold">{{ period }}</p>
+    <p style="margin:0 0 8px;color:#4a5578;font-size:14px;font-weight:bold">{{ period }}</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td class="report-heading" valign="bottom"><h1 class="report-title" style="margin:0;padding-left:10px;border-left:4px solid #6cbe45;color:#2e3480;font-size:25px;line-height:1.25;font-weight:bold">{{ title }}</h1></td>
-      <td class="report-generated" valign="bottom" align="right" style="padding-left:12px;color:#4a5578;font-size:12px;white-space:nowrap">{{ generated }}</td>
+      <td class="report-heading" valign="bottom"><h1 class="report-title" style="margin:0;padding-left:10px;border-left:4px solid #6cbe45;color:#2e3480;font-size:26px;line-height:1.25;font-weight:bold">{{ title }}</h1></td>
+      <td class="report-generated" valign="bottom" align="right" style="padding-left:12px;color:#4a5578;font-size:14px;white-space:nowrap">{{ generated }}</td>
     </tr></table>
-    <p style="margin:10px 0 12px;color:#4a5578;font-size:12px;line-height:1.5">{{ basis }}</p>
+    <p style="margin:10px 0 12px;color:#4a5578;font-size:14px;line-height:1.5">{{ basis }}</p>
     {% if headline %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr class="metric-row">
-      {% for item in headline %}
-      <td class="metric{% if forloop.last and not forloop.counter|divisibleby:2 %} metric-last-odd{% endif %}" width="{{ headline_width }}%" valign="top" style="padding:4px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed">
+      {% for row in headline_rows %}<tr class="metric-row">{% for item in row %}
+      <td class="metric{% if roomy_headline %} metric-roomy{% endif %}{% if forloop.last and not forloop.counter|divisibleby:2 %} metric-last-odd{% endif %}" width="{{ headline_width }}%" valign="top" style="padding:4px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:12px 10px;background-color:{{ item.background }};border-top:4px solid {{ item.accent }}">
-          <p class="metric-value{% if item.long_value %} metric-value-long{% endif %}" style="margin:0;color:{{ item.ink }};font-size:{% if item.long_value %}18{% else %}28{% endif %}px;font-weight:bold;line-height:32px;overflow-wrap:anywhere">{{ item.value }}</p>
-          <p style="margin:6px 0 0;color:#4a5578;font-size:12px;line-height:1.4;min-height:34px">{{ item.label }}</p>
+          <p class="metric-value" style="margin:0;color:{{ item.ink }};font-size:30px;font-weight:bold;line-height:1.2;overflow-wrap:anywhere">{{ item.value }}</p>
+          <p class="metric-label" style="margin:6px 0 0;color:#4a5578;font-size:14px;line-height:1.5;min-height:{% if roomy_headline %}21{% else %}42{% endif %}px">{{ item.label }}</p>
         </td></tr></table>
       </td>
-      {% endfor %}
-    </tr></table>
+      {% endfor %}</tr>{% endfor %}
+    </table>
     {% endif %}
     {% if remaining_rows %}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;table-layout:fixed">
       {% for row in remaining_rows %}<tr>{% for item in row %}
       <td class="secondary-metric" valign="top" style="padding:4px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:8px 6px;border-bottom:2px solid {{ item.accent }}">
-          <p style="margin:0;color:#4a5578;font-size:12px;line-height:1.4">{{ item.label }}</p>
-          <p style="margin:4px 0 0;color:{{ item.ink }};font-size:17px;font-weight:bold;line-height:1.4;overflow-wrap:anywhere">{{ item.value }}</p>
+          <p style="margin:0;color:#4a5578;font-size:14px;line-height:1.5">{{ item.label }}</p>
+          <p style="margin:4px 0 0;color:{{ item.ink }};font-size:18px;font-weight:bold;line-height:1.5;overflow-wrap:anywhere">{{ item.value }}</p>
         </td></tr></table>
       </td>{% endfor %}</tr>{% endfor %}
     </table>
     {% endif %}
+    {% for graph in email_graphs %}
+    <table class="email-graph" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;table-layout:fixed"><tr><td>
+      <h2 style="margin:0 0 10px;padding-left:8px;border-left:3px solid #6cbe45;color:#2e3480;font-size:18px;line-height:1.5">{{ graph.title }}</h2>
+      <img class="report-graph" src="{{ graph.src }}" width="480" alt="{{ graph.alt }}" style="display:block;width:100%;max-width:480px;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none">
+    </td></tr></table>
+    {% endfor %}
     {% for group in breakdown_groups %}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;table-layout:fixed"><tr>
       {% for chart in group %}
       <td class="breakdown-panel" width="{% if group|length == 2 %}50{% else %}100{% endif %}%" valign="top" style="padding:0 4px">
-        <h2 style="margin:0 0 10px;padding-left:8px;border-left:3px solid #6cbe45;color:#2e3480;font-size:16px;line-height:1.4">{{ chart.title }}</h2>
+        <h2 style="margin:0 0 10px;padding-left:8px;border-left:3px solid #6cbe45;color:#2e3480;font-size:18px;line-height:1.5">{{ chart.title }}{% if email_graphs %} · Breakdown{% endif %}</h2>
         {% if chart.headers|length > 2 %}
-        <table class="breakdown-table breakdown-multi" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:12px;border-collapse:collapse">
+        <table class="breakdown-table breakdown-multi" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:16px;border-collapse:collapse">
           {% for row in chart.rows %}
           <tbody><tr><th scope="rowgroup" colspan="2" align="left" style="padding:8px;background-color:#eef0f8;border-bottom:2px solid #6cbe45;color:#2e3480;overflow-wrap:anywhere">{{ row.label }}</th></tr>
           {% for cell in row.cells %}<tr>
             <th scope="row" align="left" style="padding:7px 8px;border-bottom:1px solid #eef0f5;font-weight:normal;overflow-wrap:anywhere">{{ cell.label }}</th>
-            <td align="right" style="padding:7px 8px;border-bottom:1px solid #eef0f5;color:#2e3480;font-weight:bold;white-space:nowrap">{{ cell.value }}</td>
+            <td align="right" style="padding:7px 8px;border-bottom:1px solid #eef0f5;color:#2e3480;font-weight:bold;overflow-wrap:anywhere">{{ cell.value }}</td>
           </tr>{% endfor %}</tbody>
           {% endfor %}
         </table>
         {% else %}
-        <table class="breakdown-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:12px;border-collapse:collapse;table-layout:fixed">
+        <table class="breakdown-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:16px;border-collapse:collapse;table-layout:fixed">
           <thead><tr>
             <th scope="col" align="left" style="padding:7px 8px;background-color:#eef0f8;color:#2e3480;border-bottom:2px solid #6cbe45;overflow-wrap:anywhere">Breakdown</th>
             {% for header in chart.headers %}<th scope="col" align="right" style="padding:7px 8px;background-color:#eef0f8;color:#2e3480;border-bottom:2px solid #6cbe45;overflow-wrap:anywhere">{{ header }}</th>{% endfor %}
@@ -99,24 +105,23 @@
           </tr>{% endfor %}</tbody>
         </table>
         {% endif %}
-        {% if chart.more %}<p style="margin:8px 0 0;font-size:11px;color:#4a5578;line-height:1.5">First 8 groups shown. Full case records are in the attached Excel.</p>{% endif %}
       </td>{% endfor %}
     </tr></table>
     {% endfor %}
     {% if filters %}
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e1e4ee">
-      <h2 style="margin:0 0 6px;font-size:13px;color:#2e3480">Report scope</h2>
-      <p style="margin:0;font-size:12px;color:#4a5578;line-height:1.6;overflow-wrap:anywhere">{% for filter in filters %}<strong>{{ filter.label }}:</strong> {{ filter.value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>
+      <h2 style="margin:0 0 6px;font-size:18px;color:#2e3480">Report scope</h2>
+      <p style="margin:0;font-size:14px;color:#4a5578;line-height:1.5;overflow-wrap:anywhere">{% for filter in filters %}<strong>{{ filter.label }}:</strong> {{ filter.value }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>
     </div>
     {% endif %}
   </td></tr>
   <tr><td style="padding:16px 20px;background-color:#eef8e9;border-top:3px solid #6cbe45">
-    <p style="margin:0;color:#2f6b17;font-size:15px;font-weight:bold">Detailed Excel attached</p>
-    <p style="margin:4px 0 0;color:#1f2a4d;font-size:12px;line-height:1.5">{{ exported }} of {{ total }} matching cases.{% if truncated %}<br>The export limit was reached. Narrow the filters for a complete export.{% endif %}</p>
+    <p style="margin:0;color:#2f6b17;font-size:16px;font-weight:bold">Detailed Excel attached</p>
+    <p style="margin:4px 0 0;color:#1f2a4d;font-size:14px;line-height:1.5">{{ exported }} of {{ total }} matching cases.{% if truncated %}<br>The export limit was reached. Narrow the filters for a complete export.{% endif %}</p>
   </td></tr>
   <tr><td style="padding:12px 20px;background-color:#2e3480;border-radius:0 0 8px 8px;color:#ffffff">
-    <p style="margin:0;font-size:12px;font-weight:bold">JBL BOT · Jawabu Biashara Limited</p>
-    <p style="margin:4px 0 0;font-size:11px;color:#d9dcee;line-height:1.5">Confidential · Share only with authorized recipients.</p>
+    <p style="margin:0;font-size:14px;font-weight:bold">JBL BOT · Jawabu Biashara Limited</p>
+    <p style="margin:4px 0 0;font-size:14px;color:#d9dcee;line-height:1.5">Confidential · Share only with authorized recipients.</p>
   </td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->

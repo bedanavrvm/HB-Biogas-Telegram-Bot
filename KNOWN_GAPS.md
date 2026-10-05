@@ -1,5 +1,15 @@
 # Known Gaps and Verified Workarounds
 
+## Report email client rendering — 5 October 2026
+
+Browser screenshots use synthetic captured reports and substitute embedded
+Content-ID images with data URLs for local preview only. They verify layout,
+not actual Gmail/Outlook Content-ID handling, font fallback, or automatic dark
+mode. Verify new emails in authorized test inboxes before broad rollout; no
+live emails are sent during local tests. Report tables remain available when
+images are blocked or dense charts cannot be drawn legibly. Retried frozen
+emails deliberately keep their original typography and attachments.
+
 ## Portal density validation — 5 October 2026
 
 The isolated SQLite pipeline selection is not green. A comparison with HEAD
