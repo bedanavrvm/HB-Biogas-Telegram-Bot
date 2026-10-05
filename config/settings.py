@@ -64,7 +64,15 @@ INSTALLED_APPS = [
     'qa_tracker',
     'tat_recognition',
     'portal_recognition',
+    'report_delivery',
 ]
+
+# Resend report delivery is independent of Gmail appraisal ingestion.
+REPORT_EMAIL_DELIVERY_ENABLED = config('REPORT_EMAIL_DELIVERY_ENABLED', default=False, cast=bool)
+RESEND_API_KEY = config('RESEND_API_KEY', default='')
+REPORT_EMAIL_FROM = config('REPORT_EMAIL_FROM', default='')
+REPORT_EMAIL_REPLY_TO = config('REPORT_EMAIL_REPLY_TO', default='')
+RESEND_WEBHOOK_SECRET = config('RESEND_WEBHOOK_SECRET', default='')
 
 ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
     'ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH', default=True, cast=bool,

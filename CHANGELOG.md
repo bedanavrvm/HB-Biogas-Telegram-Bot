@@ -1,5 +1,18 @@
 # Changelog
 
+## Scheduled Portal email reports - 5 October 2026
+
+- Added scoped approved recipients, daily/weekly/monthly/quarterly schedules,
+  background Resend delivery, PDF/Excel previews and delivery history in Admin.
+- Portal IT Settings can queue active report schedules immediately without
+  waiting for email generation or delivery in the app.
+- Retries retain exact payloads and provider keys; signed delivery events
+  suppress bounced/complained-about destinations. Customer payload retention
+  is 30 days and delivery metadata retention is 180 days.
+- Sending remains disabled by default. Apply the reviewed new-app migration,
+  configure verified-domain secrets/webhooks and provision the email runner
+  before enabling it; no live emails or production migrations were performed.
+
 ## Activity value comparisons - 2 October 2026
 
 - Portal case and invoice history, payment activity, Complaints history and

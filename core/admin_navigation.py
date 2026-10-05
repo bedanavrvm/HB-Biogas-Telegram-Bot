@@ -404,6 +404,15 @@ def get_admin_navigation(request) -> list[dict]:
 
     configured_workflows = _configured_workflow_groups()
     groups = [
+        {
+            'title': 'Scheduled reports',
+            'collapsible': True,
+            'items': [
+                _model_item('report_delivery.ReportSchedule', 'Report schedules', 'schedule_send'),
+                _model_item('report_delivery.ApprovedRecipient', 'Approved recipients', 'alternate_email'),
+                _model_item('report_delivery.ReportDelivery', 'Delivery history', 'outgoing_mail'),
+            ],
+        },
         {"title": "Operations", "items": [item for item in operations if item]},
         *configured_workflows,
         {

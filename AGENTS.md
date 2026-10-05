@@ -70,6 +70,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
+| **Scheduled Portal report** | An approved group/branch/product-scoped email report for one completed Nairobi period; current backlog and financial snapshot bases remain distinct from period activity. |
 | **Portal Performance standing** | A capability-scoped, JBL-officer-owned case-milestone ranking. The officer who first logs the JBL visit earns one point when that case reaches each accepted visit, credit, final approval, signed-order, installation, and commissioning milestone; payment has no point. Live rank movement is a temporary viewer checkpoint. Settled periods retain immutable, scoring-policy-versioned group facts so older final standings remain unchanged. |
 | **QA tracker** | A bounded, Unfold-native internal test registry and release checklist. Django retains scoped human Pass/Fail/Blocked executions and private Drive screenshot references; on-demand PDF reports compare releases without spreadsheet editing. |
 | **FarmUp monthly worklist** | The group-scoped, month-labelled Portal intake workspace whose immutable CSV versions are reconciled cumulatively. Committed unchanged rows are recognized, unselected rows remain held, and Google publication is tracked separately from canonical Django commits. |
@@ -132,6 +133,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `requisitions/` — bounded order-number governance domain; owns the group-scoped official requisition sequence
 - `hb_operations/` — bounded post-order HomeBiogas installation/commissioning state and append-only audit history
 - `portal_recognition/` — settled Portal Performance facts and expiring live-rank checkpoints
+- `report_delivery/` — approved report recipients, schedules, durable Resend deliveries and signed delivery receipts; read `report_delivery/README.md` before changing email disclosure, retries, scheduling or retention.
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
 - `core/models.py` — legacy workflow and shared catalogue/identity models
@@ -1139,6 +1141,8 @@ Do not mix broad architecture refactors with unrelated business-rule changes.
 ---
 
 ## Documentation rules
+
+Scheduled Portal email configuration uses `REPORT_EMAIL_DELIVERY_ENABLED` (off by default), `RESEND_API_KEY`, `REPORT_EMAIL_FROM`, optional `REPORT_EMAIL_REPLY_TO`, and `RESEND_WEBHOOK_SECRET`. Store secrets in the deployment environment secret store. `process_report_deliveries --apply` is the explicitly approved scheduled email runner; it does not change request-assisted Sheet publication or Gmail appraisal ingestion. Email requests only reserve durable work. Recipient approval and one complete current IT grant must encompass the entire disclosure scope at every send.
 
 When behaviour changes, update the smallest canonical document that users or operators rely on.
 

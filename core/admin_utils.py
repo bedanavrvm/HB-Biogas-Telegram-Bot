@@ -161,7 +161,7 @@ def auto_register_unregistered_models(*, app_label=None) -> list[type[models.Mod
     for model in apps.get_models():
         if app_label and model._meta.app_label != app_label:
             continue
-        if model._meta.app_label == 'qa_tracker' or (model._meta.app_label == 'origination' and app_label != 'origination'):
+        if model._meta.app_label in {'qa_tracker', 'report_delivery'} or (model._meta.app_label == 'origination' and app_label != 'origination'):
             # QA models have scoped, purpose-built admins registered later.
             continue
         if model._meta.label in INLINE_ONLY_MODEL_LABELS:

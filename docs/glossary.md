@@ -10,6 +10,14 @@ respective service modules.
 
 ## Canonical staff access
 
+**Approved report recipient:** An email destination explicitly permitted to receive
+reports for one group and its approved branch/product scope. This approval does
+not grant Portal access.
+
+**Scheduled Portal report:** A recurring Pipeline, Outcomes or Finance report for
+one completed Nairobi calendar period, with current-snapshot data clearly
+distinguished from period activity.
+
 **Complaint resolution comment:** HB feedback saved while a complaint remains
 open. Comments retain their actor and timestamp separately from resolution
 details. Queue badges count all comments, not unread comments; saving feedback

@@ -1,0 +1,2 @@
+{% extends "admin/base_site.html" %}
+{% block content %}<p>Retry this unaccepted delivery using the same payload and provider key? Expired or uncertain submissions require provider reconciliation instead.</p><form method="post">{% csrf_token %}<button class="button" type="submit">Queue retry</button></form>{% endblock %}

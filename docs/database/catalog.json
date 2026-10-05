@@ -167,7 +167,8 @@
         "core/services/product_deletion.py",
         "core/services/staff_access_readiness.py",
         "hb_operations/tests.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "report_delivery/tests.py"
       ],
       "django_model": "core.AccessGrant",
       "domain": "access",
@@ -215,7 +216,9 @@
         "core/services/workflow_recognition.py",
         "hb_operations/tests.py",
         "origination/tests.py",
-        "origination/tests_migrations.py"
+        "origination/tests_migrations.py",
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
       ]
     },
     {
@@ -941,6 +944,8 @@
         "payments.PaymentBatch",
         "payments.PaymentReceiptBatch",
         "payments.PaymentSequenceState",
+        "report_delivery.ApprovedRecipient",
+        "report_delivery.ReportSchedule",
         "requisitions.OrderSequenceState"
       ],
       "classification": "configuration",
@@ -955,7 +960,8 @@
         "credit_assessments/tests.py",
         "hb_operations/tests.py",
         "origination/tests.py",
-        "payments/tests.py"
+        "payments/tests.py",
+        "report_delivery/tests.py"
       ],
       "django_model": "core.GroupSheetConfiguration",
       "domain": "platform",
@@ -1022,6 +1028,8 @@
         "payments/models.py",
         "payments/receipt_batches.py",
         "payments/tests.py",
+        "report_delivery/models.py",
+        "report_delivery/tests.py",
         "requisitions/models.py"
       ]
     },
@@ -1643,7 +1651,8 @@
         "hb_operations/tests.py",
         "origination/tests.py",
         "payments/receipt_batches.py",
-        "payments/tests.py"
+        "payments/tests.py",
+        "report_delivery/tests.py"
       ],
       "django_model": "core.JawabuFarmerMaster",
       "domain": "jawabu",
@@ -1713,7 +1722,8 @@
         "payments/models.py",
         "payments/receipt_batches.py",
         "payments/services.py",
-        "payments/tests.py"
+        "payments/tests.py",
+        "report_delivery/tests.py"
       ]
     },
     {
@@ -6649,6 +6659,171 @@
         "core/services/portal_recognition.py",
         "portal_recognition/migrations/0001_initial.py",
         "portal_recognition/models.py"
+      ]
+    },
+    {
+      "application_area": "Report Delivery",
+      "children": [],
+      "classification": "authoritative_record",
+      "column_count": 19,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
+      ],
+      "django_model": "report_delivery.ReportDelivery",
+      "domain": "report_delivery",
+      "explicit_indexes": [
+        "report_delivery_due_idx",
+        "report_delivery_provider_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "report_delivery.ApprovedRecipient",
+        "report_delivery.ReportSchedule"
+      ],
+      "purpose": "Durable per-recipient submission, retry ownership and provider delivery evidence.",
+      "retention": "Erase payload and report snapshot after 30 days; delete delivery metadata after 180 days.",
+      "source_of_truth": true,
+      "table": "report_delivery_message_root",
+      "used_by": [
+        "report_delivery/admin.py",
+        "report_delivery/catalogue.py",
+        "report_delivery/migrations/0001_initial.py",
+        "report_delivery/models.py",
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
+      ]
+    },
+    {
+      "application_area": "Report Delivery",
+      "children": [],
+      "classification": "configuration_state",
+      "column_count": 3,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [],
+      "django_model": "report_delivery.ScheduleRecipient",
+      "domain": "report_delivery",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "report_delivery.ApprovedRecipient",
+        "report_delivery.ReportSchedule"
+      ],
+      "purpose": "Explicit approved recipient membership in a report schedule.",
+      "retention": "Retain with schedule configuration.",
+      "source_of_truth": true,
+      "table": "report_delivery_recipient_link",
+      "used_by": [
+        "report_delivery/catalogue.py",
+        "report_delivery/migrations/0001_initial.py",
+        "report_delivery/models.py"
+      ]
+    },
+    {
+      "application_area": "Report Delivery",
+      "children": [
+        "report_delivery.ReportDelivery",
+        "report_delivery.ScheduleRecipient"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 11,
+      "cross_domain_parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "direct_orm_writers": [
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
+      ],
+      "django_model": "report_delivery.ApprovedRecipient",
+      "domain": "report_delivery",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "purpose": "Approved report recipient and explicit disclosure scope.",
+      "retention": "Retain until explicit administrative removal; protected while deliveries reference it.",
+      "source_of_truth": true,
+      "table": "report_delivery_recipient_root",
+      "used_by": [
+        "report_delivery/admin.py",
+        "report_delivery/catalogue.py",
+        "report_delivery/migrations/0001_initial.py",
+        "report_delivery/models.py",
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
+      ]
+    },
+    {
+      "application_area": "Report Delivery",
+      "children": [
+        "report_delivery.ReportDelivery",
+        "report_delivery.ScheduleRecipient"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 17,
+      "cross_domain_parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "direct_orm_writers": [
+        "report_delivery/admin.py",
+        "report_delivery/tests.py"
+      ],
+      "django_model": "report_delivery.ReportSchedule",
+      "domain": "report_delivery",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "purpose": "Scoped recurring Portal report configuration and Nairobi dispatch cadence.",
+      "retention": "Retain until administrative removal; protected while deliveries reference it.",
+      "source_of_truth": true,
+      "table": "report_delivery_schedule_root",
+      "used_by": [
+        "core/api/portal_views.py",
+        "report_delivery/admin.py",
+        "report_delivery/catalogue.py",
+        "report_delivery/migrations/0001_initial.py",
+        "report_delivery/models.py",
+        "report_delivery/services.py",
+        "report_delivery/tests.py"
+      ]
+    },
+    {
+      "application_area": "Report Delivery",
+      "children": [],
+      "classification": "immutable_event",
+      "column_count": 5,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "report_delivery/services.py",
+        "report_delivery/tests.py",
+        "report_delivery/views.py"
+      ],
+      "django_model": "report_delivery.WebhookReceipt",
+      "domain": "report_delivery",
+      "explicit_indexes": [
+        "report_webhook_provider_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [],
+      "purpose": "Verified immutable provider event receipt and replay guard.",
+      "retention": "Delete provider receipt metadata after 180 days.",
+      "source_of_truth": true,
+      "table": "report_delivery_webhook_event",
+      "used_by": [
+        "report_delivery/catalogue.py",
+        "report_delivery/migrations/0001_initial.py",
+        "report_delivery/models.py",
+        "report_delivery/services.py",
+        "report_delivery/tests.py",
+        "report_delivery/views.py"
       ]
     },
     {

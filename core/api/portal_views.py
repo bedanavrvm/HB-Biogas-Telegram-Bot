@@ -1618,6 +1618,8 @@ def portal_navigation(request):
 
 def _portal_setting_options(request, actor) -> dict:
     """Return the authenticated user's valid personal Portal configuration."""
+    from report_delivery.services import can_manage, allowed_configurations
+    from report_delivery.models import ReportSchedule
     from core.services.workflow_catalog import workflow_branch_names
     from core.services.portal_navigation import get_portal_nav_items
     from core.services.workflow_capabilities import has_capability
@@ -1647,6 +1649,11 @@ def _portal_setting_options(request, actor) -> dict:
         # IT/Operations-only surface; their own endpoints remain independently
         # capability-guarded.
         'operations_settings': operations_settings,
+        'report_email': {
+            'allowed': can_manage(actor),
+            'enabled': bool(settings.REPORT_EMAIL_DELIVERY_ENABLED and settings.RESEND_API_KEY and settings.REPORT_EMAIL_FROM),
+            'active_schedules': allowed_configurations(actor, ReportSchedule).filter(active=True).count() if can_manage(actor) else 0,
+        },
         'operations': {
             'health': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
             'maintenance': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
@@ -1655,6 +1662,37 @@ def _portal_setting_options(request, actor) -> dict:
             'tat_targets': has_capability(actor, 'jawabu_portal', 'portal.tat.targets.manage', access=access),
         },
     }
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_report_send_now(request):
+    """IT-only background reservation; no email provider calls in requests."""
+    from django.core.exceptions import PermissionDenied, ValidationError
+    from report_delivery.models import ReportSchedule
+    from report_delivery.services import allowed_configurations, queue_schedule, require_manage
+    actor = getattr(request, 'portal_user', None)
+    try:
+        require_manage(actor)
+        if not settings.REPORT_EMAIL_DELIVERY_ENABLED or not settings.RESEND_API_KEY or not settings.REPORT_EMAIL_FROM:
+            return JsonResponse({'ok': False, 'error': 'Report email delivery is not configured yet.'}, status=409)
+        payload = json.loads(request.body or '{}')
+        if not isinstance(payload, dict):
+            raise ValueError
+        key = payload.get('client_request_id') or payload.get('request_key')
+        schedules = list(allowed_configurations(actor, ReportSchedule).filter(active=True).order_by('pk')[:51])
+        if len(schedules) > 50:
+            return JsonResponse({'ok': False, 'error': 'Choose individual schedules in Admin; this action supports up to 50.'}, status=400)
+        count = 0
+        with transaction.atomic():
+            for schedule in schedules:
+                count += len(queue_schedule(schedule.pk, actor=actor, request_key=key))
+        return JsonResponse({'ok': True, 'queued': count, 'message': f'{count} report email(s) queued for background delivery.' if count else 'No active report schedules in your scope.'}, status=202)
+    except PermissionDenied:
+        return JsonResponse({'ok': False, 'error': 'Portal IT access is required.'}, status=403)
+    except (ValueError, TypeError, ValidationError):
+        return JsonResponse({'ok': False, 'error': 'Review approved recipients and report scope in Admin, then try again.'}, status=400)
 
 
 def _portal_workspace_options(request, actor) -> dict:

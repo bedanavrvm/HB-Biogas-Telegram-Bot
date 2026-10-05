@@ -4,7 +4,7 @@ from django.apps import apps
 from django.core.management import call_command
 from django.test import SimpleTestCase
 
-from core.services.database_catalog import database_catalog, table_comment
+from core.services.database_catalog import CATALOGUE_APP_LABELS, database_catalog, table_comment
 
 
 class DatabaseCatalogueTests(SimpleTestCase):
@@ -12,7 +12,7 @@ class DatabaseCatalogueTests(SimpleTestCase):
         entries = database_catalog(include_usage=False)
         models = [
             model
-            for app_label in ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
+            for app_label in CATALOGUE_APP_LABELS
             for model in apps.get_app_config(app_label).get_models()
         ]
 

@@ -4,6 +4,7 @@ URL routing for the core API.
 from django.urls import include, path
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
+from report_delivery.views import resend_webhook
 from .miniapp_diagnostic_views import (
     miniapp_diagnostic_session_start,
     miniapp_diagnostic_signals,
@@ -62,6 +63,7 @@ from hb_operations.views import hb_action_commissioning_notes, hb_action_correct
 from .portal_views import (
     portal_navigation,
     portal_settings,
+    portal_report_send_now,
     portal_tat_target_settings,
     portal_approval_delegations,
     portal_approval_delegation_revoke,
@@ -241,6 +243,7 @@ from .complaint_case_views import (
 )
 
 urlpatterns = [
+    path('report-delivery/resend/webhook/', resend_webhook, name='report_resend_webhook'),
     path('', include('origination.urls')),
     path('staff/activate/', legacy_get_redirect('staff_telegram_activation_page'), name='legacy_api_staff_telegram_activation_page'),
     path('staff/activate/submit/', staff_telegram_activation_submit, name='staff_telegram_activation_submit'),
@@ -372,6 +375,7 @@ urlpatterns = [
     path('portal/s/<str:screen>/', legacy_get_redirect('portal_screen'), name='legacy_api_portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/settings/', portal_settings, name='portal_settings'),
+    path('portal/settings/reports/send/', portal_report_send_now, name='portal_report_send_now'),
     path('portal/settings/tat-targets/', portal_tat_target_settings, name='portal_tat_target_settings'),
     path('portal/settings/delegations/', portal_approval_delegations, name='portal_approval_delegations'),
     path('portal/settings/delegations/<str:delegation_id>/revoke/', portal_approval_delegation_revoke, name='portal_approval_delegation_revoke'),

@@ -773,9 +773,11 @@ def _curated_period(filters: dict[str, Any]) -> tuple[date, date]:
     return start, end
 
 
-def _curated_dataset(*, preset, filters, user, access):
+def _curated_dataset(*, preset, filters, user, access, group_configuration=None):
     from core.services.portal_report_insights import prepare, insights
     queryset = scoped_case_queryset(user=user, access=access)
+    if group_configuration is not None:
+        queryset = queryset.filter(group_configuration=group_configuration)
     # The HTTP boundary supplies current grant tuples. Re-resolve them here as
     # well for direct callers and user-bound export downloads.
     if access is not None and 'grants' in access:
@@ -828,28 +830,45 @@ def run_curated_report(*, preset: str, filters: Any, user, access: dict | None, 
     }
 
 
-def export_curated_report(*, preset: str, filters: Any, user, access: dict | None) -> bytes:
+def capture_curated_report(*, preset, filters, user, access, group_configuration=None):
+    """One bounded dataset for report delivery; callers own transaction isolation."""
     queryset, filters, period, choices, charts, summary = _curated_dataset(
-        preset=preset, filters=filters, user=user, access=access,
+        preset=preset, filters=filters, user=user, access=access, group_configuration=group_configuration,
     )
     selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
     rows = _curated_rows(queryset.order_by('-updated_at', 'id')[:MAX_TABLE_ROWS], selected)
+    return {
+        'preset': preset, 'period': period, 'applied_filters': filters, 'summary': summary,
+        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
+        'rows': rows, 'total_rows': queryset.count(), 'export_limit': MAX_TABLE_ROWS,
+        'charts': charts, 'run_at': timezone.now().isoformat(),
+    }
+
+
+def export_curated_report(*, preset: str, filters: Any, user, access: dict | None) -> bytes:
+    return curated_snapshot_xlsx(capture_curated_report(preset=preset, filters=filters, user=user, access=access))
+
+
+def curated_snapshot_xlsx(snapshot) -> bytes:
+    """Serialize captured facts without querying current cases a second time."""
+    preset, filters, period, rows = (snapshot[key] for key in ('preset', 'applied_filters', 'period', 'rows'))
+    selected = snapshot['columns']
     workbook = Workbook()
     details = workbook.active
     details.title = 'Report details'
     details.append(['Report', preset.title()])
-    details.append(['Generated at', timezone.localtime().strftime('%d-%m-%Y %H:%M')])
+    details.append(['Generated at', snapshot['run_at']])
     details.append(['Period', f'{period["from"]} to {period["to"]}' if period else 'Live snapshot'])
     details.append(['Rows exported', len(rows)])
-    details.append(['Matching cases', queryset.count()])
+    details.append(['Matching cases', snapshot['total_rows']])
     details.append(['Export limit', MAX_TABLE_ROWS])
     details.append(['Filters', json.dumps(filters, sort_keys=True)])
     if preset == 'finance':
         details.append(['Financial basis', 'Current recorded values; not historical cash flow'])
     data_sheet = workbook.create_sheet('Data')
-    data_sheet.append([field.label for field in selected])
+    data_sheet.append([field['label'] for field in selected])
     for row in rows:
-        values = [row[field.key] for field in selected]
+        values = [row[field['key']] for field in selected]
         data_sheet.append([value if value is None or isinstance(value, (str, int, float, bool)) else str(value) for value in values])
         for cell in data_sheet[data_sheet.max_row]:
             if isinstance(cell.value, str):

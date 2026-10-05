@@ -2132,6 +2132,10 @@
     const personal = data.data?.personal || {};
     state.personalPreference = personal;
     state.portalSettings = data.data || {};
+    const reportEmail = data.data?.report_email || {};
+    if (el('portal-report-email-settings')) el('portal-report-email-settings').hidden = !reportEmail.allowed;
+    if (el('portal-report-email-send')) el('portal-report-email-send').disabled = !reportEmail.enabled || !reportEmail.active_schedules;
+    if (el('portal-report-email-status')) el('portal-report-email-status').textContent = !reportEmail.enabled ? 'IT must configure email delivery first.' : `${reportEmail.active_schedules || 0} active schedule(s)`;
     if (utils.renderSettingsAccount) utils.renderSettingsAccount(el('portal-settings-account'), data.data?.account || {});
     if (el('portal-settings-release')) el('portal-settings-release').textContent = data.data?.account?.app_release || 'Current release';
     populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
@@ -2150,6 +2154,29 @@
     }
     return personal;
   }
+
+  let pendingReportEmailKey = '';
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('#portal-report-email-send');
+    if (!button || button.disabled) return;
+    if (!window.confirm('Send all active report schedules in your scope to their approved recipients?')) return;
+    pendingReportEmailKey = pendingReportEmailKey || window.crypto.randomUUID();
+    button.disabled = true;
+    try {
+      const result = await portalApi.postJson('/settings/reports/send/', { client_request_id: pendingReportEmailKey }, tg);
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not queue report emails.');
+      pendingReportEmailKey = '';
+      const message = result.data.message || 'Report emails queued.';
+      if (el('portal-report-email-status')) el('portal-report-email-status').textContent = message;
+      showToast(message, 'success');
+    } catch (error) {
+      // Preserve the action key when the response is lost: retry reserves the
+      // same deliveries rather than disclosing the same report twice.
+      showToast(error.message || 'Could not queue report emails.', 'error');
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   function renderPortalTatTargets(targets) {
     const panel = el('portal-tat-target-settings');

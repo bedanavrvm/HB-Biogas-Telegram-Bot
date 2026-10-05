@@ -17,8 +17,9 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
+CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery')
 USAGE_ROOTS = (
+    ROOT / 'report_delivery',
     ROOT / 'origination',
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
     ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition', ROOT / 'portal_recognition',
@@ -486,3 +487,5 @@ def column_comment(field) -> str:
 # The bounded app declares its own governance metadata.
 from origination.catalogue import MODEL_METADATA
 MODEL_OVERRIDES.update(MODEL_METADATA)
+from report_delivery.catalogue import MODEL_METADATA as REPORT_DELIVERY_METADATA
+MODEL_OVERRIDES.update(REPORT_DELIVERY_METADATA)

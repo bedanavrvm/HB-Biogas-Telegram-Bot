@@ -12,6 +12,7 @@ flowchart LR
   payments["Payments"]
   platform["Platform"]
   portal_recognition["Portal Recognition"]
+  report_delivery["Report Delivery"]
   requisitions["Requisitions"]
   spin["Spin"]
   tat["Tat"]
@@ -37,6 +38,7 @@ flowchart LR
   payments --> platform
   platform --> complaints
   platform --> jawabu
+  report_delivery --> platform
   requisitions --> platform
   spin --> catalog
   tat --> catalog

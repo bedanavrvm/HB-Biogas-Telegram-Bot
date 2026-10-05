@@ -1,0 +1,20 @@
+erDiagram
+  report_delivery_message_root {
+    string id
+  }
+  report_delivery_recipient_link {
+    string id
+  }
+  report_delivery_recipient_root {
+    string id
+  }
+  report_delivery_schedule_root {
+    string id
+  }
+  report_delivery_webhook_event {
+    string id
+  }
+  report_delivery_recipient_root ||--o{ report_delivery_message_root : contains
+  report_delivery_schedule_root ||--o{ report_delivery_message_root : contains
+  report_delivery_recipient_root ||--o{ report_delivery_recipient_link : contains
+  report_delivery_schedule_root ||--o{ report_delivery_recipient_link : contains

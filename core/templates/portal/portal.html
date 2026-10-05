@@ -645,6 +645,10 @@
         <div class="portal-settings-action-row"><small id="portal-tat-target-status">Loading targets…</small><button type="submit" class="btn btn-primary">Save TAT targets</button></div>
       </form>
     </section>
+    <section id="portal-report-email-settings" class="portal-settings-card" hidden>
+      <div class="portal-settings-heading"><h2>Email reports</h2><p>Send approved report schedules in the background.</p></div>
+      <div class="portal-settings-action-row"><small id="portal-report-email-status" aria-live="polite"></small><button type="button" class="btn btn-primary" id="portal-report-email-send">Send reports now</button></div>
+    </section>
     <section id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
       <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order numbers</h2><p>HB and Eco-conserve use separate official number registers.</p></div>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Fulfilment partner<select id="requisition-sequence-partner"><option value="HB">HB</option><option value="ECOCONSERVE">Eco-conserve</option></select></label><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>

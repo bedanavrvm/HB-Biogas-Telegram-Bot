@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<section class="p-4 border rounded-default bg-white dark:bg-gray-900">
+  <h2 class="text-lg font-semibold mb-2">{{ schedule.title }}</h2>
+  <p class="mb-4">{{ schedule.get_preset_display }} · {{ schedule.get_frequency_display }} · {{ schedule.send_time }} EAT · {% if schedule.active %}Active{% else %}Paused{% endif %}</p>
+  <form method="post" class="flex flex-wrap gap-3 items-center">{% csrf_token %}
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <button class="bg-primary-600 text-white px-4 py-2 rounded-default" name="action" value="preview">Preview PDF</button>
+    <label>Test recipient <select name="recipient"><option value="">Choose recipient</option>{% for recipient in recipients %}<option value="{{ recipient.pk }}">{{ recipient.email }}</option>{% endfor %}</select></label>
+    <button class="bg-primary-600 text-white px-4 py-2 rounded-default" name="action" value="test">Queue test</button>
+    <button class="bg-primary-600 text-white px-4 py-2 rounded-default" name="action" value="send">Send now</button>
+    <button class="border px-4 py-2 rounded-default" name="action" value="pause">Pause</button>
+  </form>
+  <p class="mt-4">Sending runs in the background. A delivered email is not proof that it was read.</p>
+</section>
+<div class="overflow-x-auto mt-4"><table class="w-full"><thead><tr><th>Recipient</th><th>Status</th><th>Created</th><th>Next attempt</th><th>Issue</th></tr></thead><tbody>
+{% for delivery in deliveries %}<tr><td>{{ delivery.recipient.email }}</td><td>{{ delivery.get_status_display }}</td><td>{{ delivery.created_at }}</td><td>{{ delivery.next_attempt_at }}</td><td>{{ delivery.issue }}</td></tr>{% empty %}<tr><td colspan="5">No deliveries yet.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

@@ -1,5 +1,16 @@
 # Known Gaps and Verified Workarounds
 
+## Scheduled Portal email rollout - 5 October 2026
+
+Resend delivery is disabled by default. Local checks use synthetic cases and
+mocked provider responses; they do not establish verified-domain DNS, inbox
+delivery, production webhook reachability or scheduler operation. Configure
+and verify these using [the operator steps](report_delivery/README.md) before
+enabling sending. PostgreSQL lease/isolation parity has not been run in this
+session because no local `TEST_DATABASE_URL` was configured; use the existing
+PostgreSQL test runner before production rollout. No production migrations or
+real report emails were sent.
+
 ## Complaints, TAT and Portal depth review - 3 October 2026
 
 See [the focused implementation review](docs/miniapp-depth-review-2026-10-03.md)
