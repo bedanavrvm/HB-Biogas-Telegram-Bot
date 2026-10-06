@@ -94,7 +94,7 @@
     const choices = key => Array.from(new Set(source.map(row => String(row[key] || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
     return {
       county: choices('county'), branch: choices('branch'),
-      status: queueKey === 'all' ? choices('workflow_state').filter(value => statusLabels[value]) : [],
+      status: ['all', 'deferred'].includes(queueKey) ? choices('workflow_state').filter(value => statusLabels[value] && (queueKey !== 'deferred' || ['deferred', 'rejected'].includes(value))) : [],
       has_hbg_visit_date: source.some(row => Boolean(row.hbg_visit_date || row.hbg_visit)),
       has_jbl_visit_date: source.some(row => Boolean(row.jbl_visit_date || row.jbl_visit)),
     };
@@ -173,7 +173,7 @@
       state().filtersByQueue[queueKey] = {
         county: listValue(saved.filters?.county),
         branch: listValue(saved.filters?.branch),
-        status: queueKey === 'all' ? listValue(saved.filters?.status) : [],
+        status: ['all', 'deferred'].includes(queueKey) ? listValue(saved.filters?.status) : [],
         hbg_visit_date_from: String(saved.filters?.hbg_visit_date_from || ''),
         hbg_visit_date_to: String(saved.filters?.hbg_visit_date_to || ''),
         jbl_visit_date_from: String(saved.filters?.jbl_visit_date_from || ''),
@@ -199,14 +199,14 @@
       const base = serverOptions && key !== 'status' ? (serverOptions[key] || [])
         : key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : Object.keys(statusLabels).map(value => ({value, label: statusLabels[value]}));
       const selected = listValue(filters[key]);
-      const populated = ['county', 'branch'].includes(key) ? available?.[key] : null;
+      const populated = key === 'status' && queueKey === 'all' ? null : available?.[key];
       // County/branch values are supplied by this authorized queue with both
       // location selections omitted, so staff can revise multi-selects without
       // seeing locations that have no records in the current queue context.
       const current = new Set([...(populated || []), ...selected]);
       const options = populated ? base.filter(option => current.has(optionValue(option))) : base;
       const group = form?.querySelector('[data-portal-filter-group="' + key + '"]');
-      if (group && key !== 'status') group.hidden = options.length === 0 && selected.length === 0;
+      if (group) group.hidden = options.length === 0 && selected.length === 0;
       const signature = JSON.stringify(options.map(option => [optionValue(option), optionLabel(option)]));
       if (container.dataset.optionsSignature === signature) return;
       container.dataset.optionsSignature = signature;

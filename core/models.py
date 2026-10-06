@@ -4998,6 +4998,7 @@ class PortalVoiceTranscriptionAttempt(models.Model):
     """Append-oriented audit and retry state for bounded workflow dictation."""
 
     FIELD_JBL_VISIT_COMMENT = 'jbl_visit_comment'
+    FIELD_CREDIT_DECISION_COMMENT = 'credit_decision_comment'
     FIELD_FINAL_DECISION_COMMENT = 'final_decision_comment'
     FIELD_COMPLAINT_DESCRIPTION = 'complaint_description'
     FIELD_COMPLAINT_RESOLUTION_NOTE = 'complaint_resolution_note'
@@ -5005,6 +5006,7 @@ class PortalVoiceTranscriptionAttempt(models.Model):
     FIELD_COMPLAINT_REOPEN_REASON = 'complaint_reopen_reason'
     FIELD_CHOICES = [
         (FIELD_JBL_VISIT_COMMENT, 'JBL visit comment'),
+        (FIELD_CREDIT_DECISION_COMMENT, 'Credit decision comment'),
         (FIELD_FINAL_DECISION_COMMENT, 'Final decision after-call comment'),
         (FIELD_COMPLAINT_DESCRIPTION, 'Complaint description'),
         (FIELD_COMPLAINT_RESOLUTION_NOTE, 'Complaint resolution note'),

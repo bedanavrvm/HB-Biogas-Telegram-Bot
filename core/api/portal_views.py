@@ -714,6 +714,9 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             status=_portal_filter_values(params, 'status'),
         )
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
+    elif queue_key == 'deferred':
+        qs = jawabu_pipeline.deferred_queue(status=_portal_filter_values(params, 'status'))
+        qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     else:
         if queue_key == 'final':
             qs = jawabu_pipeline.final_review_queue()
@@ -2351,7 +2354,7 @@ def portal_meta(request):
                 and getattr(settings, 'GROQ_API_KEY', '')
             ),
             'max_seconds': max(1, int(getattr(settings, 'PORTAL_VOICE_MAX_SECONDS', 30) or 30)),
-            'fields': ['jbl_visit_comment', 'final_decision_comment'],
+            'fields': ['jbl_visit_comment', 'credit_decision_comment', 'final_decision_comment'],
         },
     })
     response['Cache-Control'] = 'private, no-store, max-age=0'
@@ -2401,6 +2404,8 @@ def portal_voice_transcription(request, farmer_id: str):
         access_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
     elif field_name == PortalVoiceTranscriptionAttempt.FIELD_FINAL_DECISION_COMMENT:
         access_error = _portal_approval_authority_error(request, farmer, 'final_review')
+    elif field_name == PortalVoiceTranscriptionAttempt.FIELD_CREDIT_DECISION_COMMENT:
+        access_error = _portal_approval_authority_error(request, farmer, 'credit')
     else:
         return JsonResponse({'ok': False, 'error': 'Voice input is not enabled for this field.', 'code': 'unsupported_field'}, status=400)
     if access_error:
@@ -3516,9 +3521,12 @@ def _jbl_queue_filter_options(request):
 
 def _portal_queue_filter_options(request, queue_key: str):
     """Choices from the full authorized queue, excluding the location filters."""
+    from core.services.jawabu_pipeline import deferred_queue
     params = request.GET.copy()
     params.pop('county', None)
     params.pop('branch', None)
+    if queue_key in {'deferred', 'all'}:
+        params.pop('status', None)
     qs, _config = _portal_queue_queryset(queue_key, request, params=params)
     if qs is None:
         return {'county': [], 'branch': [], 'status': [], 'has_hbg_visit_date': False, 'has_jbl_visit_date': False}
@@ -3536,7 +3544,9 @@ def _portal_queue_filter_options(request, queue_key: str):
     return {
         'county': sorted(counties, key=str.casefold),
         'branch': sorted(branches, key=str.casefold),
-        'status': [],
+        'status': [value for value in ('deferred', 'rejected')
+                   if qs.filter(pk__in=deferred_queue(status=value).values('pk')).exists()]
+                  if queue_key == 'deferred' else [],
         'has_hbg_visit_date': has_hbg_date,
         'has_jbl_visit_date': has_jbl_date,
     }
@@ -4937,6 +4947,21 @@ def portal_set_credit_decision(request, farmer_id: str):
     customer_no = str(body.get('customer_no') or '').strip()
     reason_code = str(body.get('reason_code') or '').strip()
     decision_comment = str(body.get('decision_comment') or '').strip()
+    voice_attempt_id = str(body.get('voice_transcription_id') or '').strip()
+    credit_request_id = _portal_request_id(request, body)
+    from core.services.jawabu_case360 import event_request_already_processed
+    credit_replayed = event_request_already_processed(farmer, credit_request_id)
+    # Accepted audio is deliberately resolved and removed after the first
+    # commit. A retry must use the durable decision, not expired audio.
+    if voice_attempt_id and not credit_replayed:
+        try:
+            from core.services.portal_voice import validate_transcription_reference
+            validate_transcription_reference(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='credit_decision_comment',
+            )
+        except ValueError as exc:
+            return _portal_voice_error_response(exc)
     if body.get('conditions'):
         return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not decision:
@@ -4954,7 +4979,7 @@ def portal_set_credit_decision(request, farmer_id: str):
             reason_code=reason_code,
             decision_comment=decision_comment,
             sender=sender,
-            request_id=_portal_request_id(request, body),
+            request_id=credit_request_id,
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
             access=getattr(request, 'portal_access', None),
@@ -4967,10 +4992,22 @@ def portal_set_credit_decision(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     farmer.refresh_from_db()
+    voice_cleanup_pending = False
+    if voice_attempt_id and not credit_replayed:
+        try:
+            from core.services.portal_voice import resolve_transcription
+            resolve_transcription(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='credit_decision_comment', accepted_text=decision_comment,
+            )
+        except Exception:
+            logger.exception('Voice resolution failed after credit commit farmer_id=%s', farmer.pk)
+            voice_cleanup_pending = True
     return JsonResponse({
         'ok': True,
         'farmer': farmer_to_card(farmer),
         'publication': _portal_publication_payload(farmer),
+        'voice_cleanup_pending': voice_cleanup_pending,
     })
 
 
@@ -5254,15 +5291,7 @@ def portal_deferred(request):
     if access_error:
         return access_error
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
-    from core.services.jawabu_pipeline import deferred_queue, reappraisal_required_queue, farmer_to_card
-    qs = _apply_portal_ordering(
-        _apply_county_branch_filters(
-            (deferred_queue() | reappraisal_required_queue()).distinct(), request,
-            capability='portal.deferred.view',
-        ),
-        params=request.GET,
-    )
-    qs = _apply_portal_search(qs, params=request.GET)
+    qs, _config = _portal_queue_queryset('deferred', request)
     items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,

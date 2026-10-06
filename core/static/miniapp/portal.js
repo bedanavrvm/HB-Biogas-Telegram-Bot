@@ -594,13 +594,14 @@
       refreshButton.setAttribute('aria-busy', 'true');
       refreshButton.classList.add('is-loading');
     }
-    loading.innerHTML = '<span class="dashboard-loading-copy">Preparing current workload</span>'
-      + '<div class="dashboard-skeletons" aria-hidden="true"><span></span><span></span><span></span><span></span></div>';
+    const hasLoadedHome = Boolean(state.dashboard?.calculated_at);
+    loading.innerHTML = '<span class="dashboard-loading-copy"><span class="spinner-inline" aria-hidden="true"></span> Loading your work…</span>'
+      + (hasLoadedHome ? '' : '<div class="dashboard-skeletons" aria-hidden="true"><span></span><span></span><span></span></div>');
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
     ['portal-home-health', 'portal-home-actions', 'portal-home-caught-up',
       'portal-home-queues', 'portal-home-shortcuts', 'portal-home-overview'].forEach(id => {
-      if (el(id)) el(id).hidden = true;
+      if (!hasLoadedHome && el(id)) el(id).hidden = true;
     });
     if (el('dash-counts')) el('dash-counts').style.display = 'none';
     if (el('dashboard-overview')) el('dashboard-overview').hidden = true;

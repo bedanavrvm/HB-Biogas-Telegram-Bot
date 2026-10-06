@@ -35,6 +35,22 @@ class PortalVoiceServiceTests(TestCase):
         self.other_user = get_user_model().objects.create_user(username='other-officer')
         self.farmer = JawabuFarmerMaster.objects.create(customer_name='Synthetic Farmer')
 
+    @patch('core.services.portal_voice._call_groq', return_value=('Temporary issue.', 1200, 'groq-test', 'en', -0.1))
+    @patch('core.services.portal_voice._drive_upload', return_value='synthetic-credit-audio')
+    def test_credit_comment_uses_same_voice_flow_with_exact_field_binding(self, drive_upload, call_groq):
+        attempt, _ = create_transcription(user=self.user, farmer=self.farmer,
+            field_name='credit_decision_comment', request_id='synthetic-credit-voice',
+            duration_ms=1200, audio=b'synthetic-audio', mime_type='audio/webm')
+        self.assertEqual(attempt.field_name, 'credit_decision_comment')
+        validate_transcription_reference(attempt_id=attempt.pk, user=self.user,
+            farmer=self.farmer, field_name='credit_decision_comment')
+        with self.assertRaises(VoiceInputError):
+            validate_transcription_reference(attempt_id=attempt.pk, user=self.other_user,
+                farmer=self.farmer, field_name='credit_decision_comment')
+        with self.assertRaises(VoiceInputError):
+            validate_transcription_reference(attempt_id=attempt.pk, user=self.user,
+                farmer=self.farmer, field_name='jbl_visit_comment')
+
     @patch('core.services.portal_voice._call_groq', return_value=('Visit completed successfully.', 2100, 'groq-test', 'en', -0.1))
     @patch('core.services.portal_voice._drive_upload', return_value='drive-test')
     def test_create_is_idempotent_for_user_request_key(self, drive_upload, call_groq):

@@ -49,7 +49,7 @@ for (const width of [320,390,430,1024]) {
     await mountPortalShell(page, '<main id="content"><section class="page active"><div id="form"></div><div id="documents" class="case360-documents"></div></section></main>');
     await page.evaluate(({code,reasons})=>{
       const deps = {escapeHtml:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),openPortalLink:url=>window.opened=url};
-      const state = ()=>({metaPipelineReasons:reasons});
+      const state = ()=>({metaPipelineReasons:reasons}),voiceWidget=()=>'';
       const el = id=>document.getElementById(id);
       const openClientMediaPreview = item=>window.previewed=item.name;
       const openClientMediaExternally = ()=>{};

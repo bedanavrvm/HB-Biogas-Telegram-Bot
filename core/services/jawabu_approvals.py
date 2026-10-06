@@ -570,6 +570,7 @@ def approval_payload(farmer) -> dict:
             'decision': record.decision if record else '',
             'reason_code': record.reason_code if record else '',
             'reason_label': dict(REASON_CODES + REJECTED_REASONS + DEFERRED_REASONS).get(record.reason_code, record.reason_code) if record else '',
+            'comment': record.comment if record else '',
             'invalidation_reason': record.invalidation_reason if record and record.status == record.STATUS_INVALIDATED else '',
             'expires_at': record.expires_at.isoformat() if record and record.expires_at else None,
             'conditions_pending': record.conditions.filter(satisfied_at__isnull=True).count() if record else 0,

@@ -6,6 +6,10 @@
   let mapMarker = null;
   let currentMapLocation = null;
   let activeMediaObjectUrl = '';
+  let clientMediaGallery = [];
+  let clientMediaIndex = -1;
+  let mediaPreviewController = null;
+  let mediaReturnFocus = null;
   let activeJblSelectionPreviewId = '';
   let jblPreviewSequence = 0;
   let jblServerDraft = null;
@@ -587,11 +591,13 @@
     const source = document.getElementById('portal-screen')?.dataset.historySource
       || new URLSearchParams(window.location.search).get('from');
     const preferredSection = { jbl: 'jbl_visit', my_visits: 'jbl_visit', credit: 'credit', final: 'final_review' }[source];
+    const sectionOrder = ['identity', 'intake', 'jbl_visit', 'credit', 'final_review', 'order', 'invoice', 'homebiogas'];
     const orderedSections = Object.entries(sections).sort(([left], [right]) =>
-      Number(right === preferredSection) - Number(left === preferredSection));
+      (sectionOrder.indexOf(left) < 0 ? 99 : sectionOrder.indexOf(left))
+      - (sectionOrder.indexOf(right) < 0 ? 99 : sectionOrder.indexOf(right)));
     const sectionCards = orderedSections.map(([name, values]) => {
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
-      return `<details class="case360-section"${name === preferredSection ? ' open' : ''}><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
+      return `<details class="case360-section" data-case-section="${deps.escapeHtml(name)}"${name === preferredSection ? ' open' : ''}><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
     }).join('');
     const relatedCaseCards = relatedCases.length ? `<details class="case360-section"><summary><div><h3>Other Units</h3><p>Prior or repeat-customer applications</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${relatedCases.map(item => `<button type="button" class="case360-related-case" data-related-farmer="${deps.escapeHtml(item.id)}"><strong>Unit ${deps.escapeHtml(item.unit_number)}</strong><span>${deps.escapeHtml(item.customer_name || 'Customer')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></button>`).join('')}</div></details>` : '';
     const householdCards = householdRelationships.length ? `<details class="case360-section"><summary><div><h3>Confirmed Household</h3><p>Distinct identities remain linked, never merged</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${householdRelationships.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.name || 'Household member')}</strong><span>${item.direction === 'to_applicant' ? 'Applicant linked through this household' : deps.escapeHtml(humanLabel(item.relationship_type || ''))} · ID ${deps.escapeHtml(item.national_id || '-')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></div>`).join('')}</div></details>` : '';
@@ -797,7 +803,7 @@
     }
     const headerState = el('sheet-header-state');
     if (headerState) {
-      headerState.textContent = isNewLead ? '' : mode === 'deferred' ? 'Paused' : isOperationalDetail ? 'Autosave on' : '';
+      headerState.textContent = isNewLead ? '' : mode === 'deferred' ? farmer.workflow_state === 'rejected' ? 'Rejected' : 'Paused' : isOperationalDetail ? 'Autosave on' : '';
       headerState.dataset.state = '';
     }
     const avatar = el('sheet-avatar');
@@ -811,7 +817,7 @@
         jbl_visit: jblStatusLabel(farmer),
         credit: farmer.credit_decision || 'Pending',
         final_review: farmer.final_decision || 'Under Review',
-        deferred: farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
+        deferred: farmer.workflow_state === 'rejected' ? 'Rejected' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
       };
       headerStatus.hidden = !isOperationalDetail || isNewLead;
       headerStatus.textContent = isOperationalDetail && !isNewLead ? statusByMode[mode] : '';
@@ -897,34 +903,41 @@
       wireCreditImabFields();
       wireDecisionReasonFields('credit');
       wireWorkflowDraft(farmer, mode);
+      wireVoiceWidget('credit_decision_comment');
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       wireDecisionReasonFields('final');
+      wireFinalCommentShortcut();
       wireWorkflowDraft(farmer, mode);
       wireVoiceWidget('final_decision_comment');
     } else if (mode === 'deferred') {
+      const rejected = farmer.workflow_state === 'rejected';
       const next = {
         jbl_visit: ['jbl_visit', 'Log visit', 'portal.jbl_visit.write'],
         credit: ['credit', 'Review credit', 'portal.credit.write'],
         final: ['final_review', 'Review decision', 'portal.final_review.write'],
       }[farmer.deferred_stage];
-      const reason = ({jbl_visit: farmer.jbl_visit_comment, credit: farmer.credit_decision,
-        final: farmer.final_decision_comment})[farmer.deferred_stage] || 'No reason recorded.';
+      const decisionGate = rejected
+        ? farmer.final_decision === 'Rejected' ? 'final_review' : farmer.credit_decision === 'Rejected' ? 'credit' : ''
+        : {credit: 'credit', final: 'final_review'}[farmer.deferred_stage];
+      const reason = (decisionGate ? farmer.approvals?.[decisionGate]?.comment
+        || (decisionGate === 'final_review' ? farmer.final_decision_comment : '') : farmer.jbl_visit_comment)
+        || farmer.approvals?.[decisionGate]?.reason_label || 'No comment recorded.';
       const stageLabel = {jbl_visit: 'JBL visit', credit: 'Credit analysis', final: 'Final approval'}[farmer.deferred_stage];
       const deferredAt = farmer.deferred_at ? new Date(farmer.deferred_at) : null;
       const dateParts = deferredAt && Number.isFinite(deferredAt.getTime())
         ? Object.fromEntries(new Intl.DateTimeFormat('en', {timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'})
           .formatToParts(deferredAt).map(part => [part.type, part.value])) : null;
       const deferredDate = dateParts ? [dateParts.year, dateParts.month, dateParts.day].join('-') : '';
-      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
-        <p>${deps.escapeHtml(reason)}</p><p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
-        <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>
-        <p>${farmer.reappraisal_required ? 'Fresh preappraisal and visit records are required before credit or final review.'
+      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected case' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
+        <p>${deps.escapeHtml(reason)}</p>${rejected ? '' : `<p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
+        <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>`}
+        <p>${rejected ? 'View the decision and its reason in Case History.' : farmer.reappraisal_required ? 'Fresh preappraisal and visit records are required before credit or final review.'
           : next && canUpdateMode(next[0], next[2]) ? 'Review the case and complete the existing stage action below.'
             : 'Your role can inspect this case. The responsible team must complete the next action.'}</p></section>`;
-      if (!farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
+      if (!rejected && !farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
         const button = document.createElement('button');
         button.className = 'primary';
         button.textContent = next[1];
@@ -969,6 +982,7 @@
   function initMap(lat, lng) {
     const mapContainer = el('sheet-map-container');
     if (!mapContainer) return;
+    const sameLocation = currentMapLocation?.lat === lat && currentMapLocation?.lng === lng;
     currentMapLocation = { lat, lng };
     // The visit workspace confirms capture with compact coordinates beside
     // the GPS action. Avoid constructing an off-screen Leaflet map there.
@@ -990,9 +1004,9 @@
       mapLink.hidden = false;
     }
     const basemaps = state().cartoBasemaps || {};
-    const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') ||
-      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    const tileUrl = isDark ? basemaps.dark_url : basemaps.light_url;
+    // The labelled street style retains buildings/places at review zooms;
+    // the dark overview style deliberately suppresses this useful detail.
+    const tileUrl = basemaps.light_url;
     if (!window.L || !basemaps.enabled || !tileUrl) {
       mapContainer.classList.add('map-unavailable');
       if (mapInstance) {
@@ -1019,13 +1033,13 @@
 
     if (!mapInstance) {
       mapContainer.classList.remove('map-unavailable');
-      mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 15);
+      mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 18);
       const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
       tiles.on('tileerror', showMapFallback);
       tiles.on('load', hideMapFallback);
       mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon() }).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     } else {
-      mapInstance.setView([lat, lng], 15);
+      if (!sameLocation) mapInstance.setView([lat, lng], 18);
       mapInstance.eachLayer(layer => {
         if (layer instanceof L.TileLayer) layer.setUrl(tileUrl);
       });
@@ -1064,7 +1078,6 @@
     if (fallback) fallback.hidden = true;
     if (mapInstance) {
       mapInstance.invalidateSize(true);
-      mapInstance.setView([lat, lng], 15);
       mapInstance.eachLayer(layer => {
         if (layer instanceof window.L.TileLayer) layer.redraw();
       });
@@ -1345,15 +1358,22 @@
     if (jblDocumentSlots[jblCameraCategory]) {
       const step = jblDocumentLabels[jblCameraCategory][jblCameraSide];
       if (title) title.textContent = `${documentTitle} — ${step}`;
-      if (status) status.textContent = jblCameraReplaceId ? `Retake ${step}. The existing photo stays until a clear replacement is captured.` : `Capture ${step}. Keep all edges and text visible.`;
-      if (shutter) shutter.textContent = `${jblCameraReplaceId ? 'Retake' : 'Capture'} ${step}`;
+      if (status) status.textContent = '';
+      if (shutter) {
+        shutter.setAttribute('aria-label', `${jblCameraReplaceId ? 'Retake' : 'Capture'} ${documentTitle} ${step}`);
+        shutter.innerHTML = '<i data-lucide="camera" aria-hidden="true"></i>';
+      }
     } else {
       if (title) title.textContent = jblCameraReplaceId ? 'Retake supporting photo' : 'Supporting photos';
       if (status) status.textContent = `${jblMediaSelections.JBL_VISIT_PHOTO.length} of ${Number(state().jblVisitMediaMaxFiles || 6)} supporting photos selected. Tap Done when finished.`;
-      if (shutter) shutter.textContent = jblCameraReplaceId ? 'Retake photo' : 'Take photo';
+      if (shutter) {
+        shutter.setAttribute('aria-label', jblCameraReplaceId ? 'Retake supporting photo' : 'Take supporting photo');
+        shutter.innerHTML = '<i data-lucide="camera" aria-hidden="true"></i>';
+      }
       if (shutter && jblCameraStream) shutter.disabled = !jblCameraReplaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
     }
     const steps = el('jbl-camera-steps');
+    if (window.lucide) window.lucide.createIcons();
     if (steps) steps.innerHTML = ['CLIENT_ID', 'LAF'].flatMap(category =>
       jblDocumentLabels[category].map((label, side) => {
         const selected = jblMediaSelections[category].some(item => item.side === side);
@@ -1785,7 +1805,7 @@
       <div class="jbl-selection-viewer-stage">${visual}</div>
       <div class="jbl-selection-viewer-actions">
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
-        ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo">Retake</button>` : ''}
+        ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo"><i data-lucide="camera" aria-hidden="true"></i></button>` : ''}
         <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="next" aria-label="Next selected file" title="Next" ${index === entries.length - 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only">Next</span></button>
       </div>
@@ -2416,7 +2436,7 @@
       : '';
     const currentDecision = farmer.credit_decision || 'Pending';
     const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
-      `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
+      `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision === 'Deferred / On Hold' ? 'Deferred' : decision)}</option>`
     ).join('');
     const currentImabStatus = farmer.imab_created || 'Pending';
     const imabValues = state().metaImabOptions.length ? [...state().metaImabOptions] : ['Yes', 'No', 'Pending'];
@@ -2436,11 +2456,11 @@
       <div class="form-section form-grid credit-analysis-form">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
         <div class="form-row"><label>Credit Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-decision" aria-required="true"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
-        <div class="form-row"><label>Created on iMAB? <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-imab" aria-required="true">${imabOptions}</select></div>
+        <div class="form-row" id="credit-imab-row"${currentDecision !== 'Approved' ? ' hidden' : ''}><label for="credit-imab">Created on iMAB? <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-imab">${imabOptions}</select></div>
         ${decisionReasonMarkup('credit', true)}
-        <div class="form-row form-row-wide credit-customer-number-row">
+        <div class="form-row form-row-wide credit-customer-number-row" id="credit-customer-number-row"${currentDecision !== 'Approved' ? ' hidden' : ''}>
           <span class="credit-customer-number-heading"><label>Customer No.</label><span id="credit-imab-help" class="field-help credit-customer-requirement">${customerNoDisabled ? 'Available after iMAB creation' : 'Required before Head of Rural review'}</span></span>
-          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
+          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(farmer.customer_no || '')}"${customerNoDisabled ? ' disabled' : ''}>
         </div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
@@ -2457,6 +2477,7 @@
       <label for="${prefix}-decision-comment">Comment <span id="${prefix}-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label>
       <textarea id="${prefix}-decision-comment" rows="2" placeholder="Briefly explain the decision"></textarea>
       <small class="jbl-field-error" id="${prefix}-comment-error" role="alert"></small>
+      ${prefix === 'credit' ? voiceWidget('credit_decision_comment', 'credit-decision-comment') : ''}
     </div>` : ''}`;
   }
 
@@ -2526,14 +2547,23 @@
   }
 
   function wireCreditImabFields() {
+    const decision = el('credit-decision');
     const imab = el('credit-imab');
     const customerNo = el('credit-customer-no');
     const help = el('credit-imab-help');
     if (!imab || !customerNo) return;
     const sync = () => {
-      const enabled = imab.value === 'Yes';
+      const approved = decision?.value === 'Approved';
+      if (el('credit-imab-row')) el('credit-imab-row').hidden = !approved;
+      if (el('credit-customer-number-row')) el('credit-customer-number-row').hidden = !approved;
+      const requirements = el('sheet-form')?.querySelector('.product-configuration');
+      if (requirements) requirements.hidden = !approved;
+      imab.required = approved;
+      imab.setAttribute('aria-required', String(approved));
+      imab.disabled = !approved;
+      const enabled = approved && imab.value === 'Yes';
       customerNo.disabled = !enabled;
-      if (!enabled) customerNo.value = '';
+      customerNo.required = enabled;
       if (help) {
         help.textContent = enabled
           ? 'Required before Head of Rural review'
@@ -2541,6 +2571,7 @@
       }
     };
     imab.addEventListener('change', sync);
+    decision?.addEventListener('change', sync);
     sync();
   }
 
@@ -2587,7 +2618,7 @@
       ? '<p class="field-help" role="status">Head of Rural approval needs a fresh review. Check the updated case details, then record a new decision.</p>'
       : '';
     const decisionOptions = state().metaFinalDecisions.map(decision =>
-      `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
+      `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision === 'Deferred / On Hold' ? 'Deferred' : decision)}</option>`
     ).join('');
     const phoneDigits = String(farmer.primary_phone || '').replace(/\D/g, '');
     const phone = phoneDigits.startsWith('0')
@@ -2605,14 +2636,35 @@
         </div>
         <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
         ${decisionReasonMarkup('final', false)}
-        <div class="form-row"><label>Preferred repayment day</label><input type="text" id="final-repayment-date" inputmode="numeric" placeholder="e.g. 10" value="${deps.escapeHtml(farmer.repayment_date || '')}"><small>Day of the month, from 1 to 31.</small></div>
-        <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row form-row-wide final-comment-row"><label>After-call Comments <span id="final-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label><textarea id="final-comment" rows="4" placeholder="Summarize the call, customer response, and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea><small class="jbl-field-error" id="final-comment-error" role="alert"></small>${voiceWidget('final_decision_comment', 'final-comment')}</div>
+        <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || farmer.repayment_date || '')}"></div>
+        <div class="form-row"><label for="final-repayment-tenor">Tenor (months)</label><input type="number" id="final-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || Number.parseInt(farmer.repayment_tenor, 10) || '')}"></div>
+        <div class="form-row form-row-wide final-comment-row"><label for="final-comment">After-call Comments <span id="final-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label><button type="button" id="final-ready-comment" class="btn btn-secondary final-comment-shortcut"${farmer.final_decision !== 'Approved' ? ' hidden' : ''}>READY FOR INSTALLATION &amp; PAYMENT</button><textarea id="final-comment" rows="3" placeholder="Add call notes or other details">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea><small class="jbl-field-error" id="final-comment-error" role="alert"></small>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'final_decision')}
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
+  }
+
+  function wireFinalCommentShortcut() {
+    const decision = el('final-decision');
+    const button = el('final-ready-comment');
+    const comment = el('final-comment');
+    if (!decision || !button || !comment) return;
+    const phrase = 'READY FOR INSTALLATION & PAYMENT';
+    const sync = () => {
+      button.hidden = decision.value !== 'Approved';
+      button.disabled = comment.value.toUpperCase().includes(phrase);
+    };
+    decision.addEventListener('change', sync);
+    comment.addEventListener('input', sync);
+    button.addEventListener('click', () => {
+      if (decision.value !== 'Approved' || comment.value.toUpperCase().includes(phrase)) return;
+      comment.value = phrase + (comment.value.trim() ? `\n${comment.value}` : '');
+      comment.dispatchEvent(new Event('input', { bubbles: true }));
+      comment.focus();
+    });
+    sync();
   }
 
   function toggleClientMedia(farmerId) {
@@ -2693,7 +2745,7 @@
     target.querySelectorAll('.media-preview-link').forEach(link => {
       link.addEventListener('click', () => {
         const item = media[Number(link.dataset.mediaIndex)];
-        if (item) openClientMediaPreview(item);
+        if (item) openClientMediaPreview(item, media);
       });
     });
     target.querySelectorAll('.media-external-link').forEach(link => {
@@ -2730,8 +2782,10 @@
     }
   }
 
-  function closeMediaViewer() {
+  function closeMediaViewer({ restoreFocus = true } = {}) {
     jblPreviewSequence += 1;
+    mediaPreviewController?.abort();
+    mediaPreviewController = null;
     el('media-viewer-overlay')?.classList.remove('open');
     const content = el('media-viewer-content');
     if (content) {
@@ -2743,6 +2797,13 @@
       activeMediaObjectUrl = '';
     }
     activeJblSelectionPreviewId = '';
+    clientMediaGallery = [];
+    clientMediaIndex = -1;
+    el('client-media-gallery-controls')?.remove();
+    if (restoreFocus) {
+      if (mediaReturnFocus?.isConnected) mediaReturnFocus.focus({ preventScroll: true });
+      mediaReturnFocus = null;
+    }
   }
 
   function mediaPreviewHeaders() {
@@ -2753,35 +2814,57 @@
       : { 'X-Request-ID': requestId() };
   }
 
-  async function openClientMediaPreview(item) {
+  async function openClientMediaPreview(item, gallery = [item]) {
     const overlay = el('media-viewer-overlay');
     const title = el('media-viewer-title');
     const sub = el('media-viewer-sub');
     const content = el('media-viewer-content');
     if (!overlay || !content || !item?.preview_url) return;
 
-    closeMediaViewer();
+    if (!overlay.classList.contains('open')) mediaReturnFocus = document.activeElement;
+    closeMediaViewer({ restoreFocus: false });
+    clientMediaGallery = gallery.filter(entry => entry?.preview_url);
+    clientMediaIndex = clientMediaGallery.indexOf(item);
+    if (clientMediaIndex < 0) { clientMediaGallery = [item]; clientMediaIndex = 0; }
+    mediaPreviewController = new AbortController();
     const previewSequence = jblPreviewSequence;
-    if (title) title.textContent = item.preview_title || (item.category === 'CLIENT_ID' ? 'Client ID' : item.category === 'JBL_VISIT_PHOTO' ? 'Supporting photo' : 'Signed LAF Document');
+    if (title) title.textContent = item.preview_title || (item.category === 'CLIENT_ID' ? 'Client ID' : item.category === 'JBL_VISIT_PHOTO' ? 'Supporting photo' : item.category === 'LAF' ? 'Signed LAF' : 'Document');
     if (sub) sub.textContent = item.name || 'Client media';
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
+    const controls = document.createElement('nav');
+    controls.id = 'client-media-gallery-controls';
+    controls.className = 'jbl-selection-viewer-actions';
+    controls.setAttribute('aria-label', 'Case documents');
+    controls.innerHTML = `<button type="button" class="jbl-selection-nav" data-client-media-offset="-1" aria-label="Previous document"${clientMediaIndex === 0 ? ' disabled' : ''}><i data-lucide="chevron-left" aria-hidden="true"></i></button><span role="status">${clientMediaIndex + 1} / ${clientMediaGallery.length}</span><button type="button" class="jbl-selection-nav" data-client-media-offset="1" aria-label="Next document"${clientMediaIndex === clientMediaGallery.length - 1 ? ' disabled' : ''}><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
+    content.insertAdjacentElement('afterend', controls);
+    window.lucide?.createIcons();
+    el('media-viewer-close')?.focus();
     try {
       const viewer = window.SecureMediaViewer;
       if (!viewer) throw new Error('The secure media viewer is unavailable. Refresh the Portal and retry.');
-      const blob = await viewer.fetchAuthorizedBlob(item.preview_url, { headers: mediaPreviewHeaders() });
+      const blob = await viewer.fetchAuthorizedBlob(item.preview_url, { headers: mediaPreviewHeaders(), signal: mediaPreviewController.signal });
       if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       activeMediaObjectUrl = viewer.renderBlob(content, blob, {
         mimeType: item.mime_type,
         name: item.name || 'Client media',
       });
+      const image = content.querySelector('img');
+      if (image) { image.draggable = false; image.style.touchAction = 'pan-y'; }
     } catch (error) {
       if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
-      content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this media.')} Close and retry.</p>`;
+      content.innerHTML = `<div class="media-viewer-error"><p>${deps.escapeHtml(error.message || 'Could not open this media.')}</p><button type="button" class="btn btn-secondary" data-client-media-retry>Retry</button></div>`;
     }
   }
 
+  function navigateClientMedia(offset) {
+    const gallery = clientMediaGallery;
+    const target = gallery[clientMediaIndex + offset];
+    if (target) openClientMediaPreview(target, gallery);
+  }
+
   function buildRequisitionBatchNotice() {
+    if (!hasCapability('portal.requisition.write')) return '<div class="field-help">View the approved case and its documents in Case History.</div>';
     return `
       <div class="form-section">
         <div class="field-help">Select this case using its checkbox in the Orders queue, then assign one order batch from the selected cases panel. Payment product is supplied later by the controlled system export.</div>
@@ -2988,8 +3071,8 @@
     const productConfiguration = collectProductConfiguration();
     if (!decision) return deps.showToast('Please select a decision', 'error');
     if (reasonCode === null) return deps.showToast('Complete the decision reason.', 'error');
-    if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
-    if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
+    if (decision === 'Approved' && imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
+    if (decision === 'Approved' && !customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
     const btn = el('btn-submit-credit');
     deps.setButtonLoading(btn, true, 'Saving...');
@@ -2997,9 +3080,10 @@
       method: 'POST',
       body: JSON.stringify({
         request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1),
-        decision, imab_created: imabCreated, customer_no: customerNo,
+        decision, ...(decision === 'Approved' ? { imab_created: imabCreated, customer_no: customerNo } : {}),
         reason_code: reasonCode,
         decision_comment: decisionComment,
+        voice_transcription_id: acceptedVoiceAttempts.credit_decision_comment || '',
         product_requirement_evidence: productConfiguration.requirementEvidence,
         product_custom_values: productConfiguration.customValues,
       }),
@@ -3055,7 +3139,28 @@
     el('jbl-camera-close')?.addEventListener('click', stopJblLiveCamera);
     el('jbl-camera-done')?.addEventListener('click', stopJblLiveCamera);
     el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
+    document.addEventListener('keydown', event => {
+      if (!el('media-viewer-overlay')?.classList.contains('open')) return;
+      if (event.key === 'Escape') { event.preventDefault(); closeMediaViewer(); return; }
+      if (event.target.closest('input,textarea,select,iframe,[contenteditable]')) return;
+      if (['ArrowLeft', 'ArrowRight'].includes(event.key) && clientMediaGallery.length) {
+        event.preventDefault(); navigateClientMedia(event.key === 'ArrowLeft' ? -1 : 1);
+      }
+    });
+    let swipeStart = null;
+    el('media-viewer-content')?.addEventListener('pointerdown', event => {
+      swipeStart = event.target.closest('img') ? { x: event.clientX, y: event.clientY } : null;
+    });
+    el('media-viewer-content')?.addEventListener('pointerup', event => {
+      if (swipeStart && Math.abs(event.clientX - swipeStart.x) > 60 && Math.abs(event.clientY - swipeStart.y) < 40) {
+        navigateClientMedia(event.clientX < swipeStart.x ? 1 : -1);
+      }
+      swipeStart = null;
+    });
     document.addEventListener('click', event => {
+      const mediaNav = event.target.closest('[data-client-media-offset]');
+      if (mediaNav) { navigateClientMedia(Number(mediaNav.dataset.clientMediaOffset)); return; }
+      if (event.target.closest('[data-client-media-retry]')) { navigateClientMedia(0); return; }
       const cameraStep = event.target.closest('[data-camera-step-category]');
       if (cameraStep && el('jbl-camera-overlay')?.classList.contains('open')) {
         setJblCameraTarget(cameraStep.dataset.cameraStepCategory,

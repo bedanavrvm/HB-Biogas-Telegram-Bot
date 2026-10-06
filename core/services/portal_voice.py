@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_FIELDS = {
     PortalVoiceTranscriptionAttempt.FIELD_JBL_VISIT_COMMENT: 'portal.jbl_visit.write',
+    PortalVoiceTranscriptionAttempt.FIELD_CREDIT_DECISION_COMMENT: 'portal.credit.write',
     PortalVoiceTranscriptionAttempt.FIELD_FINAL_DECISION_COMMENT: 'portal.final_review.write',
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
     PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',

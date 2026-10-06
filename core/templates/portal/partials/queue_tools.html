@@ -21,7 +21,7 @@
       <form class="miniapp-sheet-body" data-portal-filter-form>
         <fieldset class="portal-filter-options" data-portal-filter-group="county"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>
         <fieldset class="portal-filter-options" data-portal-filter-group="branch"><legend>Branch</legend><div data-portal-filter-options="branch"></div></fieldset>
-        {% if queue_key == 'all' %}
+        {% if queue_key == 'all' or queue_key == 'deferred' %}
         <fieldset class="portal-filter-options" data-portal-filter-group="status"><legend>Status</legend><div data-portal-filter-options="status"></div></fieldset>
         {% endif %}
         <fieldset class="portal-filter-options portal-filter-date-range" data-portal-filter-group="hbg_visit_date"><legend>HB visit date</legend><div class="portal-filter-date-inputs"><label>From<span class="portal-filter-date-control"><span data-portal-date-display>Choose date</span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><input type="date" autocomplete="off" name="hbg_visit_date_from" aria-label="HB visit from" data-portal-date-filter></span></label><label>To<span class="portal-filter-date-control"><span data-portal-date-display>Choose date</span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><input type="date" autocomplete="off" name="hbg_visit_date_to" aria-label="HB visit to" data-portal-date-filter></span></label></div></fieldset>

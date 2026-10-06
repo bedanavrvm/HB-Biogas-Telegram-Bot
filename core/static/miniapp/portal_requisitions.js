@@ -455,6 +455,11 @@
 
   function updateBatchPanel() {
     const panel = el('requisition-batch-panel');
+    const writable = state().capabilities?.has('portal.requisition.write');
+    const heading = document.querySelector('[data-requisition-heading]');
+    const help = document.querySelector('[data-requisition-help]');
+    if (heading) heading.textContent = writable ? 'Prepare Orders' : 'Orders';
+    if (help) help.textContent = writable ? 'Assign an order to approved cases' : 'Approved cases awaiting an order';
     if (!state().capabilities?.has('portal.requisition.write')) {
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();

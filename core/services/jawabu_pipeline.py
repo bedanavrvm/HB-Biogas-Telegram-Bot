@@ -24,7 +24,7 @@ from core.services.workflow_links import include_record_reference
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models import Case, CharField, F, OuterRef, Q, Subquery, Value, When
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 from core.services.jawabu_comments import master_comment_history, record_case_comment
@@ -78,12 +78,12 @@ JAWABU_TERMINAL_STATES = frozenset({
 
 def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
     """Derive a safe initial state for pre-integrity historical records."""
-    if farmer.deferred_until:
-        return JawabuWorkflowState.DEFERRED
     if farmer.order_number:
         return JawabuWorkflowState.ORDERED
     if farmer.final_decision == 'Approved':
         return JawabuWorkflowState.ORDER
+    if farmer.jbl_visit_status in {'Opted for Cash', 'Opted for Other Partner', 'Client Withdrew', 'Cancelled'}:
+        return JawabuWorkflowState.WITHDRAWN
     if farmer.final_decision == 'Rejected':
         return JawabuWorkflowState.REJECTED
     if farmer.final_decision == 'Deferred / On Hold':
@@ -98,8 +98,8 @@ def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
         return JawabuWorkflowState.DEFERRED
     if farmer.jbl_visit_status in {'Rejected by JBL'}:
         return JawabuWorkflowState.REJECTED
-    if farmer.jbl_visit_status in {'Opted for Cash', 'Opted for Other Partner'}:
-        return JawabuWorkflowState.WITHDRAWN
+    if farmer.deferred_until:
+        return JawabuWorkflowState.DEFERRED
     if farmer.jbl_visit_date:
         return JawabuWorkflowState.CREDIT
     return JawabuWorkflowState.JBL_VISIT
@@ -207,7 +207,7 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         'order': 'Deferred — Order',
         'payment': 'Deferred — Payment',
     }
-    if state == JawabuWorkflowState.DEFERRED or farmer.deferred_until:
+    if state == JawabuWorkflowState.DEFERRED:
         return deferred_labels.get(str(farmer.deferred_stage or ''), 'Deferred')
 
     visit_status = str(farmer.jbl_visit_status or '').strip()
@@ -315,6 +315,8 @@ def effective_reappraisal_date(farmer: JawabuFarmerMaster):
 
 
 def is_reappraisal_required(farmer: JawabuFarmerMaster, *, today=None) -> bool:
+    if current_workflow_state(farmer) != JawabuWorkflowState.DEFERRED:
+        return False
     today = today or timezone.localdate()
     due = effective_reappraisal_date(farmer)
     return bool(due and today >= due)
@@ -350,9 +352,7 @@ def _clear_deferral(farmer: JawabuFarmerMaster, actor: str = '', request_id: str
 
 def reappraisal_required_queue():
     today = timezone.localdate()
-    return JawabuFarmerMaster.objects.filter(
-        status='active',
-    ).filter(
+    return deferred_queue(status=JawabuWorkflowState.DEFERRED).filter(
         Q(deferred_until__lte=today)
         | Q(deferred_at__date__lte=today - timedelta(days=DEFERRAL_MAX_DAYS)),
     ).order_by('deferred_until', 'customer_name')
@@ -405,10 +405,11 @@ def credit_queue():
         _credit_approval_status=Subquery(latest_credit),
     ).filter(
         (Q(workflow_state=JawabuWorkflowState.CREDIT)
-         & (~Q(credit_decision__in=CREDIT_TERMINAL) | Q(imab_created='') | Q(customer_no='')))
+         & (~Q(credit_decision__in=CREDIT_TERMINAL)
+            | (Q(credit_decision=CREDIT_APPROVED) & (Q(imab_created='') | Q(customer_no='')))))
         | Q(workflow_state='', jbl_visit_date__isnull=False, credit_decision='')
         | (Q(workflow_state__in=[JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER])
-           & Q(order_number='')
+           & Q(order_number='', credit_decision=CREDIT_APPROVED)
            & Q(_credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED]))
     ).order_by('jbl_visit_date', 'customer_name')
 
@@ -441,7 +442,7 @@ def final_review_queue():
     ).filter(
         Q(_credit_approval_status__isnull=True)
         | ~Q(_credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED]),
-    ).exclude(credit_decision='').exclude(imab_created='').exclude(customer_no='').order_by(
+    ).filter(credit_decision=CREDIT_APPROVED, imab_created='Yes').exclude(customer_no='').order_by(
         'credit_decided_at', 'jbl_visit_date', 'customer_name',
     )
 
@@ -461,21 +462,36 @@ def requisition_queue():
     ).order_by('final_decided_at', 'customer_name')
 
 
-def deferred_queue():
+def deferred_queue(status=''):
+    """Current deferred/rejected work, never a previous decision on a closed case.
+
+    Canonical states win. Legacy rows use the furthest recorded decision;
+    expired holds remain visible here and in the reappraisal action queue.
     """
-    Deferred / flagged cases - credit not moving forward or final review blocked.
-    """
-    return JawabuFarmerMaster.objects.filter(
-        status='active',
-    ).filter(
-        Q(workflow_state=JawabuWorkflowState.DEFERRED) |
-        Q(final_decision__in=['Rejected', 'Deferred / On Hold']) |
-        Q(credit_decision__in=['Rejected', 'Deferred / On Hold']) |
-        Q(jbl_visit_status__in=['Deferred / On Hold', 'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
-    ).exclude(
-        Q(deferred_until__lte=timezone.localdate())
-        | Q(deferred_at__date__lte=timezone.localdate() - timedelta(days=DEFERRAL_MAX_DAYS)),
-    ).order_by('-updated_at')
+    legacy_state = Case(
+        When(~Q(order_number=''), then=Value(JawabuWorkflowState.ORDERED)),
+        When(final_decision='Approved', then=Value(JawabuWorkflowState.ORDER)),
+        When(jbl_visit_status__in=['Opted for Cash', 'Opted for Other Partner', 'Client Withdrew', 'Cancelled'],
+             then=Value(JawabuWorkflowState.WITHDRAWN)),
+        When(final_decision='Rejected', then=Value(JawabuWorkflowState.REJECTED)),
+        When(final_decision='Deferred / On Hold', then=Value(JawabuWorkflowState.DEFERRED)),
+        When(credit_decision='Rejected', then=Value(JawabuWorkflowState.REJECTED)),
+        When(credit_decision='Deferred / On Hold', then=Value(JawabuWorkflowState.DEFERRED)),
+        When(credit_decision='Approved', then=Value(JawabuWorkflowState.FINAL_REVIEW)),
+        When(jbl_visit_status='Rejected by JBL', then=Value(JawabuWorkflowState.REJECTED)),
+        When(Q(jbl_visit_status='Deferred / On Hold') | Q(deferred_until__isnull=False),
+             then=Value(JawabuWorkflowState.DEFERRED)),
+        default=Value(''), output_field=CharField(),
+    )
+    qs = JawabuFarmerMaster.objects.filter(status='active').alias(
+        _revisit_state=Case(When(workflow_state='', then=legacy_state),
+                            default=F('workflow_state'), output_field=CharField()),
+    ).filter(_revisit_state__in=[JawabuWorkflowState.DEFERRED, JawabuWorkflowState.REJECTED])
+    selected = status if isinstance(status, (list, tuple)) else [status]
+    selected = [value for value in selected if value]
+    if selected:
+        qs = qs.filter(_revisit_state__in=selected)
+    return qs.order_by('-updated_at')
 
 def all_cases(search: str = '', county: str = '', branch: str = '', status: str = ''):
     """
@@ -1096,29 +1112,35 @@ def set_credit_decision(
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
     if decision == 'Pending':
         return False, 'Pending is the initial credit state and cannot be selected as an analyst decision.'
-    product_error = _validate_farmer_product_configuration(
-        farmer, stage='credit_decision',
-        requirement_evidence=product_requirement_evidence,
-        custom_values=product_custom_values,
-    )
-    if product_error:
-        return False, product_error
+    if decision == CREDIT_APPROVED:
+        product_error = _validate_farmer_product_configuration(
+            farmer, stage='credit_decision',
+            requirement_evidence=product_requirement_evidence,
+            custom_values=product_custom_values,
+        )
+        if product_error:
+            return False, product_error
 
     imab_created = str(imab_created or '').strip()
     customer_no = str(customer_no or '').strip()
     if customer_no and not customer_no.isdigit():
         return False, 'CUSTOMER NO must contain digits only.'
-    if decision in CREDIT_RECORDED_DECISIONS:
+    if decision == CREDIT_APPROVED:
         if imab_created != 'Yes':
             return False, 'Customer must be created in IMAB before the case can reach Head of Rural review.'
         if not customer_no:
             return False, 'CUSTOMER NO is required once the customer is created in IMAB.'
+    else:
+        # A negative decision does not create/edit the system identity. Hidden
+        # approval-only controls must never erase an existing IMAB link.
+        imab_created, customer_no = farmer.imab_created, farmer.customer_no
 
-    from core.services.jawabu_identity import JawabuIdentityConflict, set_customer_number
-    try:
-        set_customer_number(farmer, customer_no)
-    except JawabuIdentityConflict as exc:
-        return False, str(exc)
+    if decision == CREDIT_APPROVED:
+        from core.services.jawabu_identity import JawabuIdentityConflict, set_customer_number
+        try:
+            set_customer_number(farmer, customer_no)
+        except JawabuIdentityConflict as exc:
+            return False, str(exc)
 
     farmer.credit_decision = decision
     farmer.imab_created = imab_created
@@ -2010,7 +2032,7 @@ def farmer_to_card(
     metadata only after an officer opens a specific case.
     """
     from core.services.jawabu_case_reference import display_case_reference
-    from core.services.jawabu_validation import normalize_date_text
+    from core.services.jawabu_validation import normalize_date_text, parse_repayment_day, parse_tenor_months
 
     hbg_visit_date = farmer.hbg_visit_date
     if hbg_visit_date is None and farmer.sign_date:
@@ -2069,7 +2091,9 @@ def farmer_to_card(
         'system_loan_officer': farmer.system_loan_officer,
         'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else None,
         'repayment_date': farmer.repayment_date,
+        'repayment_day': farmer.repayment_day or parse_repayment_day(farmer.repayment_date),
         'repayment_tenor': farmer.repayment_tenor,
+        'repayment_tenor_months': farmer.repayment_tenor_months or parse_tenor_months(farmer.repayment_tenor),
         'payment_product': farmer.payment_product,
         'product_id': farmer.product_id,
         'product_version_id': str(farmer.product_version_id or ''),

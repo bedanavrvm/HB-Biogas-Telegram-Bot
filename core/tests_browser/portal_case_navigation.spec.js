@@ -175,7 +175,7 @@ test('Portal case inspection denial leaves original screen and selection intact'
 test('Portal deferred review gates the existing stage action and blocks expired cases', async ({ page }) => {
   await boot(page, 'deferred', false, ['portal.deferred.view', 'portal.case.read']);
   await page.locator('.farmer-card').click();
-  await expect(page.locator('#sheet-form')).toContainText('Deferred / On Hold');
+  await expect(page.locator('#sheet-form')).toContainText('Deferred case');
   await expect(page.locator('#sheet-overlay')).toHaveClass(/operational-detail-sheet/);
   await expect(page.locator('#sheet-navigation')).toBeVisible();
   await expect(page.locator('#sheet-back')).toContainText('Deferred');

@@ -866,7 +866,6 @@
 }
 
 @media (max-width: 360px) {
-  .workflow-standard.portal-app .dashboard-intro,
   .workflow-standard.portal-app .stage-summary-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -883,14 +882,14 @@
 
 .workflow-standard.portal-app .dashboard-skeletons {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin-top: 10px;
 }
 
 .workflow-standard.portal-app .dashboard-skeletons span {
   display: block;
-  height: 92px;
+  height: 54px;
   border: 1px solid var(--workflow-line);
   border-radius: 8px;
   background: var(--workflow-accent-soft);

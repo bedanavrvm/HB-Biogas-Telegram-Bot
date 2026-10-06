@@ -2,6 +2,28 @@
 
 ## Compact workspaces and decisions
 
+- Officers see **Orders** as a read-only destination, without selection or
+  preparation actions. Operations writers see **Prepare Orders**.
+- Reject or defer a credit case without creating an IMAB customer. Existing
+  IMAB details remain unchanged. Approval still requires IMAB and its customer number.
+- In Revisit, filter Deferred and Rejected independently. Expired deferrals
+  remain visible and require fresh appraisal; rejected cases offer inspection,
+  not a stale deferred-stage action. Cash/other-partner withdrawals remain in All Cases.
+- In Final Review, choose Approved and use **READY FOR INSTALLATION & PAYMENT**.
+  It adds the exact phrase once without replacing additional comments. It does
+  not approve the case or bypass checks. Repayment day and tenor remain here.
+- Preview successive review documents using arrows, the counter, or a photo
+  swipe. Retry a failed download. Close/Telegram Back returns to the same
+  unfinished review; a late download must not replace the selected document.
+- Home shows a spinner and compact row placeholders on first load. Refresh
+  keeps existing work visible; an error offers Retry without clearing it.
+- Case History sections stay in loan-cycle order regardless of the entry
+  screen. The relevant section opens without moving to the top.
+- Review maps start at street-detail zoom and retain manual zoom on Refresh.
+  Place/building detail depends on existing map coverage; unavailable tiles
+  retain an external Maps link. No satellite imagery is introduced.
+- Camera capture shows one clear document/page target. Retake and capture
+  icons retain accessible labels; the full image remains saved without cropping.
 - In JBL Visit, Credit and Final Review, select Rejected and Deferred in turn.
   Check that each has its own concise reason list, without staff-facing codes.
   A reason is required; only Other reason requires a comment. Approvals need no reason.

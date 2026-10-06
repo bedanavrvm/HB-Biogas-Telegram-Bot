@@ -94,6 +94,8 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
     for key, label, icon, capability in PORTAL_NAV_ITEMS:
         if capability not in permitted:
             continue
+        if key == 'requisition' and 'portal.requisition.write' not in permitted:
+            label = 'Orders'
         presentation = portal_screen_presentation(key)
         if key == 'payments':
             url = reverse('portal_payments_screen')

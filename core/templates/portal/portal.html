@@ -17,9 +17,9 @@
     </div>
 
     <div id="dash-loading" class="dashboard-loading" aria-live="polite" aria-busy="true">
-      <span class="dashboard-loading-copy">Preparing current workload</span>
+      <span class="dashboard-loading-copy"><span class="spinner-inline" aria-hidden="true"></span> Loading your work…</span>
       <div class="dashboard-skeletons" aria-hidden="true">
-        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span>
       </div>
     </div>
     <section id="portal-home-health" class="portal-home-section" aria-labelledby="portal-home-health-title" hidden>
@@ -278,7 +278,7 @@
   {% if active_screen == 'requisition' %}
   <section id="page-requisition" class="page{% if active_screen == 'requisition' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>Prepare Orders</h1><p class="meta">Assign an order number to approved cases</p></div>
+      <div><h1 data-requisition-heading>Orders</h1><p class="meta" data-requisition-help>Approved cases awaiting an order</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh order queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <nav class="portal-segmented-tabs" id="requisition-partner-tabs" aria-label="Order fulfilment partner">
@@ -718,7 +718,7 @@
   <section class="sheet-panel jbl-camera-sheet">
     <div class="jbl-camera-handle" aria-hidden="true"></div>
     <div class="sheet-header jbl-live-camera-heading">
-      <div><h2 id="jbl-live-camera-title">Take visit photo</h2><p class="sheet-sub">The full image is saved. Black margins are not included.</p></div>
+      <div><h2 id="jbl-live-camera-title">Take visit photo</h2></div>
       <button type="button" class="sheet-close-button" id="jbl-camera-close" aria-label="Close camera"><i data-lucide="x" aria-hidden="true"></i></button>
     </div>
     <div class="jbl-camera-viewport"><video id="jbl-camera-video" autoplay muted playsinline></video><div class="jbl-camera-status" id="jbl-camera-status" role="status">Starting camera…</div></div>

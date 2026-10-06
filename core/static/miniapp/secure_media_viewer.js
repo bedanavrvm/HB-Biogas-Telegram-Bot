@@ -8,6 +8,7 @@
       headers: { ...(settings.headers || {}) },
       body: settings.body,
       cache: 'no-store',
+      signal: settings.signal,
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));

@@ -1,5 +1,32 @@
 # Changelog
 
+## 6 October 2026 — Portal role views and review workflows
+
+- Officers see read-only Orders; preparation controls remain capability-gated.
+  No grant or saved capability policy is changed.
+- Credit rejection/deferment no longer requires IMAB creation or approval-only
+  product evidence, and never changes an existing system identity. Approval
+  still requires IMAB and a customer number.
+- Revisit filters current Deferred/Rejected outcomes within the viewer's scope.
+  Expired deferrals remain visible; cash/other-partner withdrawals and progressed
+  cases do not reappear because of old hold dates.
+- Final Review has aligned repayment day/tenor controls, retaining legacy values,
+  and an Approved-only READY FOR INSTALLATION & PAYMENT comment shortcut.
+  Additional comments are preserved; the shortcut does not change a workflow status.
+- Review documents have previous/next controls, a counter, photo swiping and retry.
+  Close/Back preserves the review, cancels obsolete downloads and releases previews.
+- Home uses a spinner and compact row placeholders; refresh preserves loaded work.
+  Compact panel headings, camera captions, fixed Case History ordering and detailed
+  street maps use the existing Portal components and providers.
+- Credit comments reuse the existing voice workflow. Apply core.0201 and deploy
+  the versioned assets together. Reversal: stop new credit dictation, resolve/expire
+  outstanding attempts, then run
+  `python manage.py migrate core 0200_alter_accesscontrolchangerequest_workflow_and_more`
+  before restoring the prior code. The migration changes choices, not stored audio.
+- Validation: 113 focused backend tests, 87 browser checks, JavaScript syntax
+  and all Node tests pass using isolated/synthetic data. Screenshots inspected.
+  Broader baseline failures and live-integration limitations are recorded in KNOWN_GAPS.md.
+
 ## 5 October 2026 — Readable report emails and static graphs
 
 - Preserves the approved Jawabu design with larger Segoe UI font fallbacks:

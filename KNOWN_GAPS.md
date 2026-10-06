@@ -1,5 +1,27 @@
 # Known Gaps and Verified Workarounds
 
+## Portal role-workflow verification — 6 October 2026
+
+113 focused backend tests and 87 browser checks pass. JavaScript syntax and all
+Node checks pass; migrations report no uncommitted model changes. The backend
+log is `test-results/portal-remediation-focused.txt`, and synthetic screenshots
+are under `test-results/playwright/`. Apply core.0201 as documented in CHANGELOG.md.
+
+The broader SQLite selection still has 25 failures and one error. An isolated
+archive of unchanged HEAD reproduces exactly the same failing test names across
+192 existing pipeline tests. These include retired route expectations and invoice
+fixtures without finalized requisitions. Current evidence is in
+`test-results/portal-remediation-django.txt`; baseline evidence is in
+`C:/Users/Administrator/AppData/Local/Temp/portal-remediation-baseline-100512ad44094ada8dd2e3e6163015a7/baseline-tests.txt`.
+Do not interpret focused passing checks as a fully green repository suite.
+
+Local browser fixtures use the actual Portal markup, modules and stylesheet cascade
+with synthetic API/evidence responses. Screenshots are checked at 320–430px,
+tablet and desktop in light/dark themes. Real Telegram device camera permissions,
+native PDF scrolling/gestures, map coverage and live voice-provider/Drive cleanup
+remain authorized operator checks. Existing external Maps fallback remains available.
+PostgreSQL and production integrations are not exercised by these SQLite tests.
+
 ## Report email client rendering — 5 October 2026
 
 Browser screenshots use synthetic captured reports and substitute embedded
