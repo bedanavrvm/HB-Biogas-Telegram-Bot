@@ -1,5 +1,21 @@
 # Changelog
 
+## 6 October 2026 — Invoice upload confirmation and payment previews
+
+- Invoice uploads await the authoritative response instead of inheriting the
+  20-second queue/read timeout. Repeat submissions while uploading are ignored.
+  Lost or unreadable responses advise checking Recent uploads; confirmed saves
+  are not labelled failed if subsequent rendering fails.
+- Payment-delivery invoice previews send the existing Telegram session header
+  through Portal's shared API helper. Server authentication, scope checks and
+  evidence-access auditing remain unchanged; no credential enters preview URLs.
+- Deploy the versioned invoice/payment assets and shell together. No migration,
+  setting, dependency, financial-data change or production write is included.
+- Actual-module Playwright regressions cover slow success, repeated submission,
+  connection loss, malformed responses, explicit rejection, rendering failure,
+  bounded ordinary reads, authenticated preview, denial/retry and Back behaviour.
+  Validation results and existing unrelated failures are recorded in KNOWN_GAPS.md.
+
 ## 6 October 2026 — Portal role views and review workflows
 
 - Officers see read-only Orders; preparation controls remain capability-gated.

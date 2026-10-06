@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Invoice transport verification — 6 October 2026
+
+The slow-upload and missing-authentication symptoms were reproduced with the
+actual Portal modules and synthetic browser fixtures, then fixed. Invoice upload
+does not use the browser's ordinary 20-second timer: the browser awaits the
+server/network outcome while the upload button remains busy. This does not turn
+parsing into a durable background task; closing the app or losing connectivity
+can still lose the response. Check Recent uploads before retrying in that case.
+
+27 related browser checks pass, including eight new transport regressions.
+JavaScript syntax and all Node checks pass. Synthetic mobile screenshots were
+inspected for upload feedback and invoice previews. No real Telegram device,
+production invoice, Google integration, deployment or database suite was used
+for this frontend-only change.
+
+Six existing `portal_finance_actions.spec.js` document-button geometry checks
+fail at 320/360/390/430/768/1280px (40px instead of the expected 44px). All six
+also fail in an isolated, unchanged HEAD archive. Baseline evidence:
+`C:/Users/Administrator/AppData/Local/Temp/portal-invoice-transport-baseline-e14f11a9ab6042ada90b9779f0898450/baseline-results.txt`.
+They are excluded from the passing 27-check selection, not silently marked green.
+
 ## Portal role-workflow verification — 6 October 2026
 
 113 focused backend tests and 87 browser checks pass. JavaScript syntax and all

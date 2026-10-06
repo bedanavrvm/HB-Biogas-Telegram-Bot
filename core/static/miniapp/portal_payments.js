@@ -298,7 +298,9 @@
     if (!dialog.open) { dialog.showModal(); window.history.pushState({...window.history.state, receiptInvoicePreview: true}, '', window.location.href); }
     window.dispatchEvent(new Event('portal:dialog-change'));
     try {
-      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(item.preview_url);
+      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(item.preview_url, {
+        headers: deps.portalApi?.initDataHeader?.(deps.tg) || {},
+      });
       if (version !== receiptPreviewVersion || !dialog.open) return;
       if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
       receiptPreviewUrl = window.SecureMediaViewer.renderBlob(content, blob, {name: item.source_filename || 'Invoice'});

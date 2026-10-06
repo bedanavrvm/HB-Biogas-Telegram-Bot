@@ -18,6 +18,7 @@
   let letterPreviewObjectUrl = '';
   let invoiceFilterSheet = null;
   let listRequestVersion = 0;
+  let invoiceUploadRunning = false;
 
   function el(id) {
     return deps.el ? deps.el(id) : document.getElementById(id);
@@ -1490,6 +1491,7 @@
       const form = event.target.closest('#invoice-pool-upload-form');
       if (!form) return;
       event.preventDefault();
+      if (invoiceUploadRunning) return;
       const fileInput = form.querySelector('#invoice-pool-file');
       const resultBox = form.parentElement?.querySelector('#invoice-pool-upload-result');
       const submit = form.querySelector('#invoice-pool-upload-submit');
@@ -1505,10 +1507,16 @@
       files.forEach(function (file) {
         formData.append('file', file);
       });
+      invoiceUploadRunning = true;
+      let uploadConfirmed = false;
       if (deps.setButtonLoading) deps.setButtonLoading(submit, true, files.length > 1 ? 'Uploading PDFs...' : 'Uploading...');
+      if (resultBox) resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status"><span class="spinner-inline" aria-hidden="true"></span> Uploading and checking invoices…</div>';
       try {
-        const response = await deps.portalApi.postForm('/invoice-pool/upload/', formData, deps.tg, csrfHeader());
+        // Parsing/Drive acceptance can exceed the ordinary 20-second read
+        // timeout. Await the server outcome; aborting here does not undo saves.
+        const response = await deps.portalApi.postForm('/invoice-pool/upload/', formData, deps.tg, csrfHeader(), {timeoutMs: 0});
         const data = response.data || {};
+        if (response.ok && data.ok !== true) throw new Error('Upload response could not be confirmed.');
         if (!response.ok || data.ok === false) {
           const failures = Array.isArray(data.failures) ? data.failures : [];
           const failureHtml = failures.length
@@ -1520,6 +1528,7 @@
           deps.showToast(data.error || 'Invoice upload failed.', 'error');
           return;
         }
+        uploadConfirmed = true;
         const duplicateFiles = Array.isArray(data.duplicate_files) ? data.duplicate_files : [];
         if (data.status === 'duplicate') {
           if (resultBox) resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status"><strong>No new file was uploaded.</strong><p>The same PDF is already in this invoice group.</p><ul class="mini-list">' + duplicateFiles.map(function (item) {
@@ -1579,9 +1588,14 @@
         deps.showToast('Uploaded ' + (data.total_uploaded || 0) + ' invoice file(s): ' + (data.auto_matched_count || 0) + ' auto-matched, ' + (data.manual_review_count || data.unmatched_count || 0) + ' need review.', data.total_failed ? 'warning' : 'success');
         load(1);
       } catch (error) {
-        if (resultBox) resultBox.innerHTML = '<div class="batch-warning" style="margin-top:10px;">The invoice upload did not finish. Check your connection and retry.</div>';
-        deps.showToast('The invoice upload did not finish. Check your connection and retry.', 'error');
+        const message = uploadConfirmed
+          ? 'Upload confirmed. Refresh to see the results.'
+          : 'Could not confirm the upload. Check Recent uploads before retrying.';
+        if (resultBox) resultBox.innerHTML = '<div class="batch-warning" role="status" style="margin-top:10px;">' + message + '</div>';
+        deps.showToast(message, 'warning');
+        load(1);
       } finally {
+        invoiceUploadRunning = false;
         if (deps.setButtonLoading) deps.setButtonLoading(submit, false);
       }
     });

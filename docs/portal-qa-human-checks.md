@@ -1,5 +1,19 @@
 # Portal QA: human verification
 
+## Invoice upload and payment preview
+
+- With synthetic invoices, upload on a slow connection (over 20 seconds).
+  The button stays busy until the response arrives and success remains visible.
+  Double-tapping must not start another upload.
+- If connectivity is lost, the message asks you to check Recent uploads before
+  retrying; it must not claim that the server failed to save the invoices.
+  A confirmed save must not become an upload-failed message if rendering fails.
+- From Payments, open a delivery and preview an invoice without closing the
+  preparation dialog. Preview Close and Telegram/browser Back preserve the
+  delivery and Cash choices. A denied preview offers Retry, never bypasses access.
+- This frontend change needs the versioned assets deployed; production delivery
+  and physical-device behaviour have not been tested by local mocked checks.
+
 ## Compact workspaces and decisions
 
 - Officers see **Orders** as a read-only destination, without selection or
