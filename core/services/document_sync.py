@@ -78,12 +78,17 @@ def retry_requisition_batch_upload(
     An explicit operator retry keeps the established versioned retry filename so
     Drive history remains easy to audit.
     """
+    if batch.status == 'cancelled':
+        return {'ok': False, 'error': 'Cancelled orders cannot be published.'}
     if not getattr(batch, 'file_content', b''):
         return {'ok': False, 'error': 'The requisition workbook is not available for retry.'}
 
     from core.services.order_approval import GoogleDriveMediaStorage
+    from django.db import transaction
+    from core.models import RequisitionBatch
 
     mark_drive_attempt(batch)
+    attempted_version, attempted_checksum = batch.version, batch.content_checksum
     attempt = int(getattr(batch, 'drive_sync_attempts', 0) or 0)
     original_name = str(getattr(batch, 'filename', '') or f'JBL_Requisition_Form_{batch.order_number}.xlsx')
     if preserve_filename:
@@ -102,13 +107,21 @@ def retry_requisition_batch_upload(
             group_config=None,
             workflow_key='Jawabu/Requisitions',
             record_type='Order',
-            record_key=batch.order_number,
+            record_key=f'{batch.pk}:v{attempted_version}',
             attempt_budget=attempt_budget,
         )
     except Exception as exc:
-        mark_drive_failure(batch, 'Drive upload failed; retry required.', error_field='drive_upload_error')
-        return {'ok': False, 'error': str(exc), 'retry_at': batch.drive_next_retry_at}
+        with transaction.atomic():
+            current = RequisitionBatch.objects.select_for_update().get(pk=batch.pk)
+            if current.status != 'cancelled' and (current.version, current.content_checksum) == (attempted_version, attempted_checksum):
+                mark_drive_failure(current, 'Drive upload failed; retry required.', error_field='drive_upload_error')
+        return {'ok': False, 'error': str(exc), 'retry_at': current.drive_next_retry_at}
 
-    batch.filename = retry_filename
-    mark_drive_success(batch, file_id=file_id, url=url, error_field='drive_upload_error', update_fields=['filename'])
+    with transaction.atomic():
+        current = RequisitionBatch.objects.select_for_update().get(pk=batch.pk)
+        if current.status == 'cancelled' or (current.version, current.content_checksum) != (attempted_version, attempted_checksum):
+            return {'ok': False, 'error': 'This order changed during upload. Its current workbook still needs publication.'}
+        current.filename = retry_filename
+        mark_drive_success(current, file_id=file_id, url=url, error_field='drive_upload_error', update_fields=['filename'])
+    batch.refresh_from_db()
     return {'ok': True, 'file_id': file_id, 'url': url, 'filename': retry_filename, 'actor': actor}

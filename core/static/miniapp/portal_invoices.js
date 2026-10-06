@@ -440,8 +440,8 @@
     const events = data.events || [];
     const duplicates = data.duplicates || [];
     const sourceLink = data.source_pdf_url
-      ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
-      : '<span class="badge badge-grey">No source PDF link</span>';
+      ? '<button class="miniapp-icon-button portal-finance-icon invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '" aria-label="Open source PDF" title="Open source PDF"><i data-lucide="external-link" aria-hidden="true"></i></button>'
+      : '';
     const identity = invoice.identity || {};
     const orderReferenceNotice = invoice.order_reference_alert
       ? '<div class="invoice-card-warning">' + escapeHtml(invoice.order_reference_alert.message) + '</div>'
@@ -496,8 +496,8 @@
       '<section class="form-section invoice-record-section">',
       '<div class="invoice-section-heading"><h3>People linked to this invoice</h3><span class="badge ' + (['Matched', 'Corrected'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
       '<div class="invoice-identity-comparison">',
-      '<div><small>FarmUp lead</small><strong>' + escapeHtml(identity.lead_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.lead_identity?.national_id || '-') + '</span></div>',
-      '<div><small>SysUp applicant</small><strong>' + escapeHtml(identity.applicant_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</span></div>',
+      '<div class="invoice-person-lead"><small>Lead</small><strong>' + escapeHtml(identity.lead_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.lead_identity?.national_id || '-') + '</span></div>',
+      '<div class="invoice-person-applicant"><small>System applicant</small><strong>' + escapeHtml(identity.applicant_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</span></div>',
       '<div><small>Invoice holder</small><strong>' + escapeHtml(identity.invoice_identity.name || '-') + '</strong><span>ID ' + escapeHtml(identity.invoice_identity.national_id || '-') + '</span></div>',
       '</div>',
       identityNotice,

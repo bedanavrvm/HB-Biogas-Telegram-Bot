@@ -25,6 +25,7 @@ from payments.models import (
     PaymentReceiptItem,
     PaymentSequenceEvent,
     PaymentSequenceState,
+    PaymentNumberClaim,
 )
 
 
@@ -195,8 +196,16 @@ def _allocate_payment_number_for_generation(batch: PaymentBatch, *, actor=None, 
         group_configuration=batch.group_configuration,
         defaults={'next_number': 1, 'updated_by': actor},
     )
-    number = sequence.next_number
-    sequence.next_number += 1
+    released = sequence.number_claims.filter(batch__isnull=True).order_by('number').first()
+    number = released.number if released else sequence.next_number
+    while not released and PaymentBatch.objects.filter(group_configuration=batch.group_configuration, payment_number=number).exists():
+        number += 1
+    claim, _ = PaymentNumberClaim.objects.get_or_create(sequence=sequence, number=number)
+    if claim.batch_id:
+        raise PaymentBatchError('This payment number is already in use. Refresh and retry.')
+    claim.batch = batch
+    claim.save(update_fields=['batch'])
+    sequence.next_number = max(sequence.next_number, number + 1)
     sequence.revision += 1
     sequence.updated_by = actor
     sequence.save()
@@ -715,9 +724,20 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
 
 @transaction.atomic
 def cancel_batch(batch_id, *, reason: str, expected_revision, actor=None, request_id=''):
-    reason = str(reason or '').strip()
-    if not reason:
-        raise PaymentBatchError('Give a reason for cancelling this payment batch.')
+    reason = str(reason or '').strip() or 'Unsigned payment cancelled by staff confirmation.'
+    # Serialize receipt-backed cancellation with preparation and replacement:
+    # group, receipt, batch, then allocator. Never acquire a receipt after
+    # holding its payment batch (preparation takes those locks in reverse).
+    from core.models import GroupSheetConfiguration
+    from payments.models import PaymentReceiptBatch
+    source = PaymentBatch.objects.only('group_configuration_id', 'receipt_batch_id').get(pk=batch_id)
+    GroupSheetConfiguration.objects.select_for_update().get(pk=source.group_configuration_id)
+    receipt = (PaymentReceiptBatch.objects.select_for_update().get(pk=source.receipt_batch_id)
+               if source.receipt_batch_id else None)
+    if request_id:
+        event = PaymentBatchEvent.objects.filter(request_id=request_id).first()
+        if event and event.actor_id != getattr(actor, 'pk', None):
+            raise PaymentBatchError('This cancellation belongs to another staff member.')
     replayed = _replayed_batch(
         request_id, action='cancelled', batch_id=batch_id, metadata={'reason': reason},
     )
@@ -727,6 +747,14 @@ def cancel_batch(batch_id, *, reason: str, expected_revision, actor=None, reques
     _require_revision(batch, expected_revision)
     if batch.status == PaymentBatch.STATUS_COMPLETED:
         raise PaymentBatchError('A completed payment batch cannot be cancelled.')
+    if batch.current_document_id:
+        from core.models import DocumentPhysicalSignoff
+        document = PaymentDocument.objects.select_for_update().get(pk=batch.current_document_id)
+        if DocumentPhysicalSignoff.objects.filter(payment_document=document,
+                source_version=document.version,
+                source_checksum=hashlib.sha256(bytes(document.file_content or b'')).hexdigest(),
+                status=DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED).exists():
+            raise PaymentBatchError('A signed payment batch cannot be cancelled.')
     if batch.status == PaymentBatch.STATUS_CANCELLED:
         return batch
     _supersede_document(batch)
@@ -734,7 +762,21 @@ def cancel_batch(batch_id, *, reason: str, expected_revision, actor=None, reques
     batch.cancellation_reason = reason
     batch.revision += 1
     batch.save()
-    _record(batch, 'cancelled', actor=actor, request_id=request_id, metadata={'reason': reason})
+    sequence = PaymentSequenceState.objects.select_for_update().filter(group_configuration_id=batch.group_configuration_id).first()
+    if sequence:
+        PaymentNumberClaim.objects.filter(sequence=sequence, batch=batch).update(batch=None)
+        sequence.revision += 1
+        sequence.save(update_fields=['revision', 'updated_at'])
+    batch.case_memberships.filter(is_active=True).update(is_active=False)
+    receipt_id = batch.receipt_batch_id
+    if receipt_id:
+        # Retain the source in the event but release the one-to-one live
+        # workspace link so this delivery can be prepared again.
+        batch.receipt_batch = None
+        batch.save(update_fields=['receipt_batch', 'updated_at'])
+        from payments.receipt_batches import _refresh_status
+        _refresh_status(receipt)
+    _record(batch, 'cancelled', actor=actor, request_id=request_id, metadata={'reason': reason, 'receipt_batch_id': str(receipt_id or '')})
     return batch
 
 
@@ -743,7 +785,7 @@ def adjust_sequence(
     *, group_configuration, next_number, reason: str, actor=None,
     request_id='', expected_revision=None,
 ):
-    """Explicit IT/Operations repair; allocated payment numbers are never reused."""
+    """Explicit IT/Operations repair; only cancelled unsigned claims may be reused."""
     reason = str(reason or '').strip()
     if not reason:
         raise PaymentBatchError('Give a reason for changing the next payment number.')

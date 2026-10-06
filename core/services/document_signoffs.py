@@ -94,6 +94,17 @@ def source_artifact(document_type: str, document_id: str, *, lock: bool = False)
     left as legacy records.  They can be regenerated to create a traceable
     source, but the system never guesses bytes from a Drive link.
     """
+    if lock and document_type == DocumentSignoffPolicy.DOCUMENT_PAYMENT:
+        # Acceptance and cancellation must serialize on the same workspace
+        # before either locks/updates its retained workbook.
+        from payments.models import PaymentBatch, PaymentReceiptBatch
+        from core.models import GroupSheetConfiguration
+        batch = PaymentBatch.objects.filter(current_document_id=document_id).first()
+        if batch:
+            GroupSheetConfiguration.objects.select_for_update().get(pk=batch.group_configuration_id)
+            if batch.receipt_batch_id:
+                PaymentReceiptBatch.objects.select_for_update().get(pk=batch.receipt_batch_id)
+            PaymentBatch.objects.select_for_update().get(pk=batch.pk)
     queryset = RequisitionBatch.objects if document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION else PaymentDocument.objects
     if lock:
         queryset = queryset.select_for_update()
@@ -103,6 +114,8 @@ def source_artifact(document_type: str, document_id: str, *, lock: bool = False)
         raise PhysicalSignoffError('The generated document was not found.') from exc
 
     if document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION:
+        if document.status == 'cancelled':
+            raise PhysicalSignoffError('This order was cancelled. Open the current order from Order Archive.')
         if document.status == 'preview':
             raise PhysicalSignoffError('A preview cannot be physically signed. Generate the requisition first.')
         data = bytes(document.file_content or b'')

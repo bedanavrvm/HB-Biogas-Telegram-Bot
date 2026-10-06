@@ -176,6 +176,15 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
                     'farmer_ids', 'farmer_count', 'requisition_date', 'version',
                     'finalized_at', 'file_content', 'content_checksum', 'status', 'updated_at',
                 ])
+            from core.models import DocumentPhysicalSignoff
+            from django.contrib.auth import get_user_model
+            signer, _ = get_user_model().objects.get_or_create(username='synthetic-order-signer')
+            DocumentPhysicalSignoff.objects.get_or_create(document_type='requisition', requisition_batch=batch,
+                source_version=batch.version, source_checksum=batch.content_checksum, status='signed_approved',
+                defaults={'uploaded_by': signer, 'approved_by': signer, 'approved_at': timezone.now(),
+                          'scan_checksum': 'a' * 64, 'scan_filename': 'synthetic-order-scan.pdf', 'scan_content_type': 'application/pdf'})
+            farmer.requisition_batch = batch
+            farmer.save(update_fields=['requisition_batch'])
         return farmer
 
     def invoice_batch(self, farmer=None):

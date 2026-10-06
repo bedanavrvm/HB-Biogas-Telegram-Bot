@@ -110,7 +110,7 @@ for (const width of [320, 430]) test(`payment invoice preview authenticates, ret
   await page.addScriptTag({path: asset('secure_media_viewer.js')});
   await page.addScriptTag({path: asset('portal_payments.js')});
   await page.evaluate(async initData => {
-    const receipt = {id: 'delivery-1', status: 'open', counts: {matched: 1}, items: [
+    const receipt = {id: 'delivery-1', status: 'open', total_count: 1, counts: {matched: 1}, items: [
       {id: 'invoice-1', invoice_no: 'TRAIN-1', farmer_id: 'case-1', applicant_name: 'Training Applicant',
         status: 'matched', source_filename: 'training.pdf', preview_url: '/synthetic/preview/'}]};
     window.denyPreview = false;

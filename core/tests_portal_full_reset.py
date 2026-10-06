@@ -17,7 +17,8 @@ from payments.models import (
     PaymentBatch, PaymentBatchCase, PaymentBatchEvent, PaymentCaseReview,
     PaymentSequenceEvent, PaymentSequenceState,
 )
-from requisitions.models import OrderSequenceState
+from requisitions.models import OrderSequenceState, OrderNumberClaim, OrderWorkbookVersion, OrderWorkspaceEvent
+from payments.models import PaymentNumberClaim
 
 
 class PortalFullResetTests(TestCase):
@@ -57,6 +58,16 @@ class PortalFullResetTests(TestCase):
         order = RequisitionBatch.objects.create(group_configuration=self.group, order_number='HB-104')
         order_sequence = OrderSequenceState.objects.create(group_configuration=self.group, partner='HB', next_number=105)
         payment_sequence = PaymentSequenceState.objects.create(group_configuration=self.group, next_number=23)
+        OrderNumberClaim.objects.create(sequence=order_sequence, number=104, batch=order)
+        OrderWorkbookVersion.objects.create(batch=order, version=1, filename='training.xlsx',
+            file_content=b'training-workbook', checksum='a' * 64, farmer_ids=[str(farmer.pk)])
+        OrderWorkspaceEvent.objects.create(batch=order, action='generated', version=1)
+        PaymentNumberClaim.objects.create(sequence=payment_sequence, number=22)
+        other_order = RequisitionBatch.objects.create(group_configuration=other_group, order_number='HB-104')
+        other_sequence = OrderSequenceState.objects.create(group_configuration=other_group, partner='HB', next_number=105)
+        other_claim = OrderNumberClaim.objects.create(sequence=other_sequence, number=104, batch=other_order)
+        farmer.requisition_batch = order
+        farmer.save(update_fields=['requisition_batch'])
 
         result = reset_portal_configuration(self.group, actor=self.actor, backup_reference='test-backup-1')
 
@@ -66,6 +77,11 @@ class PortalFullResetTests(TestCase):
         self.assertFalse(MediaAttachment.objects.filter(pk=attachment.pk).exists())
         self.assertFalse(JawabuFarmerUploadBatch.objects.filter(pk=upload.pk).exists())
         self.assertFalse(RequisitionBatch.objects.filter(pk=order.pk).exists())
+        self.assertFalse(OrderWorkbookVersion.objects.filter(batch_id=order.pk).exists())
+        self.assertFalse(OrderWorkspaceEvent.objects.filter(batch_id=order.pk).exists())
+        self.assertFalse(OrderNumberClaim.objects.filter(sequence=order_sequence).exists())
+        self.assertFalse(PaymentNumberClaim.objects.filter(sequence=payment_sequence).exists())
+        self.assertTrue(OrderNumberClaim.objects.filter(pk=other_claim.pk).exists())
         self.assertTrue(JawabuFarmerMaster.objects.filter(pk=other_farmer.pk).exists())
         event.refresh_from_db()
         self.assertIsNone(event.farmer_id)
@@ -150,6 +166,17 @@ class PortalFullResetTests(TestCase):
             reset_portal_configuration(self.group, actor=self.actor, backup_reference='test-backup-4')
         delete_rows.assert_not_called()
         self.assertTrue(PaymentBatch.objects.filter(pk=batch.pk).exists())
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows')
+    def test_cross_group_exact_order_assignment_blocks_before_sheet_deletion(self, delete_rows):
+        other_group = GroupSheetConfiguration.objects.create(group_id='-100training-exact-owner',
+            workflow={'type':'jawabu_homebiogas'})
+        order = RequisitionBatch.objects.create(group_configuration=self.group, order_number='HB-77')
+        other_case = JawabuFarmerMaster.objects.create(group_configuration=other_group, requisition_batch=order)
+        with self.assertRaisesRegex(PortalResetError, 'another group'):
+            reset_portal_configuration(self.group, actor=self.actor, backup_reference='training-exact-owner')
+        delete_rows.assert_not_called()
+        self.assertTrue(JawabuFarmerMaster.objects.filter(pk=other_case.pk).exists())
 
     @patch('core.services.portal_full_reset._delete_verified_sheet_rows')
     def test_ambiguous_legacy_owner_blocks_selected_group_reset(self, delete_rows):

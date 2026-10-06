@@ -394,6 +394,10 @@ def _row_payload(
     invoice = _invoice_for_farmer(farmer)
     missing = []
     warnings = []
+    from core.services.invoice_parser import official_requisition_eligibility
+    order = official_requisition_eligibility(farmer)
+    if not order['eligible']:
+        missing.append(order['message'])
     if not farmer.customer_no:
         missing.append('Cust No')
     if not invoice:

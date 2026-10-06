@@ -73,12 +73,11 @@ def official_requisition_eligibility(
             'message': 'This client has no finalized requisition/order and cannot receive an invoice yet.',
             'order_number': order_number,
         }
-    queryset = RequisitionBatch.objects
-    if lock:
-        queryset = queryset.select_for_update()
-    requisition = queryset.filter(order_number=order_number).first()
+    from requisitions.services import order_for_farmer
+    requisition = order_for_farmer(farmer, lock=lock)
     if (
         requisition is None
+        or requisition.status == 'cancelled'
         or requisition.version < 1
         or requisition.finalized_at is None
         or not requisition.file_content
@@ -93,6 +92,7 @@ def official_requisition_eligibility(
     member_ids = {str(value) for value in (requisition.farmer_ids or []) if value}
     if (
         str(farmer.pk) not in member_ids
+        or requisition.order_number != order_number
         or requisition.requisition_date != farmer.requisition_date
     ):
         return {
@@ -100,6 +100,13 @@ def official_requisition_eligibility(
             'code': 'invoice_requisition_mismatch',
             'message': 'This client does not match the finalized requisition membership. Repair the order before matching an invoice.',
             'order_number': order_number,
+        }
+    from requisitions.services import signed_order
+    if not signed_order(requisition):
+        return {
+            'eligible': False, 'code': 'invoice_order_unsigned',
+            'message': 'Order needs signed copy before an invoice can be linked or payment prepared.',
+            'order_number': order_number, 'requisition_batch_id': str(requisition.pk),
         }
     return {
         'eligible': True,
@@ -1304,10 +1311,15 @@ def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '')
 def _refresh_requisition_batch(order_number: str, upload_batch: InvoiceUploadBatch) -> None:
     from core.models import RequisitionBatch
 
-    req = RequisitionBatch.objects.filter(order_number=order_number).first()
+    from requisitions.services import resolve_order
+    try:
+        req = resolve_order(order_number)
+    except ValueError:
+        # Legacy number-only delivery history cannot identify a reused slot.
+        return
     if not req:
         return
-    farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number))
+    farmers = list(JawabuFarmerMaster.objects.filter(pk__in=req.farmer_ids))
     invoiced = sum(1 for farmer in farmers if farmer.invoice_number)
     pending = max(len(farmers) - invoiced, 0)
     req.status = 'completed' if farmers and not pending else ('partially_invoiced' if invoiced else 'needs_review')

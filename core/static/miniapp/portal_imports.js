@@ -8,6 +8,14 @@
   let importState = { batches: [], loaded: false };
   let activeReviewBatchId = '';
   let activeReviewRows = [];
+  let activeReviewRevision = 0;
+
+  function fieldReview(row, candidate) {
+    if (!candidate) return '';
+    const fields = candidate.fields || {};
+    return `<details class="sysup-field-review"><summary>Compare fields</summary><div>${Object.keys(fields).filter(field => String(row[field] ?? '') !== String(fields[field] ?? '')).map(field =>
+      `<label class="sysup-field-choice" data-field="${escapeHtml(field)}"><strong>${escapeHtml(field)}</strong><span>Portal: ${escapeHtml(fields[field] || 'Not recorded')}</span><input class="sysup-source-value" value="${escapeHtml(row[field] ?? '')}" aria-label="SysUp ${escapeHtml(field)}"><select class="sysup-field-source" aria-label="Value to keep for ${escapeHtml(field)}"><option value="sysup">Use SysUp</option><option value="portal">Keep Portal</option></select></label>`).join('') || '<p>These fields already match.</p>'}</div></details>`;
+  }
 
   function node(id) { return document.getElementById(id); }
   function importsScreenIsActive() { return document.getElementById('portal-screen')?.dataset.screen === 'imports'; }
@@ -159,6 +167,7 @@
       if (!importsScreenIsActive()) return;
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load import review data.');
       const batch = result.data.batch || {};
+      activeReviewRevision = Number(batch.portal_revision || 1);
       activeReviewRows = Array.isArray(batch.review_rows) ? batch.review_rows : [];
       const sourceTable = batch.source_table || {};
       const columns = Array.isArray(sourceTable.headers) ? sourceTable.headers : [];
@@ -170,7 +179,7 @@
       const table = !rows.length
         ? '<div class="empty-state"><div class="es-title">No source rows</div><div class="es-sub">This staged file has no non-blank source rows to display.</div></div>'
         : `<details class="portal-import-source"><summary>Source rows <span>${escapeHtml(totalRows)}</span></summary><div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
-      target.innerHTML = `<div class="portal-import-review-heading"><div><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close" aria-label="Close review" title="Close review"><i data-lucide="x" aria-hidden="true"></i></button></div>${table}`;
+      target.innerHTML = `<div class="portal-import-review-heading"><div><h2>Review SysUp</h2><p>${escapeHtml(batch.source_filename || 'Staged import')} · ${escapeHtml(batch.total_rows || 0)} rows</p></div><div class="portal-import-review-actions"><button type="button" class="miniapp-icon-button" id="portal-import-review-close" aria-label="Close review" title="Close review"><i data-lucide="x" aria-hidden="true"></i></button></div></div>${table}`;
       if (activeReviewRows.length) {
         const allRowsAlreadyCurrent = activeReviewRows.every(row => row['Import Status'] === 'already_current');
         const commitLabel = allRowsAlreadyCurrent ? 'Close unchanged batch' : 'Commit selected';
@@ -187,17 +196,19 @@
           const note = [sync, row['Cleaning Notes'], held].filter(Boolean).join('; ') || 'Check the match, then select to commit.';
           const ready = autoSelected;
           row['Cleaning Notes'] = note;
-          return `<tr data-sysup-index="${index}"><td><input type="checkbox" class="portal-sysup-approve" ${ready ? 'checked' : ''} aria-label="Commit SysUp row ${escapeHtml(row['Source Row'] || index + 1)}"></td><td>${escapeHtml(row.Name || '—')}</td><td>${escapeHtml(row['ID NO'] || '—')}</td><td><select class="portal-sysup-match">${options}</select></td><td>${escapeHtml(row['Match Basis'] || 'Manual review')}</td><td>${escapeHtml(row['Cleaning Notes'] || 'Ready')}</td></tr>`;
+          return `<tr data-sysup-index="${index}"><td><input type="checkbox" class="portal-sysup-approve" ${ready ? 'checked' : ''} aria-label="Commit SysUp row ${escapeHtml(row['Source Row'] || index + 1)}"></td><td>${escapeHtml(row.Name || '—')}</td><td>${escapeHtml(row['ID NO'] || '—')}</td><td><select class="portal-sysup-match">${options}</select></td><td>${escapeHtml(row['Match Basis'] || 'Manual review')}</td><td>${escapeHtml(row['Cleaning Notes'] || 'Ready')}<div class="sysup-comparison">${fieldReview(row, candidates.find(item => String(item.id) === current))}</div></td></tr>`;
         }).join('');
-        target.insertAdjacentHTML('afterbegin', `<div class="portal-import-review-heading"><div><h3>Review and commit</h3><p>${allRowsAlreadyCurrent ? 'Every row already matches the selected case. No update will be made.' : 'Select each correctly matched row you want to update. Unselected rows stay held.'}</p></div><button type="button" class="btn btn-primary" id="portal-import-commit">${commitLabel}</button></div><div class="portal-import-table-wrap"><table class="portal-import-table portal-import-review-grid"><thead><tr><th>Commit</th><th>System borrower</th><th>ID</th><th>Matched case</th><th>Match</th><th>Review note</th></tr></thead><tbody>${reviewRows}</tbody></table></div>`);
+        target.querySelector('.portal-import-review-actions').insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-primary" id="portal-import-commit">${commitLabel}</button>`);
+        target.insertAdjacentHTML('beforeend', `<div class="portal-import-table-wrap"><table class="portal-import-table portal-import-review-grid"><thead><tr><th>Commit</th><th>System borrower</th><th>ID</th><th>Matched case</th><th>Match</th><th>Review note</th></tr></thead><tbody>${reviewRows}</tbody></table></div>`);
         activeReviewRows.forEach((row, index) => {
           const reviewRow = target.querySelector(`[data-sysup-index="${index}"]`);
           const checkbox = reviewRow?.querySelector('.portal-sysup-approve');
           const matchSelect = reviewRow?.querySelector('.portal-sysup-match');
           if (!checkbox || !matchSelect) return;
-          if (row['Import Status'] === 'already_current') checkbox.disabled = true;
+          checkbox.disabled = row['Import Status'] === 'already_current' || !matchSelect.value;
           matchSelect.addEventListener('change', () => {
             if (row['Import Status'] !== 'already_current') checkbox.disabled = !matchSelect.value;
+            reviewRow.querySelector('.sysup-comparison').innerHTML = fieldReview(row, (row['Match Candidates'] || []).find(item => String(item.id) === matchSelect.value));
           });
         });
       }
@@ -205,6 +216,7 @@
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);
       }
       helpers.bindHoldToCopy?.(target, '.portal-import-table td');
+      window.lucide?.createIcons?.();
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
       target.innerHTML = `<div class="empty-state"><div class="es-title">Review unavailable</div><div class="es-sub">${escapeHtml(error.message || 'Refresh and try again.')}</div></div>`;
@@ -217,15 +229,27 @@
     if (!target || !activeReviewBatchId) return;
     const rows = activeReviewRows.map((row, index) => {
       const element = target.querySelector(`[data-sysup-index="${index}"]`);
+      const farmerId = element?.querySelector('.portal-sysup-match')?.value || '';
+      const candidate = (row['Match Candidates'] || []).find(item => String(item.id) === farmerId);
+      const choices = {};
+      const corrections = {};
+      element?.querySelectorAll('[data-field]').forEach(field => {
+        const name = field.dataset.field;
+        choices[name] = field.querySelector('.sysup-field-source').value;
+        const value = field.querySelector('.sysup-source-value').value;
+        if (value !== String(row[name] ?? '')) corrections[name] = value;
+      });
       return {
         row_fingerprint: row.row_fingerprint,
         approved: Boolean(element?.querySelector('.portal-sysup-approve')?.checked),
-        'Matched Farmer ID': element?.querySelector('.portal-sysup-match')?.value || '',
+        'Matched Farmer ID': farmerId,
+        case_revision: candidate?.workflow_revision,
+        field_choices: choices, source_corrections: corrections,
       };
     });
     setLoading(button, true, 'Committing');
     try {
-      const result = await api.postJson(`/imports/${encodeURIComponent(activeReviewBatchId)}/commit/`, { rows }, tg);
+      const result = await api.postJson(`/imports/${encodeURIComponent(activeReviewBatchId)}/commit/`, { rows, portal_revision: activeReviewRevision }, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.result?.message || result.data?.error || 'Some rows could not be committed.');
       feedback(result.data.result?.message || 'SysUp rows committed.', 'success');
       await load({ silent: true });

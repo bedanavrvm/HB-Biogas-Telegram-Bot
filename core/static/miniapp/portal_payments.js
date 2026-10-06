@@ -5,6 +5,7 @@
   let activeBatch = null;
   let batches = [];
   let receiptBatches = [];
+  let showArchivedReceipts = false;
   let activeReceipt = null;
   let candidateGroups = { ready: [], blocked: [], pending: [] };
   let candidateFilter = 'ready';
@@ -214,7 +215,7 @@
     const target = el('payments-receipts-list');
     if (!target) return;
     const visible = receiptBatches.filter(function (receipt) {
-      return receipt.status !== 'payment_created' || receipt.payment_batch_id;
+      return showArchivedReceipts ? receipt.archived : !receipt.archived && receipt.status !== 'payment_created' && receipt.total_count > 0;
     });
     if (!visible.length) {
       target.innerHTML = '<div class="empty-state compact"><div class="es-title">No invoice deliveries waiting</div><div class="es-sub">Receive an HB invoice delivery to start payment preparation.</div></div>';
@@ -227,15 +228,16 @@
       const action = receipt.payment_batch_id
         ? `<button type="button" class="btn btn-secondary payment-open-receipt-batch" data-payment-receipt-batch="${escape(receipt.payment_batch_id)}">Open payment</button>`
         : `<button type="button" class="btn btn-secondary payment-open-receipt" data-payment-receipt="${escape(receipt.id)}">Review delivery</button>`;
-      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${correction ? ` · ${escape(correction)} need corrected invoices` : ''}${held ? ` · ${escape(held)} need review` : ''}</small></div><div class="payment-receipt-row-action">${action}</div></article>`;
+      return `<article class="payment-receipt-row"><div><strong>${escape(deps.fmtDate?.(receipt.created_at) || String(receipt.created_at || '').slice(0, 10))}</strong><small>${escape(matched)} ready${correction ? ` · ${escape(correction)} corrections` : ''}${held ? ` · ${escape(held)} need review` : ''}</small></div><div class="payment-receipt-row-action">${action}<button type="button" class="miniapp-icon-button portal-finance-icon" data-receipt-archive="${escape(receipt.id)}" aria-label="${receipt.archived ? 'Restore' : 'Archive'} delivery" title="${receipt.archived ? 'Restore' : 'Archive'} delivery"><i data-lucide="${receipt.archived ? 'archive-restore' : 'archive'}" aria-hidden="true"></i></button></div></article>`;
     }).join('');
+    window.lucide?.createIcons?.();
   }
 
   async function loadReceiptBatches(options) {
     const target = el('payments-receipts-list');
     if (target && !options?.quiet) target.innerHTML = '<div class="empty-state compact"><div class="spinner-inline"></div></div>';
     try {
-      const response = await deps.apiFetch('/invoice-receipts/');
+      const response = await deps.apiFetch(`/invoice-receipts/${showArchivedReceipts ? '?archived=1' : ''}`);
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load invoice deliveries.');
       receiptBatches = response.data.batches || [];
       renderReceiptBatches();
@@ -262,7 +264,7 @@
       ...payable.map(function (item) {
         const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
         const correction = item.status === 'name_change' ? ` · ${escape(item.reason || 'Corrected invoice needed')}` : '';
-        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu${correction}</small></span><div class="payment-receipt-row-tools">${receiptPreviewButton(item)}<button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div></div>`;
+        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')}${correction}</small></span><div class="payment-receipt-row-tools">${receiptPreviewButton(item)}<button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i></button></div></div>`;
       }),
       ...held.map(function (item) {
         return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><div class="payment-receipt-row-tools">${receiptPreviewButton(item)}<span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div></div>`;
@@ -402,7 +404,7 @@
     const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
     const history = `<button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
     const cashSelected = item.payment_mode === 'CASH';
-    const modeAction = canRemove ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Switch this case to Loan - Jawabu' : 'Switch this case to Cash'}" title="${cashSelected ? 'Switch to Loan - Jawabu' : 'Switch to Cash'}"><i data-lucide="${cashSelected ? 'landmark' : 'banknote'}" aria-hidden="true"></i><span>${cashSelected ? 'Use Jawabu' : 'Use Cash'}</span></button>` : '';
+    const modeAction = canRemove ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Cash selected. Switch to Loan - Jawabu' : 'Loan selected. Switch to Cash'}" title="${cashSelected ? 'Cash selected. Switch to Loan - Jawabu' : 'Loan selected. Switch to Cash'}"><i data-lucide="${cashSelected ? 'banknote' : 'landmark'}" aria-hidden="true"></i></button>` : '';
     const removeAction = canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : '';
     return `<details class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}${compact ? ' payment-case-row' : ''}" data-payment-case="${escape(item.farmer_id)}">
       <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${compact && item.decision === 'approved' ? '' : badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')} <i data-lucide="chevron-down" aria-hidden="true"></i></small></span></summary>
@@ -482,7 +484,7 @@
     if (heldTarget) {
       heldTarget.innerHTML = heldItems.map(function (item) {
         const add = item.can_add_to_payment && !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status)
-          ? `<div class="payment-receipt-add"><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(item.applicant_name || item.invoice_no || 'invoice')} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button><button type="button" class="btn btn-secondary payment-add-receipt-item" data-payment-receipt-farmer="${escape(item.farmer_id)}">Add to payment</button></div>`
+          ? `<div class="payment-receipt-add"><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(item.applicant_name || item.invoice_no || 'invoice')} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i></button><button type="button" class="btn btn-secondary payment-add-receipt-item" data-payment-receipt-farmer="${escape(item.farmer_id)}">Add to payment</button></div>`
           : '';
         const label = item.can_add_to_payment ? 'Corrected - ready to add' : (item.status_label || 'Held');
         return `<article class="payment-current-case payment-held-item${item.can_add_to_payment ? ' payment-receipt-ready' : ''}"><div class="payment-case-heading"><strong>${escape(item.invoice_no || 'Unparsed invoice')}</strong><span class="badge ${item.can_add_to_payment ? 'badge-green' : 'badge-orange'}">${escape(label)}</span></div><div class="payment-case-values"><span>Invoice: ${escape(item.invoice_holder_name || 'Unknown holder')}</span><span>Applicant: ${escape(item.applicant_name || 'Not matched')}</span></div>${item.reason ? `<p class="payment-review-note">${escape(item.reason)}</p>` : ''}${add}</article>`;
@@ -638,7 +640,7 @@
     const copy = `Submit ${counts.total || 0} case${Number(counts.total || 0) === 1 ? '' : 's'} for payment approval? The official payment number is allocated only after every case is approved and the workbook is generated.`;
     const dialog = el('payment-submit-confirm');
     if (!dialog?.showModal) {
-      return Promise.resolve(window.confirm(`${copy}\n\nThe number remains used even if this batch is later cancelled.`));
+      return Promise.resolve(window.confirm(copy));
     }
     el('payment-submit-confirm-copy').textContent = copy;
     el('payment-submit-confirm-cases').textContent = String(counts.total || 0);
@@ -742,8 +744,8 @@
     button.title = title;
     button.setAttribute('aria-label', title);
     button.innerHTML = cash
-      ? '<i data-lucide="banknote" aria-hidden="true"></i><span>Cash</span>'
-      : '<i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span>';
+      ? '<i data-lucide="banknote" aria-hidden="true"></i>'
+      : '<i data-lucide="landmark" aria-hidden="true"></i>';
     window.lucide?.createIcons?.();
   }
 
@@ -762,9 +764,8 @@
   }
 
   async function cancelBatch(button) {
-    const reason = window.prompt('Why are you cancelling this payment batch?', '');
-    if (!reason?.trim()) return;
-    if (await mutate(`/payments/batches/${activeBatch.id}/cancel/`, {reason: reason.trim()}, button, 'Cancelling...')) {
+    if (!window.confirm('Cancel this unsigned payment? Its cases return to payment preparation and its number can be reused.')) return;
+    if (await mutate(`/payments/batches/${activeBatch.id}/cancel/`, {reason: ''}, button, 'Cancelling...')) {
       deps.showToast('Payment batch cancelled. Its cases can be added to another batch.', 'success');
       await load({quiet: true});
     }
@@ -829,6 +830,22 @@
       const batchFilterButton = target.closest('[data-payment-batch-filter]');
       if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; batchPage = 1; return load(); }
       if (target.closest('#payments-refresh')) return load();
+      if (target.closest('#payments-receipts-toggle')) {
+        showArchivedReceipts = !showArchivedReceipts;
+        target.closest('button').setAttribute('aria-pressed', String(showArchivedReceipts));
+        return loadReceiptBatches();
+      }
+      const archiveReceipt = target.closest('[data-receipt-archive]');
+      if (archiveReceipt) {
+        const receipt = receiptBatches.find(item => item.id === archiveReceipt.dataset.receiptArchive);
+        if (!receipt || !window.confirm(`${receipt.archived ? 'Restore' : 'Archive'} this delivery? Its invoices will not be changed.`)) return;
+        deps.setButtonLoading(archiveReceipt, true);
+        deps.portalApi.postJson(`/invoice-receipts/${receipt.id}/archive/`, {archived: !receipt.archived, revision: receipt.revision}, deps.tg)
+          .then(result => { if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Delivery could not be changed.'); return loadReceiptBatches(); })
+          .catch(error => deps.showToast(error.message, 'error'))
+          .finally(() => deps.setButtonLoading(archiveReceipt, false));
+        return;
+      }
       if (target.closest('#payments-receive-invoices')) return navigatePayment('/portal/s/invoices/upload/');
       if (target.closest('.payment-open-receipt')) return openReceipt(target.closest('.payment-open-receipt').dataset.paymentReceipt);
       if (target.closest('.payment-open-receipt-batch')) return navigatePayment(detailUrl(target.closest('.payment-open-receipt-batch').dataset.paymentReceiptBatch));

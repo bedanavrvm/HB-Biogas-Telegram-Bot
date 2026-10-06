@@ -154,6 +154,7 @@ def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool
         'id': str(receipt.pk), 'status': effective_status,
         'status_label': dict(PaymentReceiptBatch.STATUS_CHOICES).get(effective_status, ''),
         'revision': receipt.revision,
+        'archived': bool(receipt.archived_at),
         'payment_batch_id': str(getattr(_linked_batch(receipt), 'pk', '') or ''),
         'created_at': receipt.created_at.isoformat(),
         'counts': {status: int(counts.get(status, 0)) for status, _label in PaymentReceiptItem.STATUS_CHOICES},
@@ -182,6 +183,33 @@ def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool
             for item in items
         ]
     return data
+
+
+@transaction.atomic
+def set_archived(receipt_id, *, archived, expected_revision, actor, request_id):
+    from django.utils import timezone
+    from core.models import ComplianceAuditEvent
+    from core.services.compliance_audit import record_event
+    receipt = PaymentReceiptBatch.objects.select_for_update().get(pk=receipt_id)
+    if not request_id:
+        raise PaymentReceiptError('Refresh before changing this delivery.')
+    key = f'portal-receipt-archive:{request_id}'
+    replay = ComplianceAuditEvent.objects.filter(deduplication_key=key).first()
+    if replay:
+        if replay.subject_id != str(receipt.pk) or replay.actor_id != actor.pk or replay.after_values.get('archived') != archived:
+            raise PaymentReceiptError('This attempt was already used for another delivery change.')
+        return receipt
+    if int(expected_revision) != receipt.revision:
+        raise PaymentReceiptError('This delivery changed. Refresh before continuing.')
+    before = bool(receipt.archived_at)
+    receipt.archived_at = timezone.now() if archived else None
+    receipt.archived_by = actor if archived else None
+    receipt.revision += 1
+    receipt.save(update_fields=['archived_at', 'archived_by', 'revision', 'updated_at'])
+    record_event(workflow='portal', action='portal.invoice_delivery.archived' if archived else 'portal.invoice_delivery.restored',
+                 subject_type='PaymentReceiptBatch', subject_id=str(receipt.pk), actor=actor,
+                 request_id=request_id, deduplication_key=key, before_values={'archived': before}, after_values={'archived': archived})
+    return receipt
 
 
 @transaction.atomic
@@ -256,6 +284,9 @@ def attach_replacement(*, item_id, invoice_id, expected_revision, actor=None):
     # receipt item, then optional payment batch.  This prevents a correction
     # submitted from the Invoice screen racing a direct receipt update.
     item_probe = PaymentReceiptItem.objects.select_related('receipt_batch').get(pk=item_id)
+    from core.models import GroupSheetConfiguration
+    GroupSheetConfiguration.objects.select_for_update().get(pk=item_probe.receipt_batch.group_configuration_id)
+    PaymentReceiptBatch.objects.select_for_update().get(pk=item_probe.receipt_batch_id)
     invoice = ParsedInvoice.objects.select_for_update().filter(pk=invoice_id).first()
     if not invoice:
         raise PaymentReceiptError('The corrected invoice was not found.')

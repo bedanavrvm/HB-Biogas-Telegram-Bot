@@ -184,7 +184,7 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   await expect(page.locator('#payments-current-cases details').first()).toHaveAttribute('open');
   await expect(page.locator('#payments-current-cases .payment-case-identifiers').first()).toContainText('ID 12340');
   await expect(page.locator('#payments-current-cases .payment-case-toolbar').first().locator('button')).toHaveCount(3);
-  await expect(page.locator('#payments-current-cases .payment-case-toolbar').first()).toContainText('Use Cash');
+  await expect(page.locator('#payments-current-cases .payment-case-toolbar').first().locator('[data-payment-case-cash]')).toHaveAccessibleName('Loan selected. Switch to Cash');
   await expect(page.locator('#payments-current-cases .payment-case-toolbar').first()).toContainText('Remove');
   await expect(page.locator('#payments-current-cases .payment-case-mode')).toHaveCount(0);
   await page.locator('#payments-preview-sheet').click();

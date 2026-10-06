@@ -329,7 +329,8 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             entries.append(media_entry)
 
     if farmer.order_number:
-        requisition = RequisitionBatch.objects.filter(order_number=farmer.order_number).order_by('-updated_at').first()
+        from requisitions.services import order_for_farmer
+        requisition = order_for_farmer(farmer)
         if requisition:
             source_id = f'requisition:{requisition.id}'
             entries.append(_entry(

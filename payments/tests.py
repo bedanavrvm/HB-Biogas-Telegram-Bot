@@ -489,7 +489,7 @@ class PaymentBatchServiceTests(TestCase):
         second = self.batch()
         second = self.add(second, farmer, mode='LOAN-JAWABU')
         self.assertEqual(first.status, PaymentBatch.STATUS_CANCELLED)
-        self.assertTrue(first.case_memberships.get(farmer=farmer).is_active)
+        self.assertFalse(first.case_memberships.get(farmer=farmer).is_active)
         self.assertTrue(second.case_memberships.get(farmer=farmer).is_active)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)

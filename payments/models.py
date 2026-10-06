@@ -27,6 +27,19 @@ class PaymentSequenceState(models.Model):
         db_table_comment = 'Group-scoped allocator for official consecutive payment numbers.'
 
 
+class PaymentNumberClaim(models.Model):
+    """Authoritative lifetime number slots; only explicit cancellation releases them."""
+    id = models.BigAutoField(primary_key=True, db_comment='Internal payment-number-slot identifier.')
+    sequence = models.ForeignKey(PaymentSequenceState, on_delete=models.PROTECT, related_name='number_claims', db_comment='Locked group allocator.')
+    number = models.PositiveBigIntegerField(db_comment='Printed number, not the immutable payment identity.')
+    batch = models.OneToOneField('PaymentBatch', null=True, blank=True, on_delete=models.PROTECT, related_name='number_claim', db_comment='Current owner, null after explicit cancellation.')
+
+    class Meta:
+        db_table = 'payment_number_claim'
+        db_table_comment = 'Authoritative lifetime payment number slots; no automatic purge or historical recycling.'
+        constraints = [models.UniqueConstraint(fields=['sequence', 'number'], name='unique_payment_number_claim')]
+
+
 class PaymentBatch(models.Model):
     STATUS_DRAFT = 'draft'
     STATUS_IN_REVIEW = 'in_review'
@@ -77,7 +90,7 @@ class PaymentBatch(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['group_configuration', 'payment_number'],
-                condition=models.Q(payment_number__isnull=False), name='unique_group_payment_number',
+                condition=models.Q(payment_number__isnull=False) & ~models.Q(status='cancelled'), name='unique_group_payment_number',
             ),
         ]
         indexes = [models.Index(fields=['group_configuration', 'status'], name='payment_batch_group_status_idx')]
@@ -107,6 +120,8 @@ class PaymentReceiptBatch(models.Model):
     )
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True, db_comment='Server-controlled reconciliation state for this invoice delivery.')
     revision = models.PositiveBigIntegerField(default=1, db_comment='Optimistic concurrency revision for reconciliation changes.')
+    archived_at = models.DateTimeField(null=True, blank=True, db_comment='Workspace hiding timestamp; source invoices remain untouched.')
+    archived_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff user who last archived the delivery.')
     request_id = models.CharField(max_length=128, blank=True, default='', db_index=True, db_comment='Idempotency key for the source upload request.')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff member who received the invoice delivery.')
     created_at = models.DateTimeField(auto_now_add=True, db_comment='When the invoice delivery was received.')

@@ -46,9 +46,9 @@ from hb_operations.models import HomeBiogasAction, HomeBiogasActionEvent
 from payments.models import (
     PaymentBatch, PaymentBatchCase, PaymentBatchEvent, PaymentCaseReview,
     PaymentReceiptBatch, PaymentReceiptItem,
-    PaymentSequenceEvent, PaymentSequenceState,
+    PaymentSequenceEvent, PaymentSequenceState, PaymentNumberClaim,
 )
-from requisitions.models import OrderSequenceEvent, OrderSequenceState
+from requisitions.models import OrderSequenceEvent, OrderSequenceState, OrderNumberClaim, OrderWorkbookVersion, OrderWorkspaceEvent
 
 
 class PortalResetError(ValueError):
@@ -107,10 +107,14 @@ def portal_reset_manifest(configuration):
         'farmup_sysup_uploads': JawabuFarmerUploadBatch.objects.filter(group_id=configuration.group_id).count(),
         'visits': JawabuVisitRecord.objects.filter(group_id=configuration.group_id).count(),
         'orders': orders.count(),
+        'order_number_claims': OrderNumberClaim.objects.filter(sequence__group_configuration=configuration).count(),
+        'order_workbook_versions': OrderWorkbookVersion.objects.filter(batch_id__in=order_ids).count(),
+        'order_workspace_events': OrderWorkspaceEvent.objects.filter(batch_id__in=order_ids).count(),
         'invoice_uploads': invoice_uploads.count(),
         'parsed_invoices': ParsedInvoice.objects.filter(batch__in=invoice_uploads).count(),
         'approvals': JawabuApprovalRecord.objects.filter(farmer_id__in=farmer_ids).count(),
         'payments': payments.count(),
+        'payment_number_claims': PaymentNumberClaim.objects.filter(sequence__group_configuration=configuration).count(),
         'payment_cases': PaymentBatchCase.objects.filter(batch_id__in=payment_ids).count(),
         'signed_scans': DocumentPhysicalSignoff.objects.filter(requisition_batch_id__in=order_ids).count(),
         'hb_actions': HomeBiogasAction.objects.filter(farmer_id__in=farmer_ids).count(),
@@ -253,6 +257,10 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
     document_ids.update(PaymentBatch.objects.filter(pk__in=payment_ids).exclude(current_document=None).values_list('current_document_id', flat=True))
     document_ids.update(JawabuApprovalRecord.objects.filter(farmer_id__in=farmer_ids).exclude(payment_document=None).values_list('payment_document_id', flat=True))
     selected_farmer_ids = {str(pk) for pk in farmer_ids}
+    if JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).exclude(requisition_batch=None).exclude(requisition_batch_id__in=order_ids).exists():
+        raise PortalResetError('A case is assigned to another group’s order. Review ownership before resetting.')
+    if JawabuFarmerMaster.objects.filter(requisition_batch_id__in=order_ids).exclude(pk__in=farmer_ids).exists():
+        raise PortalResetError('An order is assigned to another group’s case. Review ownership before resetting.')
     for document in PaymentDocument.objects.filter(order_number__in=order_numbers).only('pk', 'farmer_ids'):
         members = {str(pk) for pk in (document.farmer_ids or [])}
         if members and not members.issubset(selected_farmer_ids):
@@ -331,6 +339,7 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         name_batches.delete()
 
         PaymentSequenceEvent.objects.filter(sequence__group_configuration=configuration).delete()
+        PaymentNumberClaim.objects.filter(sequence__group_configuration=configuration).delete()
         PaymentCaseReview.objects.filter(membership__batch_id__in=payment_ids).delete()
         PaymentBatchCase.objects.filter(batch_id__in=payment_ids).delete()
         PaymentBatchEvent.objects.filter(batch_id__in=payment_ids).delete()
@@ -342,6 +351,10 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         JawabuApprovalRecord.objects.filter(farmer_id__in=farmer_ids).delete()
         PaymentDocument.objects.filter(pk__in=document_ids).delete()
         OrderSequenceEvent.objects.filter(sequence__group_configuration=configuration).delete()
+        OrderNumberClaim.objects.filter(sequence__group_configuration=configuration).delete()
+        OrderWorkbookVersion.objects.filter(batch_id__in=order_ids).delete()
+        OrderWorkspaceEvent.objects.filter(batch_id__in=order_ids).delete()
+        JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).update(requisition_batch=None)
         RequisitionBatch.objects.filter(pk__in=order_ids).delete()
         InvoiceUploadBatch.objects.filter(pk__in=invoice_upload_ids).delete()
 

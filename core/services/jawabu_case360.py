@@ -549,12 +549,8 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     validation = validation_warnings(farmer)
     timeline_projection = jawabu_case_timeline(farmer)
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
-    requisition = (
-        RequisitionBatch.objects.filter(order_number=farmer.order_number)
-        .order_by('-updated_at', '-version')
-        .first()
-        if farmer.order_number else None
-    )
+    from requisitions.services import order_for_farmer
+    requisition = order_for_farmer(farmer) if farmer.order_number else None
     payment_documents = _payment_documents_for_farmer(farmer)
     payment_comment = _payment_comment_for_farmer(farmer, payment_documents)
     payments = _latest_payment_documents(

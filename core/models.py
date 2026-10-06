@@ -2592,6 +2592,10 @@ class JawabuFarmerMaster(models.Model):
         max_length=128, blank=True, default='', db_index=True,
         help_text='Order No. assigned by admin after credit approval.',
     )
+    requisition_batch = models.ForeignKey(
+        'RequisitionBatch', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='assigned_cases', db_comment='Exact current order workspace; display numbers may be reused after cancellation.',
+    )
 
     # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 7: Invoice generation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     invoice_number = models.CharField(max_length=128, blank=True, default='')
@@ -5932,6 +5936,7 @@ class RequisitionBatch(models.Model):
         ('partially_invoiced', 'Partially Invoiced'),
         ('completed', 'Completed'),
         ('needs_review', 'Needs Review'),
+        ('cancelled', 'Cancelled'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -5951,7 +5956,7 @@ class RequisitionBatch(models.Model):
         related_name='generated_batches',
         help_text='Exact validated template retained for this finalized order.',
     )
-    order_number = models.CharField(max_length=128, unique=True, db_index=True)
+    order_number = models.CharField(max_length=128, db_index=True)
     generation_request_id = models.CharField(
         max_length=128,
         blank=True,

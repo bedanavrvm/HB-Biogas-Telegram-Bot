@@ -5106,3 +5106,44 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .portal-app .portal-archive-card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
 .portal-app .portal-archive-card-head>div:first-child{min-width:0;overflow-wrap:anywhere}
 .portal-app .portal-archive-card-head>div:last-child{display:grid!important;grid-template-columns:repeat(2,40px);gap:4px!important}
+.portal-app #requisition-batch-panel .batch-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0; }
+.portal-app #requisition-batch-panel .batch-title .badge { flex:1; min-width:0; }
+.portal-app #batch-prepare-fields[hidden] { display:none; }
+.portal-app #batch-prepare-fields { margin-top:8px; }
+.portal-app .order-append-choice { display:grid; gap:4px; margin-bottom:8px; }
+.portal-app .payment-receipts-panel>header { display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:8px; }
+.portal-app .payment-receipt-row { padding:6px 8px; gap:8px; flex-direction:row; align-items:center; }
+.portal-app .payment-receipt-row>div:first-child { flex:1; min-width:0; }
+.portal-app .payment-receipt-row-action { display:flex; width:auto; align-items:center; gap:4px; flex-shrink:0; }
+.portal-app .payment-receipt-row-action .btn { padding:6px 8px; font-size:13px; }
+.portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) { min-width:44px; min-height:44px; padding:8px; }
+.portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) svg { width:18px; height:18px; }
+.portal-app .invoice-record-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.portal-app #batch-detail-actions .btn { min-width:44px; min-height:44px; padding:8px; display:inline-flex; align-items:center; justify-content:center; }
+.portal-app #batch-detail-actions .btn svg { width:18px; height:18px; }
+.portal-app #batch-detail-close { width:44px; height:44px; min-width:44px; min-height:44px; }
+.portal-app .invoice-record-heading>div { min-width:0; }
+.portal-app .invoice-identity-comparison strong { overflow-wrap:anywhere; font-size:14px; line-height:1.35; }
+.portal-app .invoice-identity-comparison .invoice-person-applicant { border-left-color:var(--brand-secondary,#6cbe45); }
+.portal-app .invoice-parsed-grid .invoice-detail-field .name { font-size:14px; }
+.portal-app .invoice-record-summary .invoice-detail-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.portal-app .invoice-record-summary .invoice-detail-actions>* { flex:0 0 auto; width:auto; }
+.portal-app .invoice-parsed-grid .invoice-detail-field :is(.name,.meta) { max-width:none; }
+@media(min-width:700px) {
+ .portal-app .invoice-parsed-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+ .portal-app .invoice-detail-field-wide { grid-column:span 2; }
+}
+.portal-app .sysup-field-review { margin-top:6px; white-space:normal; min-width:220px; max-width:360px; }
+.portal-app .sysup-field-choice { display:grid; grid-template-columns:minmax(0,1fr) minmax(100px,1fr); gap:4px 8px; padding:8px 0; border-bottom:1px solid var(--border-color); }
+.portal-app .sysup-field-choice>strong,.portal-app .sysup-field-choice>span { grid-column:1/-1; overflow-wrap:anywhere; }
+.portal-app .sysup-field-choice :is(input,select) { min-width:0; width:100%; font-size:14px; }
+.portal-app #portal-import-review .portal-import-review-heading { display:flex; align-items:center; gap:8px; }
+.portal-app #portal-import-review .portal-import-review-heading>div:first-child { flex:1; min-width:0; }
+.portal-app #portal-import-review .portal-import-review-heading p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.portal-app .portal-import-review-actions { display:flex; align-items:center; gap:4px; flex:0 0 auto; }
+.portal-app .portal-import-review-actions #portal-import-commit { width:auto; min-height:44px; padding:8px; font-size:12px; }
+.portal-app #portal-import-review-close { width:44px; height:44px; min-width:44px; min-height:44px; padding:8px; }
+.portal-app #portal-import-review-close svg { width:18px; height:18px; }
+.portal-app #portal-import-review .portal-import-review-grid { font-size:12px; }
+.portal-app #portal-import-review .portal-import-review-grid th { font-size:11px; background:var(--bg-surface); }
+.portal-app #portal-import-review .portal-import-review-grid th:first-child { box-shadow:2px 0 0 var(--bg-surface); }

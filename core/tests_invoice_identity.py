@@ -45,13 +45,22 @@ class InvoiceIdentityWorkflowTests(TestCase):
             requisition_date=date(2026, 9, 1),
             status='active',
         )
-        RequisitionBatch.objects.create(
+        order = RequisitionBatch.objects.create(
             order_number='ORDER-1', version=1,
             requisition_date=self.farmer.requisition_date,
             finalized_at=timezone.now(), farmer_ids=[str(self.farmer.id)],
             farmer_count=1, file_content=b'official-workbook',
             content_checksum='official-checksum', status='generated',
         )
+        from core.models import DocumentPhysicalSignoff
+        from django.contrib.auth import get_user_model
+        signer = get_user_model().objects.create_user(username='synthetic-order-signer')
+        DocumentPhysicalSignoff.objects.create(document_type='requisition', requisition_batch=order,
+            source_version=order.version, source_checksum=order.content_checksum, status='signed_approved',
+            uploaded_by=signer, approved_by=signer, approved_at=timezone.now(),
+            scan_checksum='a' * 64, scan_filename='synthetic-order-scan.pdf', scan_content_type='application/pdf')
+        self.farmer.requisition_batch = order
+        self.farmer.save(update_fields=['requisition_batch'])
         self.batch = InvoiceUploadBatch.objects.create(original_filename='invoice.pdf', status='parsed')
 
     def invoice(self, **overrides):

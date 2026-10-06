@@ -289,15 +289,14 @@
     <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.finalize">
       <div class="batch-title">
         <span class="badge" id="batch-selected-count">0 selected</span>
-        <span>Preview and finalize an official order</span>
-        <button type="button" class="btn btn-secondary" id="batch-clear-selection">Clear selection</button>
+        <button type="button" class="btn btn-primary" id="batch-prepare-order">Prepare order</button>
+        <button type="button" class="miniapp-icon-button portal-finance-icon" id="batch-clear-selection" aria-label="Clear selection" title="Clear selection"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
-      <p class="meta">The official consecutive number is assigned by the server only when Operations finalizes this exact preview.</p>
-      <div class="batch-form">
+      <div class="batch-form" id="batch-prepare-fields" hidden>
         <div class="form-row inline">
           <div class="field-group">
             <label for="batch-order-num">Order number</label>
-            <input type="text" id="batch-order-num" value="Assigned on preview" readonly aria-readonly="true">
+            <input type="text" id="batch-order-num" value="" placeholder="Loading order number…" readonly aria-readonly="true">
           </div>
           <div class="field-group">
             <label for="batch-req-date">Order date</label>
@@ -420,7 +419,7 @@
   <section id="page-{{ active_screen }}" class="page active">
     {% if not payment_batch_id %}
     <header class="portal-queue-header"><div><h1>{% if active_screen == 'payment_approvals' %}Payment Review{% else %}Payment Preparation{% endif %}</h1><p class="meta">{% if active_screen == 'payment_approvals' %}Review payment batches{% else %}Build payment batches from received invoices{% endif %}</p></div><div class="payment-header-actions"><button type="button" class="queue-refresh-button" id="payments-refresh" aria-label="Refresh payments" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>{% if active_screen == 'payments' %}<button type="button" class="btn btn-primary" id="payments-receive-invoices" data-required-capability="portal.invoice.write" aria-label="Receive invoices" title="Receive invoices"><i data-lucide="file-up" aria-hidden="true"></i></button>{% endif %}</div></header>
-    {% if active_screen == 'payments' %}<section id="payments-receipts-panel" class="payment-receipts-panel" data-required-capability="portal.payment.prepare"><header><h2>Invoice deliveries</h2></header><div id="payments-receipts-list" class="payment-receipts-list"><div class="empty-state compact"><div class="spinner-inline"></div></div></div></section>{% endif %}
+    {% if active_screen == 'payments' %}<section id="payments-receipts-panel" class="payment-receipts-panel" data-required-capability="portal.payment.prepare"><header><h2>Invoice deliveries</h2><button type="button" id="payments-receipts-toggle" class="miniapp-icon-button portal-finance-icon" aria-label="Show archived deliveries" title="Archived deliveries" aria-pressed="false"><i data-lucide="archive" aria-hidden="true"></i></button></header><div id="payments-receipts-list" class="payment-receipts-list"><div class="empty-state compact"><div class="spinner-inline"></div></div></div></section>{% endif %}
     <nav class="portal-invoice-tabs payment-batch-filters" aria-label="Payment batch status">{% if active_screen == 'payment_approvals' %}<button type="button" class="active" data-payment-batch-filter="in_review"><span>Needs review</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="in_review" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="review_complete"><span>Ready</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="review_complete" aria-hidden="true">0</span></button>{% else %}<button type="button" class="active" data-payment-batch-filter="open"><span>Open</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="open" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="completed"><span>Completed</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="completed" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="cancelled"><span>Cancelled</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="cancelled" aria-hidden="true">0</span></button><button type="button" data-payment-batch-filter="all"><span>All</span><span class="count-pill payment-batch-tab-count" data-payment-batch-count="all" aria-hidden="true">0</span></button>{% endif %}</nav>
     <div class="portal-queue-search"><i data-lucide="search" aria-hidden="true"></i><input id="payments-batch-search" type="search" inputmode="numeric" aria-label="Search by payment number" placeholder="Payment number" autocomplete="off"></div>
     <div id="payments-batches" class="payment-batch-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
@@ -781,7 +780,7 @@
           <h2 id="batch-detail-title">Batch</h2>
           <p class="sheet-sub" id="batch-detail-sub">Generated output details</p>
         </div>
-        <button type="button" id="batch-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="batch-detail-close" class="sheet-close-button miniapp-icon-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">

@@ -189,6 +189,13 @@ def _candidate_snapshot(farmer: JawabuFarmerMaster, *, row: dict[str, Any] | Non
         'customer_no': farmer.customer_no,
         'national_id': farmer.national_id,
         'primary_phone': farmer.primary_phone,
+        'workflow_revision': farmer.workflow_revision,
+        'fields': {
+            'ID NO': farmer.national_id, 'Customer ID': farmer.customer_no,
+            'Mobile No': farmer.primary_phone, 'Name': farmer.imab_customer_name or farmer.customer_name,
+            'Branch': farmer.system_branch or farmer.branch, 'Loan Officer': farmer.system_loan_officer,
+            'Product Name': farmer.payment_product, 'LGF Balance': '' if farmer.system_deposit_paid_jbl is None else str(farmer.system_deposit_paid_jbl),
+        },
     }
     if row is not None:
         snapshot['sync'] = _sync_preview(row, farmer)
@@ -483,6 +490,11 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             errors.append(f'Row {index}: {reason}')
             remaining.append(row)
             continue
+        if row.get('case_revision') is not None and int(row['case_revision']) != farmer.workflow_revision:
+            _mark_review(row, 'This case changed. Refresh the review before importing it.')
+            errors.append(f'Row {index}: case changed since review.')
+            remaining.append(row)
+            continue
         preview = _sync_preview(row, farmer)
         if preview['state'] == 'already_current':
             unchanged += 1
@@ -615,6 +627,8 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
                 'source_row': row.get('Source Row'),
                 'match_basis': row.get('Match Basis', ''),
                 'ignored_source_fields': ignored_fields,
+                'field_choices': row.get('field_choices', {}),
+                'source_corrections': row.get('source_corrections', {}),
             },
             old_values=old_values,
             new_values=new_values,

@@ -42,6 +42,26 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'requisitions.OrderNumberClaim': {
+        'domain': 'requisitions', 'purpose': 'Authoritative locked order-number ownership and explicitly released slots.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Lifetime financial evidence; removed only by an owning configuration reset.',
+    },
+    'requisitions.OrderWorkbookVersion': {
+        'domain': 'requisitions', 'purpose': 'Exact immutable generated workbook bytes and membership for each order version.',
+        'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Lifetime financial evidence; removed only by an owning configuration reset.',
+    },
+    'requisitions.OrderWorkspaceEvent': {
+        'domain': 'requisitions', 'purpose': 'Append-only generation, amendment and cancellation evidence.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Lifetime financial evidence; removed only by an owning configuration reset.',
+    },
+    'payments.PaymentNumberClaim': {
+        'domain': 'payments', 'purpose': 'Authoritative locked payment-number ownership and explicitly released slots.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Lifetime financial evidence; removed only by an owning configuration reset.',
+    },
     'portal_recognition.PortalRecognitionPeriodSnapshot': {
         'domain': 'portal_recognition',
         'purpose': 'Frozen attributed Portal performance facts for one group and settled calendar period.',
@@ -162,7 +182,7 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'classification': 'configuration_state',
         'source_of_truth': True,
         'lifecycle': 'active',
-        'retention': 'Retain permanently; allocated numbers are never reused and adjustments remain attributed.',
+        'retention': 'Retain permanently; only explicitly released unsigned slots may be reused; signed numbers and attribution remain retained.',
     },
     'payments.PaymentBatch': {
         'domain': 'payments',

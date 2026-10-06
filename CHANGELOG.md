@@ -1,5 +1,32 @@
 # Changelog
 
+## 6 October 2026 — Portal Operations workspaces
+
+- Selecting cases shows a compact Prepare order action, not an automatic form.
+  Proposed HB/ECO numbers are read-only and preview never allocates a number.
+- Staff explicitly select an unsigned order for the same group, partner and
+  request date to append cases. Every workbook version is retained. The exact
+  current accepted signed scan locks the order; old scans cannot sign amendments.
+- Confirmed unsigned order/payment cancellation releases cases and the number
+  claim without deleting history, rewinding counters or invalidating credit/final
+  approvals. The lowest explicitly released number can be reused. Batch UUIDs
+  identify documents; ambiguous old number-only links fail safely.
+- Invoice matching and new payment preparation require an exact signed current
+  order. Historical financial evidence is preserved and has a read-only audit.
+- Pending invoice deliveries omit empty/completed workspaces and support
+  archive/restore without deleting invoices. Order details, invoice identities,
+  Loan/Cash controls and action rows are more compact and consistently aligned.
+- SysUp has inline candidate matching and per-field Keep Portal/Use SysUp choices,
+  corrections, preserved source data, current scope/revision checks and retry
+  protection. Supplemental data does not undo pipeline approvals; mismatched
+  reviewed national IDs remain held. LGF stays separate from the JBL sheet deposit.
+- Deploy migrations and versioned assets together. Deployment, PostgreSQL
+  concurrency and real integration checks still require operator authorization.
+  Migration, access-policy repair, legacy audit and exact rollback commands are
+  in [ADR 0039](docs/adr/0039-unsigned-finance-workspaces.md).
+- Local verification and outstanding broader-suite failures are recorded in
+  KNOWN_GAPS.md; no production data or external system was changed.
+
 ## 6 October 2026 — Invoice upload confirmation and payment previews
 
 - Invoice uploads await the authoritative response instead of inheriting the

@@ -1,5 +1,41 @@
 # Known Gaps and Verified Workarounds
 
+## Portal Operations verification — 6 October 2026
+
+Focused backend checks cover order preview/append/cancel/reuse, exact signed
+versions, protected invoice/payment evidence, SysUp choices and retries,
+Operations policy repair, physical sign-off and configuration-scoped reset.
+The latest complete focused run has 165 passing tests; final guard results are
+in `test-results/portal-operations-focused.txt`.
+
+42 Playwright checks pass using actual Portal modules and the production shell
+stylesheet cascade with synthetic, offline API/Telegram fixtures. Screenshot
+review covers 320, 430, 768 and 1280px order actions, invoice records, deliveries
+and SysUp field review. This caught and corrected action heights, duplicated
+SysUp headings, Close icon rendering and animation-time screenshot captures.
+Evidence: `test-results/portal-operations-browser.txt` and
+`test-results/playwright/portal_operations_workspac-*/`.
+
+JavaScript syntax and Node checks pass; migration checking reports no changes.
+Logs: `portal-operations-javascript.txt`, `portal-operations-node.txt` and
+`portal-operations-migrations.txt` under `test-results/`.
+
+The broader 302-test SQLite selection is not green: 31 failures and one error
+remain in `test-results/portal-operations-python.txt`. It includes already
+documented retired-route/report expectations, old automatic daily-order merge
+contracts now superseded by explicit append, unsigned invoice fixtures, and
+payment-document fixture failures. Not all failures have been independently
+classified against unchanged HEAD; do not claim the repository suite passes.
+The six pre-existing document-button geometry failures remain documented below.
+
+PostgreSQL row locks, concurrent transactions, migrations/rollback on a copy of
+the production schema, real Telegram and Google integrations remain unverified.
+The local PostgreSQL test account was not available with usable credentials;
+these backend runs used isolated SQLite. Before release, run the configuration-
+scoped legacy finance audit and PostgreSQL checks described in ADR 0039.
+Unowned legacy documents need explicit ownership review. Completed historical
+payments are never auto-repaired or deleted to satisfy new signed-order gates.
+
 ## Invoice transport verification — 6 October 2026
 
 The slow-upload and missing-authentication symptoms were reproduced with the

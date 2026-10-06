@@ -30,6 +30,7 @@ from core.services.access_control import (
     create_document_signoff_policy_request,
 )
 from core.services.telegram_identity import user_access
+from core.services.access_grant_governance import governed_access_grant_mutation
 
 
 class PhysicalDocumentSignoffTests(TestCase):
@@ -43,15 +44,16 @@ class PhysicalDocumentSignoffTests(TestCase):
         self.it_user = get_user_model().objects.create_user(
             username='document-it', is_active=True,
         )
-        AccessGrant.objects.create(
-            user=self.admin_user, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
-        )
-        AccessGrant.objects.create(
-            user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
-        )
-        AccessGrant.objects.create(
-            user=self.it_user, workflow='jawabu_portal', role='IT', branch='EMBU',
-        )
+        with governed_access_grant_mutation('Synthetic document-signoff regression fixture'):
+            AccessGrant.objects.create(
+                user=self.admin_user, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
+            )
+            AccessGrant.objects.create(
+                user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+            )
+            AccessGrant.objects.create(
+                user=self.it_user, workflow='jawabu_portal', role='IT', branch='EMBU',
+            )
         self.batch = RequisitionBatch.objects.create(
             order_number='SIGN-001',
             version=2,

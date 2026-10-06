@@ -12,6 +12,7 @@
   let selectionStorageKey = null;
   let selectionRestored = false;
   let selectedDate = '';
+  let previewSequence = 0;
   const SELECTION_TTL_MS = 30 * 60 * 1000;
 
   async function restoreSelection() {
@@ -81,7 +82,7 @@
         let updated = null;
         try {
           const response = await deps.portalApi.postJson(
-            `/requisition-batches/${encodeURIComponent(batch.order_number)}/retry-sync/`,
+            `/requisition-batches/${encodeURIComponent(batch.id || batch.order_number)}/retry-sync/`,
             { automatic }, deps.tg, csrfHeader(),
           );
           updated = response.data?.batch || null;
@@ -480,7 +481,20 @@
       if (badge) badge.textContent = `${count} selected${hiddenCount ? ` · ${hiddenCount} outside this page/filter` : ''}`;
     } else {
       panel.style.display = 'none';
+      if (el('batch-prepare-fields')) el('batch-prepare-fields').hidden = true;
     }
+  }
+
+  let numberRequest = 0;
+  async function updateProposedNumber() {
+    const request = ++numberRequest;
+    const field = el('batch-order-num');
+    if (!field || !state().capabilities?.has('portal.requisition.finalize')) return;
+    field.value = '';
+    const result = await deps.apiFetch(`/requisition-queue/options/?partner=${encodeURIComponent(state().requisitionPartner || 'HB')}`);
+    if (request !== numberRequest) return;
+    if (result.ok && result.data?.ok) field.value = result.data.order_number;
+    else field.placeholder = result.data?.error || 'Preview to check the number';
   }
 
   async function loadOrderSequence() {
@@ -710,7 +724,7 @@
         : 'Requisition form generated and stored.', 'success');
       await scheduleRequisitionDriveSync(result.batch, { openWhenReady: true });
       deps.loadQueue('batches', state().pages.batches || 1);
-      openBatchDetail(batch.order_number);
+      openBatchDetail(batch.id || batch.order_number);
     } catch (err) {
       deps.showToast(err.message || 'Could not generate the requisition form.', 'error');
     } finally {
@@ -737,7 +751,7 @@
     const actions = el('batch-detail-actions');
     const invoiceResult = el('batch-detail-invoice-result');
     const clients = el('batch-detail-clients');
-    title.textContent = `Order ${orderNumber}`;
+    title.textContent = 'Order details';
     sub.textContent = 'Loading batch details...';
     summary.innerHTML = '';
     actions.innerHTML = '';
@@ -751,9 +765,10 @@
       return;
     }
     const batch = data.batch;
+    title.textContent = `Order ${batch.order_number}`;
     activeBatch = batch;
     const inv = batch.invoice_summary || {};
-    sub.textContent = `${batch.requisition_date || 'No date'} - ${batch.farmer_count || 0} client(s)`;
+    sub.textContent = `${batch.requisition_date || 'No date'} · v${batch.version || 1} · ${batch.status === 'cancelled' ? 'Cancelled' : batch.finalized ? 'Signed' : 'Awaiting signed copy'}`;
     summary.innerHTML = deps.summaryGrid([
       { label: 'Clients', value: String(batch.farmer_count || 0) },
       { label: 'Invoiced', value: String(inv.invoiced_count || 0) },
@@ -771,7 +786,8 @@
             ? '<button class="btn btn-secondary" id="batch-detail-retry-sync">Retry Drive storage</button>'
             : '<span class="badge badge-grey">Legacy batch has no stored final form</span>'}
       <button class="btn btn-secondary" id="batch-detail-preview" aria-label="Preview order" title="Preview order"><i data-lucide="eye" aria-hidden="true"></i></button>
-      <button class="btn btn-secondary" id="batch-detail-upload" aria-label="Upload invoices" title="Upload invoices"><i data-lucide="upload" aria-hidden="true"></i></button>
+      ${batch.finalized && state().capabilities?.has('portal.invoice.write') ? '<button class="btn btn-secondary" id="batch-detail-upload" aria-label="Upload invoices" title="Upload invoices"><i data-lucide="upload" aria-hidden="true"></i></button>' : ''}
+      ${batch.can_cancel && state().capabilities?.has('portal.requisition.finalize') ? '<button class="btn btn-secondary" id="batch-detail-cancel" aria-label="Cancel unsigned order" title="Cancel unsigned order"><i data-lucide="trash-2" aria-hidden="true"></i></button>' : ''}
     `;
     window.lucide?.createIcons();
     if (inv.last_invoice_upload_status) {
@@ -785,8 +801,8 @@
     if (batch.drive_sync_status === 'pending') {
       invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-orange">Drive storage pending</span>');
       scheduleRequisitionDriveSync(batch).then((updated) => {
-        if (updated?.drive_sync_status === 'succeeded' && activeBatch?.order_number === orderNumber) {
-          openBatchDetail(orderNumber);
+        if (updated?.drive_sync_status === 'succeeded' && activeBatch?.id === batch.id) {
+          openBatchDetail(batch.id);
         }
       });
     } else if (batch.drive_sync_status === 'retryable_failure') {
@@ -796,12 +812,15 @@
     clients.innerHTML = deps.batchClientRows(batch.farmers || []);
   }
 
-  async function requestRequisitionPreview() {
+  async function requestRequisitionPreview(appendBatchId = '') {
     const payload = currentRequisitionPayload();
     if (!payload) return;
+    payload.append_batch_id = appendBatchId;
+    const sequence = ++previewSequence;
     try {
       deps.showToast('Preparing batch preview...');
       const result = await deps.portalApi.postJson('/requisition-queue/preview/', payload, deps.tg, csrfHeader());
+      if (sequence !== previewSequence) return;
       const data = result.data || {};
       if (!result.ok || !data.ok) {
         showRequisitionError(data, 'Could not prepare the order preview. Try again.');
@@ -828,10 +847,10 @@
         preview_token: data.preview_token,
         finalize_request_id: requisitionRequestId(),
       };
-      if (el('batch-order-num')) el('batch-order-num').value = `Order ${data.order_number}`;
+      if (el('batch-order-num')) el('batch-order-num').value = data.order_number;
       openRequisitionPreview(data, { readOnly: false });
     } catch (err) {
-      console.error(err);
+      if (sequence !== previewSequence) return;
       deps.showToast('Could not load the order preview. Check your connection and try again.', 'error');
     }
   }
@@ -889,6 +908,14 @@
       return `<article class="requisition-blocked-case"><h4>${deps.escapeHtml(name)}</h4><ul>${(item.missing || []).map(reason => `<li>${deps.escapeHtml(reason)}</li>`).join('') || '<li>This case is not ready. Refresh the case to check its current status.</li>'}</ul></article>`;
     }).join('');
     list.innerHTML = `${blockers ? `<section class="requisition-blocker-list" role="alert"><h3>Fix these items before finalizing</h3>${blockers}</section>` : ''}${renderPrintableRequisition(data)}`;
+    if (!readOnly && data.append_candidates?.length) {
+      list.insertAdjacentHTML('afterbegin', `<label class="order-append-choice">Order for this date<select id="requisition-append-choice"><option value="">Create a new order</option>${data.append_candidates.map(item => `<option value="${deps.escapeHtml(item.id)}" ${item.id === data.append_batch_id ? 'selected' : ''}>Add to ${deps.escapeHtml(item.order_number)} (${item.farmer_count} cases)</option>`).join('')}</select></label>${data.append_batch_id ? `<p class="meta">${data.existing_count} existing cases included. Generating replaces the unsigned workbook; the order number stays the same.</p>` : ''}`);
+      el('requisition-append-choice').addEventListener('change', event => {
+        confirm.disabled = true;
+        state().pendingRequisitionPayload = null;
+        requestRequisitionPreview(event.target.value);
+      });
+    }
     // A previous generation may have left the progress row visible. History
     // previews are read-only and must never imply that a workbook is being
     // generated or make another generation request.
@@ -902,16 +929,16 @@
     if (!readOnly && nativeMain) confirm.dataset.mainActionProxy = 'true';
     else delete confirm.dataset.mainActionProxy;
     if (readOnly) confirm.removeAttribute('data-main-action');
-    else confirm.dataset.mainAction = `Finalize Order ${data.order_number}`;
+    else confirm.dataset.mainAction = `Generate ${data.order_number}`;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly
       ? `Resolve ${data.blocked_count || 0} blocked case${Number(data.blocked_count || 0) === 1 ? '' : 's'}`
-      : `Finalize Order ${data.order_number}`;
+      : `Generate ${data.order_number}`;
     if (note) {
       note.hidden = readOnly;
       note.textContent = confirm.disabled
         ? 'Fix the highlighted items for each blocked case, then return to Order Preparation and preview again.'
-        : `Finalizing assigns official order ${data.order_number}, freezes these ${data.ready_count || 0} cases and stores the workbook in Django. Drive publication happens separately.`;
+        : 'The order becomes final when its signed copy is accepted.';
     }
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
     overlay.classList.add('open');
@@ -948,7 +975,7 @@
       }
       deps.showToast(result.drive_sync_pending
         ? 'Requisition saved. Saving the current workbook to Drive.'
-        : 'Official order finalized and saved to Batches.', 'success');
+        : 'Order workbook saved to Order Archive. Awaiting signed copy.', 'success');
       const batch = result.batch || {};
       const summary = el('requisition-preview-summary');
       const warnings = el('requisition-preview-warnings');
@@ -961,7 +988,7 @@
       ]);
       if (warnings) warnings.innerHTML = '';
       const downloadUrl = batch.download_url || result.download_url;
-      if (list) list.innerHTML = `<div class="requisition-finalized-state" role="status"><i data-lucide="badge-check" aria-hidden="true"></i><div><strong>Order ${deps.escapeHtml(batch.order_number || '')} finalized</strong><p>The official workbook is stored. ${batch.drive_sync_status === 'succeeded' ? 'It is also available in Drive.' : 'Drive publication is pending and can be retried from Batches.'}</p>${downloadUrl ? `<a class="btn btn-secondary" id="requisition-workbook-download" href="${deps.escapeHtml(downloadUrl)}" data-filename="${deps.escapeHtml(batch.filename || result.filename || `JBL_Requisition_Form_${batch.order_number}.xlsx`)}">Download workbook</a>` : ''}</div></div>`;
+      if (list) list.innerHTML = `<div class="requisition-finalized-state" role="status"><i data-lucide="file-check" aria-hidden="true"></i><div><strong>Order ${deps.escapeHtml(batch.order_number || '')} generated</strong><p>Upload the signed copy to release cases for invoices and installation.</p>${downloadUrl ? `<a class="btn btn-secondary" id="requisition-workbook-download" href="${deps.escapeHtml(downloadUrl)}" data-filename="${deps.escapeHtml(batch.filename || result.filename || `JBL_Requisition_Form_${batch.order_number}.xlsx`)}">Download workbook</a>` : ''}</div></div>`;
       if (note) note.hidden = true;
       if (el('requisition-preview-sub')) el('requisition-preview-sub').textContent = 'Official order saved';
       confirm.removeAttribute('data-main-action');
@@ -974,7 +1001,7 @@
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
-      el('batch-order-num').value = 'Assigned on preview';
+      el('batch-order-num').value = '';
       el('batch-req-date').value = '';
       updateBatchPanel();
       deps.loadQueue('requisition', 1);
@@ -1130,7 +1157,7 @@
               // Refresh the open batch so the invoiced/pending counters and
               // upload-status badge change immediately after confirmation.
               closeInvoiceOverlay();
-              if (activeBatch?.order_number) await openBatchDetail(activeBatch.order_number);
+              if (activeBatch?.id) await openBatchDetail(activeBatch.id);
             } catch (err) { deps.showToast(err.message, 'error'); }
             finally { deps.setButtonLoading(event.currentTarget, false); }
           });
@@ -1155,7 +1182,7 @@
       document.documentElement.dataset.portalRequisitionEventsBound = 'true';
       document.addEventListener('click', async event => {
         const action = event.target.closest(
-          '#btn-generate-requisition, #requisition-preview-confirm, '
+          '#btn-generate-requisition, #requisition-preview-confirm, #batch-detail-cancel, '
           + '#requisition-preview-close, #requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
           + '#batch-detail-upload, #batch-detail-retry-sync, #requisition-sequence-save, #requisition-workbook-download'
@@ -1166,6 +1193,18 @@
           else if (action.id === 'requisition-workbook-download') downloadRequisitionWorkbook(action);
           else if (action.id === 'requisition-sequence-save') saveOrderSequence(action);
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
+          else if (action.id === 'batch-detail-cancel') {
+            if (!window.confirm(`Cancel order ${activeBatch.order_number}? Cases return to Prepare Orders. Its unsigned number can be reused.`)) return;
+            deps.setButtonLoading(action, true, 'Cancelling…');
+            deps.portalApi.postJson(`/requisition-batches/${activeBatch.id}/cancel/`, {expected_version: activeBatch.version}, deps.tg, csrfHeader())
+              .then(result => {
+                if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Cancellation failed.');
+                el('batch-detail-overlay').classList.remove('open');
+                deps.showToast('Order cancelled.', 'success');
+                deps.loadQueue('batches', 1);
+              }).catch(error => deps.showToast(error.message, 'error'))
+              .finally(() => deps.setButtonLoading(action, false));
+          }
           else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {
             const confirm = el('requisition-preview-confirm');
             confirm?.removeAttribute('data-main-action');
@@ -1184,19 +1223,13 @@
               { ...activeBatch, drive_sync_status: 'retryable_failure' },
               { openWhenReady: true, automatic: false },
             );
-            if (refreshed?.drive_sync_status === 'succeeded') openBatchDetail(activeBatch.order_number);
+            if (refreshed?.drive_sync_status === 'succeeded') openBatchDetail(activeBatch.id);
             else deps.setButtonLoading(action, false);
           }
           else if (action.id === 'batch-detail-generate') generateRequisitionForBatch(activeBatch, action);
           else if (action.id === 'batch-detail-preview') {
-            const farmerIds = (activeBatch.farmers || []).map(farmer => farmer.id).filter(Boolean);
-            previewRequisitionInApp({
-              farmer_ids: farmerIds,
-              order_number: activeBatch.order_number,
-              requisition_date: activeBatch.requisition_date || new Date().toISOString().split('T')[0],
-              return_url: false,
-              preview_format: 'document',
-            }, action);
+            openRequisitionPreview({...activeBatch, ready: activeBatch.farmers || [], ready_count: activeBatch.farmer_count,
+              blocked_count: 0, warning_count: 0, warnings: []}, {readOnly: true});
           }
           else if (action.id === 'batch-detail-upload') openInvoiceOverlay(activeBatch.order_number);
           else el('requisition-preview-overlay')?.classList.remove('open');
@@ -1275,6 +1308,11 @@
       if (event.target.id === 'requisition-sequence-partner') loadOrderSequence();
     });
     document.addEventListener('click', event => {
+      if (event.target.closest('#batch-prepare-order')) {
+        el('batch-prepare-fields').hidden = false;
+        updateProposedNumber();
+        return;
+      }
       const tab = event.target.closest('[data-requisition-partner]');
       if (!tab) return;
       const partner = String(tab.dataset.requisitionPartner || 'HB');
