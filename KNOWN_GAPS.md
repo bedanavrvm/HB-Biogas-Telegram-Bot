@@ -1,5 +1,31 @@
 # Known Gaps and Verified Workarounds
 
+## Portal agreement and preview verification — 6 October 2026
+
+85 focused SQLite backend tests pass for agreement acceptance/retry, changed
+identity, review flags, revoked/superseded corrections, financial holds,
+disjoint invoice queues/counts, payment membership, letter rendering and scoped
+reset cleanup and permission-checked signed-scan previews. Evidence:
+`test-results/portal-agreements-tests.txt`.
+
+64 Playwright checks pass with actual Portal components/styles and synthetic
+offline API/Telegram data: pinch versus swipe, PDF page navigation, late-view
+cleanup, retained receipt-origin search, attested file upload, named downloads,
+320–430px mobile, 768px and 1280px layouts. Screenshots were inspected at 320px
+and 1280px; Close icon sizing and wrapping action labels were corrected.
+Evidence: `test-results/portal-media-browser.txt`; 19 further Portal media and
+Complaints compatibility checks pass in `test-results/portal-media-final-browser.txt`.
+
+Node checks and JavaScript syntax pass; migration checking reports no drift.
+Logs: `portal-agreements-node.txt`, `portal-agreements-javascript.txt`, and
+`portal-agreements-migrations.txt` under `test-results/`.
+
+PostgreSQL lock/concurrent-acceptance tests and physical Telegram-device
+verification are not run. The full repository suite is not claimed green;
+earlier documented broader-suite failures remain separate. No production
+migration, payment execution, Drive/Sheets write or real notification was made.
+The new migration must ship with the code before signed agreements are used.
+
 ## Portal Operations verification — 6 October 2026
 
 Focused backend checks cover order preview/append/cancel/reuse, exact signed

@@ -83,7 +83,7 @@ def _entry(
         'id': public_id,
         'source_event_id': source_id,
         'action': action,
-        'title': action.replace('_', ' ').strip().title(),
+        'title': 'Signed invoice-name agreement accepted' if action == 'invoice_name_agreement_accepted' else action.replace('_', ' ').strip().title(),
         'kind': kind,
         'stage': stage,
         'actor': actor,

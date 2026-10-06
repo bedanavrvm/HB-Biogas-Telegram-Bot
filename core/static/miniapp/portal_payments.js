@@ -283,7 +283,7 @@
     ++receiptPreviewVersion;
     el('payment-receipt-preview')?.close();
     if (!fromHistory && window.history.state?.receiptInvoicePreview) window.history.back();
-    if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    if (receiptPreviewUrl) window.SecureMediaViewer?.revoke(receiptPreviewUrl);
     receiptPreviewUrl = '';
     if (receiptPreviewTrigger?.isConnected) receiptPreviewTrigger.focus();
     window.dispatchEvent(new Event('portal:dialog-change'));
@@ -304,8 +304,15 @@
         headers: deps.portalApi?.initDataHeader?.(deps.tg) || {},
       });
       if (version !== receiptPreviewVersion || !dialog.open) return;
-      if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
-      receiptPreviewUrl = window.SecureMediaViewer.renderBlob(content, blob, {name: item.source_filename || 'Invoice'});
+      if (receiptPreviewUrl) window.SecureMediaViewer.revoke(receiptPreviewUrl);
+      const gallery = (activeReceipt?.items || []).filter(row => row.preview_url);
+      const index = gallery.indexOf(item);
+      const move = offset => previewReceiptInvoice({dataset: {receiptItem: String(gallery[index + offset].id)}});
+      receiptPreviewUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        name: item.source_filename || 'Invoice',
+        onNext: index < gallery.length - 1 ? () => move(1) : undefined,
+        onPrevious: index > 0 ? () => move(-1) : undefined,
+      });
     } catch (error) {
       if (version === receiptPreviewVersion && dialog.open) content.innerHTML = `<p class="batch-warning">${escape(error.message || 'Could not load invoice.')}</p><button type="button" class="btn btn-secondary payment-receipt-invoice-preview" data-receipt-item="${escape(item.id)}">Retry</button>`;
     }
@@ -373,7 +380,7 @@
       activeBatch = response.data.batch;
       setDetailFeedback('');
       showDetail();
-      if (!approvalMode() && !activeBatch.receipt_batch_id && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
+      if (!approvalMode() && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
     } catch (error) {
       const message = error.message || 'Could not open payment batch.';
       setDetailFeedback(message, {error: true, retry: true});
@@ -496,7 +503,7 @@
     const activityPanel = required.activity.closest('.payment-activity');
     if (activityPanel) activityPanel.hidden = emptyDraft;
     const addPanel = el('payments-add-panel');
-    if (addPanel) addPanel.hidden = approvalMode() || Boolean(activeBatch.receipt_batch_id) || !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
+    if (addPanel) addPanel.hidden = approvalMode() || !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
     renderPrimaryAction();
     window.lucide?.createIcons?.();
   }
@@ -609,7 +616,7 @@
       if (reviewedCase) reviewProtections.get(decodeURIComponent(reviewedCase[1]))?.markClean();
       activeBatch = response.data.batch;
       renderDetail();
-      if (!approvalMode() && !activeBatch.receipt_batch_id) await loadCandidates({quiet: true});
+      if (!approvalMode()) await loadCandidates({quiet: true});
       const list = await deps.apiFetch(`/payments/batches/?${listParams()}&view=${approvalMode() ? 'approval' : 'preparation'}`);
       if (list.ok && list.data?.ok) { batches = list.data.batches || []; batchCounts = list.data.counts || null; renderBatchTabCounts(); }
       return true;

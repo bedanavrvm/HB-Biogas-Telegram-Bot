@@ -69,6 +69,8 @@ def _item_disposition(invoice: ParsedInvoice | None, farmer: JawabuFarmerMaster 
     if not farmer:
         return PaymentReceiptItem.STATUS_REVIEW, None, invoice.review_notes or 'No unique case was found for this invoice.'
     gate = identity_gate(invoice, farmer)
+    if gate.get('agreement_accepted') and not gate.get('blocker'):
+        return PaymentReceiptItem.STATUS_MATCHED, farmer, 'Signed agreement accepted; corrected invoice outstanding.'
     discrepancy = set(gate.get('discrepancy_codes') or [])
     # Name order and spelling can differ across FarmUp, SysUp and the invoice.
     # The governed identity gate treats an exact National ID match as decisive;

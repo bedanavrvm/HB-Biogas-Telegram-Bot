@@ -42,6 +42,11 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'payments.InvoiceNameAgreement': {
+        'domain': 'payments', 'purpose': 'Exact signed letter and household facts permitting an invoice-name payment exception.',
+        'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Lifetime protected evidence; removed only by the owning configuration reset. No automatic purge.',
+    },
     'requisitions.OrderNumberClaim': {
         'domain': 'requisitions', 'purpose': 'Authoritative locked order-number ownership and explicitly released slots.',
         'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',

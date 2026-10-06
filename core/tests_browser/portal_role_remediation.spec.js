@@ -155,13 +155,14 @@ test('Server-rendered PDF previews keep gallery controls inside the mobile viewp
   await mountReview(page);
   await page.evaluate(()=>{
     window.fetch = async()=>({ok:true,blob:async()=>new Blob([
-      '<!doctype html><html><body style="margin:0;font-family:sans-serif;background:#edf2f7"><div style="padding:24px">Synthetic PDF page 1</div><div style="height:900px"></div><div>Synthetic PDF page 2</div></body></html>'
+      '<!doctype html><html><body><figure><img alt="Page 1" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII="></figure><figure><img alt="Page 2" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII="></figure></body></html>'
     ],{type:'text/html'})});
     const documents = [{preview_url:'/synthetic/pdf-1',name:'Synthetic LAF',mime_type:'application/pdf'},
       {preview_url:'/synthetic/pdf-2',name:'Synthetic ID',mime_type:'application/pdf'}];
     window.PortalMiniAppFarmerSheet.openDocumentPreview(documents[0],documents);
   });
-  await expect(page.locator('#media-viewer-content iframe')).toBeVisible();
+  await expect(page.locator('#media-viewer-content img')).toBeVisible();
+  await expect(page.locator('#media-viewer-content iframe')).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Next document'})).toBeInViewport({ratio:1});
   await page.getByRole('button',{name:'Next document'}).click();
   await expect(page.locator('#client-media-gallery-controls')).toContainText('2 / 2');

@@ -886,7 +886,7 @@
       });
       if (requestSequence !== state.mediaViewerRequestSequence || state.mediaViewerItemId !== item.preview_url) return;
       state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), blob, {
-        mimeType: item.mime_type || '', name: item.name || 'Complaint evidence',
+        mimeType: item.mime_type || '', name: item.name || 'Complaint evidence', gestures: false,
       });
       activateMediaViewerGestures();
     } catch (error) {
@@ -1262,7 +1262,7 @@
       $('mediaViewerContent').replaceChildren(textNode('p', 'The secure evidence viewer is unavailable. Refresh and retry.', 'media-viewer-error'));
       return;
     }
-    state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), item.file, { mimeType: item.file.type, name: item.file.name });
+    state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), item.file, { mimeType: item.file.type, name: item.file.name, gestures: false });
     activateMediaViewerGestures();
   }
 

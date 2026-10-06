@@ -4,6 +4,30 @@ from django.conf import settings
 from django.db import models
 
 
+class InvoiceNameAgreement(models.Model):
+    """Accepted identity exception; not approval of amounts or disbursement."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Immutable agreement identifier.')
+    artifact = models.OneToOneField('core.InvoiceNameChangeLetterArtifact', on_delete=models.PROTECT,
+        related_name='signed_agreement', db_comment='Exact sent governed letter agreed by its signatories.')
+    filename = models.CharField(max_length=255, db_comment='Original signed scan filename.')
+    content_type = models.CharField(max_length=100, db_comment='Validated PDF or image media type.')
+    file_content = models.BinaryField(db_comment='Private retained scan bytes; never a public media URL.')
+    checksum = models.CharField(max_length=64, db_comment='SHA-256 of the accepted signed scan.')
+    identity_facts = models.JSONField(db_comment='Exact case, invoice and confirmed household facts cleared by this agreement.')
+    accepted_by = models.CharField(max_length=255, db_comment='Recorded staff actor who attested the uploaded agreement.')
+    accepted_at = models.DateTimeField(auto_now_add=True, db_comment='When the signed agreement was accepted.')
+
+    class Meta:
+        db_table = 'payment_invoice_name_agreement'
+        db_table_comment = 'Immutable signed identity-clearance evidence; lifetime retention until owning configuration reset. No automatic purge.'
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Accepted invoice-name agreements are immutable.')
+        return super().save(*args, **kwargs)
+
+
 class PaymentSequenceState(models.Model):
     """Group-scoped source of truth for the next official payment number."""
 

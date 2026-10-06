@@ -77,10 +77,17 @@ class PhysicalDocumentSignoffTests(TestCase):
         with patch('core.api.portal_views._portal_saved_document_in_scope', return_value=False):
             response = portal_document_physical_signoff_preview(request, str(signoff.pk))
         self.assertEqual(response.status_code, 403)
-        with patch('core.api.portal_views._portal_saved_document_in_scope', return_value=True):
+        preview_html = '<figure><img src="data:image/png;base64,synthetic" alt="Page 1"></figure>'
+        with patch('core.api.portal_views._portal_saved_document_in_scope', return_value=True), patch(
+            'core.services.secure_media_preview.pdf_preview_html', return_value=preview_html,
+        ) as render:
             response = portal_document_physical_signoff_preview(request, str(signoff.pk))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b'%PDF-physical-signed-scan')
+        render.assert_called_once_with(
+            b'%PDF-physical-signed-scan', 'signed.pdf', show_filename=False, show_single_page_caption=False,
+        )
+        self.assertEqual(response.content.decode(), preview_html)
+        self.assertIn('text/html', response['Content-Type'])
         self.assertIn('no-store', response['Cache-Control'])
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

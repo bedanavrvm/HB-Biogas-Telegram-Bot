@@ -791,6 +791,8 @@ def _add_invoice_letter_urls(request, artifact: dict | None) -> dict | None:
     if not artifact or not artifact.get('id'):
         return artifact
     artifact['download_url'] = _invoice_name_change_download_url(request, artifact['id'])
+    if artifact.get('signed_agreement'):
+        artifact['signed_agreement']['preview_url'] = f"/api/portal/invoice-name-changes/{artifact['id']}/agreement/"
     artifact['preview_url'] = (
         _invoice_name_change_preview_url(request, artifact['id'])
         if artifact.get('has_preview') else ''
@@ -7663,6 +7665,18 @@ def portal_invoice_pool(request):
         # links it to a case.
         invoices = invoices.filter(branch_scope)
     scoped_invoices = invoices
+    # Matched and Needs review are distinct workspaces. A name-change follow-up
+    # remains in its own queue after an exact signed agreement clears identity.
+    identity_review_ids = []
+    if scoped_invoices.exists():
+        from core.services.invoice_identity import identity_gate
+        possible_holds = invoices.filter(status='matched').filter(
+            Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
+            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+        ).distinct()
+        for invoice in possible_holds.iterator(chunk_size=100):
+            if invoice.matched_farmer and identity_gate(invoice, invoice.matched_farmer)['blocker']:
+                identity_review_ids.append(invoice.pk)
     if workspace == 'inbox':
         # The staff inbox is deliberately limited to records that need a
         # reconciliation decision.  Batch-level parse failures remain visible
@@ -7670,11 +7684,12 @@ def portal_invoice_pool(request):
         # fabricated as invoice records.
         invoices = invoices.filter(
             Q(status__in=['draft', 'unmatched', 'ambiguous'])
-            | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
-            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+            | Q(pk__in=identity_review_ids)
         ).exclude(status__in=['ignored', 'deleted']).distinct()
     elif workspace in {'matched', 'ignored'}:
         invoices = invoices.filter(status=workspace)
+        if workspace == 'matched':
+            invoices = invoices.exclude(pk__in=identity_review_ids)
     elif status:
         invoices = invoices.filter(status=status)
     if batch_id:
@@ -7756,17 +7771,13 @@ def portal_invoice_pool(request):
         'invoice_count': scoped_invoices.count(),
         'draft_count': scoped_invoices.filter(status='draft').count(),
         'unmatched_count': scoped_invoices.filter(status='unmatched').count(),
-        'matched_count': scoped_invoices.filter(status='matched').count(),
+        'matched_count': scoped_invoices.filter(status='matched').exclude(pk__in=identity_review_ids).count(),
         'ambiguous_count': scoped_invoices.filter(status='ambiguous').count(),
         'ignored_count': scoped_invoices.filter(status='ignored').count(),
-        'identity_action_count': scoped_invoices.filter(
-            Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
-            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
-        ).distinct().count(),
+        'identity_action_count': len(identity_review_ids),
         'needs_action_count': scoped_invoices.filter(
             Q(status__in=['draft', 'unmatched', 'ambiguous'])
-            | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
-            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+            | Q(pk__in=identity_review_ids)
         ).distinct().count(),
         # Parse-failed batches have no ParsedInvoice row. Do not expose their
         # filenames or count to a branch-limited user because no trusted
@@ -8850,6 +8861,54 @@ def portal_invoice_name_change_sent(request, batch_id: str):
 
 
 @csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def portal_invoice_name_agreement(request, artifact_id: str):
+    from django.shortcuts import get_object_or_404
+    from core.models import InvoiceNameChangeLetterArtifact
+    from payments.invoice_agreements import accept_agreement
+    from payments.models import InvoiceNameAgreement
+    artifact = get_object_or_404(InvoiceNameChangeLetterArtifact, pk=artifact_id)
+    items = list(artifact.batch.items.select_related('farmer'))
+    if not items:
+        return JsonResponse({'ok': False, 'error': 'This letter has no cases.'}, status=409)
+    for item in items:
+        denied = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+        if denied:
+            return denied
+    if request.method == 'POST':
+        try:
+            agreement = accept_agreement(artifact.batch_id, artifact_id=artifact.pk,
+                uploaded_file=request.FILES.get('signed_letter'), actor=_portal_sender_from_request(request),
+                confirmed=request.POST.get('confirmed') == 'yes')
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': True, 'agreement_id': str(agreement.pk)})
+    agreement = get_object_or_404(InvoiceNameAgreement, artifact=artifact)
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(workflow='portal', action='portal.invoice_name_agreement.preview',
+        subject_type='invoice_name_agreement', subject_id=str(agreement.pk),
+        actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request))
+    return _signed_scan_response(bytes(agreement.file_content), agreement.content_type, agreement.filename)
+
+
+def _signed_scan_response(content, content_type, filename):
+    if content_type == 'application/pdf':
+        from core.services.secure_media_preview import pdf_preview_html
+        try:
+            content = pdf_preview_html(content, filename, show_filename=False, show_single_page_caption=False)
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        content_type = 'text/html; charset=utf-8'
+    elif content_type not in {'image/jpeg', 'image/png'}:
+        return JsonResponse({'ok': False, 'error': 'This file is not a supported PDF or image.'}, status=400)
+    response = HttpResponse(content, content_type=content_type)
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_invoice_name_change_replacement(request, item_id: str):
     from core.models import InvoiceNameChangeItem, ParsedInvoice
@@ -9841,10 +9900,7 @@ def portal_document_physical_signoff_preview(request, signoff_id: str):
     if not content:
         return JsonResponse({'ok': False, 'error': 'The signed scan is unavailable.'}, status=404)
     record_sensitive_access(workflow='portal', action='portal.document_signoff.preview', subject_type='document_physical_signoff', subject_id=str(signoff.pk), actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request), request_id=_portal_request_id(request))
-    response = HttpResponse(content, content_type=signoff.scan_content_type or 'application/octet-stream')
-    response['Cache-Control'] = 'private, no-store, max-age=0'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
+    return _signed_scan_response(content, signoff.scan_content_type, signoff.scan_filename)
 
 
 @csrf_exempt

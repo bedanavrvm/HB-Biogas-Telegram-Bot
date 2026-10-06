@@ -29,7 +29,7 @@ from core.services.template_storage import GoogleDriveTemplateStorage, TemplateS
 
 
 DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-PREVIEW_RENDERER_VERSION = 2
+PREVIEW_RENDERER_VERSION = 3
 WORD_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 W = f'{{{WORD_NS}}}'
 
@@ -460,6 +460,8 @@ def artifact_is_current(artifact: InvoiceNameChangeLetterArtifact) -> bool:
 def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict | None:
     if not artifact:
         return None
+    from payments.models import InvoiceNameAgreement
+    agreement = InvoiceNameAgreement.objects.filter(artifact=artifact).first()
     return {
         'id': str(artifact.id), 'version': artifact.version, 'status': artifact.status,
         'filename': artifact.filename, 'checksum': artifact.checksum,
@@ -470,4 +472,6 @@ def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict
         'is_current': artifact_is_current(artifact),
         'generated_by': artifact.generated_by,
         'generated_at': artifact.generated_at.isoformat(),
+        'signed_agreement': {'id': str(agreement.pk), 'filename': agreement.filename,
+            'accepted_at': agreement.accepted_at.isoformat(), 'accepted_by': agreement.accepted_by} if agreement else None,
     }

@@ -16,6 +16,7 @@
   let searchTimer = null;
   let candidateTimer = null;
   let letterPreviewObjectUrl = '';
+  let letterPreviewVersion = 0;
   let invoiceFilterSheet = null;
   let listRequestVersion = 0;
   let invoiceUploadRunning = false;
@@ -80,6 +81,7 @@
   }
 
   function closeLetterPreview() {
+    letterPreviewVersion += 1;
     if (letterPreviewObjectUrl) {
       window.SecureMediaViewer?.revoke(letterPreviewObjectUrl);
       letterPreviewObjectUrl = '';
@@ -98,19 +100,23 @@
       return deps.showToast('The secure letter viewer is unavailable. Refresh and retry.', 'error');
     }
     closeLetterPreview();
-    if (title) title.textContent = 'Corrected-invoice letter';
-    if (sub) sub.textContent = 'Version ' + String(letter.version || '-') + ' · ' + String(letter.preview_filename || 'PDF preview');
+    const version = letterPreviewVersion;
+    if (title) title.textContent = letter.signed ? 'Signed agreement' : 'Corrected-invoice letter';
+    if (sub) sub.textContent = (letter.signed ? '' : 'Version ' + String(letter.version || '-') + ' · ') + String(letter.preview_filename || 'PDF preview');
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading letter…</div>';
+    const loading = content.firstChild;
     overlay.classList.add('open');
     try {
       const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(letter.preview_url, {
-        headers: { 'X-Request-ID': requestId() },
+        headers: { ...window.PortalMiniAppApi?.initDataHeader?.(deps.tg), 'X-Request-ID': requestId() },
       });
+      if (version !== letterPreviewVersion || !overlay.classList.contains('open') || content.firstChild !== loading) return;
       letterPreviewObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {
         mimeType: 'text/html',
         name: letter.preview_filename || 'Corrected-invoice letter',
       });
     } catch (error) {
+      if (version !== letterPreviewVersion || !overlay.classList.contains('open') || content.firstChild !== loading) return;
       content.innerHTML = '<p class="media-viewer-error">' + escapeHtml(error.message || 'Could not open the letter preview.') + '</p>';
     }
   }
@@ -464,6 +470,7 @@
       }
     }
     if (canManageInvoiceIdentity() && invoiceMatchEligible && identity.name_change?.status === 'awaiting_replacement') {
+      if (!identity.name_change.agreement_accepted) identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-agreement"><i data-lucide="upload" aria-hidden="true"></i>Upload agreed letter</button>');
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-replacement">Confirm replacement invoice</button>');
       identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-correct-sent">Correct sent request</button>');
     }
@@ -476,6 +483,8 @@
       ? '<div class="invoice-card-warning">' + escapeHtml(identity.match_eligibility?.message || 'This invoice match has no finalized requisition/order. Unmatch it before continuing.') + '</div>'
       : hasMissingId
       ? '<div class="invoice-card-warning">A national ID is missing. Correct the parsed invoice or applicant data before continuing.</div>'
+      : identity.agreement_accepted
+        ? '<div class="invoice-info-note">Signed agreement accepted. The corrected invoice remains outstanding, but does not hold payment.</div>'
       : hasDifferentIds
         ? '<div class="invoice-card-warning">The invoice holder and applicant have different national IDs. A corrected invoice is pending; review this before final payment.</div>'
         : varianceLabels.length
@@ -489,12 +498,13 @@
       '<div class="invoice-letter-actions">',
       currentLetter.preview_url ? '<button type="button" class="btn btn-primary invoice-name-change-preview"><i data-lucide="eye" aria-hidden="true"></i>Preview letter</button>' : '',
       currentLetter.download_url ? '<button type="button" class="btn btn-secondary invoice-name-change-download"><i data-lucide="download" aria-hidden="true"></i>Download letter</button>' : '',
+      currentLetter.signed_agreement?.preview_url ? '<button type="button" class="btn btn-secondary invoice-name-change-agreement-preview"><i data-lucide="file-check" aria-hidden="true"></i>Signed agreement</button>' : '',
       '</div>',
       '</div>',
     ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
       '<section class="form-section invoice-record-section">',
-      '<div class="invoice-section-heading"><h3>People linked to this invoice</h3><span class="badge ' + (['Matched', 'Corrected'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
+      '<div class="invoice-section-heading"><h3>People linked to this invoice</h3><span class="badge ' + (['Matched', 'Corrected', 'Agreement accepted'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
       '<div class="invoice-identity-comparison">',
       '<div class="invoice-person-lead"><small>Lead</small><strong>' + escapeHtml(identity.lead_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.lead_identity?.national_id || '-') + '</span></div>',
       '<div class="invoice-person-applicant"><small>System applicant</small><strong>' + escapeHtml(identity.applicant_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</span></div>',
@@ -646,15 +656,23 @@
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
     target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
     target.querySelector('.invoice-name-change-preview')?.addEventListener('click', function () { openLetterPreview(identity.name_change?.latest_letter); });
-    target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
+    target.querySelector('.invoice-name-change-download')?.addEventListener('click', async function () {
       const url = identity.name_change?.latest_letter?.download_url;
+      const filename = identity.name_change?.latest_letter?.filename || 'Change-of-invoice-name-letter.docx';
+      if (!url || !await confirmInvoiceAction('Download letter', filename, 'Download')) return;
+      deps.showToast('Opening ' + filename + ' for download…', 'info');
       if (url && deps.downloadPortalFile) deps.downloadPortalFile({
         url,
-        filename: `Invoice-name-change-v${identity.name_change?.latest_letter?.version || 1}.docx`,
+        filename,
       });
       else if (url && deps.openPortalLink) deps.openPortalLink(url);
     });
     target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
+    target.querySelector('.invoice-name-change-agreement')?.addEventListener('click', function () { uploadInvoiceAgreement(identity.name_change, this); });
+    target.querySelector('.invoice-name-change-agreement-preview')?.addEventListener('click', function () {
+      const signed = currentLetter.signed_agreement;
+      openLetterPreview({preview_url:signed.preview_url, preview_filename:signed.filename, signed:true});
+    });
     target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
     target.querySelector('.invoice-name-change-correct-sent')?.addEventListener('click', function () { correctSentInvoiceNameChange(identity.name_change, invoice.id); });
   }
@@ -685,7 +703,7 @@
         '<form class="sheet-panel invoice-workflow-form">',
         '<div class="sheet-handle"></div>',
         '<div class="sheet-header"><div><h2 id="invoice-workflow-title">' + escapeHtml(title) + '</h2></div>',
-        '<button type="button" class="sheet-close-button" aria-label="Close">x</button></div>',
+        '<button type="button" class="sheet-close-button miniapp-icon-button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>',
         '<div class="sheet-body"><div class="form-section">' + fieldsHtml + '</div><div class="invoice-workflow-error" role="alert" aria-live="polite"></div></div>',
         '<div class="sheet-footer"><button type="button" class="btn btn-secondary invoice-workflow-cancel">Cancel</button>',
         '<button type="submit" class="btn btn-primary">' + escapeHtml(submitLabel) + '</button></div>',
@@ -772,8 +790,8 @@
       '<div class="form-row"><label>Relationship</label><select name="relationship_type" required><option value="spouse">Spouse</option><option value="household_member">Other relative / household member</option></select></div>',
       '<div class="form-row"><label>Explanation <span class="meta">(required for Other)</span></label><textarea name="explanation" rows="2" placeholder="Add useful context"></textarea></div>',
       '<label class="invoice-confirm-row"><input type="checkbox" name="confirmed" value="yes" required><span>I confirm the invoice belongs to this household person and a corrected invoice is required.</span></label>',
-      '<p class="field-help">This creates the request and prepares its letter. Payment remains blocked until the corrected replacement invoice is confirmed.</p>',
-    ].join(''), 'Request corrected invoice');
+      '<p class="invoice-workflow-info">Send the prepared letter, then upload its signed/agreed copy to clear the identity hold. The corrected invoice remains a follow-up.</p>',
+    ].join(''), 'Create request');
     if (!values) return;
     if (values.relationship_type === 'household_member' && !values.explanation?.trim()) {
       return deps.showToast('Explain the relationship when choosing Other relative / household member.', 'error');
@@ -820,17 +838,13 @@
     if (!letter?.id || !letter?.is_current) {
       return deps.showToast('Prepare the current letter before recording it as sent.', 'error');
     }
-    const values = await openInvoiceWorkflowSheet('Record letter sent', [
-      '<div class="form-row"><label>Generated letter</label><input value="Version ' + escapeHtml(letter.version) + ' - ' + escapeHtml(letter.filename) + '" readonly></div>',
-      '<div class="form-row"><label>HB send reference</label><input name="sent_reference" required autocomplete="off"><span class="field-help">Email, message, or dispatch reference.</span></div>',
-    ].join(''), 'Record sent');
-    if (!values) return;
+    if (!await confirmInvoiceAction('Record letter sent', letter.filename, 'Record sent')) return;
     const response = await deps.apiFetch('/invoice-name-changes/' + encodeURIComponent(change.batch_id) + '/sent/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
-      body: JSON.stringify({ artifact_id: letter.id, sent_reference: values.sent_reference.trim() }),
+      body: JSON.stringify({ artifact_id: letter.id }),
     });
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not record the sent letter.', 'error');
-    deps.showToast('Letter marked as sent.', 'success');
+    deps.showToast('Letter sent. Upload the signed/agreed copy when received.', 'success');
     if (change?.original_invoice_id) loadDetail(change.original_invoice_id);
   }
 
@@ -858,6 +872,26 @@
 
   async function confirmInvoiceReplacement(change) {
     if (change?.id) openReplacementSelector(change.id);
+  }
+
+  async function uploadInvoiceAgreement(change, button) {
+    const letter = change?.latest_letter;
+    if (!letter?.id || button?.disabled) return;
+    const values = await openInvoiceWorkflowSheet('Upload agreed letter', [
+      '<div class="invoice-workflow-context"><strong>Letter to confirm</strong><span>' + escapeHtml(letter.filename) + '</span></div>',
+      '<div class="form-row"><label for="invoice-signed-letter">Signed/agreed copy</label><input id="invoice-signed-letter" name="signed_letter" type="file" accept="application/pdf,image/jpeg,image/png" required><small>PDF, JPG or PNG · up to 16 MB</small></div>',
+      '<label class="invoice-confirm-row"><input type="checkbox" name="confirmed" value="yes" required><span>I confirm this is the signed/agreed copy of this letter.</span></label>',
+    ].join(''), 'Save agreement');
+    if (!values) return;
+    const form = new FormData(); form.append('signed_letter', values.signed_letter); form.append('confirmed', values.confirmed);
+    deps.setButtonLoading?.(button, true, 'Saving…');
+    try {
+      const response = await deps.portalApi.postForm('/invoice-name-changes/' + encodeURIComponent(letter.id) + '/agreement/', form, deps.tg);
+      if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not save the agreed letter.', 'error');
+      deps.showToast('Agreement saved. The corrected invoice remains outstanding.', 'success');
+      await loadDetail(change.original_invoice_id);
+    } catch (error) { deps.showToast(error.message || 'Could not confirm the upload. Reopen the invoice before retrying.', 'error'); }
+    finally { deps.setButtonLoading?.(button, false); }
   }
 
   async function createPaymentFromReceipt(receipt, button, container) {

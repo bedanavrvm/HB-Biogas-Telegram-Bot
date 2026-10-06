@@ -2101,6 +2101,7 @@
   async function loadApprovalDelegations() {
     const target = el('portal-approval-delegation-content');
     if (!target || !hasCapability('portal.approval.delegation.authorize')) return;
+    if (el('portal-approval-delegation')) el('portal-approval-delegation').hidden = false;
     target.innerHTML = '<p class="portal-approval-controls-loading">Loading temporary approval cover…</p>';
     try {
       const { ok, data } = await apiFetch('/settings/delegations/');

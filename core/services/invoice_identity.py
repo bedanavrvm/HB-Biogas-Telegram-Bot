@@ -137,14 +137,18 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         status__in=['draft', 'awaiting_replacement'],
     ).select_related('batch', 'review').first()
     latest_change = open_change or invoice.name_change_requests.select_related('batch', 'review').order_by('-created_at').first()
+    from payments.invoice_agreements import agreement_clears_item
+    agreement_accepted = bool(open_change and agreement_clears_item(open_change))
     if not match_eligibility['eligible']:
         blocker = match_eligibility['code']
     elif open_change and open_change.review.status == InvoiceIdentityReview.STATUS_PENDING:
         blocker = 'invoice_identity_verification_pending'
-    elif open_change:
-        blocker = 'invoice_name_change_pending'
     elif latest and latest.status == InvoiceIdentityReview.STATUS_FLAGGED:
         blocker = 'invoice_identity_flagged'
+    elif agreement_accepted:
+        blocker = ''
+    elif open_change:
+        blocker = 'invoice_name_change_pending'
     elif not material_codes:
         blocker = ''
     elif 'national_id_mismatch' in material_codes:
@@ -157,11 +161,15 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_identity_verification_pending'
     if not match_eligibility['eligible']:
         presentation_status = 'Invalid match - no finalized order'
+    elif latest and latest.status == InvoiceIdentityReview.STATUS_FLAGGED:
+        presentation_status = 'Needs review'
     elif latest_change:
         if latest_change.status == 'completed':
             presentation_status = 'Corrected'
         elif latest_change.status in {'cancelled', 'withdrawn'}:
             presentation_status = 'Cancelled'
+        elif agreement_accepted:
+            presentation_status = 'Agreement accepted'
         elif latest_change.status == 'awaiting_replacement':
             presentation_status = 'Waiting for corrected invoice'
         elif latest_change.batch_id and latest_change.batch.letter_artifacts.exists():
@@ -181,6 +189,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         'review': serialize_review(latest) if latest else None,
         'name_change': serialize_name_change_item(latest_change) if latest_change else None,
         'status_label': presentation_status,
+        'agreement_accepted': agreement_accepted and not blocker,
         'invoice_identity': invoice_identity(invoice),
         'applicant_identity': applicant_identity(farmer),
         'lead_identity': {
@@ -213,8 +222,9 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
     if not item:
         return None
     batch = item.batch
-    latest = batch.letter_artifacts.order_by('-version').first() if batch else None
+    latest = (batch.sent_artifact or batch.letter_artifacts.order_by('-version').first()) if batch else None
     from core.services.invoice_name_change_letters import letter_batch_readiness, serialize_artifact
+    from payments.invoice_agreements import agreement_clears_item
     readiness = letter_batch_readiness(batch) if batch and batch.status == 'draft' else {
         'ready': False, 'blockers': [], 'row_count': batch.items.count() if batch else 0,
     }
@@ -230,6 +240,7 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
             'ready': readiness['ready'], 'blockers': readiness['blockers'],
         },
         'latest_letter': serialize_artifact(latest),
+        'agreement_accepted': agreement_clears_item(item),
         'status': item.status,
         'replacement_invoice_id': str(item.replacement_invoice_id or ''),
         'original_invoice_id': str(item.original_invoice_id),
@@ -759,7 +770,7 @@ def create_name_change_follow_up(
 
 @transaction.atomic
 def mark_name_change_sent(
-    batch: InvoiceNameChangeBatch, *, actor: str, sent_reference: str,
+    batch: InvoiceNameChangeBatch, *, actor: str, sent_reference: str = '',
     artifact: InvoiceNameChangeLetterArtifact | None = None,
     letter_reference: str = '',
 ) -> InvoiceNameChangeBatch:
@@ -773,8 +784,6 @@ def mark_name_change_sent(
         ):
             return batch
         raise ValueError('Only a draft change letter can be marked sent.')
-    if not str(sent_reference or '').strip():
-        raise ValueError('The HB send reference is required.')
     update_fields = [
         'letter_file_reference', 'letter_checksum', 'sent_reference', 'sent_by',
         'sent_at', 'status', 'updated_at',

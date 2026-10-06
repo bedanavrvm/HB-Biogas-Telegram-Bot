@@ -191,10 +191,15 @@ def _cell_html(archive: zipfile.ZipFile, relationships: dict[str, str], cell: ET
 
 def _table_html(archive: zipfile.ZipFile, relationships: dict[str, str], table: ET.Element) -> str:
     rows = []
+    column_count = 1
     for row in table.findall(f'{W}tr'):
+        spans = [_property_value(cell.find(f'{W}tcPr'), 'gridSpan') for cell in row.findall(f'{W}tc')]
+        column_count = max(column_count, sum(int(span) if span.isdigit() and int(span) > 0 else 1 for span in spans))
         cells = ''.join(_cell_html(archive, relationships, cell) for cell in row.findall(f'{W}tc'))
         rows.append(f'<tr>{cells}</tr>')
-    return '<table>' + ''.join(rows) + '</table>'
+    # Fixed-layout renderers infer the grid from row one otherwise, dropping
+    # later cells when the first row is a single heading/merged cell.
+    return '<table><colgroup>' + '<col>' * column_count + '</colgroup>' + ''.join(rows) + '</table>'
 
 
 def _part_html(archive: zipfile.ZipFile, part_name: str) -> str:
@@ -250,7 +255,10 @@ def render_docx_pdf(data: bytes, *, expected_values: list[str] | None = None) ->
       body {{ margin: 0; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35; }}
       header {{ margin-bottom: 7mm; }} footer {{ margin-top: 7mm; }}
       p {{ margin: 0 0 7pt; min-height: 1em; }}
-      table {{ width: 100%; margin: 6pt 0 10pt; border-collapse: collapse; table-layout: auto; }}
+      header, main, footer {{ max-width: 176mm; overflow-wrap: anywhere; }}
+      header table, footer table {{ border: 0; }}
+      header td, footer td {{ border: 0; }}
+      table {{ width: 100%; max-width: 176mm; margin: 6pt 0 10pt; border-collapse: collapse; table-layout: fixed; }}
       td, th {{ padding: 5pt 4pt; border: .6pt solid #9ca3af; vertical-align: top; overflow-wrap: anywhere; }}
       td p, th p {{ margin: 0; }}
       .docx-image {{ display: inline-block; max-width: 100%; max-height: 30mm; object-fit: contain; }}
@@ -262,8 +270,18 @@ def render_docx_pdf(data: bytes, *, expected_values: list[str] | None = None) ->
     if not pdf.startswith(b'%PDF') or len(pdf) > MAX_PDF_BYTES:
         raise DocxPreviewError('The generated letter preview is invalid or too large.')
     if expected_values:
-        extracted = _normalise_text(' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(pdf)).pages))
-        missing = [value for value in expected_values if _normalise_text(value) not in extracted]
+        # A4 cell line wraps interleave in PDF paint order. Reconstruct aligned
+        # runs as well, to verify a wrapped name without widening the paper.
+        texts = []
+        for page in PdfReader(io.BytesIO(pdf)).pages:
+            aligned = {}
+            def collect(text, cm, tm, font, size):
+                if text.strip():
+                    aligned.setdefault(round(tm[4] + cm[4]), []).append(text)
+            texts.append(page.extract_text(visitor_text=collect) or '')
+            texts.extend(' '.join(parts) for parts in aligned.values())
+        extracted = [_normalise_text(text) for text in texts]
+        missing = [value for value in expected_values if not any(_normalise_text(value) in text for text in extracted)]
         if missing:
             raise DocxPreviewError('The generated preview did not retain every governed letter value.')
     extracted_text = ' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(pdf)).pages)

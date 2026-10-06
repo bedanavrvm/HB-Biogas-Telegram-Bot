@@ -1796,13 +1796,9 @@
     if (title) title.textContent = jblDocumentSlots[category]
       ? `Review ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][item.side]}` : 'Review supporting photo';
     if (sub) sub.textContent = `${index + 1} of ${entries.length} · ${item.file.name}`;
-    const safeName = deps.escapeHtml(item.file.name || 'Selected evidence');
-    const visual = String(item.file.type || '').startsWith('image/')
-      ? `<img class="media-viewer-image jbl-selection-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
-      : `<iframe class="media-viewer-document" sandbox="" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
     content.classList.add('jbl-selection-preview-active');
     content.innerHTML = `<div class="jbl-selection-viewer">
-      <div class="jbl-selection-viewer-stage">${visual}</div>
+      <div class="jbl-selection-viewer-stage"></div>
       <div class="jbl-selection-viewer-actions">
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
         ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo"><i data-lucide="camera" aria-hidden="true"></i></button>` : ''}
@@ -1810,8 +1806,24 @@
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="next" aria-label="Next selected file" title="Next" ${index === entries.length - 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only">Next</span></button>
       </div>
     </div>`;
+    const stage = content.querySelector('.jbl-selection-viewer-stage');
+    if (window.SecureMediaViewer) {
+      URL.revokeObjectURL(nextUrl);
+      activeMediaObjectUrl = window.SecureMediaViewer.renderBlob(stage, item.file, {
+        name: item.file.name || 'Selected evidence',
+        imageClass: 'media-viewer-image jbl-selection-viewer-image',
+        onNext: index < entries.length - 1 ? () => navigateSelectedJblPreview(1) : undefined,
+        onPrevious: index > 0 ? () => navigateSelectedJblPreview(-1) : undefined,
+      });
+    } else {
+      const image = new Image(); image.src = nextUrl; image.alt = item.file.name || 'Selected evidence';
+      image.className = 'media-viewer-image jbl-selection-viewer-image'; stage.appendChild(image);
+    }
     overlay.classList.add('open');
-    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    if (previousUrl) {
+      if (window.SecureMediaViewer) window.SecureMediaViewer.revoke(previousUrl);
+      else URL.revokeObjectURL(previousUrl);
+    }
   }
 
   function navigateSelectedJblPreview(offset) {
@@ -2793,7 +2805,8 @@
       content.classList.remove('jbl-selection-preview-active');
     }
     if (activeMediaObjectUrl) {
-      URL.revokeObjectURL(activeMediaObjectUrl);
+      if (window.SecureMediaViewer) window.SecureMediaViewer.revoke(activeMediaObjectUrl);
+      else URL.revokeObjectURL(activeMediaObjectUrl);
       activeMediaObjectUrl = '';
     }
     activeJblSelectionPreviewId = '';
@@ -2848,9 +2861,9 @@
       activeMediaObjectUrl = viewer.renderBlob(content, blob, {
         mimeType: item.mime_type,
         name: item.name || 'Client media',
+        onNext: clientMediaIndex < clientMediaGallery.length - 1 ? () => navigateClientMedia(1) : undefined,
+        onPrevious: clientMediaIndex > 0 ? () => navigateClientMedia(-1) : undefined,
       });
-      const image = content.querySelector('img');
-      if (image) { image.draggable = false; image.style.touchAction = 'pan-y'; }
     } catch (error) {
       if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       content.innerHTML = `<div class="media-viewer-error"><p>${deps.escapeHtml(error.message || 'Could not open this media.')}</p><button type="button" class="btn btn-secondary" data-client-media-retry>Retry</button></div>`;
@@ -3146,16 +3159,6 @@
       if (['ArrowLeft', 'ArrowRight'].includes(event.key) && clientMediaGallery.length) {
         event.preventDefault(); navigateClientMedia(event.key === 'ArrowLeft' ? -1 : 1);
       }
-    });
-    let swipeStart = null;
-    el('media-viewer-content')?.addEventListener('pointerdown', event => {
-      swipeStart = event.target.closest('img') ? { x: event.clientX, y: event.clientY } : null;
-    });
-    el('media-viewer-content')?.addEventListener('pointerup', event => {
-      if (swipeStart && Math.abs(event.clientX - swipeStart.x) > 60 && Math.abs(event.clientY - swipeStart.y) < 40) {
-        navigateClientMedia(event.clientX < swipeStart.x ? 1 : -1);
-      }
-      swipeStart = null;
     });
     document.addEventListener('click', event => {
       const mediaNav = event.target.closest('[data-client-media-offset]');

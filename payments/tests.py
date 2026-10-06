@@ -67,6 +67,20 @@ class PaymentBatchServiceTests(TestCase):
             'blocked': [], 'ready_count': len(farmer_ids or []), 'blocked_count': 0,
         }
 
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_receipt_origin_does_not_restrict_later_eligible_cases(self, _readiness):
+        from payments.models import PaymentReceiptBatch
+        receipt = PaymentReceiptBatch.objects.create(group_configuration=self.group)
+        batch = self.batch()
+        batch.receipt_batch = receipt
+        batch.save(update_fields=['receipt_batch'])
+        farmer = self.farmer('outside-delivery')
+        batch = self.add(batch, farmer)
+        self.assertTrue(batch.case_memberships.filter(farmer=farmer, is_active=True).exists())
+        other = self.batch()
+        with self.assertRaisesMessage(PaymentBatchError, 'already in Payment'):
+            self.add(other, farmer)
+
     @patch('core.services.invoice_parser.official_requisition_eligibility', return_value={'eligible': True})
     def test_receipt_accepts_reordered_applicant_name_when_national_id_matches(self, _eligibility):
         farmer = self.farmer('62')
@@ -315,11 +329,8 @@ class PaymentBatchServiceTests(TestCase):
         self.assertFalse(payload['held_items'])
 
         unrelated = self.farmer('receipt-unrelated')
-        with self.assertRaisesMessage(PaymentBatchError, 'only cases reconciled in that delivery'):
-            add_cases(
-                batch.id, farmer_ids=[unrelated.id], payment_modes={str(unrelated.id): 'CASH'},
-                expected_revision=batch.revision,
-            )
+        batch = self.add(batch, unrelated)
+        self.assertTrue(batch.case_memberships.filter(farmer=unrelated, is_active=True).exists())
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_review_progress_is_durable_and_changed_values_invalidate_only_that_case(self, _readiness):

@@ -375,31 +375,15 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
     _require_revision(batch, expected_revision)
     if batch.status not in EDITABLE_STATUSES:
         raise PaymentBatchError('Cases cannot be added to a completed or cancelled payment batch.')
-    if batch.receipt_batch_id:
-        # A payment built from an invoice delivery is deliberately not a
-        # general-purpose case picker. Its cases must be traceable to that
-        # delivery. A known applicant with a different invoice-holder name is
-        # still traceable and can be included with an advisory; the signed
-        # scan remains the point at which the payment document becomes final.
-        source_farmer_ids = {
-            str(value)
-            for value in PaymentReceiptItem.objects.filter(
-                receipt_batch_id=batch.receipt_batch_id,
-                status__in=(
-                    PaymentReceiptItem.STATUS_MATCHED,
-                    PaymentReceiptItem.STATUS_NAME_CHANGE,
-                ),
-                farmer__isnull=False,
-            ).values_list('farmer_id', flat=True)
-        }
-        if not set(ids).issubset(source_farmer_ids):
-            raise PaymentBatchError('This payment was created from an invoice delivery. Add only cases reconciled in that delivery.')
+    # The delivery remains provenance, not a restriction on later eligible members.
     farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(pk__in=ids))
     if len(farmers) != len(ids):
         raise PaymentBatchError('One or more selected cases could not be found.')
+    if any(farmer.group_configuration_id and farmer.group_configuration_id != batch.group_configuration_id for farmer in farmers):
+        raise PaymentBatchError('Add cases from the same Portal group as this payment batch.')
     other = PaymentBatchCase.objects.filter(
         farmer_id__in=ids, is_active=True,
-        batch__status__in=list(EDITABLE_STATUSES),
+        batch__status__in=[*EDITABLE_STATUSES, PaymentBatch.STATUS_COMPLETED],
     ).exclude(batch=batch).select_related('batch').first()
     if other:
         label = other.batch.payment_number or 'draft'

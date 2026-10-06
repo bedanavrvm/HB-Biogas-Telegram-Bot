@@ -371,7 +371,7 @@
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading document…</div>';
     overlay.classList.add('open');
     try {
-      window.history.pushState({...window.history.state, hbDocumentPreview: true}, '', window.location.href);
+      if (!previewHistoryActive) window.history.pushState({...window.history.state, hbDocumentPreview: true}, '', window.location.href);
       previewHistoryActive = true;
     } catch (_) { previewHistoryActive = false; }
     try {
@@ -381,7 +381,14 @@
       };
       const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(anchor.href, {headers});
       if (requestVersion !== previewRequestVersion || !overlay.classList.contains('open')) return;
-      invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview'});
+      const gallery = ['hb-action-signed-order', 'hb-action-invoice'].map(byId).filter(node => node?.dataset.mode === 'preview' && node.getAttribute('href'));
+      const index = gallery.indexOf(anchor);
+      const move = offset => openDocumentPreview({currentTarget: gallery[index + offset], preventDefault() {}});
+      invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview',
+        onNext: index >= 0 && index < gallery.length - 1 ? () => move(1) : undefined,
+        onPrevious: index > 0 ? () => move(-1) : undefined,
+      });
     } catch (error) {
       if (requestVersion === previewRequestVersion && overlay.classList.contains('open')) content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The document could not be opened in the Mini App.')}</p>`;
     }

@@ -410,13 +410,15 @@ def _row_payload(
         elif identity.get('blocker') == 'invoice_requisition_mismatch':
             missing.append('Invoice match does not belong to this finalized order')
         elif identity.get('blocker') == 'invoice_name_change_pending':
-            warnings.append('Waiting for corrected invoice')
+            missing.append('Signed/agreed name-change letter')
         elif identity.get('blocker') == 'invoice_name_change_required':
-            warnings.append('Corrected invoice requested')
+            missing.append('Resolve invoice identity or upload the signed name-change letter')
         elif 'national_id_missing' in identity.get('discrepancy_codes', []):
             missing.append('Invoice holder or applicant national ID')
         elif identity.get('blocker'):
             missing.append('Resolve the invoice holder mismatch')
+        elif identity.get('agreement_accepted'):
+            warnings.append('Signed agreement accepted; corrected invoice outstanding')
     if farmer.balance_due is None:
         missing.append('Balance Due')
     from core.services.jawabu_validation import format_repayment_day

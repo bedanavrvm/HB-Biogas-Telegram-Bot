@@ -1,5 +1,32 @@
 # Changelog
 
+## 6 October 2026 — Portal signed agreements and consistent previews
+
+- Editable payments retain their case search, including batches started from
+  an invoice delivery. Other eligible cases may be added; active/completed
+  payment membership and explicit Portal-group ownership remain protected.
+- An accepted signed/agreed copy of the exact sent invoice-name letter clears
+  the unchanged identity hold. Recording “sent” alone does not. Corrected
+  invoices remain follow-ups; financial checks, current review, signed orders
+  and payment finality remain mandatory. Original identities are not rewritten.
+- Agreements retain private validated scan bytes, checksum, actor and exact
+  identity evidence in the payments domain. Changed/revoked or superseded
+  corrections cannot reuse that consent. Scoped Portal resets remove owned
+  agreements before their protected letter artifacts.
+- Needs review and Matched queues and their counts no longer overlap for held
+  corrections. Cleared agreements remain visible in correction follow-ups.
+- Portal previews share pinch zoom, swipe/page navigation and stale-view
+  cleanup. Signed order/payment PDFs render bounded image pages rather than
+  relying on a native WebView PDF frame; JPG/PNG scans remain supported.
+  Complaints keeps its existing gesture controller without duplication.
+- Correction dialogs align their Close/action controls; letter downloads name
+  the file and give immediate feedback. The HB Send Reference input is removed.
+  Letter previews constrain their tables/header to A4 width. Authorized
+  Temporary Approval Cover is visible in Settings.
+- Deploy the checked-in `payments.0007_invoicenameagreement` migration with
+  these versioned assets. No deployment or live integration was performed.
+  Policy and evidence-preserving rollback are in [ADR 0040](docs/adr/0040-signed-invoice-name-agreement.md).
+
 ## 6 October 2026 — Portal Operations workspaces
 
 - Selecting cases shows a compact Prepare order action, not an automatic form.

@@ -47,6 +47,7 @@ from payments.models import (
     PaymentBatch, PaymentBatchCase, PaymentBatchEvent, PaymentCaseReview,
     PaymentReceiptBatch, PaymentReceiptItem,
     PaymentSequenceEvent, PaymentSequenceState, PaymentNumberClaim,
+    InvoiceNameAgreement,
 )
 from requisitions.models import OrderSequenceEvent, OrderSequenceState, OrderNumberClaim, OrderWorkbookVersion, OrderWorkspaceEvent
 
@@ -112,6 +113,7 @@ def portal_reset_manifest(configuration):
         'order_workspace_events': OrderWorkspaceEvent.objects.filter(batch_id__in=order_ids).count(),
         'invoice_uploads': invoice_uploads.count(),
         'parsed_invoices': ParsedInvoice.objects.filter(batch__in=invoice_uploads).count(),
+        'signed_name_agreements': InvoiceNameAgreement.objects.filter(artifact__batch__items__farmer_id__in=farmer_ids).distinct().count(),
         'approvals': JawabuApprovalRecord.objects.filter(farmer_id__in=farmer_ids).count(),
         'payments': payments.count(),
         'payment_number_claims': PaymentNumberClaim.objects.filter(sequence__group_configuration=configuration).count(),
@@ -335,6 +337,7 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         name_items.delete()
         name_batches = InvoiceNameChangeBatch.objects.filter(pk__in=name_batch_ids)
         name_batches.update(sent_artifact=None)
+        InvoiceNameAgreement.objects.filter(artifact__batch_id__in=name_batch_ids).delete()
         InvoiceNameChangeLetterArtifact.objects.filter(batch_id__in=name_batch_ids).delete()
         name_batches.delete()
 

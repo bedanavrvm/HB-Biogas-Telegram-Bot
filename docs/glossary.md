@@ -109,6 +109,7 @@ request can be approved.
 | Final review | Head of Rural decision before order/requisition or a separate payment review. |
 | Requisition/order | Approved cases grouped under an order number and requisition date. |
 | Invoice | Supplier/customer invoice parsing, review, matching, and confirmation. |
+| Invoice-name agreement | Private, immutable signed/agreed copy of the exact sent correction letter. It clears the unchanged correction's identity hold, not financial checks or payment approval; the corrected invoice remains an outstanding follow-up. |
 | Payment review/final | Per-case Head of Rural payment call-up review followed by a generated payment schedule. |
 | Signed scan approved | A retained generated workbook has a separately stored PDF/JPG/PNG scan of its physically signed and stamped copy, confirmed by the configured authorised role. |
 | Deferred | A paused case. A deferred application must be reappraised after the configured maximum deferral period. |
