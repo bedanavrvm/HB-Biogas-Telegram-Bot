@@ -328,7 +328,10 @@ def create_signer_session(
     request_id = _require_request_id(request_id)
     if not esign_enabled():
         raise OriginationError('Verified Origination e-signing is not configured for this environment.')
-    package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
+    package.application = application
     _require_approved_package(package)
     replay = package.signer_sessions.filter(request_id=request_id).first()
     if replay:
@@ -446,7 +449,10 @@ def resolve_session(raw_token: str, *, for_update: bool = False) -> OriginationS
     token_hash = hashlib.sha256(str(raw_token or '').encode()).hexdigest()
     queryset = OriginationSignerSession.objects.select_related('package__application')
     if for_update:
-        queryset = queryset.select_for_update()
+        application_id = queryset.filter(token_hash=token_hash, is_active=True).values_list('package__application_id', flat=True).first()
+        if application_id:
+            LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+        queryset = queryset.select_for_update(of=('self',))
     session = queryset.filter(token_hash=token_hash, is_active=True).first()
     if not session or not hmac.compare_digest(session.token_hash, token_hash):
         raise OriginationSigningProblem(
@@ -682,6 +688,9 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
             if package.conditional_approval
             else LoanOriginationApplication.STATUS_FULLY_SIGNED
         )
+        from origination.services.origination_approval import approve_completed_packet
+        if approve_completed_packet(package):
+            schedule_archive = True
         if package.conditional_approval:
             for correction in application.correction_requests.filter(status='open').prefetch_related('items'):
                 if correction.items.exists() and all(
@@ -695,15 +704,20 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
         application.status = LoanOriginationApplication.STATUS_PARTIALLY_SIGNED
     package.save()
     application.revision += 1
-    application.save(update_fields=['status', 'revision', 'updated_at'])
+    application.save(update_fields=['status', 'revision', 'final_reviewed_by', 'final_reviewed_at', 'updated_at'])
     if schedule_archive:
         package_id = package.pk
         signed_hash = package.signed_document_hash
-        transaction.on_commit(
-            lambda: _archive_signed_package_after_commit(
-                package_id=package_id, signed_hash=signed_hash,
+        if application.approval_roles_snapshot:
+            from origination.services.origination_dispatch import queue_archive
+            queue_archive(package)
+        else:
+            transaction.on_commit(
+                lambda: _archive_signed_package_after_commit(package_id=package_id, signed_hash=signed_hash)
             )
-        )
+    if application.approval_roles_snapshot:
+        from origination.services.origination_dispatch import update_approval_notices
+        update_approval_notices(package)
 
 
 def _archive_signed_package_after_commit(*, package_id, signed_hash: str) -> None:
@@ -977,22 +991,36 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
 def complete_staff_signatures(
     *, package_id, signer_role: str, actor, signature_capture: Any,
     expected_revision: int, request_id: str,
+    reviewed_packet_version: str = '',
 ) -> OriginationSigningPackage:
     request_id = _require_request_id(request_id)
     if signer_role not in STAFF_SIGNER_ROLES:
         raise OriginationError('This role must sign through its external signer session.')
-    package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
+    package.application = application
     authorize_staff_signer(
         actor=actor, application=package.application, signer_role=signer_role,
     )
+    capture = _validated_signature_capture(signature_capture)
+    capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    replay = application.events.filter(action='staff_signer_verified', request_id=request_id, actor=actor).first()
+    if replay:
+        if replay.after_values.get('signer_role') != signer_role or not package.actions.filter(
+            actor=actor, signer_role=signer_role, metadata__capture_sha256=capture_hash,
+        ).exists():
+            raise OriginationError('This signing request was already used with different data.')
+        return package
     _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Staff verified signing is unavailable on a test package.')
     if package.application.revision != int(expected_revision):
         raise OriginationConflict('This application changed. Refresh before signing.')
+    from origination.services.origination_approval import guard_staff_signature
+    guard_staff_signature(package, signer_role=signer_role, actor=actor,
+                          reviewed_packet_version=reviewed_packet_version)
     participant = _participant(package, signer_role)
-    capture = _validated_signature_capture(signature_capture)
-    capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     created_any = False
     signed_at = timezone.now()
     for slot in participant['completion_slots']:
@@ -1038,12 +1066,17 @@ def apply_production_stamp(
     stamp_asset_id, actor, expected_revision: int, request_id: str,
 ) -> OriginationSigningPackage:
     request_id = _require_request_id(request_id)
-    package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
+    package.application = application
     _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Production stamps cannot be applied to a test package.')
     if package.application.revision != int(expected_revision):
         raise OriginationConflict('This application changed. Refresh before stamping.')
+    if application.approval_roles_snapshot:
+        authorize_staff_signer(actor=actor, application=application, signer_role=signer_role)
     selected = next((item for item in _slot_catalog(package) if (
         item['document_key'] == document_key and item['key'] == slot_key
         and item['role'] == signer_role and item['type'] == OriginationSigningAction.TYPE_STAMP

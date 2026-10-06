@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -484,12 +485,13 @@ def portal_origination_applications(request):
         start = (page - 1) * page_size
         items = queryset.order_by('-updated_at', '-created_at')[start:start + page_size]
         reviewer_alerts = []
-        if capabilities['can_review']:
+        if capabilities['can_review'] or capabilities['can_staff_sign']:
             reviewer_alerts = [{
                 'id': str(item.pk),
                 'application_id': str(item.application_id),
                 'reference_number': item.application.reference_number,
                 'message': item.message,
+                'notice_type': item.notice_type,
                 'created_at': item.created_at.isoformat(),
             } for item in OriginationReviewerNotice.objects.select_related('application').filter(
                 recipient=user, seen_at__isnull=True, application__in=scoped,
@@ -595,6 +597,8 @@ def portal_origination_application_detail(request, application_id: str):
     if access_error:
         return access_error
     if request.method == 'GET':
+        from origination.services.origination_dispatch import resume_application_work
+        resume_application_work(application)
         mode = application_presentation_mode(
             application, user=request.origination_user,
             access=getattr(request, 'origination_access', None),
@@ -656,11 +660,18 @@ def portal_origination_submit(request, application_id: str):
         return access_error
     try:
         body = _body(request)
-        submitted = submit_for_review(
-            application_id=application.pk, actor=request.origination_user,
-            expected_revision=int(body.get('revision')),
-            request_id=_request_id(request, body),
-        )
+        if application.approval_roles_snapshot:
+            package, _ = confirm_and_start_conditional_signing(
+                application_id=application.pk, actor=request.origination_user,
+                expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+            )
+            submitted = package.application
+            submitted.refresh_from_db()
+        else:
+            submitted = submit_for_review(
+                application_id=application.pk, actor=request.origination_user,
+                expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+            )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
@@ -1457,6 +1468,7 @@ def portal_origination_staff_signature(request, application_id: str):
             package_id=body.get('package_id'), signer_role=str(body.get('signer_role') or ''),
             actor=request.origination_user, signature_capture=body.get('signature_capture'),
             expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+            reviewed_packet_version=str(body.get('reviewed_packet_version') or ''),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -1471,7 +1483,8 @@ def portal_origination_production_stamp(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    if (error := _capability_error(request, 'origination.signing.start', application)):
+    capability = 'origination.signing.staff' if application.approval_roles_snapshot else 'origination.signing.start'
+    if (error := _capability_error(request, capability, application)):
         return error
     if (error := _application_access_error(request, application)):
         return error
@@ -1499,7 +1512,11 @@ def portal_origination_archive_signed(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    if (error := _capability_error(request, 'origination.signing.start', application)):
+    # Authentication populates the actor before selecting the retry capability.
+    if (error := _capability_error(request, 'origination.view', application)):
+        return error
+    capability = ('origination.create' if application.officer_id == request.origination_user.pk else 'origination.signing.staff') if application.approval_roles_snapshot else 'origination.signing.start'
+    if (error := _capability_error(request, capability, application)):
         return error
     if (error := _application_access_error(request, application)):
         return error
@@ -1508,6 +1525,11 @@ def portal_origination_archive_signed(request, application_id: str):
         body = _body(request)
         if not application.signing_packages.filter(pk=body.get('package_id')).exists():
             return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+        if application.approval_roles_snapshot:
+            from origination.services.origination_dispatch import queue_archive
+            package = application.signing_packages.get(pk=body.get('package_id'))
+            queue_archive(package, actor=request.origination_user, retry=True)
+            return JsonResponse({'ok': True, 'archive_status': package.archive_status})
         package = archive_signed_package(
             package_id=body.get('package_id'), actor=request.origination_user,
             request_id=_request_id(request, body),
@@ -1578,6 +1600,7 @@ def portal_origination_signed_packet(request, application_id: str):
 
 
 @require_http_methods(['GET'])
+@transaction.atomic
 def portal_origination_current_signing_packet(request, application_id: str):
     """Serve current frozen bytes plus all active verified signing actions."""
     application = _application(application_id)
@@ -1587,8 +1610,9 @@ def portal_origination_current_signing_packet(request, application_id: str):
         return error
     if (access_error := _application_access_error(request, application)):
         return access_error
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application.pk)
     package_id = str(request.GET.get('package_id') or '').strip()
-    package = application.signing_packages.filter(
+    package = application.signing_packages.select_for_update().filter(
         pk=package_id,
         status__in=[
             OriginationSigningPackage.STATUS_PENDING,
@@ -1607,6 +1631,12 @@ def portal_origination_current_signing_packet(request, application_id: str):
     response = HttpResponse(image, content_type='image/jpeg')
     response['X-Preview-Page-Count'] = str(total_pages)
     response['X-Signing-Packet-Version'] = verified_packet_version(package)
+    if application.approval_roles_snapshot:
+        from origination.services.loan_origination import _record_event
+        _record_event(application, 'approval_packet_opened', actor=request.origination_user,
+                      request_id=f'approval-open:{package.pk}:{application.revision}:{request.origination_user.pk}',
+                      after={'package_id': str(package.pk), 'revision': application.revision,
+                             'packet_version': verified_packet_version(package)})
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

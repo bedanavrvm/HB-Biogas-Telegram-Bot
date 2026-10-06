@@ -77,6 +77,11 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     name = forms.CharField(required=False, widget=forms.HiddenInput)
     form_schema = forms.JSONField(widget=forms.HiddenInput)
     signer_rules = forms.JSONField(widget=forms.HiddenInput)
+    approval_roles = forms.JSONField(required=False, label='Final approval',
+        widget=UnfoldAdminSelectWidget(choices=[('[]', 'Independent post-sign review'),
+            ('["branch_manager"]', 'BM approves and signs'),
+            ('["branch_manager", "management_approver"]', 'BM, then Management')]),
+        help_text='Applies only to applications created from this published version. Matching compliance-approved consent is required.')
     main_laf_source = forms.ChoiceField(
         choices=LAF_SOURCE_CHOICES, required=False, initial=LAF_SOURCE_LIBRARY,
         label='Main LAF source', widget=forms.RadioSelect,
@@ -104,6 +109,7 @@ class OriginationProductDefinitionForm(forms.ModelForm):
             'product_version', 'main_laf_source', 'reusable_primary_template',
             'laf_pdf', 'product_key', 'name',
             'form_schema', 'signer_rules',
+            'approval_roles',
         )
 
     def __init__(self, *args, **kwargs):
@@ -268,8 +274,11 @@ class OriginationProductDefinitionForm(forms.ModelForm):
         if schema is None or signer_rules is None:
             return cleaned
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
+        from origination.services.origination_approval import validate_approval_roles
+        cleaned['approval_roles'] = cleaned.get('approval_roles') or []
         try:
             validate_product_form_contract(schema, signer_rules)
+            validate_approval_roles(cleaned['approval_roles'], signer_rules)
         except OriginationError as exc:
             raise forms.ValidationError(str(exc)) from exc
         return cleaned
@@ -2287,6 +2296,9 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             )
         from origination.services.loan_origination import validate_product_form_contract
         validate_product_form_contract(obj.form_schema, obj.signer_rules)
+        from origination.services.origination_approval import validate_approval_roles
+        obj.approval_roles = obj.approval_roles or []
+        validate_approval_roles(obj.approval_roles, obj.signer_rules)
         super().save_model(request, obj, form, change)
         from origination.services.origination_fields import bind_compatible_schema_fields
         bind_compatible_schema_fields(obj, create_issues=True)
@@ -3493,6 +3505,7 @@ class OriginationConsentPolicyVersionAdmin(OriginationGodModeAdminMixin, ModelAd
             policy.approved_at = now
             OriginationConsentPolicyVersion.objects.select_for_update().filter(
                 status=policy.STATUS_ACTIVE,
+                approval_roles=policy.approval_roles,
             ).exclude(pk=policy.pk).update(
                 status=policy.STATUS_RETIRED, retired_by=request.user, retired_at=now,
             )

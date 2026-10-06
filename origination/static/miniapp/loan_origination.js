@@ -45,6 +45,7 @@
   let previewedRevision = null;
   let previewSucceeded = false;
   let previewPacketVersion = '';
+  let approvalReview = null;
   let signingRefreshTimer = null;
   let signingRefreshGeneration = 0;
   let dirty = false;
@@ -266,6 +267,7 @@
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
 
   function applicationStatusLabel(application) {
+    if ((application.approval_roles || []).length) return application.status_text || 'Awaiting signatures';
     if (application?.status === 'ready_for_review') {
       return application.review_packet_ready ? 'Final review' : 'Prepare packet';
     }
@@ -790,6 +792,7 @@
     testSignatureStrokes = [];
     testSignatureActiveStroke = null;
     const requestId = requestKey(verified ? 'staff-signature' : 'test-signature');
+    const approving = verified && (current.approval_roles || []).includes(button.dataset.signerRole);
     openSheet({
       mode: 'test-signature', eyebrow: verified ? 'Authenticated staff signing' : 'Non-production simulator', title: verified ? 'Capture staff signature' : 'Capture TEST signature',
       hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use one synthetic mark for this signer. It will be reused at every signature placement in the TEST packet. Do not enter or draw a real signature.', trigger: button,
@@ -800,6 +803,17 @@
         <p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
       footer: `<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="${verified ? 'Sign packet' : 'Place TEST signature'}" data-test-signature-confirm>${verified ? 'Sign complete packet' : 'Place TEST signature'}</button>`,
     });
+    if (verified) {
+      document.getElementById('origination-sheet-title').textContent = approving ? 'Approve & sign' : 'Sign packet';
+      document.getElementById('origination-sheet-hint').textContent = approving
+        ? 'Your approval and signature apply to this exact reviewed packet. The final approver locks the application.'
+        : 'Your signature remains provisional until the configured final approver approves and signs.';
+      document.querySelector('[data-test-signature-canvas]').setAttribute('aria-label', 'Draw your signature');
+      document.querySelector('[data-test-signature-type] label span').textContent = 'Your full name';
+      document.querySelector('[data-test-signature-name]').placeholder = 'Full name';
+      document.querySelector('[data-test-signature-typed-preview]').textContent = '';
+      document.querySelector('[data-test-signature-confirm]').textContent = approving ? 'Approve & sign' : 'Sign packet';
+    }
     const canvas = document.querySelector('[data-test-signature-canvas]');
     const status = document.querySelector('[data-test-signature-status]');
     const setStatus = message => { if (status) status.textContent = message || ''; };
@@ -859,6 +873,7 @@
         revision: current.revision, package_id: button.dataset.packageId,
         document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
         signer_role: button.dataset.signerRole, signature_capture: capture,
+        reviewed_packet_version: approvalReview?.revision === current.revision && approvalReview?.packageId === button.dataset.packageId ? approvalReview.version : '',
         client_request_id: requestId,
       });
       if (!result.ok) return setStatus(result.data?.error || 'Could not place this TEST signature.');
@@ -1917,7 +1932,7 @@
       const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
       return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
     }).join('')}</div>`;
-    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed packet' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'The application is immutable. View the final signed packet below.' : current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
+    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed packet' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'The application is immutable. View the final signed packet below.' : current?.approval_roles?.length && sectionAction === 'View' ? 'Check the application and current signatures before approving.' : current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
       ${reviewCards}${signingTestMarkup()}`;
   }
 
@@ -1937,10 +1952,22 @@
         const modeLabel = accessMode === 'assisted' ? 'Assisted signing' : 'Remote signing';
         const assistedFallback = `<details class="assisted-signing-fallback"><summary>In-person assisted signing</summary><p>Use only when the signer is physically present and personally controls the officer device and OTP.</p><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Sign on this officer device</button></details>`;
         const staffRoleAllowed = (capabilities.staff_signer_roles || []).includes(participant.role);
+        const canDispatch = capabilities.can_create && (String(current.officer_id) === String(capabilities.user_id) || capabilities.is_superuser);
+        const canStamp = current.approval_roles?.length ? capabilities.can_staff_sign && staffRoleAllowed : capabilities.can_start_signing;
+        const approval = current.approval_sequence || {};
+        const isApprover = (current.approval_roles || []).includes(participant.role);
+        const canApprove = approval.approval_ready && approval.next_approver === participant.role;
+        const reviewed = approvalReview?.packageId === packageData.id && approvalReview?.revision === current.revision && approvalReview?.version === verified.packet_version;
         const externalAction = participant.staff && capabilities.can_staff_sign && staffRoleAllowed
-          ? `<button type="button" class="btn btn-secondary" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Capture staff signature</button>`
+          ? isApprover && !canApprove
+            ? '<span class="status-chip">Awaiting signatures</span>'
+            : isApprover && !reviewed
+              ? '<button type="button" class="btn btn-primary" data-approval-preview>Review packet</button>'
+              : `<button type="button" class="btn ${isApprover ? 'btn-primary' : 'btn-secondary'}" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">${isApprover ? 'Approve &amp; sign' : 'Sign packet'}</button>`
           : participant.staff
             ? '<span class="status-chip">Awaiting authorized staff</span>'
+          : current.approval_roles?.length && !canDispatch
+            ? `<span class="status-chip">${escapeHtml((participant.session_status || 'Awaiting signer').replaceAll('_', ' '))}</span>`
           : participant.session_status
             ? `<div class="signing-session-actions"><span class="signing-mode-chip ${escapeHtml(accessMode)}">${escapeHtml(modeLabel)}</span><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(accessMode)}" data-target-access-mode="${escapeHtml(accessMode)}">Reset / reissue</button>${accessMode === 'assisted' ? `<button type="button" class="btn btn-primary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="assisted" data-target-access-mode="self_service">Send remotely instead</button>` : `<details class="assisted-signing-fallback"><summary>Need in-person assistance?</summary><button type="button" class="btn btn-secondary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="self_service" data-target-access-mode="assisted">Switch to officer device</button></details>`}`}</div>`
             : `<div class="signing-primary-actions"><button type="button" class="btn btn-primary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send to signer's phone</button><small>The signer can review, sign and enter their OTP from any location.</small>${assistedFallback}</div>`;
@@ -1952,21 +1979,21 @@
           )
           : '';
         const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small>${signatureCorrections}</span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
-        const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
+        const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : !canStamp ? '<span class="status-chip">Awaiting stamp</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
         return signatureRow + stampRows;
       }).join('');
-      const archive = current.status === 'fully_signed' && verified.archive_status !== 'uploaded'
+      const archive = ['fully_signed', 'approved'].includes(current.status) && verified.archive_status !== 'uploaded'
         ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Automatic archival needs attention' : 'Automatic archival in progress'}</strong><span>${escapeHtml(verified.archive_error || 'The immutable signed PDF is being stored in restricted Drive automatically.')}</span>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry archival</button>` : ''}</aside>` : '';
       const signedPacket = verified.signed_packet_available
         ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view while automatic archival completes.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-open-signed-pdf" data-package-id="${escapeHtml(packageData.id)}">Open PDF</button></div></aside>`
         : '';
       const signingComplete = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current.status);
-      const signingHeading = current.status === 'signed_pending_approval' ? 'Signed — pending JBL approval' : current.status === 'approved' ? 'Approved and locked' : signingComplete ? 'Signing complete' : 'Send each signer their secure link';
+      const signingHeading = current.status === 'signed_pending_approval' ? 'Signed — pending JBL approval' : current.status === 'approved' ? 'Approved and locked' : signingComplete ? 'Signing complete' : current.approval_roles?.length ? 'Signatures and approval' : 'Send each signer their secure link';
       const signingDetail = current.status === 'signed_pending_approval'
         ? 'Every required signature is present. An independent checker must approve these exact signed bytes before the application is final.'
         : current.status === 'approved'
-          ? 'Independent final review approved this immutable signed packet.'
-          : signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.';
+          ? 'Approved and locked. The signed packet is retained with this application.'
+          : signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : current.approval_roles?.length ? 'Staff and applicants sign first. The final approver reviews and signs to lock the application.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.';
       return `<section class="signing-verified-panel"><div class="signing-panel-heading"><div><p class="eyebrow">Verified packet signing</p><h3>${signingHeading}</h3></div><button type="button" class="icon-button" id="origination-refresh-signing" aria-label="Refresh signing progress" title="Refresh signing progress">${iconSvg('refresh')}</button></div><p>${signingDetail}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
@@ -2031,7 +2058,9 @@
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
     }
-    const finalAction = capabilities.can_confirm_signing
+    const finalAction = (current.approval_roles || []).length
+      ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Submit for signing">Submit for signing</button>'
+      : capabilities.can_confirm_signing
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
       : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for packet preparation">Submit for packet preparation</button>';
     return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : finalAction}`;
@@ -2406,10 +2435,13 @@
         hint: details.approval_invalidated
           ? 'Editing will cancel the checker-approved packet. The application must be prepared and fully reviewed again before signing.'
           : 'Editing will cancel the prepared review packet. Operations must prepare a new frozen packet before review.',
-        body: '<aside class="notice warning"><strong>This action is audited</strong><span>Existing frozen hashes remain in history, but they can no longer be approved or signed.</span></aside>',
+        body: current?.approval_roles?.length ? '<aside class="notice warning"><strong>Previous packet retained</strong><span>It stays in history and cannot be signed or approved.</span></aside>' : '<aside class="notice warning"><strong>This action is audited</strong><span>Existing frozen hashes remain in history, but they can no longer be approved or signed.</span></aside>',
         footer: '<button type="button" class="btn btn-secondary" id="origination-recall-cancel">Keep current packet</button><button type="button" class="btn btn-danger" id="origination-recall-confirm">Cancel packet and edit</button>',
         trigger: document.getElementById('origination-recall'),
       });
+      if ((current.approval_roles || []).length) {
+        document.getElementById('origination-sheet-hint').textContent = 'The old links and signatures will be cancelled. Your fields and evidence stay saved. Everyone must sign the new packet after you resubmit.';
+      }
       document.getElementById('origination-recall-cancel').onclick = () => closeSheet();
       document.getElementById('origination-recall-confirm').onclick = () => runPrimaryAction('Recalling...', async () => {
         const confirmed = await recallApplication({
@@ -2978,6 +3010,7 @@
       });
     }));
     root().querySelectorAll('[data-staff-sign]').forEach(button => button.addEventListener('click', () => openSignatureSheet(button, true)));
+    root().querySelectorAll('[data-approval-preview]').forEach(button => button.addEventListener('click', () => openPreview('__signing_packet__')));
     root().querySelectorAll('[data-production-stamp]').forEach(button => button.addEventListener('click', () => runPrimaryAction('Applying production stamp...', async () => {
       const stampAssetId = button.parentElement.querySelector('[data-production-stamp-select]')?.value || '';
       if (!stampAssetId) return showToast('Choose an active production stamp.', true);
@@ -3092,6 +3125,9 @@
       if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
       const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1), packetVersion: result.packetVersion || '' };
       if (signedPacketPreview && result.packetVersion) previewPacketVersion = result.packetVersion;
+      if (previewDocumentKey === '__signing_packet__' && pageNumber === 1 && result.packetVersion) {
+        approvalReview = { packageId: current.signing_package.id, revision, version: result.packetVersion };
+      }
       previewPageUrls.set(pageNumber, entry);
       if (!previewDocumentKey && pageNumber === 1) {
         previewedRevision = current.revision;
@@ -3133,11 +3169,20 @@
     previewUrl = entry.url;
     previewPageCount = entry.pageCount;
     updatePreviewFrame();
-    const toast = document.getElementById('origination-toast');
-    if (!wasCached && toast) toast.hidden = true;
+    dismissPreviewProgressToast();
     [requestedPage - 1, requestedPage + 1]
       .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewPageCount)
       .forEach(pageNumber => { void fetchPreviewPage(pageNumber); });
+  }
+
+  function dismissPreviewProgressToast() {
+    // The shared runtime owns the visible toast; do not dismiss unrelated feedback.
+    ['origination-toast', 'miniapp-shared-toast'].forEach(id => {
+      const toast = document.getElementById(id);
+      if (!toast || toast.textContent !== 'Generating filled PDF…') return;
+      if (id === 'miniapp-shared-toast') toast.classList.remove('is-visible');
+      else toast.hidden = true;
+    });
   }
 
   function clearPreviewPageCache() {
@@ -3240,6 +3285,8 @@
   }
 
   function closePreview() {
+    dismissPreviewProgressToast();
+    const wasApprovalPreview = previewDocumentKey === '__signing_packet__' && (current?.approval_roles || []).length;
     const overlay = document.getElementById('document-preview-overlay');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
     const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
@@ -3264,6 +3311,11 @@
       : -1;
     previewDocumentKey = '';
     previewSucceeded = false;
+    if (wasApprovalPreview) {
+      renderEditor(current, step);
+      window.requestAnimationFrame(() => root()?.querySelector('[data-staff-sign]')?.focus());
+      return;
+    }
     if (supportingStep >= 0) {
       showToast('Main LAF previewed. Continue with supporting documents.');
       window.requestAnimationFrame(() => renderEditor(current, supportingStep));
@@ -3322,7 +3374,7 @@
       const identifiers = [identity.national_id ? `ID ${identity.national_id}` : '', identity.phone || ''].filter(Boolean).join(' · ');
       return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || applicationStatusLabel(item))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
     }).join('');
-    const alerts = reviewerAlerts.map(item => `<button type="button" class="reviewer-alert" data-reviewer-alert="${escapeHtml(item.id)}" data-application-id="${escapeHtml(item.application_id)}"><span><strong>Approval invalidated</strong><small>${escapeHtml(item.message)}</small></span>${iconSvg('arrowRight')}</button>`).join('');
+    const alerts = reviewerAlerts.map(item => `<button type="button" class="reviewer-alert" data-reviewer-alert="${escapeHtml(item.id)}" data-application-id="${escapeHtml(item.application_id)}"><span><strong>${item.notice_type === 'approval_ready' ? 'Ready for your approval' : 'Approval invalidated'}</strong><small>${escapeHtml(item.message)}</small></span>${iconSvg('arrowRight')}</button>`).join('');
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),

@@ -4,6 +4,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const baseUrl = process.env.ORIGINATION_AUDIT_URL || 'http://127.0.0.1:8765/origination/';
+if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseUrl).hostname)) throw new Error('Origination UI audits are local and synthetic only.');
 const outputDir = process.env.ORIGINATION_AUDIT_OUTPUT || path.join(process.cwd(), 'origination-ui-audit');
 const viewports = [
   { name: 'phone-320', width: 320, height: 568 },
@@ -59,6 +60,8 @@ function assert(condition, message) {
 async function installApiMocks(page, delayMs = 0, options = {}) {
   let createCalls = 0;
   await page.route('https://telegram.org/**', route => route.abort());
+  await page.route('**/api/miniapp-diagnostics/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  const capabilities = options.capabilities || { user_id: 1, can_create: true, can_review: true, can_start_signing: true };
   await page.route('**/api/origination/api/**', async route => {
     if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
     const request = route.request();
@@ -67,7 +70,7 @@ async function installApiMocks(page, delayMs = 0, options = {}) {
     const json = body => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     if (apiPath === '/products/' && request.method() === 'GET') return json({
       products: [{ product_key: 'express', name: 'Jawabu Express' }, { product_key: 'biogas', name: 'Biogas Asset Finance' }],
-      branches: ['Embu', 'Nakuru'], capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
+      branches: ['Embu', 'Nakuru'], capabilities,
       location_catalog: { branches: [], counties: [], branch_service_areas: {} },
     });
     if (apiPath === '/applications/' && request.method() === 'GET') {
@@ -82,7 +85,7 @@ async function installApiMocks(page, delayMs = 0, options = {}) {
       const start = (resolvedPage - 1) * pageSize;
       return json({
       applications: filtered.slice(start, start + pageSize), counts: { draft: 16, correction_required: 2, ready_for_review: 3, reviewed: 1 },
-      capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
+      capabilities,
       pagination: { page: resolvedPage, page_size: pageSize, pages, total: filtered.length },
     });
     }
@@ -116,6 +119,23 @@ async function installApiMocks(page, delayMs = 0, options = {}) {
       return json({ ok: true, replayed: false, application: item });
     }
     const detail = apiPath.match(/^\/applications\/(\d+)\/$/);
+    if (options.approvalScenario && apiPath.endsWith('/current-signing-packet/')) return route.fulfill({
+      status: 200, contentType: 'image/svg+xml', headers: { 'X-Preview-Page-Count': '1', 'X-Signing-Packet-Version': 'synthetic-reviewed-v1' },
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850"><rect width="100%" height="100%" fill="white"/><text x="40" y="80" font-size="24">Synthetic packet: Officer, CA and Applicant signed</text></svg>',
+    });
+    if (options.approvalScenario && apiPath.endsWith('/staff-signature/')) {
+      const body = JSON.parse(request.postData() || '{}');
+      options.signingBodies.push(body);
+      return json({ ok: true, application: approvalSigningApplication(1, true) });
+    }
+    if (options.approvalScenario && apiPath.endsWith('/recall/')) {
+      const body = JSON.parse(request.postData() || '{}');
+      if (!body.confirmed_package_id) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({
+        ok: false, confirmation_required: true, package_id: 'synthetic-package', package_hash: 'synthetic-hash',
+      }) });
+      options.recallBodies.push(body);
+      return json({ ok: true, application: { ...application(1), approval_roles: ['branch_manager'], revision: 5 } });
+    }
     if (detail && request.method() === 'GET') return json({ ok: true, application: (options.detailFactory || application)(Number(detail[1])) });
     if (detail && request.method() === 'PATCH') return json({ ok: true, application: { ...application(Number(detail[1])), revision: 2 } });
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Unmocked ${request.method()} ${apiPath}` }) });
@@ -170,6 +190,94 @@ function archivedSigningApplication(id) {
   participant.session_status = 'verified';
   participant.slots[0].completed = true;
   return item;
+}
+
+function approvalSigningApplication(id, approved = false) {
+  const item = verifiedSigningApplication(id);
+  item.form_payload = {
+    applicant_full_name: `Synthetic Applicant ${id}`, applicant_phone: '0700000000',
+    applicant_national_id: '12345678', applicant_dob: '1990-01-01', county: 'Embu',
+    applicant_notes: 'Synthetic visual-audit fixture only.', business_name: 'Synthetic Farm',
+    business_type: 'Farming', loan_amount: '12500.00', loan_purpose: 'Synthetic equipment',
+  };
+  item.document_packet.ready = true;
+  item.document_packet.documents.forEach(document => {
+    document.complete = true;
+    document.previewed = true;
+    document.missing_fields = [];
+    if (document.key === 'guarantor_consent') document.field_payload.guarantor_name = 'Synthetic Guarantor';
+  });
+  item.officer_id = 1;
+  item.status = approved ? 'approved' : 'partially_signed';
+  item.status_text = approved ? 'Approved' : 'Awaiting BM';
+  item.revision = approved ? 5 : 4;
+  item.can_recall = !approved;
+  item.approval_roles = ['branch_manager'];
+  item.approval_sequence = { approval_ready: !approved, next_approver: approved ? '' : 'branch_manager' };
+  item.signing_package.id = 'synthetic-package';
+  item.signing_package.verified_signing.packet_version = 'synthetic-reviewed-v1';
+  item.signing_package.verified_signing.archive_status = approved ? 'pending' : 'not_ready';
+  item.signing_package.verified_signing.participants = ['officer', 'credit_analyst', 'borrower', 'branch_manager'].map(role => ({
+    role, label: { officer: 'Officer', credit_analyst: 'Credit Analyst', borrower: 'Applicant', branch_manager: 'Branch Manager' }[role],
+    staff: role !== 'borrower', required: true, phone_mapped: true,
+    slots: [{ document_key: 'primary', key: `${role}_signature`, type: 'signature', required: true,
+      completed: approved || role !== 'branch_manager' }],
+  }));
+  return item;
+}
+
+async function auditApprovalFlow(browser, viewport, theme) {
+  const context = await browser.newContext({ viewport, colorScheme: theme });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(theme => {
+    window.Telegram = { WebApp: { initData: '', colorScheme: theme,
+      themeParams: theme === 'dark' ? { bg_color: '#17212b', secondary_bg_color: '#0e1621', text_color: '#f5f5f5', hint_color: '#a8b2bd', button_color: '#2ea66f', button_text_color: '#ffffff', section_separator_color: '#465260' } : {}, ready() {}, expand() {}, onEvent() {},
+      BackButton: { show() {}, hide() {}, onClick() {} }, MainButton: { show() {}, hide() {}, onClick() {}, offClick() {}, setText() {}, enable() {}, disable() {} } } };
+  }, theme);
+  const signingBodies = [], recallBodies = [];
+  await installApiMocks(page, 0, { approvalScenario: true, signingBodies, recallBodies, detailFactory: approvalSigningApplication,
+    capabilities: { user_id: 3, can_create: false, can_review: false, can_staff_sign: true, staff_signer_roles: ['branch_manager'] } });
+  await waitForList(page);
+  await page.locator('.application-card').first().click();
+  await page.locator('[data-approval-preview]').waitFor();
+  assert(await page.evaluate(() => document.documentElement.dataset.telegramTheme) === theme, 'Telegram theme was not applied');
+  assert(await page.locator('[data-staff-sign]').count() === 0, 'BM signing appeared before packet review');
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${theme}-awaiting-bm.png`), fullPage: true });
+  await page.locator('[data-approval-preview]').click();
+  await page.locator('#document-preview-image').waitFor({ state: 'visible' });
+  await page.locator('#preview-close').click();
+  await page.waitForTimeout(350);
+  assert(await page.locator('#miniapp-shared-toast.is-visible', { hasText: 'Generating filled PDF' }).count() === 0,
+    'Packet loading notice remained after review');
+  await page.locator('[data-staff-sign]').click();
+  await page.locator('[data-test-signature-mode="typed"]').click();
+  await page.locator('[data-test-signature-name]').fill('Synthetic Branch Manager');
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${theme}-approve-dialog.png`), fullPage: true });
+  await page.locator('[data-test-signature-confirm]').click();
+  await page.locator('.signing-verified-panel', { hasText: 'Approved and locked' }).waitFor();
+  assert(signingBodies.length === 1 && signingBodies[0].reviewed_packet_version === 'synthetic-reviewed-v1', 'Approval did not bind the reviewed packet');
+  assert(await page.locator('#origination-recall').count() === 0, 'Approved packet still exposes editing');
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'Approval screen overflows horizontally');
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-${theme}-approved.png`), fullPage: true });
+  assert(!errors.length, `Approval browser errors: ${errors.join(' | ')}`);
+  await context.close();
+
+  const officer = await browser.newPage({ viewport });
+  await installApiMocks(officer, 0, { approvalScenario: true, signingBodies, recallBodies, detailFactory: approvalSigningApplication,
+    capabilities: { user_id: 1, can_create: true, can_confirm_signing: true, can_review: false, can_staff_sign: true, staff_signer_roles: ['officer'] } });
+  await waitForList(officer);
+  await officer.locator('.application-card').first().click();
+  await officer.locator('#origination-recall').click();
+  await officer.locator('#origination-recall-confirm').waitFor();
+  assert((await officer.locator('#origination-sheet-hint').innerText()).includes('Everyone must sign'), 'Withdrawal hides the re-signing requirement');
+  await officer.screenshot({ path: path.join(outputDir, `${viewport.name}-${theme}-withdrawal.png`), fullPage: true });
+  await officer.locator('#origination-recall-confirm').click();
+  await officer.locator('#wizard-next').waitFor();
+  assert(recallBodies.length === 1 && recallBodies[0].confirmed_package_hash === 'synthetic-hash', 'Withdrawal did not bind the confirmed packet');
+  await officer.close();
+  return { viewport: viewport.name, theme, approval: 'passed', withdrawal: 'passed' };
 }
 
 async function waitForList(page) {
@@ -619,6 +727,11 @@ async function auditRestrictedStorageStart(browser) {
   const browser = await chromium.launch({ headless: true });
   try {
     const results = [];
+    if (process.env.ORIGINATION_AUDIT_APPROVAL_ONLY === 'true') {
+      for (const viewport of viewports) for (const theme of ['light', 'dark']) results.push(await auditApprovalFlow(browser, viewport, theme));
+      console.log(JSON.stringify({ ok: true, outputDir, results }, null, 2));
+      return;
+    }
     if (process.env.ORIGINATION_AUDIT_START_ONLY !== 'true') {
       for (const viewport of viewports) results.push({ viewport: viewport.name, ...(await auditViewport(browser, viewport)) });
       await auditTelegramAndSlowNetwork(browser);

@@ -307,6 +307,16 @@ def validate_product_form_contract(
 def validate_product_definition(definition: OriginationProductDefinition) -> None:
     """Reject activation of an incomplete product compatibility profile."""
     validate_product_form_contract(definition.form_schema, definition.signer_rules)
+    from origination.services.origination_approval import validate_approval_roles
+    validate_approval_roles(definition.approval_roles, definition.signer_rules)
+    if definition.approval_roles:
+        from origination.services.origination_consent import active_consent_policy, OriginationConsentError
+        try:
+            policy = active_consent_policy(approval_roles=definition.approval_roles)
+        except OriginationConsentError as exc:
+            raise OriginationError(str(exc)) from exc
+        if policy.approval_roles != definition.approval_roles:
+            raise OriginationError('Publish consent wording approved for this approval sequence first.')
     if (
         definition.lifecycle_status == definition.STATUS_PUBLISHED
         and not definition.product_version_id
@@ -1244,6 +1254,7 @@ def create_application(
                 schema_snapshot=schema_snapshot,
                 form_payload=initial_payload,
                 signer_rules_snapshot=signer_rules_snapshot,
+                approval_roles_snapshot=json.loads(json.dumps(definition.approval_roles)),
                 template_configuration_snapshot=template_configuration_snapshot,
                 product_terms_snapshot=terms_snapshot,
                 client_request_id=client_request_id,
@@ -1774,6 +1785,8 @@ def review_application(
 ) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
+    if application.approval_roles_snapshot:
+        raise OriginationError('This application is reviewed through its approval signatures, not a separate review.')
     if request_id and application.events.filter(request_id=request_id).exists():
         return application
     if int(expected_revision) != application.revision:
@@ -1998,6 +2011,8 @@ def prepare_review_package(
         raise OriginationConflict('This application changed. Refresh before preparing its review packet.')
     if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
         raise OriginationError('Only a submitted application can be prepared for final review.')
+    if application.approval_roles_snapshot and (not conditional_approval or actor.pk != application.officer_id):
+        raise OriginationError('The assigned officer must submit this packet directly for signing.')
     existing = application.signing_packages.filter(
         application_revision=application.revision,
         status=OriginationSigningPackage.STATUS_PENDING,
@@ -2033,7 +2048,9 @@ def prepare_review_package(
             policy_snapshot,
         )
         try:
-            consent_policy = active_consent_policy()
+            consent_policy = active_consent_policy(approval_roles=application.approval_roles_snapshot)
+            if consent_policy.approval_roles != application.approval_roles_snapshot:
+                raise OriginationError('The approved consent wording does not cover this application approval sequence.')
             packet_pdf, document_manifest, consent_delivery = apply_consent_notice(
                 application=application, packet_pdf=packet_pdf,
                 document_manifest=document_manifest, policy=consent_policy,
@@ -2154,9 +2171,13 @@ def confirm_and_start_conditional_signing(
         conditional_approval=True,
     )
     frozen_unsigned_package_content(package)
+    if application.approval_roles_snapshot:
+        from origination.services.origination_approval import validate_approval_roles
+        validate_approval_roles(application.approval_roles_snapshot, package.participants_snapshot)
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING
     application.revision += 1
     application.save(update_fields=['status', 'revision', 'updated_at'])
+    package.application = application
     _record_event(
         application, 'conditional_signing_started', actor=actor, request_id=request_id,
         after={
@@ -2308,6 +2329,8 @@ def start_signing_package(
     """Unlock dispatch for an already frozen and checker-approved package."""
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    if application.approval_roles_snapshot:
+        raise OriginationError('The officer submits this application directly for signing.')
     replay = application.events.filter(action='signing_started', request_id=request_id).first()
     if replay:
         package = application.signing_packages.filter(
@@ -2377,17 +2400,19 @@ def recall_application(
     if application.status not in {
         LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
         LoanOriginationApplication.STATUS_REVIEWED,
-    }:
+    } | ({application.STATUS_SIGNING_PENDING, application.STATUS_PARTIALLY_SIGNED}
+         if application.approval_roles_snapshot else set()):
         raise OriginationError('This application can no longer be recalled for editing.')
     package = application.signing_packages.select_for_update().filter(
-        status=OriginationSigningPackage.STATUS_PENDING,
+        status__in=[OriginationSigningPackage.STATUS_PENDING, OriginationSigningPackage.STATUS_IN_PROGRESS],
     ).order_by('-created_at').first()
     if package and (
         str(confirmed_package_id or '') != str(package.pk)
         or str(confirmed_package_hash or '') != package.unsigned_document_hash
     ):
         raise OriginationRecallConfirmationRequired(
-            'Editing will cancel the prepared packet and require a full final review.',
+            ('Editing cancels this packet and its signatures. Everyone must sign again after you resubmit.'
+             if application.approval_roles_snapshot else 'Editing will cancel the prepared packet and require a full final review.'),
             package=package,
         )
     previous_reviewer = (
@@ -2400,6 +2425,15 @@ def recall_application(
         'package_id': str(package.pk) if package else '',
     }
     if package:
+        if application.approval_roles_snapshot:
+            from origination.services.origination_dispatch import queue_withdrawal_notices
+            queue_withdrawal_notices(package, actor)
+            from origination.models import OriginationSigningActionInvalidation
+            for action in package.actions.filter(invalidation__isnull=True):
+                OriginationSigningActionInvalidation.objects.create(
+                    action=action, invalidated_by=actor, reason='Officer withdrew the packet for editing; re-signing required.',
+                    request_id=f'recall:{package.pk}:{action.pk}',
+                )
         package.status = package.STATUS_CANCELLED
         package.signer_sessions.filter(is_active=True).update(
             is_active=False, status='cancelled', invalidated_at=timezone.now(), updated_at=timezone.now(),
@@ -2550,6 +2584,20 @@ def serialize_application(
         'recall_requires_confirmation': bool(active_review_package),
         'review_packet_ready': review_packet_ready,
     }
+    if application.approval_roles_snapshot:
+        from origination.services.origination_approval import signing_progress
+        progress = signing_progress(latest_package) if latest_package else {}
+        payload['approval_sequence'] = progress
+        payload['approval_roles'] = application.approval_roles_snapshot
+        payload['status_text'] = ('Approved' if application.status == application.STATUS_APPROVED
+                                  else 'Draft' if application.status == application.STATUS_DRAFT
+                                  else progress.get('status_label', 'Awaiting signatures'))
+        payload['workflow_owner'] = 'approver' if progress.get('approval_ready') else 'officer'
+        payload['can_recall'] = application.status in {
+            application.STATUS_SIGNING_PENDING, application.STATUS_PARTIALLY_SIGNED,
+            application.STATUS_READY_FOR_REVIEW,
+        }
+        payload['recall_requires_confirmation'] = bool(latest_package and latest_package.status in {'pending', 'in_progress'})
     identity = application.identity_snapshot or applicant_identity_snapshot(
         application.form_payload, schema=application.schema_snapshot,
         signer_rules=application.signer_rules_snapshot,

@@ -88,6 +88,8 @@ def final_review_signed_packet(
 ) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    if application.approval_roles_snapshot:
+        raise OriginationError('Complete the configured approval signature instead of independent final review.')
     if application.events.filter(action__startswith='final_review_', request_id=request_id).exists():
         return application
     if int(expected_revision) != application.revision:

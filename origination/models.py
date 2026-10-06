@@ -300,6 +300,11 @@ class OriginationProductDefinition(models.Model):
     version = models.PositiveIntegerField(default=1, db_comment='Version (PositiveIntegerField).')
     form_schema = models.JSONField(default=dict, db_comment='Form schema (JSONField).')
     signer_rules = models.JSONField(default=list, db_comment='Signer rules (JSONField).')
+    approval_roles = models.JSONField(
+        default=list, blank=True,
+        help_text='Ordered approval signatures. Empty retains independent review; ["branch_manager"] enables BM approval and signing on a new published version.',
+        db_comment='Versioned ordered final-approval roles; empty preserves legacy independent review.',
+    )
     document_type = models.CharField(max_length=80, db_comment='Document type (CharField).')
     document_template_name = models.CharField(max_length=180, blank=True, default='', db_comment='Document template name (CharField).')
     document_template_version = models.PositiveIntegerField(default=1, db_comment='Document template version (PositiveIntegerField).')
@@ -872,6 +877,8 @@ class LoanOriginationApplication(models.Model):
     form_payload = models.JSONField(default=dict, db_comment='Form payload (JSONField).')
     schema_snapshot = models.JSONField(default=dict, db_comment='Schema snapshot (JSONField).')
     signer_rules_snapshot = models.JSONField(default=list, db_comment='Signer rules snapshot (JSONField).')
+    approval_roles_snapshot = models.JSONField(default=list, blank=True,
+        db_comment='Immutable creation snapshot of the ordered approval signatures; never backfilled.')
     template_configuration_snapshot = models.JSONField(default=dict, blank=True, db_comment='Template configuration snapshot (JSONField).')
     primary_previewed_revision = models.PositiveIntegerField(null=True, blank=True, db_comment='Primary previewed revision (PositiveIntegerField).')
     product_terms_snapshot = models.JSONField(default=dict, blank=True, db_comment='Product terms snapshot (JSONField).')
@@ -1150,6 +1157,7 @@ class OriginationReviewerNotice(models.Model):
     TYPE_APPROVAL_INVALIDATED = 'approval_invalidated'
     TYPE_CHOICES = [
         (TYPE_APPROVAL_INVALIDATED, 'Approval invalidated by officer recall'),
+        ('approval_ready', 'Ready for approval and signature'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
@@ -1429,6 +1437,9 @@ class OriginationConsentPolicyVersion(models.Model):
     signer_consent_text = models.TextField(db_comment='Signer consent text (TextField).')
     signer_completion_text = models.TextField(db_comment='Signer completion text (TextField).')
     resigning_text = models.TextField(db_comment='Resigning text (TextField).')
+    approval_roles = models.JSONField(default=list, blank=True,
+        help_text='Approval sequence explicitly covered by this compliance-approved wording. Empty means independent post-sign review.',
+        db_comment='Approval sequence covered by the immutable consent wording; empty means legacy review.')
     content_sha256 = models.CharField(max_length=64, unique=True, editable=False, db_comment='Content sha256 (CharField).')
     approval_reference = models.CharField(max_length=160, db_comment='Approval reference (CharField).')
     approved_by = models.ForeignKey(
@@ -1452,8 +1463,8 @@ class OriginationConsentPolicyVersion(models.Model):
         db_table_comment = 'Domain: origination. Purpose: Immutable approved wording bound to a conditional signing packet. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User. Children: origination.OriginationDocumentTemplate, origination.OriginationSigningPackage. Code usage: owning Django model and workflow service.'
         ordering = ['-created_at']
         constraints = [models.UniqueConstraint(
-            fields=['status'], condition=models.Q(status='active'),
-            name='one_active_origination_consent_policy',
+            fields=['status', 'approval_roles'], condition=models.Q(status='active'),
+            name='one_active_orig_consent_sequence',
         )]
 
     def _content_hash(self):
@@ -1466,6 +1477,8 @@ class OriginationConsentPolicyVersion(models.Model):
             'signer_completion_text': self.signer_completion_text,
             'resigning_text': self.resigning_text,
         }
+        if self.approval_roles:
+            content['approval_roles'] = self.approval_roles
         return hashlib.sha256(json.dumps(
             content, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
         ).encode('utf-8')).hexdigest()
@@ -1476,6 +1489,12 @@ class OriginationConsentPolicyVersion(models.Model):
             self.approval_reference.strip() and self.approved_by_id and self.approved_at
         ):
             raise ValidationError('An active consent policy requires recorded compliance approval.')
+        from origination.services.origination_approval import validate_approval_roles
+        from origination.services.loan_origination import OriginationError
+        try:
+            validate_approval_roles(self.approval_roles)
+        except OriginationError as exc:
+            raise ValidationError({'approval_roles': str(exc)}) from exc
         if self.status == self.STATUS_RETIRED and not (self.retired_by_id and self.retired_at):
             raise ValidationError('A retired consent policy requires retirement audit details.')
 

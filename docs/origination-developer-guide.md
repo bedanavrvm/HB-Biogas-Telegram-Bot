@@ -12,6 +12,48 @@ and the future Mini App reference contract.
 
 ## Purpose and boundaries
 
+### Approval signatures (opt-in product versions, 6 October 2026)
+
+- Product drafts select **Final approval**: independent post-sign review (legacy),
+  BM approves and signs, or BM followed by Management. Publishing pins that
+  ordered role list; new applications copy it into `approval_roles_snapshot`.
+  Existing applications are not backfilled or silently converted.
+- The active, compliance-approved consent version must explicitly cover the
+  same `approval_roles`. Approved legal wording is configured by compliance;
+  this feature does not supply or approve legal clauses automatically.
+- The assigned officer submits the validated packet directly for signing.
+  Officer, Credit Analyst and customers sign independently. Approval roles
+  sign in their configured order, after all preceding signatures and required
+  stamps. Officer, Credit Analyst and each approver must be different people,
+  including when the actor is a technical Superuser.
+- Before **Approve & sign**, the approver opens the current packet with its
+  preceding signatures. Django records actor, revision and packet version;
+  signing binds that exact reviewed version. Final approval and signature
+  commit together, making the application **Approved** and read-only.
+- Before approval, the officer may withdraw for editing with confirmation.
+  Fields and evidence remain; the old packet is retired, its signatures are
+  invalidated and links revoked. Previously verified customers receive a
+  withdrawal notification stating that their application was not rejected.
+  Resubmission generates a new packet requiring fresh signatures.
+- `IntegrationOperation` retains bounded private approval alerts, withdrawal
+  SMS and approved-PDF archival. Threads only wake durable work; subsequent
+  authorized application reads resume eligible work after restarts. Optional
+  recovery: `python manage.py process_origination_deliveries` is read-only;
+  `--apply` executes at most five eligible operations. No TAT case or SLA job
+  is created. An inactive app does not guarantee an unattended retry: operators
+  can use this recovery runner when no authorized reads occur.
+- Drive failures never undo approval. The assigned officer can retry archival
+  from the approved application; signing never waits for Drive.
+
+Validation: `python manage.py test origination.tests_approval`. The local-only
+synthetic visual audit uses the existing harness:
+`ORIGINATION_AUDIT_APPROVAL_ONLY=true node scripts/origination_ui_audit.js`
+(set the environment variable using your shell's syntax). Set
+`ORIGINATION_AUDIT_URL` to the local dev server and `ORIGINATION_AUDIT_OUTPUT`
+to a local evidence directory. It checks 320/360/390/430/768px, both themes,
+review-before-sign, reviewed-version binding, approved read-only state and
+withdrawal confirmation. Never use real applicant data in this harness.
+
 Loan Origination is a product-neutral, revision-controlled Telegram Mini App. A
 field officer captures an application against a published product contract; a
 separate actor reviews it; Django freezes a local signing package before any
@@ -249,16 +291,22 @@ Conditional: draft -> ready_for_review -> signing_pending -> partially_signed
                                                         -> approved
                                                         -> correction_required / declined
 
+Approval signatures: draft -> signing_pending -> partially_signed -> approved
+                    signing_pending / partially_signed -> draft (withdraw)
+
 Other outcomes: expired and cancelled.
 ```
 
 The conditional path is disabled by default. It is available only when
-`ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True` and exactly one immutable,
-compliance-approved `OriginationConsentPolicyVersion` is active. Existing
+`ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True` and an immutable,
+compliance-approved `OriginationConsentPolicyVersion` matching the application's
+approval sequence is active. One policy per sequence may be active. Existing
 partially or fully signed legacy packets retain their original consent and
 pre-sign review path; they are never silently converted.
 
-Preserve these behaviors:
+Preserve these behaviors for legacy and independent post-sign-review policies.
+Opt-in approval-signature policies follow the officer-led sequence above instead
+of the Operations preparation and separate checker steps:
 
 1. Creation resolves an active, available product and freezes its configuration.
 2. The assigned officer saves the main form against an expected revision.
@@ -456,7 +504,7 @@ that approval is retained when Operations reissues the same signer session.
 | `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | Default 30 MB per application. |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Watermarked simulator outside production only; default `False`. |
 | `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified signing; default `False`. |
-| `ORIGINATION_CONDITIONAL_APPROVAL_ENABLED` | Enables post-sign independent approval only after an approved consent policy is active; default `False`. |
+| `ORIGINATION_CONDITIONAL_APPROVAL_ENABLED` | Enables conditional consent and the application's frozen approval policy only with a matching approved consent version; default `False`. |
 | `AFRICASTALKING_SMS_ENVIRONMENT` | `sandbox` or `production`; must agree with the application environment. |
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY` | Server-only provider credentials. Sandbox requires username `sandbox`. |
 | `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |

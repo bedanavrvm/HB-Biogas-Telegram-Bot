@@ -29,6 +29,36 @@ terms, form schema, requirements, document versions, mappings, and signer rules.
 Changing the Admin setup therefore affects **new applications only**. Existing
 applications continue using the versions they started with.
 
+## Officer-led signing and BM approval
+
+For a newly published product version:
+
+1. Apply the Origination migrations. Enable verified signing and conditional
+   approval using the existing signing-readiness checks.
+2. Create a compliance-reviewed consent version with **Approval roles** set to
+   `["branch_manager"]`. Its wording must explicitly identify BM approval and
+   signature as final approval. Activate it with its approval reference.
+3. Create an editable next product version. Set **Final approval** to **BM
+   approves and signs**. Keep Officer, Credit Analyst, applicants and BM as
+   required signers and calibrate their signature/stamp positions.
+4. Publish the version and grant distinct people their scoped Officer, CA and BM
+   roles. No Operations permission is required for the officer to submit.
+5. Test with synthetic data: officer submits; participants sign independently;
+   BM opens the current signed packet and selects **Approve & sign**. Approval
+   locks the application; Drive archival continues in the background.
+
+The officer can withdraw for changes before final approval; old links and
+signatures are invalidated, fields/evidence remain, and everyone must sign the
+replacement packet. Verified external signers receive a withdrawal notice.
+
+Existing applications keep their original approval policy. Consent versions for
+independent review and BM approval coexist; activating one replaces only wording
+for that same sequence. **BM then Management** is supported only when both roles
+are required by the packet and the consent explicitly covers that sequence.
+
+Before reversing the consent-sequence migration, retire all but one active
+consent policy; the old schema permits only one globally active policy.
+
 ## Who may configure it
 
 Creating, changing, publishing, purging, or resetting Origination configuration

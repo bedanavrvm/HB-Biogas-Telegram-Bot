@@ -235,17 +235,17 @@ def production_security_readiness_issues(
     if conditional_enabled and check_database:
         try:
             from django.db import OperationalError, ProgrammingError
-            from origination.models import OriginationConsentPolicyVersion
+            from origination.models import OriginationConsentPolicyVersion, OriginationProductDefinition
 
-            policy = OriginationConsentPolicyVersion.objects.filter(
+            policies = list(OriginationConsentPolicyVersion.objects.filter(
                 status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
-            ).first()
-            if policy is None:
+            ))
+            if not policies:
                 error(
                     'conditional-approval-consent-policy',
-                    'Publish one active compliance-approved Origination consent policy before enabling conditional approval.',
+                    'Publish compliance-approved Origination consent wording before enabling conditional approval.',
                 )
-            else:
+            for policy in policies:
                 if not (
                     str(policy.approval_reference or '').strip()
                     and policy.approved_by_id
@@ -260,6 +260,14 @@ def production_security_readiness_issues(
                         'conditional-approval-consent-integrity',
                         'The active Origination consent policy failed its integrity check.',
                     )
+            covered_sequences = {tuple(policy.approval_roles) for policy in policies}
+            for sequence in OriginationProductDefinition.objects.filter(
+                is_active=True, lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
+            ).values_list('approval_roles', flat=True):
+                if tuple(sequence) not in covered_sequences:
+                    error('conditional-approval-consent-sequence',
+                          'An active product has no compliance-approved consent for its approval sequence.')
+                    break
         except (OperationalError, ProgrammingError):
             error(
                 'conditional-approval-consent-readiness',

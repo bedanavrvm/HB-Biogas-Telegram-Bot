@@ -22,11 +22,12 @@ def conditional_approval_enabled() -> bool:
     return bool(getattr(settings, 'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED', False))
 
 
-def active_consent_policy() -> OriginationConsentPolicyVersion:
+def active_consent_policy(*, approval_roles=None) -> OriginationConsentPolicyVersion:
     if not conditional_approval_enabled():
         raise OriginationConsentError('Conditional approval is not enabled for this environment.')
     policy = OriginationConsentPolicyVersion.objects.filter(
         status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+        approval_roles=approval_roles or [],
     ).first()
     if not policy:
         raise OriginationConsentError(
@@ -46,6 +47,7 @@ def policy_snapshot(policy: OriginationConsentPolicyVersion) -> dict[str, Any]:
         'signer_consent_text': policy.signer_consent_text,
         'signer_completion_text': policy.signer_completion_text,
         'resigning_text': policy.resigning_text,
+        'approval_roles': policy.approval_roles,
         'approval_reference': policy.approval_reference,
         'approved_at': policy.approved_at.isoformat() if policy.approved_at else '',
     }

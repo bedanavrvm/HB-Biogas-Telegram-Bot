@@ -1325,6 +1325,7 @@ def clone_product_version(
         version=next_version,
         form_schema=successor_schema,
         signer_rules=json.loads(json.dumps(source.signer_rules)),
+        approval_roles=json.loads(json.dumps(source.approval_roles)),
         document_type=source.document_type,
         document_template_name='',
         document_template_version=next_version,
