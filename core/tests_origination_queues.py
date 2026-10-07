@@ -132,3 +132,9 @@ class OriginationQueueTests(TestCase):
             data = json.loads(portal_origination_applications(request).content)
         self.assertEqual(data['pagination']['total'], 1)
         self.assertEqual(data['applications'][0]['id'], str(row.pk))
+
+    def test_it_does_not_get_customer_signatures_as_personal_work(self):
+        access = self.access(self.viewer, 'IT')
+        row = self.application(status='signing_pending')
+        self.package(row, [{'role':'borrower', 'slots':['borrower-signature']}])
+        self.assertEqual(self.actions(self.viewer, access), {})

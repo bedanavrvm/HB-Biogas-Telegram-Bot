@@ -73,7 +73,7 @@ def actionable_applications(scoped, *, user, access):
         slots = _slot_catalog(package)
         for participant in package.participants_snapshot or []:
             role = participant.get('role') if isinstance(participant, dict) else ''
-            if not role or not participant.get('applicable', True) or not decision.allowed:
+            if role not in STAFF_SIGNER_ACCESS_ROLES or not participant.get('applicable', True) or not decision.allowed:
                 continue
             if not (decision.technical_override or STAFF_SIGNER_ACCESS_ROLES.get(role, set()).intersection(decision.roles)):
                 continue
