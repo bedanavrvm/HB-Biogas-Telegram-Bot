@@ -241,11 +241,10 @@
         '<article class="invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '" data-invoice-open="' + escapeHtml(invoice.id) + '" role="link" tabindex="0" aria-label="Open invoice ' + escapeHtml(invoice.invoice_no || '') + '">',
         secondaryActions ? '<details class="invoice-card-menu"><summary aria-label="More invoice actions" title="More actions"><i data-lucide="more-vertical" aria-hidden="true"></i></summary><div>' + secondaryActions + '</div></details>' : '',
         '<div class="invoice-card-main">',
-        canWriteInvoices() ? '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>' : '<span></span>',
+        canWriteInvoices() ? '<label class="invoice-card-select"><input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '></label>' : '',
         '<div class="invoice-card-content">',
-        '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
-        '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
-        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + (invoice.matched_order_number ? escapeHtml('Order ' + invoice.matched_order_number) : window.PortalMiniAppHelpers.phoneLink(invoice.customer_phone)) + '</span></div>',
+        '<div class="invoice-card-heading"><strong class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</strong></div>',
+        '<div class="invoice-card-meta"><span>Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</span>' + (invoice.customer_id ? '<span>ID ' + escapeHtml(invoice.customer_id) + '</span>' : '') + (invoice.matched_order_number ? '<span>' + escapeHtml('Order ' + invoice.matched_order_number) + '</span>' : invoice.customer_phone ? '<span>' + window.PortalMiniAppHelpers.phoneLink(invoice.customer_phone) + '</span>' : '') + '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         orderReferenceAlert ? '<div class="invoice-card-warning">' + escapeHtml(orderReferenceAlert.message) + '</div>' : '',
         reviewReason ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(reviewReason) + '</span>' : '',
         '</div>',
@@ -263,11 +262,12 @@
     });
     target.querySelectorAll('[data-invoice-open]').forEach(function (card) {
       const open = function (event) {
-        if (event.target.closest('input, button, summary, details, a, select, textarea')) return;
+        if (event.target.closest('input, label, button, summary, details, a, select, textarea')) return;
         openInvoiceDetail(card.dataset.invoiceOpen);
       };
       card.addEventListener('click', open);
       card.addEventListener('keydown', function (event) {
+        if (event.target !== card) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           openInvoiceDetail(card.dataset.invoiceOpen);

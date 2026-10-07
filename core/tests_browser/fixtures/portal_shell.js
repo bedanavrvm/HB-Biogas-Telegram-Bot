@@ -4,6 +4,12 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const shell = fs.readFileSync(path.join(root, 'templates/base_shell.html'), 'utf8');
 
+async function addOfflineStyle(page, name) {
+  const css = fs.readFileSync(path.join(root, 'static/miniapp', name), 'utf8');
+  // The optional remote font must not make an offline fixture intermittent.
+  await page.addStyleTag({content: css.replace(/@import\s+url\(['"]https?:[^)]*\)\s*;/g, '')});
+}
+
 // Preserve the actual shell and production cascade. Do not construct a second
 // approximation of headers or silently reorder stylesheet dependencies.
 async function mountPortalShell(page, content) {
@@ -17,12 +23,11 @@ async function mountPortalShell(page, content) {
     .replace(/{%[^]*?%}/g, '').replace(/{{[^]*?}}/g, '');
   await page.setContent(html);
   for (const name of styles) {
-    const css = fs.readFileSync(path.join(root, 'static/miniapp', name), 'utf8');
     // Aborted @imports make addStyleTag reject. Omit only the optional remote
     // font import; retain every production layout rule and its cascade order.
-    await page.addStyleTag({ content: css.replace(/@import\s+url\(['"]https?:[^)]*\)\s*;/g, '') });
+    await addOfflineStyle(page, name);
   }
   await page.addScriptTag({ path: path.join(root, 'static/miniapp/vendor-lucide-1.44.0.min.js') });
   await page.evaluate(() => window.lucide.createIcons());
 }
-module.exports = { mountPortalShell };
+module.exports = { mountPortalShell, addOfflineStyle };

@@ -2818,7 +2818,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .physical-signoff strong { font-size: 11px; }
 .physical-signoff span, .physical-signoff small { margin-top: 2px; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
 .physical-signoff-approved { border-color: rgba(16,185,129,.32); background: rgba(16,185,129,.09); }
-body.portal-app .physical-signoff-approved { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; padding:8px; }
+body.portal-app .physical-signoff-approved { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; padding:2px 6px; }
 .physical-signoff-approved > div:first-child { flex:1; }
 .portal-app .physical-signoff-approved .history-document-actions { display:flex; flex-flow:row nowrap; flex:0 0 auto; margin:0; width:auto; }
 .physical-signoff-approved strong { font-size:12px; }
@@ -4722,16 +4722,19 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 #page-invoices .invoice-list-toolbar .portal-queue-search #invoice-pool-search-clear[hidden] { display:none; }
 #invoice-bulk-toolbar [hidden] { display:none !important; }
 #page-invoices .invoice-list-toolbar #invoice-filter-trigger { box-sizing:border-box; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; justify-self:end; }
-.invoice-pool-card { position:relative; display:block; min-width:0; cursor:pointer; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); padding:8px 38px 8px 8px; }
+.invoice-pool-card { position:relative; display:block; min-width:0; cursor:pointer; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); padding:8px; }
 .invoice-pool-card:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
-.invoice-card-main { grid-template-columns:18px minmax(0,1fr); }
+.invoice-card-main { display:flex; gap:4px; align-items:start; }
+.invoice-card-content { flex:1; min-width:0; }
+.invoice-card-select { display:grid; place-items:center; flex:0 0 44px; width:44px; min-height:44px; cursor:pointer; }
+.invoice-card-select input { width:18px; height:18px; margin:0; }
 .invoice-card-heading { padding-right:0; }
-.invoice-card-meta { display:flex; flex-wrap:wrap; gap:3px 8px; margin-top:2px; color:var(--text-muted); font-size:9px; }
-.invoice-card-alert { display:inline-flex; align-items:center; gap:3px; margin-top:4px; color:var(--portal-status-warning); font-size:8px; font-weight:750; }
-.invoice-card-alert svg { width:11px; height:11px; }
+.invoice-card-meta { display:flex; flex-wrap:wrap; gap:2px 8px; margin-top:2px; color:var(--text-muted); font-size:12px; line-height:1.4; }
+.invoice-card-alert { display:flex; align-items:start; gap:4px; margin-top:4px; color:var(--portal-status-warning); font-size:12px; line-height:1.4; font-weight:600; }
+.invoice-card-alert svg { width:16px; height:16px; flex-shrink:0; }
 .invoice-card-menu { position:absolute; top:5px; right:5px; z-index:2; }
-.invoice-card-menu summary { width:32px; min-width:32px; height:32px; min-height:32px; justify-content:center; border:0; padding:0; background:transparent; }
-.invoice-card-menu summary svg { width:17px; height:17px; }
+.invoice-card-menu summary { display:flex; align-items:center; width:44px; min-width:44px; height:44px; min-height:44px; justify-content:center; border:0; padding:0; background:transparent; }
+.invoice-card-menu summary svg { width:20px; height:20px; }
 .invoice-card-menu>div { right:0; left:auto; min-width:142px; }
 
 .invoice-detail-route-header { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:6px; }
@@ -5003,11 +5006,12 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 #page-invoices .invoice-header-actions > a.btn { width:auto; min-height:42px; padding:8px 10px; font-size:12px; white-space:nowrap; }
 #page-invoices .portal-invoice-tabs a { min-height:40px; font-size:11px; }
 #page-invoices .invoice-list-toolbar .portal-queue-search input { font-size:14px; }
-#page-invoices .invoice-pool-card { min-height:68px; padding:9px 40px 9px 9px; }
+#page-invoices .invoice-pool-card { min-height:68px; padding:8px; }
+#page-invoices .invoice-pool-card:has(.invoice-card-menu) { padding-right:48px; }
 #page-invoices .invoice-card-heading .fc-name { font-size:13px; }
-#page-invoices .invoice-card-customer { font-size:13px; }
-#page-invoices .invoice-card-meta { font-size:11px; }
-#page-invoices .invoice-card-alert { display:flex; margin-top:5px; font-size:11px; line-height:1.3; white-space:normal; overflow-wrap:anywhere; }
+#page-invoices .invoice-card-customer { font-size:14px; }
+#page-invoices .invoice-card-meta { font-size:12px; }
+#page-invoices .invoice-card-alert { display:flex; margin-top:4px; font-size:12px; line-height:1.4; white-space:normal; overflow-wrap:anywhere; }
 #page-invoices .invoice-card-alert svg { flex:none; width:14px; height:14px; }
 @media (max-width:380px) { .payment-batch-card-foot { flex-wrap:wrap; gap:2px 7px; } }
 .payment-current-case[open] .payment-case-title strong {
@@ -5047,19 +5051,46 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
   .pagination-pages .pagination-page:not(.is-current),.pagination-pages .pagination-ellipsis { display:none; }
 }
 /* Portal operational density: one spacing/action vocabulary across records. */
-.portal-app :is(.history-document-card,.invoice-pool-card,.invoice-match-candidate,.batch-card,.invoice-record-section,.case360-section){padding:12px;gap:8px;border-radius:12px}
+.portal-app :is(.invoice-match-candidate,.batch-card,.invoice-record-section,.case360-section){padding:12px;gap:8px;border-radius:12px}
 .portal-app :is(.history-document-title,.invoice-section-heading h3,.case360-section h3){margin:0;color:var(--tg-theme-button-color,#2481cc);font-size:14px}
 .portal-app :is(.history-document-card,.invoice-match-candidate,.batch-client-row) .fc-sub{margin-top:4px;line-height:1.4;font-size:12px}
 .portal-app :is(.history-document-actions,.batch-action-row,.invoice-card-actions){display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin-top:4px}
-.portal-app :is(.history-document-actions,.batch-action-row,.batch-card) :is(.miniapp-icon-button,.portal-finance-icon,.btn:has(>i:only-child)){width:40px;height:40px;min-width:40px;padding:8px;flex:0 0 40px}
+.portal-app :is(.history-document-actions,.batch-action-row,.batch-card) :is(.miniapp-icon-button,.portal-finance-icon,.btn:has(>i:only-child)){width:44px;height:44px;min-width:44px;min-height:44px;padding:8px;flex:0 0 44px}
 .portal-app :is(.history-document-actions,.batch-action-row,.batch-card) svg{width:20px;height:20px;flex-shrink:0}
-.portal-app .history-document-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}
-.portal-app .history-document-card>.history-document-actions{grid-column:2;grid-row:1 / span 3;margin:0}
-.portal-app .history-document-card>:not(.history-document-actions){grid-column:1;min-width:0;overflow-wrap:anywhere}
-.portal-app .history-document-card>.physical-signoff{grid-column:1 / -1}
-.portal-app .invoice-card-heading{align-items:center;gap:8px;margin:0}
-.portal-app .invoice-card-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
-.portal-app .invoice-card-customer{margin:4px 0;font-size:14px;line-height:1.4}
+.portal-app .history-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.portal-app .history-toolbar .history-tabs{display:flex;gap:6px;margin:0;min-width:0}
+.portal-app .history-toolbar .history-tabs .btn{width:auto;min-height:44px;padding:8px 12px;font-size:14px}
+.portal-app .history-order-partner-filters{display:flex;align-items:center;flex:0 0 auto;gap:4px;margin:0;padding:0;border:0;background:none}
+.portal-app .history-order-partner-filters .queue-filter-button{width:44px;min-width:44px;height:44px;min-height:44px}
+body.portal-app .farmer-card.history-document-card{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;padding:8px;gap:4px;border-radius:12px}
+.portal-app .history-document-card>*{min-width:0;overflow-wrap:anywhere;margin:0}
+body.portal-app .history-document-header.miniapp-panel-heading{gap:6px;padding:0;margin:0}
+.portal-app .history-document-title{min-width:0;flex:1;line-height:1.35}
+.portal-app .history-document-actions{flex-wrap:nowrap;margin:0;gap:4px;flex-shrink:0}
+.portal-app .history-document-meta{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;line-height:1.4;color:var(--text-muted)}
+.portal-app .history-document-meta time{font-variant-numeric:tabular-nums}
+.portal-app .history-document-card>.badge{justify-self:start}
+.portal-app .physical-signoff-approved{padding:2px 6px;gap:6px;margin:0}
+.portal-app .physical-signoff-approved strong{font-size:13px;color:var(--text-primary)}
+.portal-app .history-document-card .physical-signoff strong{font-size:13px}
+.portal-app .history-document-card .physical-signoff :is(span,small){font-size:12px;line-height:1.4}
+.portal-app .history-document-menu{position:relative}
+.portal-app .history-document-menu>summary{list-style:none;cursor:pointer}
+.portal-app .history-document-menu>summary::-webkit-details-marker{display:none}
+.portal-app .history-document-menu>div{position:absolute;right:0;top:100%;z-index:5;min-width:172px;padding:4px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 4px 16px #0002}
+.portal-app .history-document-menu button{display:block;width:100%;min-height:44px;border:0;background:none;color:var(--text-primary);text-align:left;font:inherit;font-size:13px;padding:8px}
+.portal-app .history-document-details{font-size:12px;color:var(--text-muted)}
+.portal-app .history-document-details>summary{min-height:44px;cursor:pointer;display:flex;align-items:center}
+.portal-app .history-document-detail-body p{margin:4px 0}
+.portal-app .history-document-card [hidden]{display:none!important}
+.portal-app .invoice-card-heading{display:flex;align-items:start;gap:6px;margin:0}
+.portal-app .invoice-card-heading .badge{flex:0 0 auto}
+.portal-app .invoice-card-meta{align-items:center}
+.portal-app .invoice-card-meta .portal-phone-link{min-height:24px}
+.portal-app #invoice-pool-list{gap:8px;align-content:start}
+.portal-app .invoice-pool-card{padding:8px;gap:4px;border-radius:12px}
+.portal-app .invoice-pool-card:has(.invoice-card-menu){padding-right:48px}
+.portal-app .invoice-card-customer{flex:1;min-width:0;margin:0;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
 .portal-app .invoice-identity-comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .portal-app .invoice-identity-comparison>div{padding:8px;border-radius:8px;background:var(--tg-theme-secondary-bg-color,#f2f6fa);border-left:3px solid var(--tg-theme-button-color,#2481cc);min-width:0;overflow-wrap:anywhere}
 .portal-app .invoice-identity-comparison small{font-size:12px;color:var(--tg-theme-button-color,#2481cc);font-weight:600}
@@ -5091,8 +5122,6 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
  .portal-app .invoice-identity-comparison{grid-template-columns:1fr}
  .portal-app .invoice-identity-comparison>div{display:grid;grid-template-columns:92px minmax(0,1fr);gap:4px 8px}
  .portal-app .invoice-identity-comparison>div>span{grid-column:2}
- .portal-app .history-document-card{grid-template-columns:minmax(0,1fr) auto}
- .portal-app .history-document-actions{max-width:92px}
  .portal-app :is(#batch-detail-summary,#requisition-preview-summary){grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
  .portal-app :is(#batch-detail-summary,#requisition-preview-summary)>div{padding:8px}
 }
@@ -5134,6 +5163,31 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .portal-app .payment-receipt-row-action .btn { padding:6px 8px; font-size:13px; }
 .portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) { min-width:44px; min-height:44px; padding:8px; }
 .portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) svg { width:18px; height:18px; }
+.portal-app #payments-add-panel{padding:0;border:0}
+.portal-app #payments-add-panel .payment-search-row{display:flex;align-items:center;min-height:44px;position:relative}
+.portal-app #payments-add-panel .payment-search-row label{flex:1;min-width:0}
+.portal-app #payments-search{width:100%;min-width:0;min-height:44px;font-size:14px;padding-left:34px;border:1px solid var(--border-color)}
+.portal-app #payments-search-results{padding:4px 0 8px}
+.portal-app #payments-search-results[hidden]{display:none}
+body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;padding:0;font-size:12px;color:var(--text-muted)}
+.portal-app #payments-list{max-height:40vh;overflow:auto;overscroll-behavior:contain;grid-template-columns:minmax(0,1fr);gap:4px}
+.portal-app .payment-candidate{padding:6px;gap:2px}
+.portal-app .payment-candidate.has-mode-toggle{padding-right:56px}
+.portal-app .payment-candidate.has-mode-toggle .payment-candidate-cash-toggle{width:44px;height:44px;min-width:44px;min-height:44px;right:6px;top:6px}
+.portal-app .payment-candidate-main{grid-template-columns:44px minmax(0,1fr);gap:4px;align-items:center}
+.portal-app .payment-candidate-select{display:grid;place-items:center;min-height:44px;cursor:pointer}
+.portal-app .payment-candidate-select:has(:disabled){cursor:not-allowed}
+.portal-app .payment-candidate-main strong{font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.portal-app .payment-candidate-main small{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.portal-app .payment-candidate.blocked{opacity:1}
+.portal-app .payment-candidate-warning{padding:2px 6px;margin-left:48px;font-size:12px;line-height:1.4}
+.portal-app .payment-selection-bar{margin:6px 0 0;gap:8px}
+.portal-app .payment-selection-bar strong{font-size:13px}
+.portal-app .payment-selection-bar>button:not(.btn){font-size:13px;min-height:44px}
+.portal-app .payment-selection-bar .btn{font-size:13px;min-height:44px;padding:8px 12px}
+.portal-app .payment-receipt-dialog-row{padding:6px 8px;gap:6px;align-items:center}
+.portal-app .payment-receipt-dialog-row strong{font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.portal-app .payment-receipt-dialog-row small{font-size:12px;line-height:1.4}
 .portal-app .invoice-record-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
 .portal-app #batch-detail-actions .btn { min-width:44px; min-height:44px; padding:8px; display:inline-flex; align-items:center; justify-content:center; }
 .portal-app #batch-detail-actions .btn svg { width:18px; height:18px; }

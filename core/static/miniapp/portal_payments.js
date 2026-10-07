@@ -7,8 +7,12 @@
   let receiptBatches = [];
   let showArchivedReceipts = false;
   let activeReceipt = null;
-  let candidateGroups = { ready: [], blocked: [], pending: [] };
-  let candidateFilter = 'ready';
+  let candidates = [];
+  let candidatePage = 1;
+  let candidatePagination = null;
+  let candidateLoadVersion = 0;
+  let candidatePanelOpen = false;
+  let suppressCandidateFocus = false;
   let batchFilter = 'open';
   let sequenceRevision = 0;
   const selected = new Set();
@@ -378,9 +382,11 @@
       if (!active() || loadVersion !== detailLoadVersion || routeSignature !== `${screen()}:${detailBatchId()}`) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not open payment batch.');
       activeBatch = response.data.batch;
+      if (candidateBatchId !== String(activeBatch.id)) resetCandidateSearch();
+      candidateBatchId = String(activeBatch.id);
       setDetailFeedback('');
       showDetail();
-      if (!approvalMode() && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
+      if (candidatePanelOpen && !approvalMode() && capability('portal.payment.prepare')) await loadCandidates(options);
     } catch (error) {
       const message = error.message || 'Could not open payment batch.';
       setDetailFeedback(message, {error: true, retry: true});
@@ -504,6 +510,7 @@
     if (activityPanel) activityPanel.hidden = emptyDraft;
     const addPanel = el('payments-add-panel');
     if (addPanel) addPanel.hidden = approvalMode() || !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
+    if (addPanel?.hidden) setCandidatePanel(false);
     renderPrimaryAction();
     window.lucide?.createIcons?.();
   }
@@ -552,55 +559,86 @@
     target.classList.toggle('payment-primary-action-quiet', Boolean(target.querySelector('.payment-state-note')));
   }
 
-  function candidateCard(item, kind) {
+  let candidateBatchId = '';
+
+  function resetCandidateSearch() {
+    ++candidateLoadVersion;
+    clearTimeout(searchTimer);
+    candidatePanelOpen = false;
+    candidatePage = 1;
+    candidates = [];
+    selected.clear();
+    selectedModes.clear();
+    if (el('payments-search')) el('payments-search').value = '';
+    setCandidatePanel(false);
+  }
+
+  function setCandidatePanel(open) {
+    candidatePanelOpen = open;
+    const panel = el('payments-search-results');
+    if (panel) panel.hidden = !open;
+    el('payments-search')?.setAttribute('aria-expanded', String(open));
+    if (!open) { ++candidateLoadVersion; clearTimeout(searchTimer); }
+  }
+
+  function closeCandidatePanel() {
+    setCandidatePanel(false);
+    const input = el('payments-search');
+    suppressCandidateFocus = document.activeElement !== input;
+    input?.focus();
+    suppressCandidateFocus = false;
+  }
+
+  function candidateCard(item) {
     const row = item.row || {};
     const id = String(item.farmer_id || '');
     const current = new Set((activeBatch?.cases || []).map(entry => String(entry.farmer_id)));
-    if (current.has(id)) return '';
-    const blocked = kind !== 'ready';
+    const blocked = item.selectable !== true || current.has(id);
     const mode = selectedModes.get(id) || 'LOAN-JAWABU';
-    const reasons = kind === 'pending' ? `Already in Payment #${item.payment_review_payment_number || '-'}` : (item.missing || []).join(', ');
-    const advisory = kind === 'ready' ? (item.warnings || []).join(', ') : '';
-    return `<article class="payment-candidate${kind === 'ready' ? ' has-mode-toggle' : ''}${blocked ? ' blocked' : ''}${selected.has(id) ? ' selected' : ''}">
-      <span class="payment-candidate-main">${kind === 'ready' ? `<input class="payment-candidate-checkbox" type="checkbox" value="${escape(id)}" aria-label="Select ${escape(item.customer_name || row.name || 'case')}" ${selected.has(id) ? 'checked' : ''}>` : '<i data-lucide="circle-alert"></i>'}<span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.invoice_number].filter(Boolean).join(' · '))}</small></span></span>
-      <span class="payment-candidate-meta"><span>Amount<strong>${escape(money(row.hb_invoice_amount))}</strong></span><span>Repayment<strong>${escape(row.repayment_dates || 'Missing')}</strong></span></span>
-      ${kind === 'ready' ? `<button type="button" class="payment-candidate-cash-toggle${mode === 'CASH' ? ' is-cash' : ''}" data-payment-candidate-cash="${escape(id)}" aria-pressed="${mode === 'CASH'}" aria-label="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span class="sr-only">${mode === 'CASH' ? 'Cash' : 'Loan - Jawabu'}</span></button>` : ''}
-      ${blocked ? `<span class="payment-candidate-warning">${escape(reasons || 'Payment details need attention')}</span>` : ''}
+    const reasons = current.has(id) ? 'Already in this payment' : item.unavailable_reason;
+    const advisory = !blocked ? (item.warnings || []).join(', ') : '';
+    const reasonId = `payment-case-reason-${id}`;
+    return `<article class="payment-candidate${!blocked ? ' has-mode-toggle' : ''}${blocked ? ' blocked' : ''}${selected.has(id) ? ' selected' : ''}">
+      <span class="payment-candidate-main"><label class="payment-candidate-select"><input class="payment-candidate-checkbox" type="checkbox" value="${escape(id)}" aria-label="Select ${escape(item.customer_name || row.name || 'case')}" ${selected.has(id) ? 'checked' : ''} ${blocked ? `disabled aria-describedby="${escape(reasonId)}"` : ''}></label><span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id ? `ID ${item.national_id}` : '', item.invoice_number ? `Invoice ${item.invoice_number}` : '', row.hb_invoice_amount != null ? money(row.hb_invoice_amount) : ''].filter(Boolean).join(' · '))}</small></span></span>
+      ${!blocked ? `<button type="button" class="payment-candidate-cash-toggle${mode === 'CASH' ? ' is-cash' : ''}" data-payment-candidate-cash="${escape(id)}" aria-pressed="${mode === 'CASH'}" aria-label="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span class="sr-only">${mode === 'CASH' ? 'Cash' : 'Loan - Jawabu'}</span></button>` : ''}
+      ${blocked ? `<span id="${escape(reasonId)}" class="payment-candidate-warning">${escape(reasons || 'Payment details need attention')}</span>` : ''}
       ${advisory ? `<span class="payment-candidate-warning payment-candidate-advisory">${escape(advisory)}</span>` : ''}
     </article>`;
   }
 
   function renderCandidates() {
-    document.querySelectorAll('[data-payment-filter]').forEach(button => {
-      const isActive = button.dataset.paymentFilter === candidateFilter;
-      button.classList.toggle('active', isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    });
-    document.querySelectorAll('[data-payment-filter-count]').forEach(count => {
-      count.textContent = String((candidateGroups[count.dataset.paymentFilterCount] || []).length);
-    });
-    const visible = candidateGroups[candidateFilter] || [];
-    const html = visible.map(item => candidateCard(item, candidateFilter)).filter(Boolean);
+    if (!el('payments-list')) return;
+    const html = candidates.map(candidateCard);
     const resultCount = el('payments-result-count');
-    if (resultCount) resultCount.textContent = `${html.length} found`;
+    if (resultCount) resultCount.textContent = `${candidatePagination?.total ?? html.length} cases found`;
     el('payments-list').innerHTML = html.length ? html.join('') : '<div class="empty-state compact"><div class="es-title">No matching cases</div></div>';
     el('payments-selected-count').textContent = `${selected.size} selected`;
     el('payments-clear-selection').hidden = selected.size === 0;
     el('payments-add-selected').disabled = selected.size === 0;
+    window.MiniAppComponents?.bindPagination?.({container: el('payments-candidate-pagination'), pagination: candidatePagination || {}, onPage: value => { candidatePage = value; loadCandidates(); }});
     window.lucide?.createIcons?.();
   }
 
   async function loadCandidates(options) {
-    if (!activeBatch) return;
+    if (!activeBatch || !candidatePanelOpen || approvalMode() || !capability('portal.payment.prepare')) return;
+    const version = ++candidateLoadVersion;
+    const batchId = String(activeBatch.id);
     const list = el('payments-list');
     if (list && !options?.quiet) list.innerHTML = '<div class="empty-state compact"><div class="spinner-inline"></div></div>';
     try {
       const query = String(el('payments-search')?.value || '').trim();
-      const response = await deps.apiFetch('/payments/candidates/?search=' + encodeURIComponent(query));
+      const params = new URLSearchParams({include_all: '1', batch_id: batchId, search: query, page: String(candidatePage)});
+      const response = await deps.apiFetch('/payments/candidates/?' + params);
+      if (version !== candidateLoadVersion || !candidatePanelOpen || batchId !== String(activeBatch?.id) || batchId !== detailBatchId()) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load payment cases.');
-      candidateGroups = {ready: response.data.ready || [], blocked: response.data.blocked || [], pending: response.data.pending_review || []};
+      candidates = response.data.results || [];
+      candidatePagination = response.data.pagination || null;
+      candidatePage = Number(candidatePagination?.page || candidatePage);
+      // Revoke newly blocked selections on this page; keep unrelated selections.
+      candidates.filter(item => !item.selectable).forEach(item => { selected.delete(String(item.farmer_id)); selectedModes.delete(String(item.farmer_id)); });
       renderCandidates();
     } catch (error) {
+      if (version !== candidateLoadVersion || !candidatePanelOpen || batchId !== String(activeBatch?.id) || batchId !== detailBatchId()) return;
       if (list) list.innerHTML = `<div class="batch-warning">${escape(error.message || 'Could not load payment cases.')}</div>`;
     }
   }
@@ -711,7 +749,9 @@
     if (!selected.size) return;
     const paymentModes = Object.fromEntries([...selected].map(id => [id, selectedModes.get(id) || 'LOAN-JAWABU']));
     if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [...selected], payment_modes: paymentModes}, button, 'Adding...')) {
-      selected.clear(); selectedModes.clear(); renderCandidates(); deps.showToast('Cases added to payment batch.', 'success');
+      selected.clear(); selectedModes.clear(); renderCandidates(); setCandidatePanel(false); deps.showToast('Cases added to payment batch.', 'success');
+    } else {
+      await loadCandidates({quiet: true});
     }
   }
 
@@ -803,6 +843,12 @@
     });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && previewHistoryActive) closePreview();
+      if (event.key === 'Escape' && candidatePanelOpen && event.target.closest('#payments-add-panel')) {
+        // Native search inputs otherwise clear the term and emit an input
+        // event, immediately reopening the panel we just closed.
+        event.preventDefault();
+        closeCandidatePanel();
+      }
     });
     el('payment-receipt-preview')?.addEventListener('cancel', event => { event.preventDefault(); closeReceiptPreview(); });
     const previewOverlay = el('payment-preview-overlay');
@@ -811,7 +857,14 @@
     }).observe(previewOverlay, {attributes: true, attributeFilter: ['class']});
     document.addEventListener('change', event => {
       const checkbox = event.target.closest('.payment-candidate-checkbox');
-      if (checkbox) { checkbox.checked ? selected.add(checkbox.value) : selected.delete(checkbox.value); renderCandidates(); return; }
+      if (checkbox && !checkbox.disabled) {
+        const id = checkbox.value;
+        const restoreFocus = document.activeElement === checkbox;
+        checkbox.checked ? selected.add(id) : selected.delete(id);
+        renderCandidates();
+        if (restoreFocus) [...el('payments-list').querySelectorAll('.payment-candidate-checkbox')].find(input => input.value === id)?.focus();
+        return;
+      }
       if (event.target.id === 'payments-scan-file') {
         const file = event.target.files?.[0]; el('payments-scan-label').textContent = file ? file.name : 'Select signed scan';
       }
@@ -822,10 +875,15 @@
         clearTimeout(searchTimer); searchTimer = setTimeout(() => load(), 300); return;
       }
       if (event.target.id !== 'payments-search') return;
-      clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCandidates(), 300);
+      setCandidatePanel(true); candidatePage = 1; ++candidateLoadVersion;
+      clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCandidates(), 250);
+    });
+    document.addEventListener('focusin', event => {
+      if (event.target.id === 'payments-search' && !candidatePanelOpen && !suppressCandidateFocus) { setCandidatePanel(true); loadCandidates(); }
     });
     document.addEventListener('click', event => {
       const target = event.target;
+      if (target.closest('#payments-search-close')) { closeCandidatePanel(); return; }
       if (target.closest('#payment-receipt-preview-close')) return closeReceiptPreview();
       if (target.closest('.payment-receipt-invoice-preview')) return previewReceiptInvoice(target.closest('.payment-receipt-invoice-preview'));
       const batch = target.closest('[data-payment-batch]');
@@ -860,8 +918,6 @@
       if (target.closest('#payments-sequence-save')) return saveSequence(target.closest('#payments-sequence-save'));
       if (target.closest('#payments-detail-back')) return closeDetail();
       if (target.closest('#payments-detail-retry')) return openBatch(detailBatchId(), {});
-      const filter = target.closest('[data-payment-filter]');
-      if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
       if (target.closest('#payments-clear-selection')) { selected.clear(); selectedModes.clear(); return renderCandidates(); }
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
       const candidateCashToggle = target.closest('[data-payment-candidate-cash]');

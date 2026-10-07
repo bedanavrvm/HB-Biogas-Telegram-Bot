@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
+const {addOfflineStyle} = require('./fixtures/portal_shell');
 
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 
@@ -10,7 +12,7 @@ async function loadPortalStyles(page) {
   await page.addStyleTag({path:asset('activity_changes.css')});
   await page.addScriptTag({ path: asset('portal_helpers.js') });
   for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
-    await page.addStyleTag({ path: asset(name) });
+    await addOfflineStyle(page, name);
   }
   await page.addScriptTag({path:asset('vendor-lucide-1.44.0.min.js')});
 }
@@ -330,6 +332,11 @@ test('an empty payment detail route exposes one compact build step at 320px', as
       <div id="payments-detail-feedback" class="payment-detail-feedback"></div><details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div>
     </section>
   </section></div></main><div id="toast"></div></body>`);
+  // Use the current picker template rather than keeping a second tabbed UI.
+  const template = fs.readFileSync(path.resolve(__dirname, '../templates/portal/portal.html'), 'utf8');
+  const pickerStart = template.indexOf('<section id="payments-add-panel"');
+  const picker = template.slice(pickerStart, template.indexOf('</section>{% endif %}', pickerStart) + '</section>'.length);
+  await page.locator('#payments-add-panel').evaluate((node, html) => { node.outerHTML = html; }, picker);
   await loadPortalStyles(page);
   await page.addScriptTag({ path: asset('portal_payments.js') });
   await page.evaluate(() => {
@@ -342,7 +349,7 @@ test('an empty payment detail route exposes one compact build step at 320px', as
         if (url === '/payments/batches/' && options.method === 'POST') return { ok: true, data: { ok: true, batch: emptyBatch } };
         if (url.startsWith('/payments/batches/?')) return { ok: true, data: { ok: true, batches: [emptyBatch] } };
         if (url.startsWith('/payments/batches/batch-1/')) return { ok: true, data: { ok: true, batch: emptyBatch } };
-        if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, ready: [{farmer_id: 'farmer-1', customer_name: 'Jane Wanjiku', national_id: '12345678', row: {hb_invoice_amount: '1000', repayment_dates: '10TH'}}], blocked: [], pending_review: [] } };
+        if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, results: [{farmer_id: 'farmer-1', customer_name: 'Training Applicant', national_id: '99999999', selectable: true, row: {hb_invoice_amount: '1000', repayment_dates: '10TH'}}], pagination: {page:1,pages:1,total:1} } };
         return { ok: false, data: { ok: false, error: 'Unexpected test request' } };
       },
     });
@@ -350,11 +357,10 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   });
   await expect(page.locator('#payments-add-panel')).toBeVisible();
   await expect(page.locator('#payments-search')).toBeVisible();
-  await expect(page.locator('[data-payment-filter="ready"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-payment-filter-count="ready"]')).toHaveText('1');
-  await page.locator('[data-payment-filter="blocked"]').click();
-  await expect(page.locator('[data-payment-filter="blocked"]')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('[data-payment-filter="ready"]').click();
+  await expect(page.locator('#payments-search-results')).toBeHidden();
+  await page.locator('#payments-search').focus();
+  await expect(page.locator('#payments-result-count')).toHaveText('1 cases found');
+  await expect(page.locator('[data-payment-filter]')).toHaveCount(0);
   await expect(page.locator('.payment-candidate-cash-toggle')).toHaveAttribute('aria-label', 'Switch this case to Cash');
   await expect(page.locator('.payment-candidate-cash-toggle .sr-only')).toHaveText('Loan - Jawabu');
   await page.locator('.payment-candidate-cash-toggle').click();

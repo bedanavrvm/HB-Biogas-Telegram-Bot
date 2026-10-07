@@ -1,5 +1,23 @@
 # Changelog
 
+## 7 October 2026 — Compact Portal finance workspaces
+
+- Document History groups metadata and signed-copy actions into compact rows;
+  Orders/Payments and partner filtering share one toolbar. Details, retained
+  versions and signed-scan replacement open on demand. Storage failures remain
+  visible; routine successful storage no longer consumes a separate row.
+- Invoice cards group customer and invoice identity, retain review warnings,
+  omit empty phone placeholders, and keep selection/action touch targets at 44px.
+- Editable payment batches keep Add cases above their members. One paginated
+  search includes every authorized case state and explains unavailable cases;
+  only payment-ready cases are selectable. Selection and payment mode survive
+  searching/paging, and stale responses cannot replace current results.
+- The new picker is scoped by payment preparation capability and exact batch
+  group. Existing candidate callers keep their legacy response contract. Server
+  addition also rejects inactive and previously paid cases instead of relying
+  only on the picker to exclude them.
+- No schema, financial calculation, approval policy or external-service change.
+
 ## 6 October 2026 — Portal signed agreements and consistent previews
 
 - Editable payments retain their case search, including batches started from

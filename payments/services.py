@@ -9,7 +9,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
-from core.models import JawabuFarmerMaster, PaymentDocument
+from core.models import JawabuFarmerMaster, JawabuPipelineEvent, PaymentDocument
 from core.services.payment_documents import (
     PaymentTemplateError,
     create_payment_document,
@@ -379,6 +379,10 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
     farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(pk__in=ids))
     if len(farmers) != len(ids):
         raise PaymentBatchError('One or more selected cases could not be found.')
+    if any(farmer.status != 'active' for farmer in farmers):
+        raise PaymentBatchError('Only active, payment-ready cases can be added. Refresh the case search.')
+    if JawabuPipelineEvent.objects.filter(farmer_id__in=ids, action='payment_finalized').exists():
+        raise PaymentBatchError('One selected case has already been paid.')
     if any(farmer.group_configuration_id and farmer.group_configuration_id != batch.group_configuration_id for farmer in farmers):
         raise PaymentBatchError('Add cases from the same Portal group as this payment batch.')
     other = PaymentBatchCase.objects.filter(

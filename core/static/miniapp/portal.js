@@ -1715,7 +1715,7 @@
     const status = String(signoff.status || 'awaiting_signed_scan');
     const role = signoff.approval_role ? `Configured approver: ${escapeHtml(signoff.approval_role)}.` : 'No approver role is configured.';
     if (status === 'signed_approved') {
-      return `<section class="physical-signoff physical-signoff-approved"><div><strong>Signed scan</strong><span>${escapeHtml(signoff.scan_filename || '')}</span></div><div class="history-document-actions">${signoff.preview_url ? `<button type="button" class="miniapp-icon-button history-preview-signed-scan" data-url="${escapeHtml(signoff.preview_url)}" data-filename="${escapeHtml(signoff.scan_filename)}" aria-label="Preview signed scan" title="Preview signed scan"><i data-lucide="eye" aria-hidden="true"></i></button>` : ''}${signoff.drive_url ? `<button type="button" class="miniapp-icon-button history-open-signed-scan" data-url="${escapeHtml(signoff.drive_url)}" aria-label="Open signed scan in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}</div></section>${signoff.can_replace ? signedScanUploadMarkup(document, type, signoff.id) : ''}${signoff.pending_replacement ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.pending_replacement.id)}">Retry replacement</button>` : ''}`;
+      return `<section class="physical-signoff physical-signoff-approved"><strong>Signed copy</strong><div class="history-document-actions">${signoff.preview_url ? `<button type="button" class="miniapp-icon-button history-preview-signed-scan" data-url="${escapeHtml(signoff.preview_url)}" data-filename="${escapeHtml(signoff.scan_filename)}" aria-label="Preview signed scan" title="Preview signed scan"><i data-lucide="eye" aria-hidden="true"></i></button>` : ''}${signoff.drive_url ? `<button type="button" class="miniapp-icon-button history-open-signed-scan" data-url="${escapeHtml(signoff.drive_url)}" aria-label="Open signed scan in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}</div></section>${signoff.pending_replacement ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.pending_replacement.id)}">Retry replacement</button>` : ''}`;
     }
     if (status === 'legacy_not_signable') {
       return `<section class="physical-signoff physical-signoff-muted"><div><strong>Legacy workbook</strong><span>Its source bytes were not retained. Regenerate this document before attaching a signed scan.</span></div></section>`;
@@ -1735,8 +1735,20 @@
     return signedScanUploadMarkup(document, type);
   }
 
+  function openDocumentHistoryPanel(button) {
+    const card = button.closest('.history-document-card');
+    const panel = card?.querySelector(button.matches('.history-show-replacement') ? '.physical-signoff-upload' : '.history-document-details');
+    if (panel) {
+      panel.hidden = false;
+      panel.open = true;
+      panel.querySelector('summary')?.focus();
+    }
+    const menu = button.closest('details');
+    if (menu) menu.open = false;
+  }
+
   function signedScanUploadMarkup(document, type, replaces = '') {
-    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>${replaces ? 'Replace signed scan' : 'Attach signed scan'}</strong></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-replaces="${escapeHtml(replaces)}" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">${replaces ? 'Replace scan' : 'Upload signed scan'}</button></div></details>`;
+    return `<details class="physical-signoff physical-signoff-upload" ${replaces ? 'hidden' : ''}><summary><span><strong>${replaces ? 'Replace signed scan' : 'Attach signed scan'}</strong></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-replaces="${escapeHtml(replaces)}" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">${replaces ? 'Replace scan' : 'Upload signed scan'}</button></div></details>`;
   }
 
   function priorPhysicalSignoffsMarkup(document) {
@@ -1760,22 +1772,25 @@
         ? `<span class="badge badge-red" title="${escapeHtml(doc.sync_error || 'External storage failed')}">Storage retry needed</span>`
         : doc.sync_status === 'pending'
           ? '<span class="badge badge-orange">Storage syncing</span>'
-          : doc.sync_status === 'succeeded'
-            ? '<span class="badge badge-green">Stored</span>'
-            : '';
+          : '';
       return `<article class="farmer-card history-document-card">
+        <header class="miniapp-panel-heading history-document-header">
         <div class="fc-name history-document-title">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
-        <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : `${escapeHtml(doc.fulfillment_partner === 'ECOCONSERVE' ? 'Eco-conserve' : 'HB')} | `}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
-        <div class="fc-sub">Workbook generated: ${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
-        ${syncBadge}
-        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting Head of Rural review'}</span>` : ''}
         <div class="history-document-actions">
           <button type="button" class="miniapp-icon-button portal-finance-icon history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}" aria-label="${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'Preview workbook'}" title="Preview workbook"><i data-lucide="eye" aria-hidden="true"></i></button>
           ${doc.download_url ? `<button type="button" class="miniapp-icon-button portal-finance-icon history-open-excel" data-download="true" data-filename="${escapeHtml(doc.filename || `${kind === 'payments' ? 'Payment' : 'Order'}-${doc.payment_number || doc.order_number || 'workbook'}.xlsx`)}" data-url="${escapeHtml(doc.download_url)}" aria-label="Download workbook" title="Download workbook"><i data-lucide="download" aria-hidden="true"></i></button>` : doc.drive_url ? `<button type="button" class="miniapp-icon-button portal-finance-icon history-open-excel" data-url="${escapeHtml(doc.drive_url)}" aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}
+          <details class="history-document-menu"><summary class="miniapp-icon-button" aria-label="More document actions" title="More actions"><i data-lucide="more-vertical" aria-hidden="true"></i></summary><div><button type="button" class="history-show-details">Details</button>${doc.physical_signoff?.can_replace && doc.physical_signoff?.status === 'signed_approved' ? '<button type="button" class="history-show-replacement">Replace signed scan</button>' : ''}</div></details>
         </div>
+        </header>
+        <div class="history-document-meta"><span>${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} · ` : `${escapeHtml(doc.fulfillment_partner === 'ECOCONSERVE' ? 'Eco-conserve' : 'HB')} · `}${escapeHtml(doc.row_count || 0)} cases · v${escapeHtml(doc.version || 0)}</span><time>${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}</time></div>
+        ${syncBadge}
+        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting payment review'}</span>` : ''}
         ${physicalSignoffMarkup(doc, kind)}
+        ${doc.physical_signoff?.can_replace && doc.physical_signoff?.status === 'signed_approved' ? signedScanUploadMarkup(doc, kind === 'payments' ? 'payment' : 'requisition', doc.physical_signoff.id) : ''}
+        <details class="history-document-details" hidden><summary>Details</summary><div class="history-document-detail-body">${doc.generated_by ? `<p>Generated by ${escapeHtml(doc.generated_by)}</p>` : ''}${doc.sync_status === 'succeeded' ? '<p>Stored in Drive</p>' : ''}${doc.physical_signoff?.scan_filename ? `<p>${escapeHtml(doc.physical_signoff.scan_filename)}</p>` : ''}
         ${priorPhysicalSignoffsMarkup(doc)}
         ${previousVersions}
+        </div></details>
       </article>`;
     }).join('');
   }
@@ -1787,6 +1802,7 @@
     document.querySelectorAll('.history-kind').forEach(button => {
       button.classList.toggle('btn-primary', button.dataset.kind === kind);
       button.classList.toggle('btn-secondary', button.dataset.kind !== kind);
+      button.setAttribute('aria-pressed', String(button.dataset.kind === kind));
     });
     const partnerFilters = el('history-order-partner-filters');
     if (partnerFilters) partnerFilters.hidden = kind !== 'orders';
@@ -2616,6 +2632,11 @@
     if (kindButton) {
       event.preventDefault();
       loadHistory(kindButton.dataset.kind || 'orders');
+      return;
+    }
+    const documentDisclosure = event.target.closest('.history-show-details, .history-show-replacement');
+    if (documentDisclosure) {
+      openDocumentHistoryPanel(documentDisclosure);
       return;
     }
     const excelButton = event.target.closest('.history-open-excel');

@@ -9140,10 +9140,47 @@ def portal_payment_readiness(request, order_number: str):
 
 @require_http_methods(["GET"])
 def portal_payment_candidates(request):
-    """List active invoice-matched cases available for a selected payment batch."""
+    """Search authorized cases with readiness, preserving legacy ready-only callers."""
     from core.models import JawabuFarmerMaster
     from core.services.payment_documents import payment_readiness
     from django.db.models import Q
+
+    if request.GET.get('include_all') == '1':
+        access_error = _portal_read_access_error(request, capability='portal.payment.prepare')
+        if access_error:
+            return access_error
+        try:
+            batch = _portal_payment_batch_queryset(request).filter(pk=request.GET.get('batch_id')).first()
+        except (ValueError, ValidationError):
+            batch = None
+        if not batch:
+            return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+        access = getattr(request, 'portal_access', None)
+        from core.services.portal_permissions import portal_access_decision
+        if access is not None and not portal_access_decision(
+            getattr(request, 'portal_user', None), 'portal.payment.prepare', access=access,
+            group_configuration=batch.group_configuration, enforce_group_scope=True,
+        ).allowed:
+            return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+        scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+        if scope_error:
+            return scope_error
+        from core.services.portal_payment_candidates import payment_candidate_rows
+        # Unbound legacy cases follow the existing add_cases group contract.
+        queryset = JawabuFarmerMaster.objects.filter(
+            Q(group_configuration=batch.group_configuration) | Q(group_configuration__isnull=True)
+        )
+        from core.services.workflow_access import scope_workflow_queryset
+        queryset = scope_workflow_queryset(
+            queryset, getattr(request, 'portal_user', None), 'jawabu_portal', 'portal.payment.prepare',
+            access=access, branch_field='branch', product_field='product__code',
+            group_field='group_configuration__group_id',
+        )
+        queryset = _apply_portal_search(queryset, params=request.GET).distinct().order_by('customer_name', 'pk')
+        start, end, pagination = _pagination_window(request, queryset.count(), page_size=20)
+        rows = payment_candidate_rows(list(queryset[start:end]), batch=batch,
+                                      pending_reviews=_pending_payment_review_map(request))
+        return JsonResponse({'ok': True, 'results': rows, 'pagination': pagination})
 
     access_error = _portal_read_access_error(request, capability='portal.payment.view')
     if access_error:

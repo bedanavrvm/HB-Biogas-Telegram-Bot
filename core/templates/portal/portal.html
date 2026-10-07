@@ -430,14 +430,17 @@
       <div id="payments-document-actions" class="payment-document-actions" hidden></div>
       <div id="payments-detail-feedback" class="payment-detail-feedback" role="status" aria-live="polite"><div class="spinner-inline"></div><span>Loading payment batch…</span></div>
       <div id="payments-progress" class="payment-progress"></div>
+      {% if active_screen == 'payments' %}<section id="payments-add-panel" class="payment-detail-section payment-add-section" data-required-capability="portal.payment.prepare" aria-label="Add payment cases">
+        <div class="payment-search-row portal-queue-search"><i data-lucide="search" aria-hidden="true"></i><label><span class="sr-only">Add cases: search customer, ID, phone, invoice or order</span><input id="payments-search" type="search" placeholder="Add cases: name, ID, invoice or order" aria-controls="payments-search-results" aria-expanded="false" autocomplete="off"></label></div>
+        <div id="payments-search-results" hidden>
+        <header class="miniapp-panel-heading payment-search-results-heading"><span id="payments-result-count" role="status" aria-live="polite"></span><button type="button" id="payments-search-close" class="miniapp-icon-button" aria-label="Close case search"><i data-lucide="x" aria-hidden="true"></i></button></header>
+        <div id="payments-list" class="payment-candidate-list" aria-label="Case search results"></div>
+        <nav id="payments-candidate-pagination" aria-label="Case search pages"></nav>
+        <div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button type="button" id="payments-clear-selection">Clear</button><button type="button" class="btn btn-primary" id="payments-add-selected">Add selected</button></div>
+        </div>
+      </section>{% endif %}
       <section id="payments-current-section" class="payment-detail-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
       <section id="payments-held-section" class="payment-detail-section" hidden><header><div><span class="payment-step">Invoice delivery</span><h3>Not included in payment</h3><p>These invoices came in the same HB delivery. Held rows need correction or review; a corrected row can be added with its own payment mode.</p></div></header><div id="payments-held-items" class="payment-current-cases"></div></section>
-      {% if active_screen == 'payments' %}<section id="payments-add-panel" class="payment-detail-section payment-add-section" data-required-capability="portal.payment.prepare" aria-label="Add payment cases">
-        <div class="payment-search-row"><label><span class="sr-only">Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order" autocomplete="off"></label></div>
-        <div class="payment-filter-chips" id="payments-filter-chips" role="group" aria-label="Filter payment cases"><button type="button" class="active" data-payment-filter="ready" aria-pressed="true"><i data-lucide="circle-check" aria-hidden="true"></i><span>Ready</span><b data-payment-filter-count="ready">0</b></button><button type="button" data-payment-filter="blocked" aria-pressed="false"><i data-lucide="triangle-alert" aria-hidden="true"></i><span>Needs review</span><b data-payment-filter-count="blocked">0</b></button><button type="button" data-payment-filter="pending" aria-pressed="false"><i data-lucide="layers-2" aria-hidden="true"></i><span>Other batch</span><b data-payment-filter-count="pending">0</b></button></div>
-        <div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button type="button" id="payments-clear-selection">Clear</button><button type="button" class="btn btn-primary" id="payments-add-selected">Add selected</button></div>
-        <div id="payments-list" class="payment-candidate-list"></div>
-      </section>{% endif %}
       <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details>
       <div id="payments-primary-action" class="payment-primary-action"></div>
     </section>
@@ -549,13 +552,15 @@
 
   {% if active_screen == 'history' %}
   <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">
-    <header><h1>Document History</h1><p class="meta">Generated orders plus payment reviews and approved payment schedules</p></header>
-    <div class="history-tabs" role="tablist">
-      <button type="button" class="btn btn-primary history-kind" data-kind="orders">Final Orders</button>
-      <button type="button" class="btn btn-secondary history-kind" data-kind="payments">Payment Reviews / Finals</button>
+    <header><h1>Document History</h1></header>
+    <div class="history-toolbar">
+    <div class="history-tabs" role="group" aria-label="Document type">
+      <button type="button" class="btn btn-primary history-kind" data-kind="orders" aria-pressed="true">Orders</button>
+      <button type="button" class="btn btn-secondary history-kind" data-kind="payments" aria-pressed="false">Payments</button>
     </div>
     <div id="history-order-partner-filters" class="history-order-partner-filters">
       <button id="history-filter-open" type="button" class="queue-filter-button" aria-label="Filter document history" aria-haspopup="dialog" aria-controls="history-filter-sheet"><i data-lucide="sliders-horizontal" aria-hidden="true"></i></button><span id="history-partner-chip" class="badge badge-grey" hidden></span>
+    </div>
     </div>
     <div id="history-filter-sheet" class="sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="history-filter-title"><div class="sheet-panel"><header class="sheet-header miniapp-panel-heading"><h2 id="history-filter-title">Filters</h2><button id="history-filter-close" class="sheet-close-button miniapp-icon-button" type="button" aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header><div class="portal-performance-filter-fields"><label>Partner<select id="history-partner"><option value="all">All partners</option><option value="HB">HB</option><option value="ECOCONSERVE">Eco-conserve</option></select></label></div><footer class="portal-performance-filter-actions"><button id="history-filter-clear" type="button" class="btn btn-secondary">Clear</button><button id="history-filter-apply" type="button" class="btn btn-primary">Apply</button></footer></div></div>
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>

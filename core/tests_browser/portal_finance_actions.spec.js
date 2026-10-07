@@ -2,10 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {test, expect} = require('playwright/test');
+const {addOfflineStyle} = require('./fixtures/portal_shell');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 async function styles(page) {
   await page.addScriptTag({path:asset('portal_helpers.js')});
-  for (const file of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) await page.addStyleTag({path: asset(file)});
+  for (const file of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) await addOfflineStyle(page, file);
   await page.addScriptTag({path: asset('vendor-lucide-1.44.0.min.js')});
 }
 for (const width of [320, 360, 390, 430, 768, 1280]) {
@@ -49,7 +50,7 @@ test('delivery previews preserve the parent dialog and Cash choices', async ({pa
   await page.addScriptTag({path:asset('secure_media_viewer.js')});
   await page.addScriptTag({path:asset('portal_payments.js')});
   await page.evaluate(async()=>{
-    const receipt={id:'delivery-1',status:'open',counts:{matched:1,review:1},items:[
+    const receipt={id:'delivery-1',status:'open',total_count:2,counts:{matched:1,review:1},items:[
       {id:'invoice-1',invoice_no:'INV-101',farmer_id:'case-1',applicant_name:'Synthetic Applicant With A Long Name',status:'matched',preview_url:'/synthetic/preview/'},
       {id:'invoice-2',invoice_no:'INV-102',status:'review',reason:'National ID needs review',preview_url:'/synthetic/preview/'}]};
     window.SecureMediaViewer.fetchAuthorizedBlob=async()=>new Blob(['<html>Only synthetic invoice evidence</html>'],{type:'text/html'});
