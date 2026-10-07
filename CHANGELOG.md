@@ -1,5 +1,14 @@
 # Changelog
 
+## 7 October 2026 — Direct order preparation
+
+- Selecting approved cases immediately shows the order number, order date and
+  Preview Form action. The extra Prepare order button is removed. Clearing the
+  selection hides the section; selecting a different partner loads its number.
+- Preview and final confirmation remain explicit; selecting cases does not
+  allocate an order number or create an order. No migration or policy change.
+- Queue filters use the shorter label Oldest cases instead of Needs attention first.
+
 ## 7 October 2026 — Compact Portal finance workspaces
 
 - Document History groups metadata and signed-copy actions into compact rows;

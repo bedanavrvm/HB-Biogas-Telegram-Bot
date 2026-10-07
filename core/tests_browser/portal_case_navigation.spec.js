@@ -1,7 +1,11 @@
 'use strict';
 const path = require('node:path');
+const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
+const portalTemplate = fs.readFileSync(path.resolve(__dirname, '../templates/portal/portal.html'), 'utf8');
+const orderPanel = portalTemplate.slice(portalTemplate.indexOf('    <div id="requisition-batch-panel"'), portalTemplate.indexOf('    <div id="req-list"'));
+const partnerTabs = portalTemplate.match(/<nav class="portal-segmented-tabs" id="requisition-partner-tabs"[\s\S]*?<\/nav>/)[0];
 const queueIds = { jbl: 'jbl-list', credit: 'credit-list', final: 'final-list', requisition: 'req-list', deferred: 'deferred-list', my_visits: 'my-visits-list', all: 'all-list' };
 
 async function boot(page, queue, serverCards = false, capabilities = null, options = {}) {
@@ -20,6 +24,9 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
     <div style="height:450px"></div><div id="${queueIds[queue]}"></div><div style="height:700px"></div></section></div>
     <div class="sheet-overlay" id="sheet-overlay"><div id="sheet-navigation"><button id="sheet-back"><span></span></button></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close" class="sheet-close-button"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section><a id="case360-toggle"></a></div><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div>
     <div class="sheet-overlay" id="media-viewer-overlay"><button class="sheet-close-button" id="media-viewer-close">Close media</button></div></main><div id="toast"></div>`);
+  if (queue === 'requisition') await page.evaluate(({panel,tabs}) => {
+    document.getElementById('requisition-batch-panel').outerHTML = tabs + panel;
+  }, {panel:orderPanel,tabs:partnerTabs});
   await page.addStyleTag({ content: '.sheet-overlay{display:none}.sheet-overlay.open{display:block}.farmer-card{padding:12px;border:1px solid #ddd;cursor:pointer}.sheet-close-button{width:28px;height:28px}' });
   for (const name of ['utils.js', 'components.js', 'portal_helpers.js', 'portal_queues.js', 'portal_filters.js', 'portal_case_navigation.js', 'portal_farmer_sheet.js', 'portal_requisitions.js']) await page.addScriptTag({ path: asset(name) });
   await page.evaluate(({ serverCards, capabilities, delayMeta }) => {
@@ -44,6 +51,7 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
           return new Promise(resolve => { window.__resolvePortalMeta = () => resolve(response); });
         }
         if (url === '/settings/') return { ok: true, data: { ok: true, data: {} } };
+        if (url.startsWith('/requisition-queue/options/')) return { ok: true, data: { ok: true, order_number: url.includes('ECOCONSERVE') ? 'ECO-24' : 'HB-104' } };
         if (url.startsWith('/farmers/case-1/')) return { ok: true, data: { ok: true, farmer: farmer(), case360: { identity: { customer_name: 'Synthetic farmer' }, intake: {}, stages: {}, timeline: [], documents: {} } } };
         return { ok: true, data: { ok: true, farmers: [farmer()], pagination: { page: 1, pages: 1 } } };
       },
@@ -66,6 +74,71 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
   await page.addScriptTag({ path: asset('miniapp-nav.js') });
   await expect(page.locator('.farmer-card')).toHaveCount(1);
 }
+
+for (const serverCards of [false,true]) for (const width of [320,768]) {
+  test(`order selection immediately opens date, number and preview at ${width}px (${serverCards?'server':'client'})`, async ({page},info) => {
+    await boot(page,'requisition',serverCards);
+    await page.setViewportSize({width,height:850});
+    await page.evaluate(() => document.body.classList.add('portal-app','workflow-standard'));
+    for (const name of ['base.css','components.css','portal.css','workflow_standard.css','theme.css']) await page.addStyleTag({path:asset(name)});
+    await page.addScriptTag({path:asset('vendor-lucide-1.44.0.min.js')});
+    await page.evaluate(() => window.lucide.createIcons());
+    await expect(page.locator('#requisition-batch-panel')).toBeHidden();
+    await page.locator('.farmer-card-checkbox').check();
+    await expect(page.locator('#batch-prepare-fields')).toBeVisible();
+    await expect(page.locator('#batch-prepare-order')).toHaveCount(0);
+    await expect(page.locator('#batch-order-num')).toHaveValue('HB-104');
+    await expect(page.getByRole('button',{name:'Preview Form',exact:true})).toBeVisible();
+    await expect(page.locator('#batch-clear-selection svg')).toBeVisible();
+    expect((await page.locator('#batch-clear-selection').boundingBox()).width).toBe(44);
+    await page.locator('#batch-req-date').fill('2026-10-07');
+    for (const theme of ['light','dark']) {
+      await page.evaluate(theme => {
+        const root=document.documentElement;root.dataset.miniappColorScheme=theme;
+        const colors=theme==='dark'?{bg:'#17171e',surface:'#20202c',text:'#ffffff',hint:'#a8a8b3'}:{bg:'#f5f7f8',surface:'#ffffff',text:'#17212b',hint:'#6d7a86'};
+        for (const [key,value] of Object.entries({'bg-color':colors.bg,'secondary-bg-color':colors.surface,'text-color':colors.text,'hint-color':colors.hint})) root.style.setProperty(`--tg-theme-${key}`,value);
+      },theme);
+      await expect(page.locator('#requisition-batch-panel')).toHaveCSS('background-color',theme==='dark'?'rgb(32, 32, 44)':'rgb(255, 255, 255)');
+      await page.locator('#requisition-batch-panel').scrollIntoViewIfNeeded();
+      await page.locator('#requisition-batch-panel').screenshot({path:info.outputPath(`order-selection-${width}-${theme}.png`)});
+      expect(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    }
+    await page.locator('.farmer-card-checkbox').uncheck();
+    await expect(page.locator('#requisition-batch-panel')).toBeHidden();
+    await page.locator('.farmer-card-checkbox').check();
+    await expect(page.locator('#batch-prepare-fields')).toBeVisible();
+    await expect(page.locator('#batch-req-date')).toHaveValue('2026-10-07');
+    await page.locator('[data-requisition-partner="ECOCONSERVE"]').click();
+    await expect(page.locator('#requisition-batch-panel')).toBeHidden();
+    await page.locator('.farmer-card-checkbox').check();
+    await expect(page.locator('#batch-order-num')).toHaveValue('ECO-24');
+    expect(await page.evaluate(() => window.__writes.length)).toBe(0);
+  });
+}
+
+test('queue sort label is Oldest cases', async ({page}) => {
+  const tools=fs.readFileSync(path.resolve(__dirname,'../templates/portal/partials/queue_tools.html'),'utf8');
+  await page.setContent(tools.replace(/{%[\s\S]*?%}|{{[\s\S]*?}}/g,''));
+  await expect(page.locator('select[name="ordering"] option').first()).toHaveText('Oldest cases');
+  expect(tools).not.toContain('Needs attention first');
+});
+
+test('order number lookup failure leaves the date and preview usable', async ({page}) => {
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await boot(page,'requisition');
+  await page.evaluate(() => {
+    const original=PortalMiniAppApi.apiFetch;
+    PortalMiniAppApi.apiFetch=async (...args) => {
+      if (args[0].startsWith('/requisition-queue/options/')) throw new Error('Synthetic offline lookup');
+      return original(...args);
+    };
+  });
+  await page.locator('.farmer-card-checkbox').check();
+  await expect(page.locator('#batch-order-num')).toHaveAttribute('placeholder','Preview to check the number');
+  await expect(page.locator('#batch-req-date')).toBeVisible();
+  await expect(page.locator('#btn-generate-requisition')).toBeEnabled();
+  expect(errors).toEqual([]);
+});
 
 test('notification focus survives a fragment refresh without scrolling twice', async ({ page }) => {
   await boot(page, 'final', true, null, { notificationFocus: true });

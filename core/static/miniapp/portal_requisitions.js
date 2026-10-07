@@ -474,7 +474,10 @@
     if (!panel) return;
     const count = state().selectedRequisitions.size;
     if (count > 0) {
+      const opening = panel.style.display !== 'block' || el('batch-prepare-fields')?.hidden;
       panel.style.display = 'block';
+      if (el('batch-prepare-fields')) el('batch-prepare-fields').hidden = false;
+      if (opening) updateProposedNumber();
       const badge = el('batch-selected-count');
       const visibleIds = new Set([...document.querySelectorAll('#req-list .farmer-card-checkbox')].map(node => node.dataset.id));
       const hiddenCount = [...state().selectedRequisitions].filter(id => !visibleIds.has(id)).length;
@@ -491,10 +494,15 @@
     const field = el('batch-order-num');
     if (!field || !state().capabilities?.has('portal.requisition.finalize')) return;
     field.value = '';
-    const result = await deps.apiFetch(`/requisition-queue/options/?partner=${encodeURIComponent(state().requisitionPartner || 'HB')}`);
-    if (request !== numberRequest) return;
-    if (result.ok && result.data?.ok) field.value = result.data.order_number;
-    else field.placeholder = result.data?.error || 'Preview to check the number';
+    field.placeholder = 'Loading order number…';
+    try {
+      const result = await deps.apiFetch(`/requisition-queue/options/?partner=${encodeURIComponent(state().requisitionPartner || 'HB')}`);
+      if (request !== numberRequest) return;
+      if (result.ok && result.data?.ok) field.value = result.data.order_number;
+      else field.placeholder = result.data?.error || 'Preview to check the number';
+    } catch (_) {
+      if (request === numberRequest) field.placeholder = 'Preview to check the number';
+    }
   }
 
   async function loadOrderSequence() {
@@ -1308,11 +1316,6 @@
       if (event.target.id === 'requisition-sequence-partner') loadOrderSequence();
     });
     document.addEventListener('click', event => {
-      if (event.target.closest('#batch-prepare-order')) {
-        el('batch-prepare-fields').hidden = false;
-        updateProposedNumber();
-        return;
-      }
       const tab = event.target.closest('[data-requisition-partner]');
       if (!tab) return;
       const partner = String(tab.dataset.requisitionPartner || 'HB');
