@@ -1,5 +1,14 @@
 # Changelog
 
+## 7 October 2026 - Legacy Origination LAF catalogue compatibility
+
+- Published legacy Main LAFs use their original product's immutable form and
+  signer contract for catalogue compatibility and new application snapshots.
+- Document versioning remains available after the owning product is retired.
+  The catalogue offers an idempotent Create / open editable version action.
+- Existing files, applications and published alignment are unchanged. Product
+  eligibility and incompatible field/signer checks remain enforced.
+
 ## 7 October 2026 - Same-day Origination product replacement
 
 - Guided setup can publish a linked successor on the same start date, retiring

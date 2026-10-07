@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -412,6 +413,18 @@ def template_schema_revision(template: OriginationDocumentTemplate) -> int:
         return int((template.form_schema or {}).get('_revision') or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def template_form_contract(template: OriginationDocumentTemplate) -> tuple[dict, list]:
+    """Read the exact document contract without borrowing a successor's form.
+
+    Legacy Main LAFs store their fields and signers on their immutable owning
+    product definition. Independent catalogue documents store them directly.
+    """
+    owner = template.product_definition if template.product_definition_id else None
+    if owner and template.document_role == template.ROLE_PRIMARY:
+        return deepcopy(owner.form_schema or {}), deepcopy(owner.signer_rules or [])
+    return deepcopy(template.form_schema or {}), deepcopy(template.signer_rules or [])
 
 
 def template_owns_form_schema(template: OriginationDocumentTemplate) -> bool:

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from origination.models import (
@@ -95,6 +96,112 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertFalse(result['ready'])
         self.assertEqual(result['main_lafs'], [])
         self.assertIn('No published compatible Main LAF', result['reasons'][0])
+
+    def _legacy_main_and_successor(self):
+        main = self._template(family='legacy_contract', name='Legacy Main LAF')
+        self.definition.signer_rules[0]['slots'] = [{'key': 'signature', 'type': 'signature'}]
+        self.definition.lifecycle_status = 'retired'
+        self.definition.is_active = False
+        self.definition.save(update_fields=['signer_rules', 'lifecycle_status', 'is_active'])
+        OriginationDocumentTemplate.objects.filter(pk=main.pk).update(
+            product_definition=self.definition, form_schema={}, signer_rules=[],
+        )
+        main.refresh_from_db()
+        successor = OriginationProductDefinition.objects.create(
+            product_version=self.product_version, product_key=self.definition.product_key,
+            name=self.definition.name, version=2, form_schema=self.schema,
+            signer_rules=[{'role': 'customer'}, {'role': 'officer'}],
+            document_type=self.definition.document_type, lifecycle_status='published', is_active=True,
+        )
+        return main, successor
+
+    def test_published_legacy_main_remains_available_and_freezes_original_signer_slots(self):
+        main, successor = self._legacy_main_and_successor()
+        catalogue = catalogue_for_product(successor)
+        self.assertTrue(catalogue['ready'], catalogue)
+        application, _ = create_application(
+            product_key=successor.product_key, officer=self.officer, branch=self.branch.name,
+            client_request_id='legacy-contract-create', primary_template_id=main.pk,
+            supporting_template_ids=[], expected_catalogue_revision=catalogue['catalogue_revision'],
+        )
+        self.assertEqual(application.signer_rules_snapshot[0]['slots'], self.definition.signer_rules[0]['slots'])
+        document = application.packet_documents.get(template=main)
+        self.assertEqual(document.signer_rules_snapshot[0]['slots'], self.definition.signer_rules[0]['slots'])
+        main.refresh_from_db()
+        self.assertEqual(main.form_schema, {})
+        self.assertEqual(main.signer_rules, [])
+        self.assertEqual(main.status, 'active')
+
+    def test_legacy_main_still_rejects_conflicting_supporting_fields(self):
+        from origination.services.origination_document_catalogue import validate_document_combination
+        main, _ = self._legacy_main_and_successor()
+        support = self._template(family='conflicting_legacy_support', name='Conflict', role='supporting',
+                                 schema={'fields': [{'key': 'loan_amount', 'type': 'text'}]})
+        with self.assertRaisesRegex(OriginationError, 'conflicting canonical field types'):
+            validate_document_combination(main, [support])
+
+    def test_legacy_main_does_not_borrow_new_product_signer_roles(self):
+        main, successor = self._legacy_main_and_successor()
+        successor.signer_rules = [*successor.signer_rules, {'role': 'branch_manager'}]
+        catalogue = catalogue_for_product(successor)
+        self.assertFalse(catalogue['ready'])
+        self.assertIn('branch_manager', ' '.join(catalogue['rejected_main_lafs'][0]['reasons']))
+
+    def test_retired_product_legacy_document_has_idempotent_independent_editable_exit(self):
+        main, successor = self._legacy_main_and_successor()
+        application, _ = create_application(
+            product_key=successor.product_key, officer=self.officer, branch=self.branch.name,
+            client_request_id='legacy-before-versioning', primary_template_id=main.pk,
+            supporting_template_ids=[],
+        )
+        original_schema = application.schema_snapshot
+        original_signers = application.signer_rules_snapshot
+        actor = get_user_model().objects.create_superuser('legacy-document-admin', 'qa@example.test', 'x')
+        self.client.force_login(actor)
+        page = self.client.get(reverse('admin:origination_originationdocumenttemplate_change', args=[main.pk]))
+        url = reverse('admin:origination_originationdocumenttemplate_create_editable_version', args=[main.pk])
+        self.assertEqual(page.context['origination_create_editable_template_url'], url)
+        self.assertContains(page, 'Create editable version')
+        self.assertEqual(self.client.get(url).status_code, 405)
+        response = self.client.post(url)
+        editable = OriginationDocumentTemplate.objects.get(document_type=main.document_type, status='ready')
+        self.assertRedirects(response, reverse('admin:origination_originationdocumenttemplate_calibrate',
+                                            args=[editable.pk]), fetch_redirect_response=False)
+        self.client.post(url)
+        self.assertEqual(OriginationDocumentTemplate.objects.filter(document_type=main.document_type, status='ready').count(), 1)
+        self.assertIsNone(editable.product_definition_id)
+        self.assertEqual(editable.form_schema, self.definition.form_schema)
+        self.assertEqual(editable.signer_rules, self.definition.signer_rules)
+        self.assertEqual(editable.drive_file_id, main.drive_file_id)
+        self.assertTrue(editable.eligible_products.filter(pk=self.product_record.pk).exists())
+        main.refresh_from_db()
+        self.assertEqual(main.status, 'active')
+        self.assertEqual(main.form_schema, {})
+        self.assertEqual(main.product_definition_id, self.definition.pk)
+        application.refresh_from_db()
+        self.assertEqual(application.schema_snapshot, original_schema)
+        self.assertEqual(application.signer_rules_snapshot, original_signers)
+        self.assertEqual(application.packet_documents.get(document_role='primary').template_id, main.pk)
+
+    def test_catalogue_selected_version_action_and_alignment_offer_legacy_exit(self):
+        from django.contrib import admin
+        from origination.admin import OriginationDocumentTemplateAdmin
+        main, _ = self._legacy_main_and_successor()
+        actor = get_user_model().objects.create_superuser('legacy-action-admin', 'qa@example.test', 'x')
+        self.client.force_login(actor)
+        request = RequestFactory().get('/admin/')
+        request.user = actor
+        model_admin = OriginationDocumentTemplateAdmin(OriginationDocumentTemplate, admin.site)
+        self.assertIn('create_editable_selected_template', model_admin.get_actions(request))
+        response = self.client.post(reverse('admin:origination_originationdocumenttemplate_changelist'), {
+            'action': 'create_editable_selected_template', '_selected_action': str(main.pk), 'index': '0',
+        })
+        editable = OriginationDocumentTemplate.objects.get(document_type=main.document_type, status='ready')
+        self.assertRedirects(response, reverse('admin:origination_originationdocumenttemplate_calibrate',
+                                            args=[editable.pk]), fetch_redirect_response=False)
+        preview = self.client.get(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[main.pk]))
+        self.assertEqual(preview.context['calibration_create_editable_url'], reverse(
+            'admin:origination_originationdocumenttemplate_create_editable_version', args=[main.pk]))
 
     @patch('origination.views._branch_creation_error', return_value=None)
     @patch('origination.views._capability_error', return_value=None)

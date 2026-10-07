@@ -80,7 +80,9 @@ def main_laf_contract(
         commercial_contract_enabled,
         merge_commercial_contract,
     )
-    template_types = _field_types(template.form_schema)
+    from origination.services.origination_fields import template_form_contract
+    document_schema, document_signers = template_form_contract(template)
+    template_types = _field_types(document_schema)
     if commercial_contract_enabled(definition.form_schema):
         definition_types = _field_types(definition.form_schema)
         for key in COMMERCIAL_INPUT_KEYS:
@@ -89,21 +91,21 @@ def main_laf_contract(
             elif template_types[key] != definition_types.get(key):
                 reasons.append(f'The Main LAF uses an incompatible type for {key}.')
         try:
-            schema = merge_commercial_contract(deepcopy(template.form_schema or {}))
+            schema = merge_commercial_contract(document_schema)
         except (TypeError, ValueError) as exc:
             reasons.append(str(exc))
             schema = None
     else:
-        schema = deepcopy(template.form_schema or {})
+        schema = document_schema
 
     required_roles = _signer_roles(definition.signer_rules)
-    missing_roles = sorted(required_roles - _signer_roles(template.signer_rules))
+    missing_roles = sorted(required_roles - _signer_roles(document_signers))
     if missing_roles:
         reasons.append('The Main LAF is missing required signer roles: ' + ', '.join(missing_roles) + '.')
     if schema is not None:
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         try:
-            validate_product_form_contract(schema, template.signer_rules)
+            validate_product_form_contract(schema, document_signers)
         except OriginationError as exc:
             reasons.append(str(exc))
     return (schema if not reasons else None), reasons
@@ -171,7 +173,7 @@ def catalogue_for_product(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
         published_configuration_revision__isnull=False,
         product_eligibilities__product_id=definition.product_version.product_id,
-    ).select_related('published_configuration_revision').prefetch_related(
+    ).select_related('published_configuration_revision', 'product_definition').prefetch_related(
         Prefetch('product_eligibilities', queryset=OriginationDocumentProductEligibility.objects.all()),
     ).distinct().order_by('display_order', 'name', '-version'))
     mains = []
@@ -255,7 +257,9 @@ def validate_document_combination(
     """Reject canonical keys whose types disagree in the selected packet."""
     from origination.services.loan_origination import OriginationError
 
-    known = _field_types(primary.form_schema)
+    from origination.services.origination_fields import template_form_contract
+    primary_schema, _signers = template_form_contract(primary)
+    known = _field_types(primary_schema)
     conflicts = []
     for template in supporting:
         for key, data_type in _field_types(template.form_schema).items():

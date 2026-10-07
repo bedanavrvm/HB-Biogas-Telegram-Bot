@@ -149,6 +149,7 @@ def initialize_document_packet(
     from origination.services.origination_templates import resolve_assignment_template
 
     if primary_template is not None:
+        from origination.services.origination_fields import template_form_contract
         if not application.product_version_id:
             raise OriginationError('A governed product version is required for catalogue documents.')
         selected_ids = {
@@ -164,6 +165,7 @@ def initialize_document_packet(
         ))
         templates = [(primary_template, None), *((item, None) for item in candidates)]
         for template, _assignment in templates:
+            document_schema, document_signers = template_form_contract(template)
             is_primary = template.pk == primary_template.pk
             selected = is_primary or str(template.pk) in selected_ids
             OriginationApplicationDocument.objects.create(
@@ -192,9 +194,9 @@ def initialize_document_packet(
                     'catalogue_revision': catalogue_revision,
                     'resolved_template_id': str(template.pk),
                 },
-                schema_snapshot=template.form_schema or {},
+                schema_snapshot=document_schema,
                 signer_rules_snapshot=(
-                    _primary_signer_rules(template.signer_rules, application.signer_rules_snapshot)
+                    _primary_signer_rules(document_signers, application.signer_rules_snapshot)
                     if is_primary else deepcopy(template.signer_rules or [])
                 ),
             )

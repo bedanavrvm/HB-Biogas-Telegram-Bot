@@ -33,6 +33,11 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-topbar h1 { overflow: hidden; margin: 0; color: #172033 !important; font-size: 15px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .calibration-topbar p { margin: 1px 0 0; color: #64748b !important; font-size: 11px; }
 .calibration-actions, .tool-row, .calibration-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.calibration-topbar.is-published #calibration-save,
+.calibration-topbar.is-published #calibration-publish,
+.calibration-topbar.is-published #calibration-readiness-trigger,
+.calibration-topbar.is-published #calibration-save-state { display: none !important; }
+.calibration-topbar.is-published .cal-published-label { display: inline-flex; align-items: center; }
 .calibration-readiness-trigger, .calibration-save-state { min-height: 28px; box-sizing: border-box; padding: 4px 7px; border: 1px solid var(--cal-border); border-radius: 999px; background: var(--cal-control); color: var(--cal-text); font: 700 10px/1.1 system-ui, sans-serif; white-space: nowrap; }
 .calibration-readiness-trigger { cursor: pointer; }
 .calibration-save-state.is-dirty { border-color: #f59e0b; background: #fffbeb; color: #92400e; }

@@ -2542,7 +2542,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     list_display = ('name', 'document_role', 'eligible_products_summary', 'status', 'calibrate_link', 'page_count', 'updated_at')
     list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type', 'product_definition')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
-    actions = ('activate_selected_templates',)
+    actions = ('activate_selected_templates', 'create_editable_selected_template')
     readonly_fields = (
         'product_definition', 'document_key', 'name', 'document_role', 'inclusion_mode',
         'display_order', 'officer_selectable', 'default_selected', 'applicability_summary',
@@ -2664,7 +2664,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             })
         else:
             original = self.get_object(request, object_id)
-            if original and original.product_definition_id is None:
+            if original:
                 editable = OriginationDocumentTemplate.objects.filter(
                     product_definition__isnull=True,
                     document_type=original.document_type,
@@ -2672,7 +2672,6 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     version__gt=original.version,
                 ).order_by('-version').first()
                 current = OriginationDocumentTemplate.objects.filter(
-                    product_definition__isnull=True,
                     document_type=original.document_type,
                     status=OriginationDocumentTemplate.STATUS_ACTIVE,
                 ).order_by('-version').first()
@@ -2693,13 +2692,6 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     reverse('admin:origination_originationproductdocumentassignment_add')
                     + '?' + urlencode({'template': original.pk})
                 )
-            elif original and original.product_definition_id:
-                product = original.product_definition
-                if product.lifecycle_status == product.STATUS_PUBLISHED:
-                    context['origination_create_editable_product_url'] = reverse(
-                        'admin:origination_originationproductdefinition_create_next_version',
-                        args=[product.pk],
-                    )
         return super().changeform_view(request, object_id, form_url, context)
 
     @admin.display(description='Inclusion condition')
@@ -2888,6 +2880,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         return TemplateResponse(request, 'admin/core/originationdocumenttemplate/calibrate.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'Calibrate fields: {obj}', 'template_record': obj,
+            'calibration_create_editable_url': reverse(
+                'admin:origination_originationdocumenttemplate_create_editable_version', args=[obj.pk],
+            ) if obj.status == obj.STATUS_ACTIVE and obj.published_configuration_revision_id else '',
             'calibration_attach_product': product,
             'calibration_back_url': setup_return_url or (
                 reverse('admin:origination_originationproductdefinition_change', args=[product.pk])
@@ -3197,6 +3192,20 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         if obj.drive_file_id and obj.status != OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
             return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[obj.pk]))
         return super().response_add(request, obj, post_url_continue)
+
+    @admin.action(description='Create / open editable version')
+    def create_editable_selected_template(self, request, queryset):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one document.', level=messages.ERROR)
+            return None
+        selected = queryset.first()
+        if selected.status == selected.STATUS_READY:
+            return HttpResponseRedirect(reverse(
+                'admin:origination_originationdocumenttemplate_calibrate', args=[selected.pk],
+            ))
+        return self.create_editable_version_view(request, str(selected.pk))
 
     @admin.action(description='Activate selected template')
     def activate_selected_templates(self, request, queryset):

@@ -1230,8 +1230,10 @@ def create_application(
                 initial_payload['loan_fees'] = initial_fee_rows(definition.product_version)
             if catalogue_selection:
                 from origination.services.origination_documents import _primary_signer_rules
+                from origination.services.origination_fields import template_form_contract
+                _document_schema, document_signers = template_form_contract(primary_template)
                 signer_rules_snapshot = _primary_signer_rules(
-                    primary_template.signer_rules, definition.signer_rules,
+                    document_signers, definition.signer_rules,
                 )
                 template_configuration_snapshot = (
                     (primary_template.published_configuration_revision.configuration

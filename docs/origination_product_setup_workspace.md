@@ -36,6 +36,8 @@ Open **Manage availability** from a Product record or the published-product over
 - Published `ProductVersion` and `OriginationProductDefinition` rows are never edited.
 - **Create editable successor** reuses an existing draft when present, otherwise creates the next terms and form versions and inherits the prior packet/calibration through the established cloning services.
 - Existing applications continue to use their captured product, schema, template, and packet snapshots.
+- Published legacy Main LAFs retain the fields and signers of their original product definition, even when that product is retired. The catalogue validates this original contract against the selected product; it never borrows a newer product's fields to make an incompatible PDF appear ready.
+- In the document catalogue, select one document and choose **Create / open editable version**, or open the document's version button. A legacy published PDF can create an independent catalogue successor with its existing PDF, alignment, original form, signers and eligible products. Repeated requests reopen the draft; publishing it does not rewrite existing application snapshots.
 - Publishing a linked successor with the same start date replaces its exact predecessor: the earlier terms are retired, not deleted, and their dates, history and application references are preserved. Unrelated overlapping versions remain blocked. Document versions can reuse the same global product through their eligibility assignments.
 - Advanced model pages remain available. Meaningful configuration changes show a review reminder; publication status and actor/time metadata do not invalidate financial confirmation. Historical confirmation events are retained and do not become publication gates.
 

@@ -996,10 +996,6 @@ def clone_reusable_template_version(
     # is nullable, and PostgreSQL rejects FOR UPDATE when a select_related()
     # LEFT OUTER JOIN tries to lock the nullable side as well.
     source = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
-    if source.product_definition_id:
-        raise OriginationTemplateError(
-            'Create an editable product version to change a product-owned document.',
-        )
     if source.status != source.STATUS_ACTIVE or not source.published_configuration_revision_id:
         raise OriginationTemplateError(
             'Create an editable version from the current published family version.',
@@ -1023,6 +1019,8 @@ def clone_reusable_template_version(
     configuration = json.loads(json.dumps(published_revision.configuration))
     configuration['document_type'] = source.document_type
     configuration['version'] = next_version
+    from origination.services.origination_fields import template_form_contract
+    document_schema, document_signers = template_form_contract(source)
     successor = OriginationDocumentTemplate.objects.create(
         product_definition=None,
         document_key=source.document_key,
@@ -1032,8 +1030,8 @@ def clone_reusable_template_version(
         officer_selectable=source.officer_selectable,
         default_selected=source.default_selected,
         applicability_rule=json.loads(json.dumps(source.applicability_rule or {})),
-        form_schema=json.loads(json.dumps(source.form_schema or {})),
-        signer_rules=json.loads(json.dumps(source.signer_rules or [])),
+        form_schema=document_schema,
+        signer_rules=document_signers,
         document_type=source.document_type,
         name=source.name,
         version=next_version,
