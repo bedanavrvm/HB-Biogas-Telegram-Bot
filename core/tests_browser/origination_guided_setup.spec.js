@@ -20,6 +20,7 @@ labels = [('identity','Product and availability'),('terms','Financial terms'),('
 rows = [dict(key=k,label=v,status='stale' if k=='terms' else 'complete',status_label='Review changes' if k=='terms' else 'Complete',detail='Review the current values before publishing.',url='/setup/'+k+'/') for k,v in labels]
 context = dict(definition=definition,steps=rows,review_rows=rows,step_key='terms' if mode=='legacy' else 'publish',step_label='Financial terms' if mode=='legacy' else 'Review and publish',terms_readonly=mode=='legacy',terms_summary=terms,published_readonly=False,document_catalogue=dict(ready=False,reasons=['No compatible Main LAF is available.']),expected_tokens='{}',request_id='synthetic-request',dashboard_url='/setup/',advanced_url='/advanced/')
 if mode=='conflict':context['conflict']=dict(changed=['Financial terms'],submitted={'interest_rate':'12'})
+if mode=='review':context['same_day_replacement']=True
 print(engines['django'].from_string(sys.stdin.read()).render(context))
 `;
 
@@ -53,6 +54,10 @@ for (const mode of ['review','legacy','conflict']) {
     if(mode==='conflict') {
       await page.getByText('Keep a copy of my submitted values').click();
       await expect(page.locator('pre')).toContainText('12');
+    }
+    if(mode==='review') {
+      await expect(page.getByText('Publishing replaces the earlier version', {exact:false})).toBeVisible();
+      await expect(page.getByText('Its history and existing applications are kept.', {exact:false})).toBeVisible();
     }
     for(const width of [390,1280]) {
       await page.setViewportSize({width,height:900});

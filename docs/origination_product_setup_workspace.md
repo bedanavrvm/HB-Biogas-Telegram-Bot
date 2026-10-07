@@ -36,6 +36,7 @@ Open **Manage availability** from a Product record or the published-product over
 - Published `ProductVersion` and `OriginationProductDefinition` rows are never edited.
 - **Create editable successor** reuses an existing draft when present, otherwise creates the next terms and form versions and inherits the prior packet/calibration through the established cloning services.
 - Existing applications continue to use their captured product, schema, template, and packet snapshots.
+- Publishing a linked successor with the same start date replaces its exact predecessor: the earlier terms are retired, not deleted, and their dates, history and application references are preserved. Unrelated overlapping versions remain blocked. Document versions can reuse the same global product through their eligibility assignments.
 - Advanced model pages remain available. Meaningful configuration changes show a review reminder; publication status and actor/time metadata do not invalidate financial confirmation. Historical confirmation events are retained and do not become publication gates.
 
 ## Concurrency and idempotency

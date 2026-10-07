@@ -269,8 +269,10 @@ def _validate_version_children(version: ProductVersion) -> None:
 
 
 @transaction.atomic
-def publish_product_version(*, version: ProductVersion, actor) -> ProductVersion:
-    """Superuser-only publication with effective-date overlap protection."""
+def publish_product_version(
+    *, version: ProductVersion, actor, allow_same_day_replacement: bool = False,
+) -> ProductVersion:
+    """Publish terms; optionally retire the exact same-day predecessor."""
     if not getattr(actor, 'is_superuser', False):
         raise ProductCatalogError('Only a Django Superuser may publish product terms.')
     version = ProductVersion.objects.select_for_update().select_related('product').get(pk=version.pk)
@@ -292,6 +294,35 @@ def publish_product_version(*, version: ProductVersion, actor) -> ProductVersion
         .order_by('-effective_from')
     )
     for previous in overlapping:
+        if (allow_same_day_replacement and previous.effective_from == version.effective_from
+                and version.supersedes_id == previous.pk):
+            previous_status = previous.status
+            previous.status = ProductVersion.STATUS_RETIRED
+            previous._allow_catalog_publication = True
+            try:
+                previous.save(update_fields=['status', 'updated_at'])
+            finally:
+                del previous._allow_catalog_publication
+            replacement_event = ProductVersionEvent.objects.create(
+                product_version=previous, action='same_day_replaced', actor=actor,
+                metadata={'successor_id': str(version.pk), 'previous_status': previous_status,
+                          'effective_from': previous.effective_from.isoformat()},
+            )
+            try:
+                from core.services.compliance_audit import record_event
+                record_event(
+                    workflow='portal', action='global_product.same_day_replaced',
+                    category='configuration', origin='human',
+                    subject_type='product_version', subject_id=str(previous.pk),
+                    actor=actor, authority_user=actor,
+                    source_model='ProductVersionEvent', source_event_id=str(replacement_event.pk),
+                    deduplication_key=f'global-product:ProductVersionEvent:{replacement_event.pk}',
+                    before_values={'status': previous_status},
+                    after_values={'status': previous.status, 'successor_id': str(version.pk)},
+                )
+            except Exception as exc:
+                raise ProductCatalogError('The product audit event could not be recorded.') from exc
+            continue
         if previous.effective_from >= version.effective_from:
             raise ProductCatalogError('Published product-version effective dates cannot overlap.')
         previous.effective_to = version.effective_from - timedelta(days=1)

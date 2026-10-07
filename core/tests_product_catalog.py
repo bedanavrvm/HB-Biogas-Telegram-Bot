@@ -189,6 +189,19 @@ class ProductCatalogTests(TestCase):
         self.assertEqual(active_product_version(self.product), first)
         self.assertEqual(active_product_version(self.product, on_date=successor_date), second)
 
+    def test_same_day_replacement_requires_explicit_option_and_exact_predecessor(self):
+        from core.services.product_catalog import clone_product_version
+        first = publish_product_version(version=self.version, actor=self.superuser)
+        second = clone_product_version(first, actor=self.superuser)
+        with self.assertRaises(ProductCatalogError):
+            publish_product_version(version=second, actor=self.superuser)
+        second.supersedes = None
+        second.save(update_fields=['supersedes'])
+        with self.assertRaises(ProductCatalogError):
+            publish_product_version(version=second, actor=self.superuser, allow_same_day_replacement=True)
+        first.refresh_from_db()
+        self.assertEqual(first.status, ProductVersion.STATUS_PUBLISHED)
+
     def test_availability_is_global_until_assignments_restrict_it(self):
         branch_a = OperationalLocation.objects.create(
             location_type='branch', name='Branch A', code='JBL-BR-TEST-A',

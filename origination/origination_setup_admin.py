@@ -799,6 +799,13 @@ def _step_publish(model_admin, request, definition, context):
     from origination.services.origination_document_catalogue import catalogue_for_product
     context['document_catalogue'] = catalogue_for_product(definition)
     context['terms_summary'] = definition.product_version
+    terms = definition.product_version
+    context['same_day_replacement'] = bool(
+        terms and terms.supersedes_id
+        and terms.status == ProductVersion.STATUS_DRAFT
+        and terms.effective_from == terms.supersedes.effective_from
+        and terms.supersedes.status in {ProductVersion.STATUS_PUBLISHED, ProductVersion.STATUS_SCHEDULED}
+    )
     context['review_rows'] = [{**row, 'url': _workspace_url(definition, row['key'])}
                               for row in setup_readiness(definition)]
     if request.method != 'POST':
@@ -816,7 +823,10 @@ def _step_publish(model_admin, request, definition, context):
         if blockers:
             raise ValidationError([f"{item['label']}: {item['detail']}" for item in blockers])
         from core.services.product_catalog import publish_product_version
-        publish_product_version(version=definition.product_version, actor=request.user)
+        publish_product_version(
+            version=definition.product_version, actor=request.user,
+            allow_same_day_replacement=True,
+        )
         definition.refresh_from_db()
         from origination.services.origination_setup import publish_product_profile
         published = publish_product_profile(definition=definition, actor=request.user)

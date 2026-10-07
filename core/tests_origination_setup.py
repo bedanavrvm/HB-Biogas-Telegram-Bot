@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from origination.models import OriginationDocumentTemplate, OriginationProductDefinition
+from origination.models import LoanOriginationApplication, OriginationDocumentTemplate, OriginationProductDefinition
 from core.models import OperationalLocation, Product, ProductAvailability, ProductVersionEvent
 from origination.services.origination_setup import (
     OriginationSetupConflict,
@@ -21,6 +21,55 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def _published_with_same_day_successor(self):
+        original = self._ready_guided_draft()
+        self.assertEqual(self._publish_guided(original).status_code, 302)
+        original.refresh_from_db()
+        response = self.client.post(reverse(
+            'admin:origination_origination_setup_revise', args=[original.pk]),
+            {'request_id': str(uuid.uuid4())})
+        self.assertEqual(response.status_code, 302)
+        successor = OriginationProductDefinition.objects.get(product_key=original.product_key, lifecycle_status='draft')
+        self.assertEqual(original.product_version.effective_from, successor.product_version.effective_from)
+        return original, successor
+
+    def test_same_day_guided_successor_replaces_active_version_without_rewriting_application(self):
+        from core.services.product_catalog import active_product_version
+        original, successor = self._published_with_same_day_successor()
+        application = LoanOriginationApplication.objects.create(
+            reference_number='SAME-DAY-TRAINING', officer=self.superuser, branch=self.branch.name,
+            product_definition=original, product_version=original.product_version,
+            schema_snapshot=original.form_schema, product_terms_snapshot={'interest_rate':'10'},
+        )
+        request_id = str(uuid.uuid4())
+        self.assertEqual(self._publish_guided(successor, request_id).status_code, 302)
+        original.refresh_from_db()
+        successor.refresh_from_db()
+        application.refresh_from_db()
+        self.assertEqual(original.product_version.status, 'retired')
+        self.assertEqual(successor.product_version.status, 'published')
+        self.assertEqual(active_product_version(successor.product_version.product).pk, successor.product_version_id)
+        self.assertEqual(original.product_version.effective_from, successor.product_version.effective_from)
+        self.assertIsNone(original.product_version.effective_to)
+        self.assertEqual(application.product_version_id, original.product_version_id)
+        self.assertEqual(application.product_definition_id, original.pk)
+        self.assertEqual(application.product_terms_snapshot, {'interest_rate':'10'})
+        self.assertEqual(self._publish_guided(successor, request_id).status_code, 302)
+        self.assertEqual(original.product_version.events.filter(action='same_day_replaced').count(), 1)
+
+    def test_same_day_replacement_rolls_back_if_profile_publication_fails(self):
+        original, successor = self._published_with_same_day_successor()
+        with patch('origination.services.origination_setup.publish_product_profile',
+                   side_effect=ValidationError('Synthetic profile failure')):
+            response = self._publish_guided(successor)
+        self.assertEqual(response.status_code, 400)
+        original.refresh_from_db()
+        successor.refresh_from_db()
+        self.assertEqual(original.product_version.status, 'published')
+        self.assertTrue(original.is_active)
+        self.assertEqual(successor.product_version.status, 'draft')
+        self.assertFalse(original.product_version.events.filter(action='same_day_replaced').exists())
+
     def _ready_guided_draft(self):
         self.test_terms_can_save_without_forcing_optional_repeatable_rows()
         definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')

@@ -1,5 +1,12 @@
 # Changelog
 
+## 7 October 2026 - Same-day Origination product replacement
+
+- Guided setup can publish a linked successor on the same start date, retiring
+  the previous version without deleting history or changing existing applications.
+- Replacement and publication are atomic and audited. Unrelated overlapping
+  versions remain blocked; no database migration is needed.
+
 ## 7 October 2026 - Two-tab Origination navigation
 
 - Needs your action combines scoped corrections, drafts, legacy reviews and
