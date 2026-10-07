@@ -101,11 +101,12 @@ for (const width of [320,360,390,430,768,1280]) {
     await mountHistory(page);
     await expect(page.locator('.history-document-card').first()).toBeVisible();
     const card=await page.locator('.history-document-card').first().boundingBox();
-    expect(card.height).toBeLessThan(155);
+    expect(card.height).toBeLessThan(125);
+    await expect(page.locator('.physical-signoff-approved')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(page.locator('.history-document-card').first()).toHaveCSS('padding','8px');
     await expect(page.locator('.physical-signoff-muted span')).toHaveCSS('font-size','12px');
     await expectAlignedHeading(page,'.history-document-header','.history-document-title','.history-document-header .history-document-actions');
-    await expect(page.locator('.history-document-title').first()).toHaveCSS('justify-content','flex-start');
+    await expect(page.locator('.history-document-title').first()).toHaveCSS('justify-content','stretch');
     await expect(page.locator('.physical-signoff-upload')).toBeHidden();
     await expect(page.locator('.history-document-details').first()).toBeHidden();
     const tabs=await page.locator('.history-tabs').boundingBox(), filter=await page.locator('#history-filter-open').boundingBox();

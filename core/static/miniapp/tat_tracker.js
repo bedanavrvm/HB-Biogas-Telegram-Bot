@@ -504,7 +504,7 @@
   function caseIdentifierMarkup(item) {
     const identifiers = [];
     if (item.national_id) identifiers.push(`<span class="case-identifier"><small>ID</small>${escapeHtml(item.national_id)}</span>`);
-    if (item.primary_phone) identifiers.push(`<span class="case-identifier"><small>Phone</small>${escapeHtml(item.primary_phone)}</span>`);
+    if (item.primary_phone) identifiers.push(`<span class="case-identifier"><small>Phone</small><span data-miniapp-phone>${escapeHtml(item.primary_phone)}</span></span>`);
     return identifiers.length ? `<div class="case-identifiers">${identifiers.join('')}</div>` : '';
   }
   function renderEmpty(title, detail) {
@@ -2280,7 +2280,7 @@
         </div>
         <div class="fact">
           <small>Phone Number</small>
-          <span>${escapeHtml(summary.primary_phone || 'Not recorded')}</span>
+          <span data-miniapp-phone>${escapeHtml(summary.primary_phone || 'Not recorded')}</span>
         </div>
         <div class="fact">
           <small>Next Action</small>

@@ -48,6 +48,7 @@
   }
 
   function phoneLink(value) {
+    if (window.MiniAppUtils?.phoneLink) return window.MiniAppUtils.phoneLink(value);
     const text = String(value || '').trim();
     const digits = text.replace(/[^0-9+]/g, '');
     return /\d{7,}/.test(digits)
@@ -151,7 +152,7 @@
       const parsed = !matched ? `
           <div style="font-size:11px; color:#475569; margin-top:4px; line-height:1.45;">
             Parsed ID: <strong>${escapeHtml(row.parsed_national_id ?? row.customer_id ?? '-')}</strong> |
-            Phone: <strong>${escapeHtml(row.parsed_phone ?? row.customer_phone ?? '-')}</strong> |
+            Phone: <strong data-miniapp-phone>${escapeHtml(row.parsed_phone ?? row.customer_phone ?? '-')}</strong> |
             Selected order: <strong>${escapeHtml(row.selected_order_number ?? row.matched_order_number ?? result.order_number ?? '-')}</strong><br>
             Batch candidates: ${escapeHtml(row.batch_candidate_count ?? '-')} |
             ID matches: ${escapeHtml(row.batch_id_match_count ?? '-')} |
@@ -162,7 +163,7 @@
           <div style="font-size:11px; color:#7c2d12; margin-top:4px; line-height:1.45;">
             Possible match outside selected order:<br>
             ${(row.outside_batch_matches || []).map(function (match) {
-              return `${escapeHtml(match.customer_name || '-')} | ID ${escapeHtml(match.national_id || '-')} - ${escapeHtml(match.primary_phone || '-')} | Order ${escapeHtml(match.order_number || '-')} | Status ${escapeHtml(match.status || '-')}`;
+              return `${escapeHtml(match.customer_name || '-')} | ID ${escapeHtml(match.national_id || '-')} - <span data-miniapp-phone>${escapeHtml(match.primary_phone || '-')}</span> | Order ${escapeHtml(match.order_number || '-')} | Status ${escapeHtml(match.status || '-')}`;
             }).join('<br>')}
           </div>` : '';
       return `

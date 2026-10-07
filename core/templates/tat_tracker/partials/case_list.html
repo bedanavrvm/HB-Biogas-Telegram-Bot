@@ -12,7 +12,7 @@
     {% if case.national_id or case.primary_phone %}
       <div class="case-identifiers">
         {% if case.national_id %}<span class="case-identifier"><small>ID</small>{{ case.national_id }}</span>{% endif %}
-        {% if case.primary_phone %}<span class="case-identifier"><small>Phone</small>{{ case.primary_phone }}</span>{% endif %}
+        {% if case.primary_phone %}<span class="case-identifier"><small>Phone</small><span data-miniapp-phone>{{ case.primary_phone }}</span></span>{% endif %}
       </div>
     {% endif %}
     <div class="case-tags">

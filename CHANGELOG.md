@@ -1,5 +1,16 @@
 # Changelog
 
+## 7 October 2026 - Compact orders, documents and shared phone actions
+
+- Order selection keeps the number and date on one row, with Preview Form
+  immediately below on phones and alongside on wider screens.
+- Document History uses one compact list with aligned workbook and signed-copy
+  actions, small icons and a green storage indicator beside the reference.
+- Shared phone links cover displayed contacts in Portal, TAT, Complaints, SPIN
+  and Origination, including dynamic phone cells. IDs, masked contacts and
+  editable fields are not converted. Calling does not open the parent case.
+- Presentation only: no workflow, permission, financial or database changes.
+
 ## 7 October 2026 — Invoice record layout
 
 - Invoice actions share the available width evenly, with small icons, readable

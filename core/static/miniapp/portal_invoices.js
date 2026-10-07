@@ -416,7 +416,7 @@
       summary.innerHTML = [
         '<div class="batch-client-row">',
         '<div class="name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
-        '<div class="meta">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div>',
+        '<div class="meta">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | <span data-miniapp-phone>' + escapeHtml(invoice.customer_phone || '-') + '</span></div>',
         '<div class="meta">Amount ' + money(invoice.invoice_amount) + ' | Balance ' + money(invoice.balance_due) + '</div>',
         '</div>',
       ].join('');
@@ -435,8 +435,8 @@
     state.selectedInvoice = null;
   }
 
-  function kv(label, value, { wide = false } = {}) {
-    return '<div class="invoice-detail-field' + (wide ? ' invoice-detail-field-wide' : '') + '"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
+  function kv(label, value, { wide = false, phone = false } = {}) {
+    return '<div class="invoice-detail-field' + (wide ? ' invoice-detail-field-wide' : '') + '"><div class="meta">' + escapeHtml(label) + '</div><div class="name"' + (phone ? ' data-miniapp-phone' : '') + '>' + escapeHtml(value || '-') + '</div></div>';
   }
 
   function renderInvoiceDetail(data, target = el('invoice-detail-content'), { routeMode = false } = {}) {
@@ -544,7 +544,7 @@
       '<div class="invoice-record-heading">',
       '<div><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
       '<div class="invoice-customer-name">' + escapeHtml(invoice.customer_name || 'Unknown customer') + '</div>',
-      '<div class="invoice-customer-meta"><span><span class="invoice-meta-label">National ID</span> ' + escapeHtml(invoice.customer_id || '-') + '</span>' + (invoice.customer_phone ? '<span><span class="invoice-meta-label">Phone</span> ' + escapeHtml(invoice.customer_phone) + '</span>' : '') + '</div></div>',
+      '<div class="invoice-customer-meta"><span><span class="invoice-meta-label">National ID</span> ' + escapeHtml(invoice.customer_id || '-') + '</span>' + (invoice.customer_phone ? '<span><span class="invoice-meta-label">Phone</span> <span data-miniapp-phone>' + escapeHtml(invoice.customer_phone) + '</span></span>' : '') + '</div></div>',
       '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
       '</div>',
       orderReferenceNotice,
@@ -564,7 +564,7 @@
       kv('Invoice date', fmtDate(invoice.invoice_date)),
       kv('Invoice holder', invoice.customer_name, {wide: true}),
       kv('National ID', invoice.customer_id),
-      kv('Phone', invoice.customer_phone),
+      kv('Phone', invoice.customer_phone, {phone: true}),
       kv('Page', invoice.page),
       kv('Matched order', invoice.matched_order_number),
       kv('Printed order', invoice.printed_order_reference),
@@ -1000,7 +1000,7 @@
         '<div class="invoice-match-comparison">',
         '<div><strong>Name</strong><span>Invoice: ' + escapeHtml(invoice.customer_name || '-') + '</span><span>Applicant: ' + escapeHtml(farmer.customer_name || '-') + '</span></div>',
         '<div><strong>National ID</strong><span>Invoice: ' + escapeHtml(invoice.customer_id || '-') + '</span><span>Applicant: ' + escapeHtml(farmer.national_id || '-') + '</span></div>',
-        '<div><strong>Phone</strong><span>Invoice: ' + escapeHtml(invoice.customer_phone || '-') + '</span><span>Applicant: ' + escapeHtml(farmer.primary_phone || '-') + '</span></div>',
+        '<div><strong>Phone</strong><span>Invoice: <span data-miniapp-phone>' + escapeHtml(invoice.customer_phone || '-') + '</span></span><span>Applicant: <span data-miniapp-phone>' + escapeHtml(farmer.primary_phone || '-') + '</span></span></div>',
         '</div>',
         '<div class="fc-sub">' + escapeHtml(deps.locationText(farmer)) + (farmer.order_number ? ' | Order ' + escapeHtml(farmer.order_number) : '') + (farmer.customer_no ? ' | Customer No ' + escapeHtml(farmer.customer_no) : '') + '</div>',
         reasons,
@@ -1369,7 +1369,7 @@
         const badge = identityMatches
           ? '<span class="badge badge-green">Identity matches</span>'
           : '<span class="badge badge-grey">Cannot select</span>';
-        const phone = inv.customer_phone ? ' · Phone ' + escapeHtml(inv.customer_phone) : '';
+        const phone = inv.customer_phone ? ' · <span data-miniapp-phone>' + escapeHtml(inv.customer_phone) + '</span>' : '';
         return '<article class="farmer-card replacement-candidate"><div><div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(inv.invoice_no || '-') + '</div>' + badge + '</div><div class="fc-sub">' + escapeHtml(inv.customer_name || '-') + ' · ID ' + escapeHtml(inv.customer_id || '-') + phone + ' · ' + escapeHtml(inv.status) + '</div>' + (row.status_note ? '<div class="invoice-card-warning">' + escapeHtml(row.status_note) + '</div>' : '') + '</div><button type="button" class="btn btn-primary choose-replacement" data-invoice="' + escapeHtml(inv.id) + '"' + (row.selectable ? '' : ' disabled') + '>Select</button></article>';
       }).join('');
       list.querySelectorAll('.choose-replacement:not([disabled])').forEach(function (button) { button.addEventListener('click', async function () {

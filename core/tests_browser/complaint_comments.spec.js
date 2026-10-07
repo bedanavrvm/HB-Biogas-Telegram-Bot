@@ -19,6 +19,7 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.addStyleTag({ path: asset('activity_changes.css') });
   await page.addScriptTag({ path: asset('activity_changes.js') });
+  await page.addScriptTag({ path: asset('utils.js') });
   await page.evaluate(initData => {
     document.body.dataset.groupId = '-100-comment-fixture';
     const item = { case_id: 'synthetic-comment', id: 'synthetic-comment', reference_number: 'CMP-TEST',
@@ -29,7 +30,7 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     window.__complaintFixture = item;
     const webApp = { initData, BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {} };
     window.Telegram = { WebApp: webApp };
-    window.MiniAppUtils = { initTelegram: () => webApp, setCloseProtection() {}, haptic() {} };
+    Object.assign(window.MiniAppUtils, { initTelegram: () => webApp, setCloseProtection() {}, haptic() {} });
     window.ComplaintCasesMiniAppApi = {
       async postJson(path) {
         if (path === 'bootstrap/') return { data: {
@@ -50,7 +51,9 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     };
   }, initData);
   await page.addScriptTag({ path: asset('complaint_cases.js') });
+  await expect(page.locator('#caseList a[href="tel:+254700000000"]')).toBeVisible();
   await page.locator('#caseList .case-row').click();
+  await expect(page.locator('#detailIdentifiers a[href="tel:+254700000000"]')).toBeVisible();
   await expect(page.locator('#commentForm')).toBeVisible();
   await expect(page.locator('#commentForm h2')).toHaveText('Add Comment');
   await expect(page.locator('#detailSource')).toBeHidden();

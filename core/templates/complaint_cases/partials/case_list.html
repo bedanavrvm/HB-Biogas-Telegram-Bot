@@ -4,7 +4,7 @@
       <p class="case-id"><span class="queue-number">#{{ forloop.counter0|add:start_index }}</span> {{ case_item.reference_number|default:case_item.case_id }}</p>
       <h2>{{ case_item.customer_name|default:"Unnamed client" }}</h2>
       <p>{{ case_item.category|default:"Complaint" }} - {{ case_item.branch|default:"Branch not provided" }}</p>
-      <p>{{ case_item.customer_phone|default:case_item.customer_id|default:"No client identifier" }}</p>
+      <p>{% if case_item.customer_phone %}<span data-miniapp-phone>{{ case_item.customer_phone }}</span>{% else %}{{ case_item.customer_id|default:"No client identifier" }}{% endif %}</p>
       {% if case_item.recorded_at %}
         <p class="case-recorded">Recorded {{ case_item.recorded_at }}</p>
       {% endif %}

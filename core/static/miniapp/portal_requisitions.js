@@ -121,7 +121,7 @@
       return `<tr>
         <td>${index + 1}</td>
         <td>${deps.escapeHtml(caps(farmer.customer_name || '-'))}</td>
-        <td>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
+        <td data-miniapp-phone>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
         <td>${deps.escapeHtml(farmer.national_id || '-')}</td>
         <td>${deps.escapeHtml(caps(farmer.credit_decision || '-'))}</td>
         <td>${deps.escapeHtml(caps(farmer.final_decision_comment || ''))}</td>
@@ -1121,7 +1121,7 @@
           invoiceResultsSummary.textContent = `Review ${res.total_parsed || 0} extracted invoice(s). No farmer or Sheet has been updated yet.`;
           const matchCandidates = res.match_candidates || [];
           const candidateOptions = selectedId => '<option value="">Select the matching applicant</option>' + matchCandidates.map(candidate => `<option value="${deps.escapeHtml(candidate.id)}"${String(candidate.id) === String(selectedId || '') ? ' selected' : ''}>${deps.escapeHtml(String(candidate.applicant_name || candidate.lead_name || 'Unnamed applicant').toUpperCase())} · ID ${deps.escapeHtml(candidate.applicant_national_id || candidate.lead_national_id || '-')}</option>`).join('');
-          const comparison = (row, candidate) => `<div class="invoice-upload-comparison"><div><strong>FarmUp lead</strong><span>${deps.escapeHtml(String(candidate?.lead_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.lead_national_id || '-')} · ${deps.escapeHtml(candidate?.lead_phone || '-')}</small></div><div><strong>Invoice holder</strong><span>${deps.escapeHtml(String(row.customer_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(row.customer_id || '-')} · ${deps.escapeHtml(row.customer_phone || '-')}</small></div><div><strong>SysUp applicant</strong><span>${deps.escapeHtml(String(candidate?.applicant_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.applicant_national_id || '-')} · ${deps.escapeHtml(candidate?.applicant_phone || '-')}</small></div></div>`;
+          const comparison = (row, candidate) => `<div class="invoice-upload-comparison"><div><strong>FarmUp lead</strong><span>${deps.escapeHtml(String(candidate?.lead_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.lead_national_id || '-')} · <span data-miniapp-phone>${deps.escapeHtml(candidate?.lead_phone || '-')}</span></small></div><div><strong>Invoice holder</strong><span>${deps.escapeHtml(String(row.customer_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(row.customer_id || '-')} · <span data-miniapp-phone>${deps.escapeHtml(row.customer_phone || '-')}</span></small></div><div><strong>SysUp applicant</strong><span>${deps.escapeHtml(String(candidate?.applicant_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.applicant_national_id || '-')} · <span data-miniapp-phone>${deps.escapeHtml(candidate?.applicant_phone || '-')}</span></small></div></div>`;
           invoiceResultsList.innerHTML = (res.results || []).map(row => {
             const proposed = matchCandidates.find(candidate => String(candidate.id) === String(row.proposed_farmer_id || '')) || row.proposed_farmer;
             return `

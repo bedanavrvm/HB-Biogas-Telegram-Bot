@@ -7,6 +7,7 @@ const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 async function mountRecord(page, {width = 390, writable = true, status = 'matched', source = true} = {}) {
   await page.setViewportSize({width, height: 900});
   await mountPortalShell(page, '<section id="portal-screen" data-screen="invoices" data-invoice-view="detail" data-invoice-id="synthetic-invoice"><div id="invoice-detail-page" class="invoice-detail-page"></div></section>');
+  await page.addScriptTag({path: asset('utils.js')});
   await page.addScriptTag({path: asset('portal_invoices.js')});
   await page.evaluate(async ({writable, status, source}) => {
     const person = {name: 'Synthetic Applicant With A Long Family Name', national_id: 'TEST-ID-123'};
@@ -25,6 +26,7 @@ async function mountRecord(page, {width = 390, writable = true, status = 'matche
 for (const width of [320, 390, 430, 768]) {
   test(`invoice record actions and biodata use available width at ${width}px`, async ({page}, info) => {
     await mountRecord(page, {width});
+    await expect(page.getByRole('link', {name:'Call +254000000000'})).toHaveCount(2);
     for (const dark of [false, true]) {
       await page.evaluate(dark => {
         document.documentElement.dataset.miniappColorScheme = dark ? 'dark' : 'light';

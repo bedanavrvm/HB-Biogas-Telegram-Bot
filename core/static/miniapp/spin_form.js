@@ -377,7 +377,7 @@
       ['Amount', data.requested_amount || '-'],
       ['Tenor', data.tenor || '-']
     ];
-    summaryList.innerHTML = rows.map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(value)}</dd>`).join('');
+    summaryList.innerHTML = rows.map(([label, value]) => `<dt>${label}</dt><dd${label === 'Phone' ? ' data-miniapp-phone' : ''}>${escapeHtml(value)}</dd>`).join('');
   }
 
   function escapeHtml(value) {
@@ -695,7 +695,7 @@
           <summary class="card-toggle">
             <span class="card-title-group">
               <span class="card-customer-name">${escapeHtml(customerName)}</span>
-              <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} / ${escapeHtml(r.primary_phone || 'No phone')} / KES ${formatAmount(r.requested_amount)}</span>
+              <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} / <span data-miniapp-phone>${escapeHtml(r.primary_phone || 'No phone')}</span> / KES ${formatAmount(r.requested_amount)}</span>
               <span class="card-date">${escapeHtml(r.request_datetime ? (utils.formatDateTime ? utils.formatDateTime(r.request_datetime) : r.request_datetime) : 'Date not set')} / ${escapeHtml(r.request_id || '')}</span>
             </span>
             <span class="card-header-right">
@@ -718,7 +718,7 @@
             </div>
             <div class="card-field">
               <label>Primary Phone</label>
-              <span>${escapeHtml(r.primary_phone || '-')}</span>
+              <span data-miniapp-phone>${escapeHtml(r.primary_phone || '-')}</span>
             </div>
             <div class="card-field">
               <label>Request Type</label>

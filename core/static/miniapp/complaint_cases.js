@@ -434,7 +434,9 @@
   }
   function metaItem(icon, value) {
     const node = document.createElement('span');
-    node.append(iconNode(icon), textNode('span', value));
+    const text = textNode('span', value);
+    if (icon === 'phone') text.dataset.miniappPhone = '';
+    node.append(iconNode(icon), text);
     return node;
   }
   function loadingNode(label) {
@@ -675,7 +677,8 @@
     $('detailStatus').className = `status-pill ${displayStatus(item.status).toLowerCase()}`;
     $('detailNeedsDetails').hidden = !item.needs_details;
     const ids = $('detailIdentifiers'); ids.replaceChildren();
-    [item.customer_phone, item.customer_id].filter(Boolean).forEach(value => ids.appendChild(textNode('span', value)));
+    if (item.customer_phone) { const phone = textNode('span', item.customer_phone); phone.dataset.miniappPhone = ''; ids.appendChild(phone); }
+    if (item.customer_id) ids.appendChild(textNode('span', item.customer_id));
     $('detailDescription').textContent = item.description || 'No description recorded.';
     const meta = $('detailMeta'); meta.replaceChildren();
     [

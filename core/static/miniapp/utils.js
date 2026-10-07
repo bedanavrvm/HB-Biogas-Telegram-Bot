@@ -12,6 +12,58 @@
   let approvedDestination = '';
   let approvedAt = 0;
 
+  // Contact presentation only: never infer a phone from arbitrary numeric text
+  // (national IDs and invoice numbers can look identical). Kenya is the local
+  // numbering context; other countries must supply an explicit + or 00 prefix.
+  function phoneHref(value) {
+    const text = String(value ?? '').trim();
+    if (!/^(?:\+|00)?[\d\s().-]+$/.test(text)) return '';
+    let digits = text.replace(/\D/g, '');
+    if (text.startsWith('00')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = '254' + digits.slice(1);
+    else if (!text.startsWith('+') && !digits.startsWith('254')) return '';
+    return /^[1-9]\d{6,14}$/.test(digits) ? 'tel:+' + digits : '';
+  }
+
+  function phoneLink(value) {
+    const text = String(value ?? '').trim();
+    const href = phoneHref(text);
+    return href ? '<a class="miniapp-phone-link" href="' + href + '" aria-label="Call ' + escapeHtml(text) + '">' + escapeHtml(text) + '</a>' : escapeHtml(text || '-');
+  }
+
+  function phoneNode(value) {
+    const href = phoneHref(value);
+    const node = document.createElement(href ? 'a' : 'span');
+    node.textContent = String(value ?? '').trim() || '-';
+    if (href) {
+      node.className = 'miniapp-phone-link'; node.href = href;
+      node.setAttribute('aria-label', 'Call ' + node.textContent);
+    }
+    return node;
+  }
+
+  const phoneFieldSelector = '[data-miniapp-phone],.ag-cell[col-id*="phone" i],.ag-cell[col-id*="mobile" i]';
+  function hydratePhoneLinks(root) {
+    if (!root?.querySelectorAll) return;
+    const fields = [...(root.matches?.(phoneFieldSelector) ? [root] : []), ...root.querySelectorAll(phoneFieldSelector)];
+    fields.forEach(field => {
+      if (field.closest('a,input,textarea,select,[contenteditable="true"]') || field.querySelector('a,input,textarea,select')) return;
+      const href = phoneHref(field.textContent);
+      if (href) field.replaceChildren(phoneNode(field.textContent));
+    });
+  }
+
+  // The same declarative contact field covers AJAX, htmx and virtualized grids.
+  // Only added contact nodes are visited; there is no page-wide number scanning.
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    hydratePhoneLinks(document);
+    new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => hydratePhoneLinks(node.nodeType === 1 ? node : node.parentElement))))
+      .observe(document.documentElement, {childList: true, subtree: true});
+    document.addEventListener('click', event => {
+      if (event.target.closest?.('a[href^="tel:"]')) event.stopPropagation();
+    }, true);
+  }
+
   function miniAppColorScheme(tg) {
     const telegramScheme = String(tg && tg.colorScheme || '').toLowerCase();
     if (telegramScheme === 'dark' || telegramScheme === 'light') return telegramScheme;
@@ -771,7 +823,8 @@
       const label = document.createElement('span');
       const value = document.createElement('strong');
       label.textContent = entry[0];
-      value.textContent = entry[1];
+      if (entry[0] === 'Contact') value.appendChild(phoneNode(entry[1]));
+      else value.textContent = entry[1];
       row.append(label, value);
       facts.appendChild(row);
     });
@@ -787,6 +840,10 @@
   applyMiniAppTheme(telegramWebApp());
 
   window.MiniAppUtils = {
+    phoneHref: phoneHref,
+    phoneLink: phoneLink,
+    phoneNode: phoneNode,
+    hydratePhoneLinks: hydratePhoneLinks,
     apiError: apiError,
     escapeHtml: escapeHtml,
     fetchHtml: fetchHtml,

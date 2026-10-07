@@ -88,6 +88,10 @@ for (const serverCards of [false,true]) for (const width of [320,768]) {
     await expect(page.locator('#batch-prepare-fields')).toBeVisible();
     await expect(page.locator('#batch-prepare-order')).toHaveCount(0);
     await expect(page.locator('#batch-order-num')).toHaveValue('HB-104');
+    const [numberBox, dateBox] = await page.evaluate(() => ['batch-order-num','batch-req-date'].map(id => {const box = document.getElementById(id).getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width};}));
+    expect(dateBox.y).toBeCloseTo(numberBox.y, 0);
+    expect(dateBox.x).toBeGreaterThan(numberBox.x + numberBox.width);
+    expect((await page.locator('#requisition-batch-panel').boundingBox()).height).toBeLessThan(180);
     await expect(page.getByRole('button',{name:'Preview Form',exact:true})).toBeVisible();
     await expect(page.locator('#batch-clear-selection svg')).toBeVisible();
     expect((await page.locator('#batch-clear-selection').boundingBox()).width).toBe(44);

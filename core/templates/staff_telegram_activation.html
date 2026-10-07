@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Activate JBL staff access</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=9">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <style>
     body{background:var(--bg-base);color:var(--text-primary);margin:0;padding:max(1rem,env(safe-area-inset-top)) 1rem max(1rem,env(safe-area-inset-bottom));font-family:system-ui,sans-serif}
@@ -40,7 +40,7 @@
     </form>
     <div id="activation-status" class="activation-status" role="status" aria-live="polite" hidden></div>
   </main>
-  <script src="{% static 'miniapp/utils.js' %}?v=13"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=21"></script>
   <script>
   (function(){
     const utils=window.MiniAppUtils||{},tg=utils.initTelegram?utils.initTelegram():(window.Telegram&&window.Telegram.WebApp);

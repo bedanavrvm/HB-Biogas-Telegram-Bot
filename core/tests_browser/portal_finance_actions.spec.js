@@ -12,7 +12,7 @@ async function styles(page) {
 for (const width of [320, 360, 390, 430, 768, 1280]) {
   test(`document actions align at ${width}px`, async ({page}, info) => {
     await page.setViewportSize({width,height:850});
-    await page.setContent('<body class="workflow-standard portal-app"><main id="content"><div id="history-list"></div></main></body>');
+    await page.setContent('<body class="workflow-standard portal-app"><main id="content"><section id="page-history"><div id="history-list"></div></section></main></body>');
     await styles(page);
     const source = fs.readFileSync(asset('portal.js'), 'utf8');
     const renderer = source.slice(source.indexOf('  function physicalSignoffMarkup('), source.indexOf('  async function loadHistory('));
@@ -25,13 +25,13 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
         document.documentElement.dataset.miniappColorScheme=dark?'dark':'light';
         for(const [key,value] of Object.entries(dark?{bg_color:'#17171e',secondary_bg_color:'#20202c',text_color:'#ffffff',hint_color:'#a8a8b3'}:{bg_color:'#f5f7f8',secondary_bg_color:'#ffffff',text_color:'#17212b',hint_color:'#6d7a86'})) document.documentElement.style.setProperty('--tg-theme-'+key.replaceAll('_','-'),value);
       },dark);
-      await expect.poll(()=>page.locator('.history-document-actions .miniapp-icon-button').first().evaluate(node=>getComputedStyle(node).backgroundColor)).toBe(dark?'rgb(32, 32, 44)':'rgb(255, 255, 255)');
+      await expect.poll(()=>page.locator('.history-document-actions .miniapp-icon-button').first().evaluate(node=>getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
       const geometry = await page.locator('.physical-signoff-approved .miniapp-icon-button').evaluateAll(nodes=>nodes.map(node=>({y:node.getBoundingClientRect().y,width:node.getBoundingClientRect().width,icon:node.querySelector('svg').getBoundingClientRect().width})));
-      expect(geometry).toHaveLength(2);
+      expect(geometry).toHaveLength(3);
       const signedRow = await page.locator('.physical-signoff-approved').boundingBox();
       expect(geometry[0].y).toBeLessThan(signedRow.y + 28);
       expect(Math.abs(geometry[0].y-geometry[1].y)).toBeLessThan(1);
-      geometry.forEach(box=>{expect(box.width).toBe(44);expect(box.icon).toBe(20);});
+      geometry.forEach(box=>{expect(box.width).toBe(44);expect(box.icon).toBe(16);});
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       await expect(page.getByRole('button',{name:'Preview workbook',exact:true})).toBeVisible();
       await page.screenshot({path:info.outputPath(`history-${width}-${dark?'dark':'light'}.png`)});

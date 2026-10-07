@@ -205,6 +205,11 @@ button[aria-disabled="true"] {
 }
 
 .mini-empty-state strong { color: var(--text-primary); font-size: 13px; }
+
+/* Shared, recognizable contact action. Inline text links keep their surrounding
+   typography; they do not become oversized buttons in dense rows or grids. */
+a.miniapp-phone-link { color:var(--brand-primary); text-decoration:underline; text-underline-offset:3px; font:inherit; display:inline-flex; align-items:center; min-height:24px; overflow-wrap:anywhere; }
+a.miniapp-phone-link:focus-visible { outline:2px solid var(--brand-primary); outline-offset:3px; border-radius:2px; }
 .mini-empty-state span { font-size: 12px; }
 
 .mini-skeleton-list { display: grid; gap: 8px; padding: 4px 0; }
