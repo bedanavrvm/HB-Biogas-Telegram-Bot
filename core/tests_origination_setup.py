@@ -1,8 +1,10 @@
 import json
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -19,6 +21,145 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def _ready_guided_draft(self):
+        self.test_terms_can_save_without_forcing_optional_repeatable_rows()
+        definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
+        definition.signer_rules = [{'role': 'officer', 'required': True}]
+        definition.save(update_fields=['signer_rules'])
+        return definition
+
+    def _publish_guided(self, definition, request_id=None):
+        return self.client.post(reverse(
+            'admin:origination_origination_setup_step', args=[definition.pk, 'publish'],
+        ), {'expected_tokens': json.dumps(step_tokens(definition)),
+            'request_id': request_id or str(uuid.uuid4())})
+
+    def test_guided_publication_is_one_atomic_action_without_confirmation_gates(self):
+        definition = self._ready_guided_draft()
+        request_id = str(uuid.uuid4())
+        self.assertEqual(definition.product_version.status, 'draft')
+        response = self._publish_guided(definition, request_id)
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertEqual(definition.lifecycle_status, 'published')
+        self.assertEqual(definition.product_version.status, 'published')
+        self.assertTrue(definition.is_active)
+        replay = self._publish_guided(definition, request_id)
+        self.assertEqual(replay.status_code, 302)
+        self.assertEqual(definition.events.filter(action='published').count(), 1)
+        self.assertEqual(definition.product_version.events.filter(action='published').count(), 1)
+
+    def test_failed_profile_publication_rolls_back_financial_publication(self):
+        definition = self._ready_guided_draft()
+        with patch('origination.services.origination_setup.publish_product_profile',
+                   side_effect=ValidationError('Synthetic publication failure')):
+            response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 400)
+        definition.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+        self.assertFalse(definition.product_version.product.active)
+        self.assertEqual(definition.lifecycle_status, 'draft')
+        self.assertFalse(definition.product_version.events.filter(action='published').exists())
+
+    def test_financial_publication_metadata_does_not_make_terms_stale(self):
+        definition = self._ready_guided_draft()
+        from core.services.product_catalog import publish_product_version
+        publish_product_version(version=definition.product_version, actor=self.superuser)
+        rows = setup_readiness(definition)
+        self.assertEqual(next(row for row in rows if row['key'] == 'terms')['status'], 'complete')
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+
+    def test_unrelated_identity_change_does_not_conflict_with_terms_save(self):
+        definition = self._ready_guided_draft()
+        expected = step_tokens(definition)
+        product = definition.product_version.product
+        product.description = 'A separate identity edit'
+        product.save(update_fields=['description'])
+        assert_expected_state(definition=definition, expected_tokens=expected, step_key='terms')
+        definition.product_version.interest_rate = '12'
+        definition.product_version.save(update_fields=['interest_rate'])
+        with self.assertRaises(OriginationSetupConflict):
+            assert_expected_state(definition=definition, expected_tokens=expected, step_key='terms')
+
+    def test_legacy_confirmation_hash_cannot_soft_lock_valid_terms(self):
+        definition = self._ready_guided_draft()
+        event = definition.product_version.events.get(
+            action='setup_step_completed', metadata__step_key='terms')
+        metadata = dict(event.metadata)
+        metadata.pop('content_sha256')
+        metadata['state_sha256'] = 'legacy-publication-dependent-hash'
+        ProductVersionEvent.objects.filter(pk=event.pk).update(metadata=metadata)
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+
+    def test_legacy_published_terms_can_get_an_editable_successor(self):
+        definition = self._ready_guided_draft()
+        from core.services.product_catalog import publish_product_version
+        published = publish_product_version(version=definition.product_version, actor=self.superuser)
+        response = self.client.post(reverse(
+            'admin:origination_origination_setup_revise', args=[definition.pk]),
+            {'request_id': str(uuid.uuid4())})
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertNotEqual(definition.product_version_id, published.pk)
+        self.assertEqual(definition.product_version.status, 'draft')
+        published.refresh_from_db()
+        self.assertEqual(published.status, 'published')
+
+    def test_legacy_terms_publish_link_never_publishes_early(self):
+        definition = self._ready_guided_draft()
+        url = reverse('admin:origination_origination_setup_step', args=[definition.pk, 'terms_publish'])
+        for method in (self.client.get, self.client.post):
+            response = method(url)
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.url, reverse(
+                'admin:origination_origination_setup_step', args=[definition.pk, 'publish']))
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+
+    def test_invalid_signers_still_block_publication(self):
+        definition = self._ready_guided_draft()
+        definition.signer_rules = []
+        definition.save(update_fields=['signer_rules'])
+        response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 400)
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+
+    def test_form_can_save_while_financial_terms_are_still_draft(self):
+        definition = self._ready_guided_draft()
+        response = self.client.post(reverse(
+            'admin:origination_origination_setup_step', args=[definition.pk, 'form'],
+        ), {'expected_tokens': json.dumps(step_tokens(definition)), 'request_id': str(uuid.uuid4()),
+            'form_schema': json.dumps(definition.form_schema),
+            'signer_rules': json.dumps(definition.signer_rules)})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse(
+            'admin:origination_origination_setup_step', args=[definition.pk, 'publish']))
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+
+    def test_changed_valid_financial_terms_are_advisory_not_a_publication_lock(self):
+        definition = self._ready_guided_draft()
+        definition.product_version.interest_rate = '12'
+        definition.product_version.save(update_fields=['interest_rate'])
+        row = next(row for row in setup_readiness(definition) if row['key'] == 'terms')
+        self.assertEqual(row['status'], 'stale')
+        self.assertEqual(row['status_label'], 'Review changes')
+        self.assertTrue(row['valid'])
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+
+    def test_final_publication_rejects_a_concurrent_financial_edit(self):
+        definition = self._ready_guided_draft()
+        expected = step_tokens(definition)
+        definition.product_version.interest_rate = '12'
+        definition.product_version.save(update_fields=['interest_rate'])
+        response = self.client.post(reverse(
+            'admin:origination_origination_setup_step', args=[definition.pk, 'publish'],
+        ), {'expected_tokens': json.dumps(expected), 'request_id': str(uuid.uuid4())})
+        self.assertEqual(response.status_code, 409)
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+
     def setUp(self):
         self.superuser = get_user_model().objects.create_superuser(
             username='setup-admin', email='setup@example.test', password='secret',

@@ -476,12 +476,19 @@ def _base_context(model_admin, request, definition, step_key):
 
 def step_view(model_admin, request, object_id, step_key):
     _guard(request)
+    if step_key == 'terms_publish':
+        definition = _definition(object_id)
+        if not definition:
+            return HttpResponse(status=404)
+        messages.info(request, 'Financial terms are published with the product at final review.')
+        return HttpResponseRedirect(_workspace_url(definition, 'publish'))
     if step_key not in dict(SETUP_STEPS):
         return HttpResponse(status=404)
     definition = _definition(object_id)
     if not definition:
         return HttpResponse(status=404)
-    if request.method == 'POST' and definition.lifecycle_status != definition.STATUS_DRAFT:
+    if (request.method == 'POST' and definition.lifecycle_status != definition.STATUS_DRAFT
+            and not completed_request(definition=definition, step_key=step_key, request_id=_request_id(request))):
         messages.error(request, 'Published versions are immutable. Create an editable successor.')
         return HttpResponseRedirect(_workspace_url(definition, step_key))
     context = _base_context(model_admin, request, definition, step_key)
@@ -499,9 +506,6 @@ def step_view(model_admin, request, object_id, step_key):
                     _workspace_url(definition, next_key)
                     if next_key else reverse('admin:origination_origination_setup_dashboard')
                 )
-        current_step = next(item for item in context['steps'] if item['key'] == step_key)
-        if request.method == 'POST' and current_step['status'] == 'blocked':
-            raise ValidationError('Complete the preceding required setup step first.')
         response = handler(model_admin, request, definition, context)
     except OriginationSetupConflict as exc:
         labels = dict(SETUP_STEPS)
@@ -527,9 +531,13 @@ def step_view(model_admin, request, object_id, step_key):
     )
 
 
-def _check_locked(definition, request):
+def _check_locked(definition, request, step_key=None):
     locked = _definition(definition.pk, lock=True)
-    assert_expected_state(definition=locked, expected_tokens=_expected_tokens(request))
+    if (locked.lifecycle_status != locked.STATUS_DRAFT
+            and not (step_key == 'publish' and completed_request(
+                definition=locked, step_key='publish', request_id=_request_id(request)))):
+        raise ValidationError('This version was published. Create an editable successor to make changes.')
+    assert_expected_state(definition=locked, expected_tokens=_expected_tokens(request), step_key=step_key)
     return locked
 
 
@@ -543,7 +551,7 @@ def _step_identity(model_admin, request, definition, context):
         return None
     request_id = _request_id(request)
     with transaction.atomic():
-        definition = _check_locked(definition, request)
+        definition = _check_locked(definition, request, 'identity')
         product = definition.product_version.product
         posted = SetupIdentityForm(request.POST, instance=product)
         if not posted.is_valid():
@@ -586,7 +594,9 @@ def _step_terms(model_admin, request, definition, context):
         return None
     request_id = _request_id(request)
     with transaction.atomic():
-        definition = _check_locked(definition, request)
+        definition = _check_locked(definition, request, 'terms')
+        if definition.product_version.status != ProductVersion.STATUS_DRAFT:
+            raise ValidationError('These financial terms were published. Create an editable successor to change them.')
         form, fees, requirements, attributes = _terms_forms(request, definition.product_version)
         if not all(item.is_valid() for item in (form, fees, requirements, attributes)):
             context.update({'form': form, 'fees': fees, 'requirements': requirements, 'attributes': attributes})
@@ -600,24 +610,6 @@ def _step_terms(model_admin, request, definition, context):
             request_id=request_id,
         )
     messages.success(request, 'Commercial terms saved as a draft.')
-    return HttpResponseRedirect(_workspace_url(definition, 'terms_publish'))
-
-
-def _step_terms_publish(model_admin, request, definition, context):
-    context['terms_summary'] = definition.product_version
-    if request.method != 'POST':
-        return None
-    request_id = _request_id(request)
-    with transaction.atomic():
-        definition = _check_locked(definition, request)
-        from core.services.product_catalog import publish_product_version
-        publish_product_version(version=definition.product_version, actor=request.user)
-        definition.refresh_from_db()
-        record_step_completion(
-            definition=definition, step_key='terms_publish', actor=request.user,
-            request_id=request_id,
-        )
-    messages.success(request, 'Commercial terms published and locked.')
     return HttpResponseRedirect(_workspace_url(definition, 'form'))
 
 
@@ -642,7 +634,7 @@ def _step_form(model_admin, request, definition, context):
         return None
     request_id = _request_id(request)
     with transaction.atomic():
-        definition = _check_locked(definition, request)
+        definition = _check_locked(definition, request, 'form')
         form = SetupFormContractForm(request.POST, instance=definition)
         if not form.is_valid():
             context['form'] = form
@@ -806,21 +798,31 @@ def template_status_failed():
 def _step_publish(model_admin, request, definition, context):
     from origination.services.origination_document_catalogue import catalogue_for_product
     context['document_catalogue'] = catalogue_for_product(definition)
-    context['review_rows'] = setup_readiness(definition)
+    context['terms_summary'] = definition.product_version
+    context['review_rows'] = [{**row, 'url': _workspace_url(definition, row['key'])}
+                              for row in setup_readiness(definition)]
     if request.method != 'POST':
         return None
     request_id = _request_id(request)
     with transaction.atomic():
-        definition = _check_locked(definition, request)
+        definition = _check_locked(definition, request, 'publish')
+        if completed_request(definition=definition, step_key='publish', request_id=request_id):
+            return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
         readiness = setup_readiness(definition)
         blockers = [
             item for item in readiness[:-1]
-            if item['status'] not in {'complete', 'published'}
+            if not item['valid']
         ]
         if blockers:
-            raise ValidationError('Resolve every stale, incomplete, or blocked setup step before publishing.')
+            raise ValidationError([f"{item['label']}: {item['detail']}" for item in blockers])
+        from core.services.product_catalog import publish_product_version
+        publish_product_version(version=definition.product_version, actor=request.user)
+        definition.refresh_from_db()
         from origination.services.origination_setup import publish_product_profile
         published = publish_product_profile(definition=definition, actor=request.user)
+        for key in ('identity', 'terms', 'form'):
+            record_step_completion(definition=published, step_key=key,
+                                   actor=request.user, request_id=request_id)
         record_step_completion(
             definition=published, step_key='publish', actor=request.user,
             request_id=request_id,

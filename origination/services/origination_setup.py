@@ -22,12 +22,11 @@ from core.models import ProductVersion, ProductVersionEvent
 
 SETUP_STEPS = (
     ('identity', 'Product and availability'),
-    ('terms', 'Commercial terms'),
-    ('terms_publish', 'Publish terms'),
-    ('form', 'Compatibility profile'),
+    ('terms', 'Financial terms'),
+    ('form', 'Form and signers'),
     ('publish', 'Review and publish'),
 )
-LEGACY_RETURN_STEPS = {'documents', 'calibration'}
+LEGACY_RETURN_STEPS = {'documents', 'calibration', 'terms_publish'}
 RETURN_TOKEN_SALT = 'core.origination.setup.return.v1'
 RETURN_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
 
@@ -63,7 +62,7 @@ def resolve_return_token(token: str) -> dict[str, str]:
 
 def resume_step(definition: OriginationProductDefinition) -> str:
     rows = setup_readiness(definition)
-    for wanted in ('stale', 'in_progress'):
+    for wanted in ('in_progress', 'stale'):
         row = next((item for item in rows if item['status'] == wanted), None)
         if row:
             return row['key']
@@ -199,6 +198,19 @@ def state_token(definition: OriginationProductDefinition) -> str:
     return _digest(step_tokens(definition))
 
 
+def content_tokens(definition: OriginationProductDefinition) -> dict[str, str]:
+    """Confirmation facts, distinct from full write-concurrency tokens."""
+    snapshot = workspace_snapshot(definition)
+    terms = {key: value for key, value in snapshot['terms'].items()
+             if key not in {'status', 'published_by_id', 'published_at', 'created_at', 'created_by_id'}}
+    form = {**snapshot['form'], 'definition': {
+        key: value for key, value in snapshot['form']['definition'].items()
+        if key not in {'lifecycle_status', 'created_at', 'created_by_id'}
+    }}
+    return {'identity': _digest(snapshot['identity']), 'terms': _digest(terms),
+            'form': _digest({'terms': terms, 'form': form})}
+
+
 def _event_owner(definition, step_key):
     if step_key in {'identity', 'terms', 'terms_publish'} and definition.product_version_id:
         return ProductVersionEvent, {'product_version': definition.product_version}
@@ -213,7 +225,7 @@ def record_step_completion(
     model, relation = _event_owner(definition, step_key)
     existing = model.objects.filter(
         **relation, action='setup_step_completed',
-        metadata__request_id=request_id,
+        metadata__request_id=request_id, metadata__step_key=step_key,
     ).first()
     if existing:
         return
@@ -223,6 +235,7 @@ def record_step_completion(
             'step_key': step_key, 'request_id': request_id,
             'state_sha256': tokens[step_key],
             'workspace_sha256': _digest(tokens),
+            'content_sha256': content_tokens(definition).get(step_key, ''),
         },
     )
 
@@ -241,10 +254,16 @@ def completed_request(
 
 def assert_expected_state(
     *, definition: OriginationProductDefinition, expected_tokens: dict[str, str],
+    step_key: str | None = None,
 ) -> None:
     current = step_tokens(definition)
+    dependencies = {'identity': ('identity',), 'terms': ('terms',),
+                    'form': ('form',), 'publish': ('identity', 'terms', 'form')}
+    keys = dependencies[step_key] if step_key else tuple(key for key, _ in SETUP_STEPS)
+    if step_key and any(not expected_tokens.get(key) for key in keys):
+        raise ValidationError('Reload this setup before saving; its concurrency token is missing.')
     changed = [
-        key for key, _label in SETUP_STEPS
+        key for key in keys
         if expected_tokens.get(key) and expected_tokens.get(key) != current.get(key)
     ]
     if changed:
@@ -366,7 +385,7 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
     definition = OriginationProductDefinition.objects.select_related(
         'product_version__product',
     ).get(pk=definition.pk)
-    tokens = step_tokens(definition)
+    tokens = content_tokens(definition)
     product = definition.product_version.product if definition.product_version_id else None
     identity_valid = bool(
         product and product.name and product.code
@@ -377,47 +396,31 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
     terms_valid, terms_detail = _valid_terms(definition.product_version)
     form_valid, form_detail = _valid_form(definition)
     candidates = {
-        'identity': (identity_valid, 'Product identity and Origination availability are saved.'),
+        'identity': (identity_valid, 'Product and availability are saved.' if identity_valid else 'Add product details and at least one Origination availability assignment.'),
         'terms': (terms_valid, terms_detail),
-        'terms_publish': (
-            bool(definition.product_version_id and definition.product_version.status in {
-                ProductVersion.STATUS_PUBLISHED, ProductVersion.STATUS_SCHEDULED,
-            }),
-            'Publish the governed commercial terms before continuing.'
-        ),
         'form': (form_valid, form_detail),
         'publish': (
             definition.lifecycle_status == definition.STATUS_PUBLISHED and definition.is_active,
-            'The product compatibility profile is published. Document availability is governed independently by the catalogue.'
+            ('The product is published. Documents are managed separately.'
+             if definition.lifecycle_status == definition.STATUS_PUBLISHED
+             else 'Review the current settings, then publish the product once.')
         ),
     }
-    guided_workspace = bool(
-        definition.events.filter(action='setup_started').exists()
-        or (
-            definition.product_version_id
-            and definition.product_version.events.filter(action='setup_started').exists()
-        )
-    )
     rows = []
-    for index, (key, label) in enumerate(SETUP_STEPS):
+    for key, label in SETUP_STEPS:
         valid, detail = candidates[key]
         event = _last_completion(definition, key)
-        previous_required = all(candidates[item_key][0] for item_key, _ in SETUP_STEPS[:index])
         if key == 'publish' and valid:
             status = 'published'
-        elif event and event.metadata.get('state_sha256') != tokens[key]:
-            status = 'stale'
-            detail = 'An upstream or Advanced setting changed. Reopen and confirm this step.'
-        elif not previous_required:
-            status = 'blocked'
-            detail = 'Complete the preceding required step first.'
-        elif valid and (event or not guided_workspace):
-            status = 'complete'
-        elif event:
-            status = 'stale'
-        else:
+        elif not valid:
             status = 'in_progress'
-        rows.append({'key': key, 'label': label, 'status': status, 'detail': detail})
+        elif event and event.metadata.get('content_sha256') and event.metadata['content_sha256'] != tokens.get(key):
+            status = 'stale'
+            detail = 'Settings changed. Review the current values before publishing.'
+        else:
+            status = 'complete'
+        rows.append({'key': key, 'label': label, 'status': status, 'detail': detail,
+                     'valid': valid, 'status_label': {'stale': 'Review changes', 'in_progress': 'Incomplete'}.get(status, status.title())})
     return rows
 
 

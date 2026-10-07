@@ -1,5 +1,15 @@
 # Changelog
 
+## 7 October 2026 - Single-publish guided Origination setup
+
+- Financial terms remain editable until final review. One transaction publishes
+  both financial terms and the product profile, with full rollback on failure.
+- Setup sections stay navigable; changed settings are review reminders rather
+  than confirmation gates. Publication metadata no longer makes terms stale.
+- Saves check relevant concurrency dependencies. Existing published terms can
+  finish setup or use an editable successor; old Publish terms links go to review.
+- No change to application approval/signing safeguards, models or migrations.
+
 ## 7 October 2026 - Shared report controls and focused TAT queues
 
 - Portal and TAT report filters include month, quarter, year and date-range
