@@ -379,6 +379,18 @@ def portal_origination_applications(request):
         )
         capabilities = queue_capabilities(user=user, access=access)
         scoped = queryset
+        from origination.services.origination_queues import actionable_applications, STATUS_LABELS
+        next_actions = actionable_applications(scoped, user=user, access=access)
+        officer_only = capabilities['can_create'] and not any(
+            capabilities[key] for key in ('can_review', 'can_start_signing', 'can_staff_sign'))
+        # Officers may also have a staff-signing grant; exact business roles
+        # distinguish officer-only users from mixed-role viewers.
+        roles = set((access or {}).get('roles', []))
+        if roles and roles <= {'JBL_OFFICER'} and not user.is_superuser:
+            officer_only = True
+        application_rows = scoped.filter(officer=user) if officer_only else scoped
+        tab_counts = {'action': scoped.filter(pk__in=next_actions).count(),
+                      'applications': application_rows.count()}
         status_counts = {
             key: scoped.filter(status=key).count()
             for key, _label in LoanOriginationApplication.STATUS_CHOICES
@@ -401,7 +413,14 @@ def portal_origination_applications(request):
             status=LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
         ).count()
         queue_name = str(request.GET.get('queue') or '').strip()
-        if queue_name == 'mine':
+        if queue_name == 'action':
+            queryset = scoped.filter(pk__in=next_actions)
+            if request.GET.get('signature_only') == '1':
+                queryset = queryset.filter(pk__in=[pk for pk, action in next_actions.items()
+                                                   if action in {'Sign application', 'Review and sign'}])
+        elif queue_name == 'applications':
+            queryset = application_rows
+        elif queue_name == 'mine':
             queryset = queryset.filter(officer=user)
         elif queue_name == 'corrections':
             queryset = queryset.filter(
@@ -498,7 +517,17 @@ def portal_origination_applications(request):
             ).order_by('-created_at')[:10]]
         return JsonResponse({
             'ok': True,
-            'applications': [serialize_application(item, include_payload=False) for item in items],
+            'applications': [{**serialize_application(item, include_payload=False),
+                              'next_action': next_actions.get(str(item.pk), ''),
+                              'status_label': STATUS_LABELS[item.status],
+                              'review_alert': next((a['message'] for a in reviewer_alerts
+                                                    if a['application_id'] == str(item.pk)), ''),
+                              'review_alert_id': next((a['id'] for a in reviewer_alerts
+                                                       if a['application_id'] == str(item.pk)), '')}
+                             for item in items],
+            'tab_counts': tab_counts,
+            'applications_label': 'My applications' if officer_only else 'Applications',
+            'status_options': [{'value': value, 'label': label} for value, label in STATUS_LABELS.items()],
             'counts': status_counts,
             'capabilities': capabilities,
             'reviewer_alerts': reviewer_alerts,

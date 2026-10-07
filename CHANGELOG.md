@@ -1,5 +1,14 @@
 # Changelog
 
+## 7 October 2026 - Two-tab Origination navigation
+
+- Needs your action combines scoped corrections, drafts, legacy reviews and
+  currently available staff signatures without duplicate application cards.
+- Applications retains authorized visibility, search, readable status filters
+  and ten-row pagination. Review alerts stay on the relevant application card.
+- Workflow transitions, signing safeguards and historical queue API links remain
+  unchanged. No database migration is needed.
+
 ## 7 October 2026 - Single-publish guided Origination setup
 
 - Financial terms remain editable until final review. One transaction publishes

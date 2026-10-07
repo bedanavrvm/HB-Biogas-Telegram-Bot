@@ -174,10 +174,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .application-card-state { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
 .application-card-state > svg { width: 14px; height: 14px; color: var(--laf-muted); }
 
-.queue-tabs { display: flex; gap: 5px; margin: 4px 0 6px; overflow-x: auto; scrollbar-width: none; }
+.queue-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 4px 0 6px; }
 .queue-tabs::-webkit-scrollbar { display: none; }
 .queue-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-height: 36px !important; padding: 5px 9px !important; border: 1px solid var(--laf-line) !important; border-radius: 999px !important; background: var(--laf-surface) !important; color: var(--laf-muted) !important; font-size: .67rem !important; font-weight: 750 !important; }
 .queue-tab.active { border-color: var(--laf-green) !important; background: var(--laf-green-soft) !important; color: var(--laf-green) !important; }
+.queue-tabs .queue-tab { justify-content: center; min-width: 0; font-size: .78rem !important; }
+.queue-tabs .queue-tab span { white-space: normal; }
+.application-card .application-review-alert { white-space: normal; color: var(--laf-muted); }
 .queue-tab strong { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, currentColor 10%, transparent); color: inherit; font-size: .6rem; }
 .list-filters { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .7fr) minmax(120px, .7fr) auto; gap: 7px; padding: 9px; border: 1px solid var(--laf-line); border-radius: 10px; background: var(--laf-surface); }
 .list-filters input, .list-filters select, .list-filters .btn { min-height: 38px; }

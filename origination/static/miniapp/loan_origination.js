@@ -20,7 +20,9 @@
   let branches = [];
   let locationCatalog = {};
   let applications = [];
-  let listCounts = {};
+  let tabCounts = {};
+  let applicationsLabel = 'Applications';
+  let statusOptions = [];
   let reviewerAlerts = [];
   let listTotal = 0;
   let listScrollY = 0;
@@ -267,6 +269,7 @@
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
 
   function applicationStatusLabel(application) {
+    if (application.status_label) return application.status_label;
     if ((application.approval_roles || []).length) return application.status_text || 'Awaiting signatures';
     if (application?.status === 'ready_for_review') {
       return application.review_packet_ready ? 'Final review' : 'Prepare packet';
@@ -968,8 +971,7 @@
   }
 
   function filterStatusOptions() {
-    return ['draft', 'ready_for_review', 'correction_required', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved', 'declined', 'expired', 'cancelled']
-      .map(status => `<option value="${status}"${listState.status === status ? ' selected' : ''}>${status.replaceAll('_', ' ')}</option>`).join('');
+    return statusOptions.map(item => `<option value="${escapeHtml(item.value)}"${listState.status === item.value ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
   }
 
   function openFilterSheet(trigger) {
@@ -1055,10 +1057,12 @@
     if (listState.status) params.set('status', listState.status);
     if (listState.productKey) params.set('product_key', listState.productKey);
     if (listState.query) params.set('q', listState.query);
+    if (listState.signatureOnly) params.set('signature_only', '1');
     return params;
   }
 
   async function applyListFilters(updates) {
+    if (updates.queue) listState.signatureOnly = false;
     Object.assign(listState, updates, { page: 1 });
     closeSheet({ restoreFocus: false });
     window.scrollTo(0, 0);
@@ -3359,14 +3363,7 @@
     closePreview();
     if (sheetMode) closeSheet({ restoreFocus: false });
     const queueCount = key => {
-      if (key === 'mine') return listState.queue === 'mine' ? listTotal : '';
-      if (key === 'corrections') return listCounts.correction_required || 0;
-      if (key === 'prepare') return listCounts.packet_preparation || 0;
-      if (key === 'review') return listCounts.final_review || 0;
-      if (key === 'signing') return (listCounts.reviewed || 0) + (listCounts.signing_pending || 0) + (listCounts.partially_signed || 0);
-      if (key === 'my_signatures') return listCounts.my_signatures || 0;
-      if (key === 'final_review') return listCounts.signed_final_review || 0;
-      return '';
+      return tabCounts[key] ?? '';
     };
     const cards = applications.map(item => {
       const identity = item.applicant_summary || {};
@@ -3374,25 +3371,45 @@
       const identifiers = [identity.national_id ? `ID ${escapeHtml(identity.national_id)}` : '', identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : ''].filter(Boolean).join(' · ');
       return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${identifiers || 'ID and telephone pending'}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || applicationStatusLabel(item))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
     }).join('');
-    const alerts = reviewerAlerts.map(item => `<button type="button" class="reviewer-alert" data-reviewer-alert="${escapeHtml(item.id)}" data-application-id="${escapeHtml(item.application_id)}"><span><strong>${item.notice_type === 'approval_ready' ? 'Ready for your approval' : 'Approval invalidated'}</strong><small>${escapeHtml(item.message)}</small></span>${iconSvg('arrowRight')}</button>`).join('');
+    const alerts = ''; // Alerts belong to their application card, never a duplicate list.
     const queueTabs = [
-      ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
-      ...(capabilities.can_review ? [['review', 'Review']] : []),
-      ...(capabilities.can_review && capabilities.conditional_approval_enabled ? [['final_review', 'Final review']] : []),
-      ...(capabilities.can_start_signing ? [['prepare', 'Prepare packet']] : []),
-      ...(capabilities.can_start_signing || capabilities.can_staff_sign ? [['signing', 'Signing']] : []),
-      ...(capabilities.can_staff_sign ? [['my_signatures', 'My signatures']] : []),
+      ['action', 'Needs your action'], ['applications', applicationsLabel],
     ].map(([key, label]) => {
       const count = queueCount(key);
       return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;
     }).join('');
     const activeChips = [
+      ...(listState.signatureOnly ? [{key:'signatureOnly',label:'Awaiting my signature'}] : []),
       ...(listState.productKey ? [{ key: 'productKey', label: allProducts.find(item => item.product_key === listState.productKey)?.name || listState.productKey }] : []),
-      ...(listState.status ? [{ key: 'status', label: listState.status.replaceAll('_', ' ') }] : []),
+      ...(listState.status ? [{ key: 'status', label: statusOptions.find(item => item.value === listState.status)?.label || listState.status }] : []),
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
     root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().querySelector('.list-heading h3').textContent = listState.queue === 'action' ? 'Needs your action' : applicationsLabel;
+    root().querySelectorAll('[data-queue]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.queue === listState.queue)));
+    for (const item of applications) {
+      const card = root().querySelector(`[data-application-id="${CSS.escape(item.id)}"]`);
+      if (item.review_alert_id && card) card.dataset.reviewerAlert = item.review_alert_id;
+      if (item.review_alert && card) {
+        const alert = document.createElement('small');
+        alert.className = 'application-review-alert';
+        alert.textContent = item.review_alert;
+        card.firstElementChild.append(alert);
+      }
+    }
+    if (!applications.length) {
+      const empty = root().querySelector('.application-list .empty-state');
+      if (activeChips || listState.query) {
+        empty.innerHTML = '<strong>No matching applications</strong><button type="button" class="btn btn-secondary" id="origination-clear-filters">Clear filters</button>';
+        document.getElementById('origination-clear-filters').onclick = () => applyListFilters({status:'', productKey:'', query:'', signatureOnly:false});
+      } else if (listState.queue === 'action') {
+        empty.innerHTML = '<strong>You’re caught up</strong><button type="button" class="btn btn-secondary" id="origination-view-applications"></button>';
+        const button = document.getElementById('origination-view-applications');
+        button.textContent = applicationsLabel;
+        button.onclick = () => applyListFilters({queue:'applications'});
+      }
+    }
     root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => {
       listScrollY = window.scrollY;
       button.disabled = true;
@@ -3477,8 +3494,10 @@
     const result = await apiFetch(`/applications/?${applicationListParams()}`, {});
     if (generation !== listRequestGeneration) return;
     if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
-    applications = result.data.applications || [];
-    listCounts = result.data.counts || {};
+    applications = (result.data.applications || []).map(item => ({...item, status_text: item.next_action || item.status_text}));
+    tabCounts = result.data.tab_counts || {};
+    statusOptions = result.data.status_options || statusOptions;
+    applicationsLabel = result.data.applications_label || 'Applications';
     reviewerAlerts = result.data.reviewer_alerts || [];
     capabilities = result.data.capabilities || capabilities;
     listState.page = result.data.pagination?.page || 1;
@@ -3500,8 +3519,12 @@
     capabilities = productResult.data.capabilities || capabilities;
     const homeParams = new URLSearchParams(window.location.search);
     const requestedQueue = homeParams.get('queue');
-    if (requestedQueue === 'my_signatures' && capabilities.can_staff_sign) listState.queue = requestedQueue;
-    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_start_signing ? 'prepare' : capabilities.can_staff_sign ? 'signing' : capabilities.can_review ? 'review' : '';
+    if (!listState.queue) {
+      const legacyStatuses = {corrections:'correction_required', review:'ready_for_review', prepare:'ready_for_review', final_review:'signed_pending_approval'};
+      listState.queue = ['mine', 'signing', 'applications'].includes(requestedQueue) ? 'applications' : 'action';
+      listState.status = homeParams.get('status') || legacyStatuses[requestedQueue] || '';
+      if (requestedQueue === 'my_signatures') listState.signatureOnly = true;
+    }
     await loadApplications();
     const requestedApplication = homeParams.get('application');
     if (requestedApplication && /^[0-9a-f-]{36}$/i.test(requestedApplication)) {
