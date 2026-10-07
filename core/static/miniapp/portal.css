@@ -4506,12 +4506,10 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .invoice-financial-strip>span { min-width:0; padding:7px 5px; border-right:1px solid var(--border-color); text-align:center; }
 .invoice-financial-strip>span:last-child { border-right:0; }
 .invoice-financial-strip small,.invoice-financial-strip strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.invoice-financial-strip small { color:var(--text-muted); font-size:8px; font-weight:750; text-transform:uppercase; }
-.invoice-financial-strip strong { margin-top:2px; font-size:10px; }
-.invoice-record-summary .invoice-detail-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
-.invoice-record-summary .invoice-detail-actions>*:first-child { grid-column:1/-1; }
+.invoice-financial-strip small { color:var(--text-muted); font-size:11px; font-weight:600; }
+.invoice-financial-strip strong { margin-top:3px; font-size:13px; font-variant-numeric:tabular-nums; }
 .invoice-record-section>h3,.invoice-record-section .invoice-section-heading h3 { margin:0 0 8px; font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
-.invoice-parsed-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.invoice-parsed-grid { display:grid; gap:10px; }
 .invoice-parsed-grid .invoice-detail-field { background:var(--bg-muted); text-align:center; }
 .invoice-record-source-meta { overflow:hidden; margin:7px 1px 0; color:var(--text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
 .invoice-identity-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
@@ -4581,7 +4579,6 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 
 @media (max-width:370px) {
   .invoice-record-summary,.invoice-record-section { padding:8px; }
-  .invoice-financial-strip strong { font-size:9px; }
   .invoice-identity-comparison { grid-template-columns:1fr; }
   .invoice-identity-comparison>div { grid-template-columns:76px minmax(0,1fr); align-items:center; text-align:left; }
   .invoice-identity-comparison>div span { grid-column:2; }
@@ -4741,14 +4738,15 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .invoice-detail-route-header .case-history-back { display:grid; width:44px; height:44px; place-items:center; border:0; border-radius:999px; background:transparent; color:var(--color-primary); text-decoration:none; }
 .invoice-detail-route-header .case-history-back:active { background:color-mix(in srgb,var(--color-primary) 9%,transparent); }
 .invoice-detail-route-header .case-history-back svg { width:20px; height:20px; stroke-width:2.25; }
-.invoice-record-summary .invoice-detail-actions { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
-.invoice-record-summary .invoice-detail-actions>*:first-child { grid-column:auto; }
-.invoice-record-action { display:grid; min-width:0; min-height:48px; place-items:center; align-content:center; gap:2px; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--text-primary); padding:5px 3px; }
-.invoice-record-action svg { width:17px; height:17px; color:var(--color-primary); }
-.invoice-record-action span { overflow:hidden; max-width:100%; font-size:8px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.invoice-record-action { display:grid; min-width:0; min-height:52px; justify-items:center; align-content:center; gap:4px; border:0; border-radius:8px; background:var(--bg-muted); color:var(--text-primary); padding:6px 2px; cursor:pointer; }
+.invoice-record-action svg { width:17px; height:17px; stroke-width:1.8; color:var(--brand-primary); }
+.invoice-record-action span { max-width:100%; font-size:11px; font-weight:600; line-height:1.2; white-space:normal; }
+.invoice-record-action:focus-visible { outline:2px solid var(--brand-primary); outline-offset:2px; }
+.invoice-record-action:hover { background:color-mix(in srgb,var(--brand-primary) 10%,var(--bg-surface)); }
+.invoice-record-action.invoice-detail-delete-action,.invoice-record-action.invoice-detail-delete-action svg { color:var(--portal-status-danger); }
 .invoice-parsed-grid .invoice-detail-field { display:grid; align-content:start; gap:2px; border:0; border-bottom:1px solid var(--border-color); border-radius:0; background:transparent; padding:6px 3px; text-align:left; }
 .invoice-parsed-grid .invoice-detail-field:nth-last-child(-n+2) { border-bottom:0; }
-.invoice-parsed-grid .invoice-detail-field .meta { color:var(--text-muted); font-size:11px; font-weight:750; line-height:1.3; text-transform:uppercase; }
+.invoice-parsed-grid .invoice-detail-field .meta { color:var(--text-muted); font-size:12px; font-weight:500; line-height:1.3; text-transform:none; }
 .invoice-parsed-grid .invoice-detail-field .name { font-size:13px; font-weight:650; line-height:1.35; }
 .invoice-duplicate-row { display:grid; grid-template-columns:minmax(0,1fr) 44px; align-items:center; gap:8px; }
 .invoice-duplicate-remove { display:grid; width:44px; height:44px; min-height:44px; place-items:center; padding:0; border:0; background:transparent; color:var(--status-danger); box-shadow:none; }
@@ -5187,14 +5185,25 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .portal-app #batch-detail-actions .btn svg { width:18px; height:18px; }
 .portal-app #batch-detail-close { width:44px; height:44px; min-width:44px; min-height:44px; }
 .portal-app .invoice-record-heading>div { min-width:0; }
-.portal-app .invoice-identity-comparison strong { overflow-wrap:anywhere; font-size:14px; line-height:1.35; }
+.portal-app .invoice-record-heading .fc-name { font-size:16px; font-weight:750; line-height:1.3; color:var(--brand-primary); }
+.portal-app .invoice-customer-name { margin-top:3px; font-size:14px; font-weight:650; line-height:1.35; overflow-wrap:anywhere; }
+.portal-app .invoice-customer-meta { display:flex; flex-wrap:wrap; gap:3px 12px; margin-top:5px; font-size:12px; line-height:1.4; overflow-wrap:anywhere; }
+.portal-app .invoice-meta-label { color:var(--text-muted); font-weight:500; }
+.portal-app .invoice-identity-comparison>div { text-align:left; align-items:start; }
+.portal-app .invoice-identity-comparison small { text-transform:none; }
+.portal-app .invoice-identity-comparison strong { overflow:visible; overflow-wrap:anywhere; font-size:14px; line-height:1.35; }
+.portal-app .invoice-identity-comparison span { overflow:visible; white-space:normal; font-size:12px; line-height:1.4; }
 .portal-app .invoice-identity-comparison .invoice-person-applicant { border-left-color:var(--brand-secondary,#6cbe45); }
+.portal-app .invoice-identity-comparison .invoice-person-holder { border-left-color:var(--text-muted); }
 .portal-app .invoice-parsed-grid .invoice-detail-field .name { font-size:14px; }
-.portal-app .invoice-record-summary .invoice-detail-actions { display:flex; flex-wrap:wrap; gap:6px; }
-.portal-app .invoice-record-summary .invoice-detail-actions>* { flex:0 0 auto; width:auto; }
+.portal-app .invoice-record-summary .invoice-detail-actions { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:4px; }
+.portal-app .invoice-record-summary .invoice-detail-actions>* { width:100%; min-width:0; margin:0; white-space:normal; }
 .portal-app .invoice-parsed-grid .invoice-detail-field :is(.name,.meta) { max-width:none; }
+.portal-app .invoice-parsed-group { min-width:0; }
+.portal-app .invoice-parsed-group h4 { margin:0 0 4px; padding:5px 8px; border-radius:5px; background:color-mix(in srgb,var(--brand-primary) 8%,var(--bg-surface)); color:var(--brand-primary); font-size:12px; font-weight:650; }
+.portal-app .invoice-field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 10px; }
 @media(min-width:700px) {
- .portal-app .invoice-parsed-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+ .portal-app .invoice-field-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
  .portal-app .invoice-detail-field-wide { grid-column:span 2; }
 }
 .portal-app .sysup-field-review { margin-top:6px; white-space:normal; min-width:220px; max-width:360px; }

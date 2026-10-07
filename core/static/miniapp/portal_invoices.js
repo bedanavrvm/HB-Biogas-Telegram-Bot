@@ -446,7 +446,7 @@
     const events = data.events || [];
     const duplicates = data.duplicates || [];
     const sourceLink = data.source_pdf_url
-      ? '<button class="miniapp-icon-button portal-finance-icon invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '" aria-label="Open source PDF" title="Open source PDF"><i data-lucide="external-link" aria-hidden="true"></i></button>'
+      ? '<button type="button" class="invoice-record-action invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '" aria-label="Open source PDF" title="Open source PDF"><i data-lucide="external-link" aria-hidden="true"></i><span>Source PDF</span></button>'
       : '';
     const identity = invoice.identity || {};
     const orderReferenceNotice = invoice.order_reference_alert
@@ -504,16 +504,16 @@
     ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
       '<section class="form-section invoice-record-section">',
-      '<div class="invoice-section-heading"><h3>People linked to this invoice</h3><span class="badge ' + (['Matched', 'Corrected', 'Agreement accepted'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
+      '<div class="invoice-section-heading"><h3>Linked people</h3><span class="badge ' + (['Matched', 'Corrected', 'Agreement accepted'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
       '<div class="invoice-identity-comparison">',
       '<div class="invoice-person-lead"><small>Lead</small><strong>' + escapeHtml(identity.lead_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.lead_identity?.national_id || '-') + '</span></div>',
       '<div class="invoice-person-applicant"><small>System applicant</small><strong>' + escapeHtml(identity.applicant_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</span></div>',
-      '<div><small>Invoice holder</small><strong>' + escapeHtml(identity.invoice_identity.name || '-') + '</strong><span>ID ' + escapeHtml(identity.invoice_identity.national_id || '-') + '</span></div>',
+      '<div class="invoice-person-holder"><small>Invoice holder</small><strong>' + escapeHtml(identity.invoice_identity.name || '-') + '</strong><span>ID ' + escapeHtml(identity.invoice_identity.national_id || '-') + '</span></div>',
       '</div>',
       identityNotice,
       letterPreviewHtml,
       identity.name_change ? '<div class="invoice-correction-summary"><strong>' + escapeHtml(identity.status_label) + '</strong><span>' + escapeHtml(identity.name_change.relationship_type === 'spouse' ? 'Spouse' : 'Other relative / household member') + (identity.name_change.explanation ? ' · ' + escapeHtml(identity.name_change.explanation) : '') + '</span>' + (identity.name_change.letter_readiness?.blockers?.length ? '<small>' + escapeHtml(identity.name_change.letter_readiness.blockers.join(' ')) + '</small>' : '') + '</div>' : '',
-      '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>',
+      identityActions.length ? '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>' : '',
       '</section>',
     ].join('') : '';
     const actionButtons = [
@@ -543,7 +543,8 @@
       '<section class="invoice-record-summary">',
       '<div class="invoice-record-heading">',
       '<div><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
-      '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div></div>',
+      '<div class="invoice-customer-name">' + escapeHtml(invoice.customer_name || 'Unknown customer') + '</div>',
+      '<div class="invoice-customer-meta"><span><span class="invoice-meta-label">National ID</span> ' + escapeHtml(invoice.customer_id || '-') + '</span>' + (invoice.customer_phone ? '<span><span class="invoice-meta-label">Phone</span> ' + escapeHtml(invoice.customer_phone) + '</span>' : '') + '</div></div>',
       '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
       '</div>',
       orderReferenceNotice,
@@ -552,28 +553,35 @@
       '<span><small>HBG deposit</small><strong>' + money(hbgDeposit(invoice)) + '</strong></span>',
       '<span><small>Balance</small><strong>' + money(invoice.balance_due) + '</strong></span>',
       '</div>',
-      '<div class="invoice-detail-actions">' + sourceLink + actionButtons + '</div>',
+      sourceLink || actionButtons ? '<div class="invoice-detail-actions">' + sourceLink + actionButtons + '</div>' : '',
       '</section>',
+      identityPanel,
       '<section class="form-section invoice-record-section">',
       '<div class="invoice-section-heading"><h3>Parsed fields</h3></div>',
       '<div class="invoice-parsed-grid">',
+      '<section class="invoice-parsed-group"><h4>Invoice details</h4><div class="invoice-field-grid">',
       kv('Invoice number', invoice.invoice_no),
       kv('Invoice date', fmtDate(invoice.invoice_date)),
       kv('Invoice holder', invoice.customer_name, {wide: true}),
       kv('National ID', invoice.customer_id),
       kv('Phone', invoice.customer_phone),
+      kv('Page', invoice.page),
+      kv('Matched order', invoice.matched_order_number),
+      kv('Printed order', invoice.printed_order_reference),
+      '</div></section>',
+      '<section class="invoice-parsed-group"><h4>Amounts</h4><div class="invoice-field-grid">',
       kv('Invoice amount', money(invoice.invoice_amount)),
       kv('Total after discount', money(invoice.total_after_discount)),
       kv('Discount', money(invoice.discount)),
       kv('Payment / HBG deposit', money(invoice.payment)),
       kv('Balance due', money(invoice.balance_due)),
-      kv('Page', invoice.page),
-      kv('Matched order', invoice.matched_order_number),
-      kv('Printed order', invoice.printed_order_reference),
+      '</div></section>',
+      '<section class="invoice-parsed-group"><h4>Balance checks</h4><div class="invoice-field-grid">',
       kv('Balance check', invoice.balance_due_check),
       kv('Calculated balance', money(invoice.calculated_balance_due)),
       kv('Balance difference', money(invoice.balance_due_difference)),
       kv('Check basis', invoice.balance_due_check_basis, {wide: true}),
+      '</div></section>',
       '</div>',
       '<form class="invoice-parsed-edit-form" hidden>',
       '<div class="invoice-parsed-edit-grid">',
@@ -593,7 +601,6 @@
       '</form>',
       '<p class="invoice-record-source-meta">' + escapeHtml(batch.original_filename || invoice.batch_filename || 'No source filename') + (invoice.matched_farmer_name ? ' · ' + escapeHtml(invoice.matched_farmer_name) : '') + '</p>',
       '</section>',
-      identityPanel,
       '<details class="form-section invoice-record-details"' + (duplicates.length ? ' open' : '') + '>',
       '<summary>Duplicate check' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
       duplicateHtml,
@@ -616,7 +623,8 @@
     const toggleParsedEdit = function (editing) {
       if (parsedGrid) parsedGrid.hidden = editing;
       if (parsedForm) parsedForm.hidden = !editing;
-      if (editToggle) editToggle.textContent = editing ? 'Editing parsed data' : 'Edit parsed data';
+      const editLabel = editToggle?.querySelector('span');
+      if (editLabel) editLabel.textContent = editing ? 'Editing' : 'Edit fields';
     };
     editToggle?.addEventListener('click', function () { toggleParsedEdit(true); });
     target.querySelector('.invoice-parsed-edit-cancel')?.addEventListener('click', function () { toggleParsedEdit(false); });
@@ -675,6 +683,7 @@
     });
     target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
     target.querySelector('.invoice-name-change-correct-sent')?.addEventListener('click', function () { correctSentInvoiceNameChange(identity.name_change, invoice.id); });
+    window.lucide?.createIcons?.();
   }
 
   async function decideInvoiceIdentity(invoiceId, outcome) {

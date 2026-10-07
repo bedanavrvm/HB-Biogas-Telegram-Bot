@@ -1,5 +1,15 @@
 # Changelog
 
+## 7 October 2026 — Invoice record layout
+
+- Invoice actions share the available width evenly, with small icons, readable
+  labels and a distinct delete action. Editing no longer removes its icon.
+- Customer identity has a clear name/contact hierarchy; linked people appear
+  before parsed fields, with readable IDs and wrapping names. Parsed fields
+  are grouped into invoice details, amounts and balance checks.
+- Empty action rows are omitted for read-only records. This is presentation-only:
+  no matching, permissions, financial rules or database changes.
+
 ## 7 October 2026 — Direct order preparation
 
 - Selecting approved cases immediately shows the order number, order date and
