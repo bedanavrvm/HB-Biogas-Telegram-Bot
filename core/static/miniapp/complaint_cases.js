@@ -170,21 +170,17 @@
     button.append(iconNode(icon), textNode('span', label));
     return button;
   }
-  function shortCopiedValue(value) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
-    return text.length > 56 ? `${text.slice(0, 53)}...` : text;
-  }
   async function copyReportCell(cell) {
     const rowIndex = Number(cell?.closest('.ag-row')?.getAttribute('row-index'));
     const columnId = cell?.getAttribute('col-id');
     if (!Number.isInteger(rowIndex) || !columnId || !state.reportGridApi) return false;
     const row = state.reportGridApi.getDisplayedRowAtIndex(rowIndex);
     const column = state.reportGridApi.getColumn(columnId);
-    const value = String(cell.innerText || '').replace(/\s+/g, ' ').trim();
+    const value = String(cell.innerText || '').trim();
     if (!row || !column || !value) return false;
     try {
       await navigator.clipboard.writeText(value);
-      notify(`${shortCopiedValue(value)} copied`);
+      notify(`Copied: ${value}`);
       return true;
     } catch (_) {
       notify('Copy was unavailable on this device.', true);
@@ -568,9 +564,9 @@
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
-      $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
-      $('exportResultsBtn').hidden = $('exportAllBtn').hidden;
-      if ($('emailResultsBtn')) $('emailResultsBtn').hidden = $('exportAllBtn').hidden;
+      $('exportAllBtn').hidden = true;
+      $('exportResultsBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
+      if ($('emailResultsBtn')) $('emailResultsBtn').hidden = $('exportResultsBtn').hidden;
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
       state.locationOptions = data.location_options || state.locationOptions;
       locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
@@ -1780,15 +1776,16 @@
   async function refreshGlobal() { await refreshReport(); }
 
   async function prepareExport(mode) {
+    if ($('exportResultsBtn').disabled) return;
     try {
+      const scope = await window.MiniAppReportControls.chooseExcelExport({ trigger: $('exportResultsBtn') });
+      if (!scope) return;
       $('downloadResult').hidden = true;
-      state.exportFilters = mode === 'results' ? currentTableFilters() : null;
-      const overview = await getJson('reports/summary/', Object.assign({}, state.exportFilters || {}, { granularity: 'year' })); const count = overview.total || 0;
-      $('exportConfirmText').textContent = `Download ${mode === 'results' ? 'these' : 'all'} ${count} complaints as an Excel file?`;
-      $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
+      state.exportFilters = scope === 'filtered' ? currentTableFilters() : null;
+      await confirmExport();
     } catch (error) { presentError(error, openGlobalWorkspace); }
   }
-  function cancelExport() { $('exportConfirm').hidden = true; (state.exportFilters ? $('exportResultsBtn') : $('exportAllBtn')).focus(); }
+  function cancelExport() { document.querySelector('.miniapp-excel-dialog[open]')?.close(); }
   function releaseExportDownload() {
     if (state.exportObjectUrl) URL.revokeObjectURL(state.exportObjectUrl);
     state.exportObjectUrl = ''; state.exportDownloadUrl = '';
@@ -1844,7 +1841,7 @@
     }
   }
   async function confirmExport() {
-    const button = $('confirmExportBtn'); setActionLoading(button, true, 'Downloading');
+    const button = $('exportResultsBtn'); setActionLoading(button, true, 'Downloading');
     try {
       const exportPayload = Object.assign({}, state.exportFilters || {}, {
         confirm_all: !state.exportFilters, confirm_results: !!state.exportFilters,
@@ -1858,7 +1855,6 @@
         state.exportDownloadUrl = result.download_url;
         state.exportFilename = result.filename || 'complaints.xlsx';
         showExportDownload(state.exportFilename, true);
-        $('exportConfirm').hidden = true;
         const opened = await openExportNatively({ quiet: true });
         notify(opened
           ? 'Download started. Check your phone downloads.'
@@ -1873,7 +1869,6 @@
         type: result.blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }) : null;
       showExportDownload(state.exportFilename, false);
-      $('exportConfirm').hidden = true;
       startExportDownload(); notify(`Download started. Check Downloads for ${state.exportFilename}.`);
     } catch (error) { presentError(error, confirmExport); }
     finally { setActionLoading(button, false); }
@@ -1889,7 +1884,7 @@
     if (state.reportFilterSheetOpen) { closeComplaintReportFilters(); return; }
     if (!$('mediaViewerOverlay').hidden) { closeMediaViewer(); return; }
     if (!$('cameraOverlay').hidden) { closeCamera(); return; }
-    if (!$('exportConfirm').hidden) { cancelExport(); return; }
+    if (document.querySelector('.miniapp-excel-dialog[open]')) { cancelExport(); return; }
     if (!$('createView').hidden) resetVoiceField('complaint_description');
     if (!$('detailView').hidden) {
       resetVoiceField('complaint_resolution_note'); resetVoiceField('complaint_reopen_reason');
@@ -2001,7 +1996,6 @@
     post:payload => json('reports/email/', payload), notify:(message,tone) => notify(message,tone !== 'ok'),
   }));
   $('complaintChartSelection').addEventListener('click', clearComplaintChartSelection);
-  $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); });

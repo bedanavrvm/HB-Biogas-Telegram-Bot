@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   let charts = [];
+  const chosenTypes = {};
   const hours = value => value == null ? '—' : value < 24 ? `${Number(value.toFixed(1))}h` : `${Number((value / 24).toFixed(1))}d`;
   function period(label, grouping) {
     const start = new Date(`${label.length === 4 ? label + '-01-01' : label.length === 7 ? label + '-01' : label}T00:00:00Z`);
@@ -19,7 +20,8 @@
       slide.querySelector('.chart-drill-controls')?.remove();
     });
   }
-  function render(summary, {categoryType = 'bar', onSelect, formatPeriod}) {
+  function render(summary, options) {
+    const {categoryType = 'bar', onSelect, formatPeriod} = options;
     charts.forEach(chart => chart.destroy()); charts = [];
     if (!window.Chart) { state('Charts unavailable. Use the report table below.'); return; }
     const root = getComputedStyle(document.documentElement);
@@ -53,17 +55,51 @@
       const slide = document.querySelector(`[data-complaint-chart="${spec.key}"]`);
       if (!slide) continue;
       const canvas = slide.querySelector('canvas'), status = slide.querySelector('.chart-state');
+      const temporal = spec.type === 'line';
+      const presentation = window.MiniAppReportControls.chartPresentation({ id: spec.key, temporal,
+        composition: spec.key === 'target', count: spec.rows.length });
+      const types = spec.key === 'category' && spec.rows.length <= 8 ? ['bar', 'doughnut', 'pie'] : presentation.allowedTypes;
+      const requested = chosenTypes[spec.key] || (spec.key === 'category' ? categoryType : presentation.defaultType);
+      spec.type = types.includes(requested) ? requested : presentation.defaultType;
+      const pie = ['pie', 'doughnut'].includes(spec.type);
+      spec.horizontal = !pie && (spec.horizontal || spec.key === 'category');
+      const head = slide.querySelector('.report-chart-head');
+      let menu = head.querySelector('.miniapp-chart-options');
+      if (!menu) {
+        menu = document.createElement('details'); menu.className = 'miniapp-chart-options';
+        const toggle = document.createElement('summary'); toggle.innerHTML = window.MiniAppReportControls.chartOptionsIcon; toggle.setAttribute('aria-label', 'Chart options');
+        menu.appendChild(toggle); head.appendChild(menu);
+        head.querySelector('.chart-toggle')?.remove();
+        const grouping = head.querySelector('.chart-granularity'); if (grouping) menu.appendChild(grouping);
+      }
+      menu.querySelector('.miniapp-chart-types')?.remove();
+      const typeGroup = document.createElement('div'); typeGroup.className = 'miniapp-chart-types';
+      types.forEach(type => {
+        const choice = document.createElement('button'); choice.type = 'button'; choice.textContent = type[0].toUpperCase() + type.slice(1);
+        choice.setAttribute('aria-pressed', String(type === spec.type));
+        choice.addEventListener('click', () => { chosenTypes[spec.key] = type; menu.open = false; render(summary, options); });
+        typeGroup.appendChild(choice);
+      });
+      menu.appendChild(typeGroup);
+      window.MiniAppReportControls.setChartHelp(slide.querySelector('.chart-context'),
+        `${slide.querySelector('h3').textContent}. ${temporal ? 'Compare values over time.' : 'Compare the groups shown.'} Select an item to view its complaints.`);
       canvas.setAttribute('role','img'); canvas.setAttribute('aria-label',slide.querySelector('h3').textContent);
       slide.querySelector('.chart-drill-controls')?.remove();
       const hasData = spec.rows.some(row => spec.hours ? row.hours != null : (row.count || row.received || row.resolved));
       canvas.hidden = !hasData; status.hidden = hasData;
       status.textContent = spec.hours ? 'Timing unavailable for this period.' : 'No matching complaints.';
       slide.querySelector('.chart-context').textContent = spec.note;
+      slide.querySelector('.chart-context').hidden = !spec.note;
       if (!hasData) continue;
       const rows = spec.horizontal ? spec.rows.slice(0,10) : spec.rows;
-      const timeChart = spec.type === 'line';
+      const timeChart = temporal;
       const datasets = spec.datasets || [{label:spec.hours?'Hours':'Complaints',data:rows.map(row=>spec.hours?row.hours:row.count),
-        backgroundColor:spec.colors || rows.map((_row,i)=>`hsl(${(i*137.508)%360} 60% 42%)`),borderColor:blue,borderWidth:spec.type==='line'?2:0,pointBackgroundColor:blue,pointRadius:2,tension:.2}];
+        backgroundColor:spec.colors || rows.map((_row,i)=>`hsl(${(i*137.508)%360} 60% 42%)`),borderColor:spec.type==='line'?blue:(spec.colors || rows.map((_row,i)=>`hsl(${(i*137.508)%360} 60% 42%)`)),borderWidth:spec.type==='line'?2:0,pointBackgroundColor:blue,pointRadius:2,tension:.2}];
+      datasets.forEach(dataset => {
+        dataset.borderWidth = spec.type === 'line' ? 2 : 0;
+        if (!dataset.backgroundColor) dataset.backgroundColor = dataset.borderColor;
+        if (!dataset.pointBackgroundColor) dataset.pointBackgroundColor = dataset.borderColor;
+      });
       const choices = document.createElement('div'); choices.className='chart-drill-controls';
       const select = document.createElement('select'); select.setAttribute('aria-label',`Select ${slide.querySelector('h3').textContent} cases`);
       const placeholder=document.createElement('option'); placeholder.textContent='Choose cases…'; placeholder.value=''; select.appendChild(placeholder);
@@ -93,9 +129,9 @@
         }),datasets},
         options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:spec.horizontal?'y':'x',
           onClick:(_event,elements)=>{if(elements.length){const item=elements[0];onSelect(spec.select(rows[item.index],item.datasetIndex),`${slide.querySelector('h3').textContent} · ${rows[item.index].label}`);}},
-          plugins:{legend:{display:!!spec.datasets || spec.type==='pie',position:'bottom',labels:{color:text,boxWidth:10}},
+          plugins:{legend:{display:!!spec.datasets || pie,position:'bottom',labels:{color:text,boxWidth:10}},
             tooltip:{callbacks:{title:items=>items.length?rows[items[0].dataIndex].label:'',label:context=>`${context.dataset.label || context.label}: ${spec.hours?hours(context.raw):context.raw}${spec.hours?` · ${rows[context.dataIndex].count} cases`:''}`}}},
-          scales:spec.type==='pie'?{}:{x:{beginAtZero:true,ticks:{color:text,maxRotation:0,autoSkip:true,maxTicksLimit:innerWidth<480?4:8},grid:{color:grid}},y:{beginAtZero:true,ticks:{color:text,precision:0},grid:{color:grid}}},
+          scales:pie?{}:{x:{beginAtZero:true,ticks:{color:text,maxRotation:0,autoSkip:true,maxTicksLimit:innerWidth<480?4:8},grid:{color:grid}},y:{beginAtZero:true,ticks:{color:text,precision:0},grid:{color:grid}}},
         },
       }));
     }

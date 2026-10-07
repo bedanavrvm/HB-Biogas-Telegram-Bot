@@ -258,6 +258,14 @@ def insights(preset, queryset, filters, period):
         series = chart.pop('series')
         chart.update(bucket_keys=buckets, labels=labels, datasets=[{'key': name, 'label': name, 'values': [str(values.get(b, 0)) for b in buckets]} for name, values in series.items()])
         chart['values'] = chart['datasets'][0]['values'] if chart['datasets'] else []
+        if key in {'activity', 'received', 'invoice_trend'}:
+            chart.update(default_type='line', allowed_types=['line', 'bar'])
+        elif key == 'sla':
+            chart.update(default_type='stacked_bar', allowed_types=['stacked_bar', 'bar'])
+        elif key in {'visits', 'credit', 'final'} and 0 < len(labels) <= 8:
+            chart.update(default_type='doughnut', allowed_types=['doughnut', 'bar'])
+        else:
+            chart.update(default_type='bar', allowed_types=['bar'])
         output.append(chart)
     full_count = len(cohort)
     selection = filters.get('chart_key')

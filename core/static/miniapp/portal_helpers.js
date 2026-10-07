@@ -217,7 +217,7 @@
       if (!start || event.pointerId !== start.pointerId) return;
       const cell = ready; clear();
       if (!cell) return;
-      const value = String(cell.innerText || '').replace(/\s+/g, ' ').trim();
+      const value = String(cell.innerText || '').trim();
       if (!value || value === '—') return;
       event.preventDefault();
       if (!navigator.clipboard?.writeText) {

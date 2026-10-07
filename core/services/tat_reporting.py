@@ -190,6 +190,8 @@ def _filters(payload):
         'date_from': date_from, 'date_to': date_to, 'granularity': granularity,
         'chart_dimension': chart_dimension, 'chart_metric': chart_metric,
         'heatmap_pair': heatmap_pair, 'heatmap_metric': heatmap_metric,
+        'heat_row': str(payload.get('heat_row') or '').strip(),
+        'heat_column': str(payload.get('heat_column') or '').strip(),
     }
 
 
@@ -487,6 +489,7 @@ def _case_row(case, *, include_people=False, now=None, context=None):
         'variance_minutes': float(variance) if variance is not None else None,
         'sla_state': sla_state,
         'stage_tat': stage_tat,
+        '_case_pk': str(case.pk),
         '_group_id': str(case.group_id), '_product_key': str(case.product_key or ''),
         '_stage_columns': stage_columns,
     }
@@ -513,6 +516,9 @@ def _finished_in_reporting_period(row, filters):
 
 
 def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=None):
+    if filters.get('heat_row') or filters.get('heat_column'):
+        return _heatmap_selected_rows(actor, filters, include_people=include_people,
+                                      cases=cases, context=context)
     rows = []
     action_filtered = bool(
         filters['view'] == 'performance'
@@ -598,6 +604,7 @@ def _stage_samples(cases, filters, *, include_people=False, context=None):
             event = context.event(case, stage.key)
             samples.append({
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
+                '_case_pk': str(case.pk),
                 '_stage_order': stage_order,
                 'role': stage.role, 'person': event.actor_name if include_people and event else '',
                 'person_user_id': str(event.actor_user_id or '') if include_people and event else '',
@@ -656,6 +663,17 @@ def _chart_payload(
     }
     if extras:
         payload.update(extras)
+    if chart_id in {'trend', 'sla_compliance', 'tat_percentiles'}:
+        default, allowed = 'line', ['line', 'bar']
+    elif chart_id == 'explorer' and payload.get('metric') == 'sla_state':
+        default, allowed = 'stacked_bar', ['stacked_bar', 'bar']
+    else:
+        default, allowed = 'bar', ['bar']
+        if chart_id in {'case_progression', 'stage_target', 'explorer'}:
+            allowed.append('line')
+        if chart_id == 'backlog_age':
+            allowed.extend(['doughnut', 'pie'])
+    payload.update(default_type=default, allowed_types=allowed)
     return payload
 
 
@@ -1119,6 +1137,10 @@ def _heatmap_dimension_labels(source, dimension, *, sample):
     for item in source:
         label = _dimension_value(item, dimension, sample=sample)
         order = item.get('_stage_order') if sample else None
+        stage_key = str(item.get('stage_key') if sample else item.get('current_stage_key') or '')
+        if stage_key in _LOAN_CYCLE_STAGE_POSITIONS:
+            order_by_label[label] = _LOAN_CYCLE_STAGE_POSITIONS[stage_key]
+            continue
         if not sample:
             stage_key = str(item.get('current_stage_key') or '')
             for column in item.get('_stage_columns') or []:
@@ -1273,6 +1295,38 @@ def _comparison_explorer(rows, samples, filters):
     )
 
 
+def _heatmap_contributors(cohort, metric):
+    """The same measurement cohort powers cell values, counts and drill-down."""
+    if metric == 'workload':
+        return cohort
+    if metric == 'duration':
+        return [item for item in cohort if item.get('elapsed_minutes') is not None]
+    if metric == 'target_usage':
+        return [item for item in cohort if item.get('elapsed_minutes') is not None
+                and item.get('target_minutes') is not None and item['target_minutes'] > 0]
+    return [item for item in cohort if item.get('sla_state') != 'target_unavailable']
+
+
+def _heatmap_selected_rows(actor, filters, *, include_people=False, cases=None, context=None):
+    if not filters.get('heat_row') or not filters.get('heat_column'):
+        raise ValueError('Choose a complete heatmap cell.')
+    cases = list(cases) if cases is not None else _filtered_cases(actor, filters)
+    context = context or _ReportContext(actor, cases, include_people=include_people)
+    context.prime(cases)
+    base_filters = {**filters, 'heat_row': '', 'heat_column': ''}
+    sample_based = filters['view'] == 'performance' or filters['heatmap_metric'] != 'workload'
+    source = (_stage_samples(cases, base_filters, include_people=include_people, context=context)
+              if sample_based else _eligible_rows(actor, base_filters, include_people=include_people,
+                                                 cases=cases, context=context))
+    row_dimension, column_dimension = HEATMAP_PAIRS[filters['heatmap_pair']]
+    cohort = [item for item in source
+              if _dimension_value(item, row_dimension, sample=sample_based) == filters['heat_row']
+              and _dimension_value(item, column_dimension, sample=sample_based) == filters['heat_column']]
+    selected = {item['_case_pk'] for item in _heatmap_contributors(cohort, filters['heatmap_metric'])}
+    return [_case_row(case, include_people=include_people, context=context)
+            for case in cases if str(case.pk) in selected]
+
+
 def _heatmap_payload(rows, samples, filters):
     row_dimension, column_dimension = HEATMAP_PAIRS[filters['heatmap_pair']]
     metric = filters['heatmap_metric']
@@ -1300,6 +1354,7 @@ def _heatmap_payload(rows, samples, filters):
                 value = len(cohort)
             elif metric == 'duration':
                 value = _percentile([item.get('elapsed_minutes') for item in cohort], .5)
+                excluded = sum(item.get('elapsed_minutes') is None for item in cohort)
             elif metric == 'target_usage':
                 ratios = []
                 for item in cohort:
@@ -1317,6 +1372,8 @@ def _heatmap_payload(rows, samples, filters):
             cells.append({
                 'row': row_label, 'column': column_label, 'value': value,
                 'sample_count': len(cohort) - excluded, 'excluded_count': excluded,
+                'case_count': len({item.get('_case_pk', (item.get('group_id'), item.get('case_id')))
+                                   for item in _heatmap_contributors(cohort, metric)}),
             })
     return {
         'id': 'heatmap', 'title': f'{row_dimension.title()} × {column_dimension.title()}',
@@ -1325,7 +1382,7 @@ def _heatmap_payload(rows, samples, filters):
         'applied_filters': _active_filter_names(filters, include_dates=sample_based),
         'unavailable_filters': ['date_range', 'granularity'] if not sample_based else [],
         'sample_count': len(source), 'excluded_count': total_excluded,
-        'exclusion_reason': 'Target unavailable', 'metric': metric,
+        'exclusion_reason': ('Duration unavailable' if metric == 'duration' else 'Target unavailable'), 'metric': metric,
         'row_dimension': row_dimension, 'column_dimension': column_dimension,
         'stage_order_basis': (
             'configured_loan_cycle'
@@ -1511,23 +1568,8 @@ def report_summary(actor, payload, *, include_people=False):
     breakdown_rows = rows
     breakdown_basis = 'current_workload'
     if filters['view'] == 'performance':
-        if stage_samples:
-            breakdown_basis = 'completed_stage_actions'
-        else:
-            created_cases = [
-                case for case in all_cases
-                if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']
-            ]
-            breakdown_rows = [
-                row for row in (
-                    _case_row(case, include_people=include_people, context=context)
-                    for case in created_cases
-                )
-                if (not filters['stage'] or row['current_stage_key'].casefold() == filters['stage'].casefold())
-                and (not filters['role'] or row['responsible_role'].upper() == filters['role'])
-                and (not filters['sla_state'] or row['sla_state'] == filters['sla_state'])
-            ]
-            breakdown_basis = 'created_cases_current_stage'
+        breakdown_basis = 'completed_stage_actions'
+        breakdown_rows = []
     breakdown_samples = stage_samples if filters['view'] == 'performance' else []
     by_stage = Counter(
         (item['stage'] for item in breakdown_samples)
@@ -1953,7 +1995,7 @@ def report_cases(actor, payload, *, include_people=False):
     except (TypeError, ValueError):
         raise ValueError('Page and page size must be valid numbers.')
     start = (page - 1) * page_size
-    if _table_fast_path_allowed(filters, key):
+    if not (filters.get('heat_row') or filters.get('heat_column')) and _table_fast_path_allowed(filters, key):
         queryset = _filtered_case_queryset(actor, filters).exclude(status__in=TERMINAL)
         count = queryset.count()
         stage_columns = _stage_columns_for_case_scope(queryset) if count else []
@@ -1996,7 +2038,14 @@ def report_cases(actor, payload, *, include_people=False):
 
 def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     # Exports are allowed to exceed the API page cap, while retaining a hard operational limit.
-    filters = _filters(payload)
+    export_scope = str(payload.get('export_scope') or 'filtered')
+    if export_scope not in {'filtered', 'all'}:
+        raise ValueError('Choose filtered records or all records.')
+    filters = _filters(payload if export_scope == 'filtered' else
+                       {'view': payload.get('view'), 'granularity': 'year'})
+    if export_scope == 'all':
+        # This is an export-only range, never a request for an unbounded chart.
+        filters.update(date_from=date.min, date_to=date.max)
     cases = _filtered_cases(actor, filters)
     context = _ReportContext(actor, cases, include_people=include_people)
     rows = _eligible_rows(

@@ -1032,7 +1032,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('<summary><span>Activity</span>', template)
         self.assertNotIn('Activity (EAT)', source)
         self.assertNotIn(' EAT`', source)
-        self.assertIn('Updated at ${formatTatDateTime(payload.calculated_at)}', source)
+        self.assertNotIn('Updated at ${formatTatDateTime(payload.calculated_at)}', source)
+        self.assertIn('window.MiniAppReportControls?.setChartHelp', source)
         self.assertIn('renderReportFreshness(summary.freshness || {})', source)
         self.assertIn('nairobiDateTimeInputToIso(input.value)', source)
         self.assertIn("new Intl.DateTimeFormat('en-KE'", source)
@@ -1113,7 +1114,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertNotIn('compact-long-value', source)
         self.assertNotIn('.compact-long-value', stylesheet)
         self.assertIn('function bindTatReportGridZoom()', source)
-        self.assertIn('Cases created or finished, and their outcomes, for the selected period.', source)
+        self.assertIn('Activity and outcomes in this period', source)
         self.assertIn('function stageTatColumns(stages)', source)
         self.assertIn("colId: `stage_tat__${stage.key}`", source)
         self.assertIn("syncTatReportStageColumns(table.stage_columns || [])", source)
@@ -1264,9 +1265,9 @@ class TatTrackerWorkflowTest(TestCase):
             'date_from': timezone.localdate().isoformat(),
             'date_to': timezone.localdate().isoformat(),
         })
-        self.assertEqual(performance['breakdown_basis'], 'created_cases_current_stage')
-        self.assertTrue(performance['by_stage'])
-        self.assertTrue(performance['by_role'])
+        self.assertEqual(performance['breakdown_basis'], 'completed_stage_actions')
+        self.assertFalse(performance['by_stage'])
+        self.assertFalse(performance['by_role'])
         self.assertEqual(
             performance['charts']['explorer']['filter_guidance']['chart_controls'],
             ['chart_dimension', 'chart_metric'],

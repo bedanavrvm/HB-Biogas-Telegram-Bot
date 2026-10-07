@@ -59,7 +59,7 @@
     const stages = item.milestones || [];
     $('portal-performance-details-content').innerHTML = `<div class="portal-performance-detail-body">
       <div class="portal-performance-detail-summary"><strong>${safe(item.points || 0)}</strong><span>points in ${safe(periodLabel(data))}</span><small>${data.final ? 'Final result' : 'Live result'}${data.captured_at ? ` · Captured ${safe(new Date(data.captured_at).toLocaleDateString())}` : ''}</small></div>
-      <section><h3>Where your points came from</h3>${stages.map(stage => `<div class="portal-performance-detail-row"><span>${safe(stage.label)}</span><b>${safe(stage.count)}</b></div>`).join('') || '<p class="meta">No milestones yet.</p>'}</section>
+      <section><h3>Point breakdown</h3>${stages.map(stage => `<div class="portal-performance-detail-row"><span>${safe(stage.label)}</span><b>+${safe(stage.count)}</b></div>`).join('') || '<p class="meta">No milestones yet.</p>'}</section>
       <p class="meta">One point per case milestone, credited to the JBL officer who first logged its visit. Points appear in the month each milestone happened.</p>
     </div>`;
   }
@@ -87,10 +87,10 @@
     $('portal-performance-active-filters').querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
       state[button.dataset.performanceClear] = ''; state.page = 1; reload();
     }));
-    $('portal-performance-list').innerHTML = (data.rows || []).map(item => {
+    $('portal-performance-list').innerHTML = (data.rows?.length ? `<div class="portal-performance-row-heading" aria-hidden="true"><span>#</span><span>${state.view === 'people' ? 'Officer' : 'Branch'}</span><span>Points</span><span>↕</span></div>` : '') + (data.rows || []).map(item => {
       const movement = item.movement || {};
       const arrow = movement.direction === 'up' ? '↑' : movement.direction === 'down' ? '↓' : '';
-      return `<article class="portal-performance-row"><span class="portal-performance-rank">${safe(item.rank)}</span><div class="portal-performance-person"><strong>${safe(item.label)}</strong><small>${safe(item.cases)} cases · ${safe(item.visits)} visits</small></div><b class="portal-performance-row-score" aria-label="${safe(item.points)} points">${safe(item.points)}</b><span class="portal-performance-movement ${safe(movement.direction || 'none')}" aria-label="${arrow ? `${movement.direction} ${movement.places} places` : 'No rank change'}">${arrow ? `${arrow}${safe(movement.places)}` : ''}</span></article>`;
+      return `<article class="portal-performance-row${item.is_current_user ? ' current-user' : ''}"><span class="portal-performance-rank">${safe(item.rank)}</span><div class="portal-performance-person"><strong>${safe(item.label)}</strong><small>${safe(item.cases)} cases · ${safe(item.visits)} visits</small></div><b class="portal-performance-row-score" aria-label="${safe(item.points)} points">${safe(item.points)}</b><span class="portal-performance-movement ${safe(movement.direction || 'none')}" aria-label="${arrow ? `${movement.direction} ${movement.places} places` : 'No rank change'}">${arrow ? `${arrow}${safe(movement.places)}` : ''}</span></article>`;
     }).join('') || `<div class="empty-state"><div class="es-title">No ${state.view} points yet</div><div class="es-sub">Points appear when a JBL officer's case reaches a milestone in this period.</div></div>`;
     $('portal-performance-pages').hidden = data.pages <= 1;
     $('portal-performance-page-label').textContent = `Page ${data.page} of ${data.pages}`;

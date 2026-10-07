@@ -23,7 +23,8 @@ async function setTheme(page, dark) {
   // Wait for the shared button colour transition; screenshots must not capture
   // its grey intermediate frame when changing the synthetic Telegram theme.
   const icon = page.locator('#content .miniapp-icon-button:visible').first();
-  if (await icon.count()) await expect(icon).toHaveCSS('background-color', dark ? 'rgb(32, 32, 44)' : 'rgb(255, 255, 255)');
+  if (await icon.count()) await expect(icon).toHaveCSS('background-color',
+    await page.locator('#page-history').count() ? 'rgba(0, 0, 0, 0)' : dark ? 'rgb(32, 32, 44)' : 'rgb(255, 255, 255)');
 }
 
 async function expectAlignedHeading(page, heading, title, controls) {
@@ -104,13 +105,14 @@ for (const width of [320,360,390,430,768,1280]) {
     await expect(page.locator('.history-document-card').first()).toHaveCSS('padding','8px');
     await expect(page.locator('.physical-signoff-muted span')).toHaveCSS('font-size','12px');
     await expectAlignedHeading(page,'.history-document-header','.history-document-title','.history-document-header .history-document-actions');
+    await expect(page.locator('.history-document-title').first()).toHaveCSS('justify-content','flex-start');
     await expect(page.locator('.physical-signoff-upload')).toBeHidden();
     await expect(page.locator('.history-document-details').first()).toBeHidden();
     const tabs=await page.locator('.history-tabs').boundingBox(), filter=await page.locator('#history-filter-open').boundingBox();
     expect(Math.abs(tabs.y-filter.y)).toBeLessThan(2);
-    await page.getByLabel('More document actions').first().click();
     await expect(page.getByRole('button',{name:'Replace signed scan'})).toBeVisible();
-    await page.getByLabel('More document actions').first().click();
+    await expect(page.getByLabel('More document actions')).toHaveCount(0);
+    await expect(page.getByRole('img',{name:'Stored in Drive'})).toBeVisible();
     for(const dark of [false,true]) {
       await setTheme(page, dark);
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -147,16 +149,17 @@ for (const width of [320,360,390,430,768,1280]) {
 
 test('document secondary actions reveal only the chosen card and retain signed-copy details', async ({page}) => {
   await mountHistory(page);
-  await page.getByLabel('More document actions').first().click();
-  await page.getByRole('button', {name:'Details',exact:true}).first().click();
+  await page.locator('.history-document-title').first().click();
   await expect(page.locator('.history-document-details').first()).toBeVisible();
-  await expect(page.locator('.history-document-details').first()).toContainText('Training-signed-order-with-a-long-filename-104.pdf');
+  await expect(page.locator('.history-document-details').first()).toContainText('Training Officer');
+  await expect(page.getByText('Training-signed-order-with-a-long-filename-104.pdf', {exact:true})).toHaveCount(0);
   await expect(page.locator('.history-document-details').nth(1)).toBeHidden();
-  await page.getByLabel('More document actions').first().click();
+  await page.locator('.history-document-title').first().click();
+  await expect(page.locator('.history-document-details').first()).toBeHidden();
   await page.getByRole('button', {name:'Replace signed scan'}).click();
   await expect(page.locator('.physical-signoff-upload')).toBeVisible();
   await expect(page.locator('.history-signed-scan')).toHaveAttribute('accept', 'application/pdf,image/jpeg,image/png');
-  await expect(page.locator('.history-document-menu').first()).not.toHaveAttribute('open');
+  await expect(page.locator('.history-document-menu')).toHaveCount(0);
 });
 
 test('payment picker preserves selection and mode across pages, rejects stale results and closes cleanly', async({page})=>{

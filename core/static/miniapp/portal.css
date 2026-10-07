@@ -5074,13 +5074,7 @@ body.portal-app .history-document-header.miniapp-panel-heading{gap:6px;padding:0
 .portal-app .physical-signoff-approved strong{font-size:13px;color:var(--text-primary)}
 .portal-app .history-document-card .physical-signoff strong{font-size:13px}
 .portal-app .history-document-card .physical-signoff :is(span,small){font-size:12px;line-height:1.4}
-.portal-app .history-document-menu{position:relative}
-.portal-app .history-document-menu>summary{list-style:none;cursor:pointer}
-.portal-app .history-document-menu>summary::-webkit-details-marker{display:none}
-.portal-app .history-document-menu>div{position:absolute;right:0;top:100%;z-index:5;min-width:172px;padding:4px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 4px 16px #0002}
-.portal-app .history-document-menu button{display:block;width:100%;min-height:44px;border:0;background:none;color:var(--text-primary);text-align:left;font:inherit;font-size:13px;padding:8px}
 .portal-app .history-document-details{font-size:12px;color:var(--text-muted)}
-.portal-app .history-document-details>summary{min-height:44px;cursor:pointer;display:flex;align-items:center}
 .portal-app .history-document-detail-body p{margin:4px 0}
 .portal-app .history-document-card [hidden]{display:none!important}
 .portal-app .invoice-card-heading{display:flex;align-items:start;gap:6px;margin:0}
@@ -5218,3 +5212,27 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .portal-app #portal-import-review .portal-import-review-grid th { font-size:11px; background:var(--bg-surface); }
 .portal-app #portal-import-review .portal-import-review-grid th:first-child { box-shadow:2px 0 0 var(--bg-surface); }
 .jbl-selection-viewer-stage .secure-media-stage { height: calc(100dvh - 240px); }
+
+/* Standings use the same compact hierarchy as TAT Recognition. */
+.portal-performance-own { padding: 10px; background: color-mix(in srgb, var(--brand-primary) 6%, var(--bg-surface)); border-color: color-mix(in srgb, var(--brand-primary) 30%, var(--border-color)); }
+.portal-performance-own-heading { align-items: center; }
+.portal-performance-own-metrics { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; padding-top: 6px; }
+.portal-performance-own-cell { padding: 0; border: 0; background: transparent; }
+.portal-performance-own-cell strong { font-size: 20px; }
+.portal-performance-own-cell:first-child strong { font-size: 36px; line-height: 1.05; color: var(--brand-primary); }
+.portal-performance-row, .portal-performance-row-heading { display: grid; grid-template-columns: 28px minmax(0,1fr) 52px 32px; align-items: center; gap: 7px; padding: 7px 10px; min-height: 54px; }
+.portal-performance-row.current-user { background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface)); }
+.portal-performance-row-heading { min-height: 30px; color: var(--text-muted); background: var(--bg-muted); font-size: 11px; font-weight: 700; }
+.portal-performance-row-heading > :nth-child(3), .portal-performance-row-heading > :nth-child(4) { text-align: right; }
+.portal-performance-row-score { font-size: 17px; }
+.portal-performance-pages button { min-height: 44px; }
+.portal-performance-detail-body { gap: 8px; padding: 10px 12px 16px; }
+.portal-performance-detail-row b { color: var(--color-success, #15803d); font-variant-numeric: tabular-nums; }
+.portal-performance-detail-row { min-height: 36px; }
+#page-performance :is(.miniapp-icon-button, #portal-performance-filter), #page-history :is(.queue-filter-button, .miniapp-icon-button) { border-color:transparent; background:transparent; }
+#page-performance :is(.miniapp-icon-button, #portal-performance-filter) svg, #page-history :is(.queue-filter-button, .miniapp-icon-button) svg { width:16px; height:16px; stroke-width:1.5; }
+.portal-app button.history-document-title { padding:0; min-height:44px; justify-content:flex-start; text-align:left; border:0; border-radius:0; background:transparent; color:var(--text-primary); font:inherit; font-weight:750; cursor:pointer; }
+.portal-app button.history-document-title:hover { color:var(--brand-primary); }
+.history-drive-indicator { display:inline-block; width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:var(--color-success, #168354); }
+#history-filter-open.has-active-filter { color:var(--brand-primary); position:relative; }
+#history-filter-open.has-active-filter::after { content:''; position:absolute; right:8px; top:8px; width:5px; height:5px; border-radius:50%; background:currentColor; }

@@ -14,6 +14,8 @@ async function openReport(page) {
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '').replace(/<link[^>]*>/g, '');
   await page.setContent(template);
   await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('components.css') });
+  await page.addScriptTag({ path: asset('components.js') });
   await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('complaint_cases.css') });
@@ -86,9 +88,9 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     await expect(page.locator('#globalResultCount')).toHaveText('4 complaints found');
     expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'closures',metric:'closures',date_from:'2026-09-01',date_to:'2026-09-30'});
     await page.locator('#exportResultsBtn').click();
-    await expect(page.locator('#exportConfirm')).toBeVisible();
-    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/summary/').at(-1).params.metric)).toBe('closures');
-    await page.locator('#cancelExportBtn').click();
+    await expect(page.locator('#miniapp-excel-dialog')).toBeVisible();
+    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params.metric)).toBe('closures');
+    await page.getByRole('button', { name: 'Close download options' }).click();
     await expect(page.locator('#exportResultsBtn')).toBeFocused();
     await page.locator('#complaintChartSelection').click();
     await expect(page.locator('#globalResultCount')).toHaveText('12 complaints found');
@@ -149,6 +151,7 @@ test('trend grouping stays synchronized and chart borders match their purpose', 
       await page.locator(current < target ? '#complaintChartNext' : '#complaintChartPrevious').click();
       current += current < target ? 1 : -1;
     }
+    await page.locator(`[data-complaint-chart="${key}"]`).getByLabel('Chart options', {exact:true}).click();
     await page.locator(`[data-complaint-chart="${key}"] .chart-granularity select`).selectOption(grouping);
     await expect.poll(()=>page.evaluate(()=>window.__reportQueries.filter(item=>item.route==='reports/summary/').at(-1).params.granularity)).toBe(grouping);
     expect(await page.locator('.chart-granularity select').evaluateAll(nodes=>nodes.map(node=>node.value))).toEqual(Array(4).fill(grouping));

@@ -2840,6 +2840,7 @@
     return basePayload(Object.assign(values, {
       view: state.report.view, page: state.report.page, page_size: state.report.pageSize,
       sort: state.report.sort,
+      ...(state.report.heatSelection || {}),
     }, extra || {}));
   }
 
@@ -3276,7 +3277,7 @@
             copiedAt = Date.now();
             cell.classList.add('tat-cell-copied');
             setTimeout(() => cell.classList.remove('tat-cell-copied'), 900);
-            showNotice(`Copied: ${value.length > 70 ? `${value.slice(0, 67)}...` : value}`, 'ok');
+            showNotice(`Copied: ${value}`, 'ok');
           } catch (error) {
             showNotice('Clipboard access was unavailable. Please try again.', 'error');
           }
@@ -3389,6 +3390,12 @@
     return parts.filter(Boolean).join('\n');
   }
 
+  function showTatChartHelp(target, payload) {
+    const count = Number(payload.excluded_count || 0);
+    window.MiniAppReportControls?.setChartHelp(target, tatChartExplanation(payload),
+      count ? `${formatLocalizedNumber(count)} records not compared: ${payload.exclusion_reason || 'required data unavailable'}.` : '');
+  }
+
   function renderExplorerDetails(payload) {
     const target = $('tatExplorerDetails');
     if (!target) return;
@@ -3421,7 +3428,7 @@
     panel.hidden = !payload.id;
     if (!payload.id) return;
     $('tatHeatmapTitle').textContent = payload.title || 'Operational Heatmap';
-    $('tatHeatmapBasis').textContent = tatChartExplanation(payload);
+    showTatChartHelp($('tatHeatmapBasis'), payload);
     const rows = payload.rows || []; const columns = payload.columns || []; const cells = payload.cells || [];
     if (!rows.length || !columns.length) {
       target.innerHTML = '<p class="chart-empty-static">No heatmap data matches these filters.</p>';
@@ -3432,20 +3439,43 @@
     const minimum = values.length ? Math.min(...values) : 0; const maximum = values.length ? Math.max(...values) : 0;
     const body = rows.map((row, rowIndex) => `<tr><th scope="row" title="${escapeHtml(row)}">${escapeHtml(compactTatReportLabel(row))}</th>${columns.map((column, columnIndex) => {
       const cell = lookup.get(`${row}\u0000${column}`) || { value: null, sample_count: 0, excluded_count: 0 };
-      const value = Number(cell.value); const intensity = Number.isFinite(value) && maximum > minimum ? Math.round(((value - minimum) / (maximum - minimum)) * 100) : (Number.isFinite(value) ? 55 : 0);
+      const value = cell.value == null ? NaN : Number(cell.value); const intensity = Number.isFinite(value) && maximum > minimum ? Math.round(((value - minimum) / (maximum - minimum)) * 100) : (Number.isFinite(value) ? 55 : 0);
       const shown = formatHeatmapValue(cell.value, payload.metric);
       const compared = Number(cell.sample_count || 0); const notCompared = Number(cell.excluded_count || 0);
+      const cases = Number(cell.case_count ?? compared);
+      const tone = !Number.isFinite(value) ? 'unavailable' : payload.metric === 'sla_met'
+        ? (value >= 80 ? 'good' : value >= 60 ? 'warning' : 'bad') : 'neutral';
       const description = `${compactTatReportLabel(row)}, ${compactTatReportLabel(column)}: ${shown}; based on ${compared} record${compared === 1 ? '' : 's'}${notCompared ? `; ${notCompared} could not be compared` : ''}`;
-      return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}"><strong>${escapeHtml(shown)}</strong><small>${compared} record${compared === 1 ? '' : 's'}</small></button></td>`;
+      return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" data-heat-tone="${tone}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}; ${cases} cases" title="${escapeHtml(description)}"${cases ? '' : ' disabled'}><strong>${escapeHtml(shown)}</strong><small>${cases} case${cases === 1 ? '' : 's'}</small></button></td>`;
     }).join('')}</tr>`).join('');
     target.innerHTML = `<table><caption class="sr-only">${escapeHtml(payload.title || 'Operational heatmap')}</caption><thead><tr><th scope="col">${escapeHtml((payload.row_dimension || 'Row').replaceAll('_', ' '))}</th>${columns.map(column => `<th scope="col" title="${escapeHtml(column)}">${escapeHtml(compactTatReportLabel(column))}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+    target.onclick = event => {
+      const button = event.target.closest('[data-heat-row]');
+      if (!button || button.disabled) return;
+      state.report.heatSelection = { heat_row: rows[Number(button.dataset.heatRow)], heat_column: columns[Number(button.dataset.heatColumn)] };
+      state.report.page = 1; renderHeatmapSelection();
+      refreshTatReport({ summary: false }).then(() => $('tatReportGrid').scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    };
+  }
+
+  function renderHeatmapSelection() {
+    let button = $('tatHeatmapSelection');
+    if (!button) {
+      button = document.createElement('button'); button.id = 'tatHeatmapSelection'; button.type = 'button'; button.className = 'miniapp-filter-chip';
+      $('tatReportGrid').before(button);
+      button.addEventListener('click', () => { state.report.heatSelection = null; state.report.page = 1; renderHeatmapSelection(); refreshTatReport({ summary: false }); });
+    }
+    const selection = state.report.heatSelection;
+    button.hidden = !selection;
+    button.textContent = selection ? `${selection.heat_row} · ${selection.heat_column} ×` : '';
+    button.setAttribute('aria-label', 'Clear heatmap selection');
   }
 
   function renderTargetReviewSignals(payload) {
     const target = $('tatTargetSignals');
     if (!target) return;
     const signals = payload.items || [];
-    $('tatSignalsBasis').textContent = tatChartExplanation(payload);
+    showTatChartHelp($('tatSignalsBasis'), payload);
     if (!signals.length) {
       target.innerHTML = '<p class="chart-empty-static">No target performance data is available for this selection.</p>';
       return;
@@ -3467,7 +3497,7 @@
     const target = $('tatOldestCases');
     if (!target) return;
     const rows = payload.items || [];
-    $('tatOldestBasis').textContent = tatChartExplanation(payload);
+    showTatChartHelp($('tatOldestBasis'), payload);
     if (!rows.length) {
       target.innerHTML = '<p class="chart-empty-static">No active cases match these filters.</p>';
       return;
@@ -3561,16 +3591,23 @@
 
   const TAT_REPORT_CHART_TYPES = {
     trend: { defaultType: 'line', allowed: ['line', 'bar'] },
-    case_progression: { defaultType: 'line', allowed: ['line', 'bar'] },
-    backlog_age: { defaultType: 'bar', allowed: ['bar', 'pie'] },
+    case_progression: { defaultType: 'bar', allowed: ['bar', 'line'] },
+    backlog_age: { defaultType: 'bar', allowed: ['bar', 'doughnut', 'pie'] },
     sla_compliance: { defaultType: 'line', allowed: ['line', 'bar'] },
     tat_percentiles: { defaultType: 'line', allowed: ['line', 'bar'] },
     stage_target: { defaultType: 'bar', allowed: ['bar', 'line'] },
     explorer: { defaultType: 'bar', allowed: ['bar', 'line'] },
   };
 
+  function tatReportChartPresentation(key) {
+    const payload = state.report.insightPayloads[key];
+    if (payload?.allowed_types?.length) return { defaultType: payload.default_type, allowed: payload.allowed_types };
+    if (key === 'explorer' && payload?.metric === 'sla_state') return {defaultType:'stacked_bar', allowed:['stacked_bar','bar']};
+    return TAT_REPORT_CHART_TYPES[key];
+  }
+
   function tatReportChartType(key) {
-    const definition = TAT_REPORT_CHART_TYPES[key];
+    const definition = tatReportChartPresentation(key);
     if (!definition) return 'bar';
     return definition.allowed.includes(state.report.chartTypes[key])
       ? state.report.chartTypes[key]
@@ -3578,6 +3615,27 @@
   }
 
   function syncTatReportChartTypeToggles() {
+    document.querySelectorAll('.tat-insight-chart-toggle').forEach(group => {
+      const key = group.querySelector('[data-tat-chart-key]')?.dataset.tatChartKey;
+      const rule = tatReportChartPresentation(key);
+      if (!rule) return;
+      const signature = rule.allowed.join(',');
+      if (group.dataset.reportControlsBound === signature) return;
+      group.dataset.reportControlsBound = signature;
+      let menu = group.closest('.tat-chart-options');
+      if (!menu) {
+        menu = document.createElement('details'); menu.className = 'tat-chart-options';
+        const toggle = document.createElement('summary'); toggle.setAttribute('aria-label', 'Chart options'); toggle.innerHTML = window.MiniAppReportControls.chartOptionsIcon;
+        group.before(menu); menu.append(toggle, group);
+      }
+      group.replaceChildren(...rule.allowed.map(type => {
+        const button = document.createElement('button'); button.type = 'button';
+        button.dataset.tatChartKey = key; button.dataset.tatChartType = type;
+        button.textContent = ({ stacked_bar: 'Stacked bar', doughnut: 'Doughnut' })[type] || `${type[0].toUpperCase()}${type.slice(1)}`;
+        button.addEventListener('click', () => { setTatReportChartType(key, type); menu.open = false; });
+        return button;
+      }));
+    });
     document.querySelectorAll('[data-tat-chart-key][data-tat-chart-type]').forEach(button => {
       const active = tatReportChartType(button.dataset.tatChartKey) === button.dataset.tatChartType;
       button.classList.toggle('active', active);
@@ -3586,7 +3644,7 @@
   }
 
   function setTatReportChartType(key, type) {
-    const definition = TAT_REPORT_CHART_TYPES[key];
+    const definition = tatReportChartPresentation(key);
     if (!definition || !definition.allowed.includes(type)) return;
     state.report.chartTypes[key] = type;
     try { localStorage.setItem('tat-report-chart-types', JSON.stringify(state.report.chartTypes)); } catch (error) {}
@@ -3633,7 +3691,7 @@
       state.report.charts[key]?.destroy?.();
       delete state.report.charts[key];
       $(`${prefix}Title`).textContent = payload.title || '';
-      $(`${prefix}Basis`).textContent = tatChartExplanation(payload);
+      showTatChartHelp($(`${prefix}Basis`), payload);
       const empty = $(`${prefix}Empty`);
       const hasData = Boolean(payload.sample_count) && (payload.labels || []).length;
       empty.hidden = hasData;
@@ -3646,9 +3704,9 @@
         return;
       }
       const chartType = tatReportChartType(key);
-      const pie = chartType === 'pie';
+      const pie = chartType === 'pie' || chartType === 'doughnut';
       const line = chartType === 'line';
-      const horizontal = chartType === 'bar' && ['stage_target', 'explorer'].includes(key);
+      const horizontal = ['bar', 'stacked_bar'].includes(chartType) && ['stage_target', 'explorer', 'case_progression'].includes(key);
       const categoryGridlineLimit = 12;
       const numericGridlineLimit = 14;
       const verticalGridlineLimit = 18;
@@ -3672,7 +3730,7 @@
         if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
         if (key === 'stage_target') options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '% of target', color: text };
         if (key === 'explorer' && payload.metric === 'duration') options.scales[horizontal ? 'x' : 'y'].ticks.callback = value => formatMinutes(value);
-        if (key === 'explorer' && payload.metric === 'sla_state') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
+        if (chartType === 'stacked_bar') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
         if (key === 'explorer' && ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric)) {
           options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '%', color: text };
         }
@@ -3714,7 +3772,7 @@
           context.stroke(); context.restore();
         },
       });
-      state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: chartType, data: { labels: chartLabels, datasets }, options, plugins });
+      state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: chartType === 'stacked_bar' ? 'bar' : chartType, data: { labels: chartLabels, datasets }, options, plugins });
     });
     const details = $('tatTargetDetails');
     if (details && charts.stage_target) {
@@ -3746,16 +3804,11 @@
 
   function renderReportFreshness(freshness) {
     const parts = [];
-    if (freshness.latest_snapshot) {
-      parts.push(`History updated through ${formatReportDate(freshness.latest_snapshot)}.`);
-      if (freshness.earliest_snapshot) parts.push(`Reliable workload history begins ${formatReportDate(freshness.earliest_snapshot)}.`);
-    }
-    else parts.push('Historical snapshots are not available yet.');
     if (freshness.pending_rebuilds) parts.push(`${freshness.pending_rebuilds} history rebuild${freshness.pending_rebuilds === 1 ? '' : 's'} pending.`);
     if (freshness.failed_rebuilds) parts.push(`${freshness.failed_rebuilds} history rebuild${freshness.failed_rebuilds === 1 ? '' : 's'} need${freshness.failed_rebuilds === 1 ? 's' : ''} administrator attention.`);
-    parts.push(`Near Target starts at ${freshness.near_target_percent}%.`);
     $('tatReportFreshness').textContent = parts.join(' ');
-    $('tatReportFreshness').classList.toggle('warning', !freshness.latest_snapshot || Boolean(freshness.pending_rebuilds) || Boolean(freshness.failed_rebuilds));
+    $('tatReportFreshness').hidden = !parts.length;
+    $('tatReportFreshness').classList.toggle('warning', Boolean(freshness.pending_rebuilds) || Boolean(freshness.failed_rebuilds));
   }
 
   async function loadTatReportInsight(insight) {
@@ -3857,18 +3910,22 @@
   }
 
   function setTatReportView(view) {
+    state.report.heatSelection = null; renderHeatmapSelection();
     state.report.view = view; state.report.page = 1; state.report.activeSlide = 0;
     document.querySelectorAll('[data-report-view]').forEach(button => { const active = button.dataset.reportView === view; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
     $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Disbursed and Declined';
-    $('tatReportPeriod').textContent = view === 'current' ? 'Current workload and attention indicators.' : 'Cases created or finished, and their outcomes, for the selected period.';
+    $('tatReportPeriod').textContent = view === 'current' ? 'Unfinished cases now' : 'Activity and outcomes in this period';
     invalidateTatReportInsights();
     syncTatChartDisplay();
     refreshTatReport(); utils.haptic?.('light');
   }
 
   async function exportTatReport() {
+    if ($('tatReportExport').disabled) return;
+    const scope = await window.MiniAppReportControls.chooseExcelExport({ trigger: $('tatReportExport') });
+    if (!scope) return;
     const button = $('tatReportExport'); setButtonLoading(button, true, 'Preparing XLSX');
-    const requestId = newRequestId(); const payload = reportPayload({ request_id: requestId, client_request_id: requestId });
+    const requestId = newRequestId(); const payload = reportPayload({ request_id: requestId, client_request_id: requestId, export_scope: scope });
     try {
       const response = await fetch('/api/tat-tracker/reports/export/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId, 'Idempotency-Key': requestId, 'X-MiniApp-Message-Contract': '2' }, body: JSON.stringify(payload) });
       if (!response.ok) {
@@ -3972,11 +4029,13 @@
     }
   });
   $('tatReportFilters').elements.search.addEventListener('input', () => {
+    state.report.heatSelection = null; renderHeatmapSelection();
     clearTimeout(tatReportFilterTimer); syncReportFilterGuidance();
     utils.haptic?.('light');
     queueTatReportFilterRefresh(350);
   });
   $('tatReportReset').addEventListener('click', () => {
+    state.report.heatSelection = null; renderHeatmapSelection();
     $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1;
     clearTimeout(tatReportFilterTimer); tatReportFiltersDirty = false;
     invalidateTatReportInsights(); syncReportFilterGuidance(); refreshTatReport(); utils.haptic?.('light');
@@ -3987,6 +4046,7 @@
     'chart_dimension', 'chart_metric', 'heatmap_pair', 'heatmap_metric',
   ];
   immediateReportFilters.forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => {
+    state.report.heatSelection = null; renderHeatmapSelection();
     if (name === 'date_from' || name === 'date_to') syncReportDateDisplays();
     state.report.page = 1; syncReportFilterGuidance();
     utils.haptic?.('light');
@@ -4442,6 +4502,7 @@
   bindReportDatePickers();
   bindCollapsingHeader();
   bindTatReportGridZoom();
+  document.querySelectorAll('.tat-report-charts .chart-basis').forEach(target => window.MiniAppReportControls?.setChartHelp(target));
   syncTatReportChartTypeToggles();
   utils.bindMiniAppTheme?.(tg, refreshTatVisualTheme);
   document.addEventListener('keydown', (event) => {
@@ -4455,6 +4516,8 @@
   });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
+      const excelDialog = document.querySelector('.miniapp-excel-dialog[open]');
+      if (excelDialog) { excelDialog.close(); return; }
       if (window.MiniAppReportEmailExport?.closeActive()) return;
       if (state.assessmentPreview.open) return closeAssessmentPreview();
       if (state.report.filterSheetOpen) return closeTatReportFilters();

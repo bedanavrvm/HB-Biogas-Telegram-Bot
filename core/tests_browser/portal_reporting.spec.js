@@ -7,9 +7,10 @@ const asset=name=>path.resolve(__dirname,'../static/miniapp',name);
 async function open(page,{chartsUnavailable=false}={}) {
   await page.route('https://portal-report.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body class="workflow-standard portal-app"><main style="max-width:1000px;margin:auto;padding:12px"><div id="portal-reports-root"></div></main></body></html>'}));
   await page.goto('https://portal-report.test/portal/s/reports/');
-  for(const name of ['base.css','portal.css','workflow_standard.css','portal_report_insights.css'])await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
+  for(const name of ['base.css','components.css','portal.css','workflow_standard.css','report_email_export.css','portal_report_insights.css'])await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
   if(!chartsUnavailable)await page.addScriptTag({path:asset('vendor-chartjs-4.5.1.umd.min.js')});
   await page.addScriptTag({path:asset('components.js')});
+  await page.addScriptTag({path:asset('report_email_export.js')});
   await page.addScriptTag({path:asset('portal_helpers.js')});
   await page.addScriptTag({path:asset('ag_grid_zoom.js')});
   await page.addScriptTag({path:asset('vendor-ag-grid-community-36.1.0.min.js')});
@@ -44,9 +45,12 @@ for(const width of [320,360,390,430,768,1280])for(const preset of ['pipeline','o
     await page.screenshot({path:info.outputPath(`${preset}-${width}.png`),fullPage:true});
     await page.locator('[data-action="next"]').click();await expect(page.locator('#portal-chart-position')).toContainText('2 of');
     await page.locator('[data-display="list"]').click();await expect(page.locator('#portal-insight-charts')).toHaveClass(/list/);
-    await page.locator('.portal-chart-settings summary').first().click();
-    await page.locator('[data-type="doughnut"]').first().click();
-    expect(await page.evaluate(()=>Object.values(Chart.instances).some(c=>c.config.type==='doughnut'))).toBe(true);
+    const alternative=page.locator('.portal-chart-settings button[aria-pressed="false"]').first();
+    const key=await alternative.getAttribute('data-key');
+    const type=await alternative.getAttribute('data-type');
+    await page.locator(`[data-chart="${key}"] .portal-chart-settings summary`).click();
+    await alternative.click();
+    await expect(page.locator(`[data-key="${key}"][data-type="${type}"]`)).toHaveAttribute('aria-pressed','true');
     await page.evaluate(()=>{document.documentElement.style.setProperty('--tg-theme-text-color','#f4f4f8');document.documentElement.style.setProperty('--tg-theme-bg-color','#17171e');document.documentElement.style.setProperty('--tg-theme-secondary-bg-color','#20202c');document.documentElement.style.setProperty('--tg-theme-hint-color','#a8a8b3');window.__theme();});
     await expect(page.locator('#portal-report-grid .ag-row').first()).toBeVisible();
     await expect(page.locator('#portal-report-grid .ag-cell[col-id="customer_name"]').first()).toHaveCSS('color','rgb(244, 244, 248)');
@@ -65,6 +69,7 @@ test('draft filters cancel cleanly; drill, paging and export share applied filte
   await expect(page.locator('.portal-report-filter-bar')).toContainText('Training branch');
   const card=page.locator('[data-chart="stages"]');await card.locator('.portal-chart-cases summary').click();await card.locator('[data-bucket]').selectOption('training');await card.getByRole('button',{name:'Show cases'}).click();
   await expect(page.locator('.portal-chart-selection')).toContainText('Training branch');await page.locator('[data-action="export"]').click();
+  await page.getByRole('button',{name:'Download filtered',exact:true}).click();
   await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
   const calls=await page.evaluate(()=>window.__calls);const exported=calls.find(c=>c.url.includes('export')).body.filters;
   expect(exported).toMatchObject({branch:'Training branch',date_mode:'custom',from:'2026-09-01',to:'2026-09-30',chart_key:'stages',bucket_key:'training',series_key:'Cases'});
@@ -98,6 +103,7 @@ test('real bar and line clicks filter cases in place, preserve table state and e
   await expect(page.locator('[data-miniapp-table-zoom-reset]')).toHaveText('110%');
   await expect(page.locator('#portal-report-grid .ag-cell[col-id="row_number"]').first()).toHaveText('51');
   await page.locator('[data-action="export"]').click();
+  await page.getByRole('button',{name:'Download filtered',exact:true}).click();
   expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.chart_key)).toBe('stages');
   await page.locator('[data-action="clear"]').click();await expect(page.locator('.portal-chart-selection')).toHaveCount(0);
   await page.locator('[data-action="next"]').click();await expect(page.locator('#portal-chart-position')).toHaveText('2 of 5');
@@ -164,6 +170,10 @@ test('mobile controls align, search survives filters, and the grid fits eight ro
   await expect(page.locator('#portal-report-search')).toBeFocused();
   const heading=await page.locator('.portal-report-heading').boundingBox(),exportButton=await page.locator('[data-action="export"]').boundingBox();
   expect(exportButton.width).toBe(40);expect(Math.abs(exportButton.x+exportButton.width-heading.x-heading.width)).toBeLessThan(2);
+  const pageTitle=await page.locator('.portal-report-heading h1').boundingBox(),emailButton=await page.locator('[data-action="email"]').boundingBox();
+  expect(Math.abs(exportButton.y+exportButton.height/2-pageTitle.y-pageTitle.height/2)).toBeLessThan(2);
+  expect(Math.abs(emailButton.y+emailButton.height/2-exportButton.y-exportButton.height/2)).toBeLessThan(2);
+  await expect(page.locator('[data-action="email"] svg')).toBeVisible();
   const chartTitle=await page.locator('[data-chart="stages"] h3').boundingBox(),settings=await page.locator('[data-chart="stages"] .portal-chart-settings summary').boundingBox();
   expect(Math.abs(chartTitle.y-settings.y)).toBeLessThan(12);
   await page.locator('[data-action="filters"]').click();await page.locator('[name="date_mode"]').selectOption('custom');
@@ -224,7 +234,7 @@ test('return from a retained Case History detour rechecks data and keeps filters
 
 test('failed chart asset leaves cases, drill selectors and exports usable',async({page})=>{
   await open(page,{chartsUnavailable:true});await expect(page.locator('.portal-chart-state').first()).toContainText('Charts unavailable');
-  await expect(page.locator('#portal-report-grid')).toContainText('Synthetic reporting customer');await page.locator('[data-action="export"]').click();await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
+  await expect(page.locator('#portal-report-grid')).toContainText('Synthetic reporting customer');await page.locator('[data-action="export"]').click();await page.getByRole('button',{name:'Download filtered',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
 });
 
 test('keyboard chart navigation, modal back handling and empty charts',async({page})=>{

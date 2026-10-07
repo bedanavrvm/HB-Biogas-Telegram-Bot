@@ -35,3 +35,16 @@ This note records the mobile and operational UX patterns proven in Loan Originat
 ## Regression standard
 
 Every future Complaint Case UI change should be checked at 320 px, 390 px, and tablet width. Tests should assert no document-level horizontal overflow, at most ten rendered queue cards, correct numbering and pagination, an opaque and accessible filter sheet, one write for repeated taps, and keyboard-safe primary actions.
+
+## Shared report controls
+
+- Excel opens one shared dialog: **Download filtered** keeps current filters and chart selection; **Download all** includes all dates within that report and the viewer's authorized scope. Export size limits still apply. Switching tabs never widens access.
+- Current workload means unfinished work now. Period performance measures dated actions and outcomes; no recorded completions means no completed-action breakdown, not a fallback to backlog.
+- Chart explanations live under `?`. Missing-target/timing and repair warnings remain visible. Chart type and time-grouping controls stay in a compact options menu.
+- Temporal trends start as lines; comparisons as bars; small outcome proportions as doughnuts; SLA category comparisons as stacked bars. Compatible user-selected alternatives survive refresh.
+- Heatmap percentages and distinct contributing-case counts occupy separate lines. Target-met rates use green at 80%+, amber at 60%+, red below 60%; duration and target usage do not reuse this success scale. Missing measurements remain neutral.
+- Heatmap selection is computed server-side using the same scoped sample cohort as its cell. The table and filtered export contain those distinct cases, not an action count mistaken for cases. Known stages follow the canonical loan-cycle sequence across product paths.
+- Copy feedback retains the complete multiline cell value. Long feedback wraps and scrolls rather than truncating it.
+- Keep icon glyphs small and lightly stroked inside mobile-safe tap targets. Inspect synthetic screenshots in both themes at 320–430 px and larger screens; do not accept layout changes from source inspection alone.
+
+Focused browser checks: `npm run test:browser -- report_controls.spec.js complaint_reporting.spec.js portal_reporting.spec.js portal_recognition_layout.spec.js tat_recognition_layout.spec.js`.

@@ -289,4 +289,88 @@
     TABLE_ZOOM_LEVELS: TABLE_ZOOM_LEVELS,
     bindTableZoom: bindTableZoom,
   });
+
+  // Shared report controls keep the standalone Mini Apps and Portal in step.
+  function chooseExcelExport({ trigger, id = 'miniapp-excel-dialog' } = {}) {
+    if (document.querySelector('.miniapp-excel-dialog[open]')) return Promise.resolve(null);
+    const opener = trigger || document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.id = id;
+    dialog.className = 'miniapp-excel-dialog';
+    dialog.setAttribute('aria-labelledby', `${id}-title`);
+    dialog.innerHTML = `<header class="miniapp-report-dialog-head"><h2 id="${id}-title">Download Excel</h2><button type="button" data-scope="cancel" aria-label="Close download options">×</button></header><p>Choose the records to include.</p><div class="miniapp-export-choices"><button type="button" class="primary btn btn-primary" data-scope="filtered">Download filtered</button><button type="button" class="secondary btn btn-secondary" data-scope="all">Download all</button></div><p class="miniapp-export-scope-note">All includes every date within this report and your access.</p>`;
+    document.body.appendChild(dialog);
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = scope => {
+        if (settled) return;
+        settled = true; dialog.close(); dialog.remove();
+        if (opener?.isConnected) opener.focus();
+        resolve(scope);
+      };
+      dialog.addEventListener('click', event => {
+        const button = event.target.closest('[data-scope]');
+        if (button) finish(button.dataset.scope === 'cancel' ? null : button.dataset.scope);
+        else if (event.target === dialog) {
+          const box = dialog.getBoundingClientRect();
+          if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) finish(null);
+        }
+      });
+      dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
+      dialog.addEventListener('close', () => finish(null));
+      dialog.showModal();
+      dialog.querySelector('[data-scope="filtered"]').focus();
+    });
+  }
+
+  function setChartHelp(target, text, warning = '') {
+    if (!target) return;
+    const panel = target.closest('article') || target.parentElement;
+    let heading = panel?.querySelector('.tat-report-chart-head, .report-chart-head, header');
+    if (!heading && panel?.querySelector('h3')) {
+      const title = panel.querySelector('h3');
+      heading = document.createElement('div'); heading.className = 'tat-report-chart-head';
+      title.before(heading); heading.appendChild(title);
+    }
+    if (!heading) return;
+    let help = heading.querySelector('.miniapp-chart-help');
+    if (!help) {
+      help = document.createElement('details'); help.className = 'miniapp-chart-help';
+      const toggle = document.createElement('summary');
+      toggle.textContent = '?'; toggle.setAttribute('aria-label', 'About this chart');
+      const content = document.createElement('div'); content.className = 'miniapp-chart-help-content';
+      help.append(toggle, content); heading.appendChild(help);
+    }
+    help.querySelector('.miniapp-chart-help-content').textContent = String(text || target.textContent || '');
+    help.hidden = !help.querySelector('.miniapp-chart-help-content').textContent;
+    target.textContent = warning;
+    target.hidden = !warning;
+  }
+
+  function closeExcelExport() {
+    const dialog = document.querySelector('.miniapp-excel-dialog[open]');
+    if (!dialog) return false;
+    dialog.close(); return true;
+  }
+
+  function chartPresentation({ id, temporal = false, composition = false, stacked = false, count = 0 } = {}) {
+    if (temporal) return { defaultType: 'line', allowedTypes: ['line', 'bar'] };
+    if (stacked) return { defaultType: 'stacked_bar', allowedTypes: ['stacked_bar', 'bar'] };
+    if (composition && count > 0 && count <= 8) return { defaultType: 'doughnut', allowedTypes: ['doughnut', 'bar'] };
+    return { defaultType: 'bar', allowedTypes: ['bar', ...(id === 'case_progression' ? ['line'] : [])] };
+  }
+
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('.miniapp-chart-help[open]').forEach(help => {
+      help.open = false; help.querySelector('summary').focus(); event.preventDefault(); event.stopPropagation();
+    });
+  }, true);
+  document.addEventListener('click', event => {
+    document.querySelectorAll('.miniapp-chart-help[open]').forEach(help => {
+      if (!help.contains(event.target)) help.open = false;
+    });
+  });
+  const chartOptionsIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/><circle cx="15" cy="17" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/></svg>';
+  window.MiniAppReportControls = Object.freeze({ chooseExcelExport, closeExcelExport, setChartHelp, chartPresentation, chartOptionsIcon });
 })();

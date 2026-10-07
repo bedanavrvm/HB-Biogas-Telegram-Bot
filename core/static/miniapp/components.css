@@ -267,3 +267,43 @@ body.portal-app .miniapp-scroll-body { min-height: 0; overflow-y: auto; overscro
 @media (prefers-reduced-motion: reduce) {
   .miniapp-sheet-overlay, .miniapp-sheet { scroll-behavior: auto; }
 }
+
+.miniapp-excel-dialog {
+  width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px;
+  border: 1px solid var(--line, var(--tat-line, #dce1e8)); border-radius: 14px;
+  background: var(--bg-surface, var(--tat-surface, var(--surface, var(--tg-theme-bg-color, #fff))));
+  color: var(--text-primary, var(--tat-text, var(--text, var(--tg-theme-text-color, #17212b))));
+  box-shadow: 0 12px 48px #0004; font: inherit;
+}
+.miniapp-excel-dialog::backdrop { background: #0008; }
+.miniapp-excel-dialog > .miniapp-report-dialog-head { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; justify-content:space-between; gap:8px; padding:0; margin:0; text-align:left; }
+.miniapp-excel-dialog > .miniapp-report-dialog-head h2 { flex:1; min-width:0; }
+.miniapp-report-dialog-head h2 { margin: 0; font-size: 18px; }
+.miniapp-report-dialog-head button { width: 44px; height: 44px; flex: 0 0 44px; border: 0; border-radius: 8px; background: transparent; color: inherit; font-size: 24px; }
+.miniapp-export-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.miniapp-export-choices button { min-height: 44px; padding: 8px; font: 600 14px/1.3 system-ui, sans-serif; border-radius: 8px; white-space: normal; }
+.miniapp-export-scope-note { color: var(--muted, var(--tat-muted, #667085)); font-size: 12px; margin-bottom: 0; }
+.miniapp-chart-help { flex: 0 0 auto; margin-left: auto; }
+.miniapp-chart-help > summary { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; list-style: none; cursor: pointer; border-radius: 8px; color: var(--muted, var(--tat-muted, #667085)); font: 700 16px/1 system-ui, sans-serif; }
+.miniapp-chart-help > summary::-webkit-details-marker { display: none; }
+.miniapp-chart-help-content { position: absolute; z-index: 12; inset: 48px 8px auto; max-height: 220px; overflow: auto; padding: 12px; border: 1px solid var(--line, var(--tat-line, #dce1e8)); border-radius: 10px; box-shadow: 0 8px 24px #0003; background: var(--bg-surface, var(--tat-surface, var(--surface, #fff))); color: var(--text-primary, var(--tat-text, var(--text, #17212b))); font-size: 13px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
+article:has(.miniapp-chart-help) { position: relative; }
+.report-chart:has(.miniapp-chart-help) { position: relative; }
+.miniapp-chart-options { flex: 0 0 auto; }
+.miniapp-chart-options > summary { display: grid; place-items: center; width: 44px; height: 44px; list-style: none; cursor: pointer; font-size: 18px; }
+.miniapp-chart-options > summary::-webkit-details-marker { display: none; }
+.miniapp-chart-options > :not(summary) { padding: 8px; }
+.miniapp-chart-options[open] { position: absolute; z-index: 10; top: 8px; right: 48px; max-width: calc(100% - 64px); border: 1px solid var(--line, #dce1e8); border-radius: 8px; background: var(--bg-surface, var(--tat-surface, var(--surface, #fff))); box-shadow: 0 8px 24px #0003; }
+.miniapp-chart-types { display: flex; gap: 6px; flex-wrap: wrap; }
+.miniapp-chart-types button { min-height: 44px; padding: 6px 10px; font-size: 12px; }
+.miniapp-chart-help summary:focus-visible, .miniapp-excel-dialog button:focus-visible { outline: 2px solid var(--accent, #2481cc); outline-offset: 2px; }
+.miniapp-shared-toast { max-height: min(35vh, 260px); overflow-y: auto; overflow-wrap: anywhere; white-space: pre-wrap; text-overflow: clip; -webkit-line-clamp: unset; }
+.miniapp-shared-toast.is-visible { pointer-events: auto; }
+
+/* Quiet 16px glyphs inside mobile-safe tap targets; no heavy icon boxes. */
+:is(.miniapp-chart-options, .miniapp-chart-help, .tat-chart-options) > summary {
+  border: 0; background: transparent; color: var(--text-muted, var(--tat-muted, var(--muted, #667085)));
+}
+:is(.miniapp-chart-options, .tat-chart-options) > summary svg { width:16px; height:16px; stroke-width:1.5; }
+.miniapp-excel-dialog .miniapp-report-dialog-head button { display:grid; place-items:center; padding:0; margin:0; }
+.miniapp-report-dialog-head button:hover, .miniapp-chart-help > summary:hover { background:var(--bg-muted, var(--tat-surface-2, var(--soft, #f1f5f9))); }

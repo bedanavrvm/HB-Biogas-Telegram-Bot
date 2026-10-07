@@ -107,8 +107,8 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
       expect(detailsClose.width).toBeGreaterThanOrEqual(44);
       expect(detailsClose.height).toBeGreaterThanOrEqual(44);
       const closeIcon = await page.locator('#portal-performance-details-close svg').boundingBox();
-      expect(closeIcon.width).toBe(20);
-      expect(closeIcon.height).toBe(20);
+      expect(closeIcon.width).toBe(16);
+      expect(closeIcon.height).toBe(16);
       if ([320,430,1280].includes(width)) {
         expect(await page.locator('#portal-performance-details .sheet-header').screenshot({animations:'disabled'}))
           .toMatchSnapshot(`details-heading-${width}-${theme}.png`, {maxDiffPixelRatio:0.01});

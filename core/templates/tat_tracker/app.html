@@ -14,10 +14,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=5">
+  <script src="{% static 'miniapp/components.js' %}?v=5"></script>
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=73">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=75">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -73,7 +75,7 @@
       </div>
       <div class="report-title-row">
         <div class="dashboard-heading"><p class="eyebrow">Operational Data</p><h2>TAT Reports</h2><p id="tatReportPeriod">Current workload</p></div>
-        <div class="report-email-actions"><button id="tatReportExport" type="button" class="secondary compact-btn">Download XLSX</button><button id="tatReportEmail" type="button" class="report-email-icon" aria-label="Email report"></button></div>
+        <div class="report-email-actions"><button id="tatReportExport" type="button" class="secondary compact-btn">Download Excel</button><button id="tatReportEmail" type="button" class="report-email-icon" aria-label="Email report"></button></div>
       </div>
       <nav class="report-mode-tabs" aria-label="TAT report type">
         <button type="button" class="active" data-report-view="current" aria-pressed="true">Current Workload</button>
@@ -125,7 +127,7 @@
       <div id="tatRecognitionToolbar" class="recognition-toolbar"><div id="tatRecognitionViews" class="recognition-view-toggle" role="group" aria-label="Standings view"><button type="button" class="active" data-recognition-view="people" aria-pressed="true">People</button><button type="button" data-recognition-view="branches" aria-pressed="false">Branches</button></div><button id="tatRecognitionFilterButton" type="button" class="secondary recognition-filter-button" aria-haspopup="dialog" aria-controls="tatRecognitionControlsOverlay">Filter</button></div>
       <div id="tatRecognitionActiveFilters" class="recognition-active-filters" aria-label="Applied standings filters" hidden></div>
       <section id="tatRecognitionSlice" class="recognition-slice" aria-label="Selected part of your work" hidden></section>
-      <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button" class="secondary" aria-label="Back to standings">←</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
+      <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button" class="secondary" aria-label="Back to standings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7M5 12h14"/></svg></button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
       <section id="tatPersonalRecognition" class="recognition-personal" aria-label="Your result for the selected period"></section>
       <section id="tatRecognitionBreakdown" class="recognition-breakdown" aria-label="Score breakdown"></section>
       <section id="tatRecognitionStageDetail" class="recognition-stage-detail" aria-label="All stage contributions" hidden><header><button id="tatRecognitionStagesBack" type="button" class="secondary" aria-label="Back to my result">← Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" aria-label="Stage contribution pages" hidden><button id="tatRecognitionStagePrevious" type="button" class="secondary">Previous</button><span id="tatRecognitionStagePage">Page 1 of 1</span><button id="tatRecognitionStageNext" type="button" class="secondary">Next</button></nav></section>
@@ -485,6 +487,6 @@
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=117"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=118"></script>
 </body>
 </html>

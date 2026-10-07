@@ -1145,6 +1145,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   }, syntheticTelegramInitData);
   await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
   await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
+  await page.addScriptTag({ path: asset('components.js') });
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await page.locator('#globalWorkspaceBtn').click();
   await expect(page.locator('#globalView')).toBeVisible();
@@ -1302,9 +1303,9 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   const darkSurface = await page.locator('#complaintReportGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color'));
   expect(darkSurface).not.toBe(lightSurface);
 
-  await page.locator('#exportAllBtn').click();
-  await expect(page.locator('#exportConfirm')).toBeVisible();
-  await page.locator('#confirmExportBtn').click();
+  await page.locator('#exportResultsBtn').click();
+  await expect(page.locator('#miniapp-excel-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Download all', exact: true }).click();
   await expect(page.locator('#downloadResultTitle')).toHaveText('Download started');
   await expect(page.locator('#openExportBtn')).toBeHidden();
 
