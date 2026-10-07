@@ -477,6 +477,62 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(len(oversized_page['items']), 10)
         self.assertEqual(oversized_page['pagination']['page_size'], 10)
 
+    def test_home_search_matches_before_paging_without_expanding_scope(self):
+        for index in range(15):
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'JBL-SEARCH-{index:03d}',
+                product_key='business', product_label='Business', client_name=f'Customer {index}',
+                branch='Nakuru', status='Active', stage_values={'created': timezone.now().isoformat()},
+                national_id=f'99999{index:03d}', primary_phone=f'254700000{index:03d}',
+            )
+        target = TatTrackerCase.objects.get(case_id='JBL-SEARCH-000')
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='JBL-SEARCH-HIDDEN', product_key='business',
+            product_label='Business', client_name='Customer 0', branch='Embu', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+            national_id=target.national_id, primary_phone=target.primary_phone,
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        for queue in ['role', 'all']:
+            for query in ['JBL-SEARCH-000', 'Customer 0', target.national_id, '0700000000']:
+                with self.subTest(queue=queue, query=query):
+                    result = home_data(self.config, user, queue=queue, query=query)
+                    self.assertEqual(result['pagination']['total'], 1)
+                    self.assertEqual(result['items'][0]['case_id'], target.case_id)
+        self.assertEqual(home_data(self.config, user, queue='all', query='')['pagination']['total'], 15)
+
+    def test_target_mirror_health_is_truthful_and_retry_obeys_cooldown(self):
+        from core.models import IntegrationOperation
+        from core.services.external_resilience import reserve_operation
+        from core.services.tat_tracker import _tat_target_sync_key, sync_tat_target_sheet_mirror, tat_target_sheet_sync_health
+        self.assertEqual(tat_target_sheet_sync_health(self.config)['status'], 'not_attempted')
+        operation, _ = reserve_operation(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type='tat_target_sheet_sync', deduplication_key=_tat_target_sync_key(self.config, self.config.workflow),
+        )
+        self.assertEqual(tat_target_sheet_sync_health(self.config)['status'], 'pending')
+        operation.status = IntegrationOperation.STATUS_RUNNING
+        operation.last_attempt_at = timezone.now()
+        operation.save()
+        with patch('core.services.external_resilience.execute_operation', return_value=None):
+            self.assertEqual(sync_tat_target_sheet_mirror(self.config)['status'], 'in_progress')
+        operation.status = IntegrationOperation.STATUS_DEAD_LETTER
+        operation.save()
+        with patch('core.services.external_resilience.execute_operation') as execute:
+            health = sync_tat_target_sheet_mirror(self.config, force_retry=True)
+        execute.assert_not_called()
+        self.assertFalse(health['can_retry'])
+        self.assertGreater(health['retry_after_seconds'], 0)
+        operation.last_attempt_at = timezone.now() - timedelta(seconds=61)
+        operation.save()
+        self.assertTrue(tat_target_sheet_sync_health(self.config)['can_retry'])
+        operation.status = IntegrationOperation.STATUS_SUCCEEDED
+        operation.completed_at = timezone.now()
+        operation.save()
+        self.assertEqual(tat_target_sheet_sync_health(self.config)['status'], 'synced')
+        self.config.sheet_id = ''
+        self.assertEqual(tat_target_sheet_sync_health(self.config)['status'], 'not_configured')
+
     def test_home_metrics_follow_filters_and_deduplicate_stalled_cases(self):
         self.config.workflow['tat_targets_minutes'] = {
             'business': {'stages': {'mpesa_to_admin': 30}},
@@ -1067,7 +1123,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-charts .chart-basis{white-space:pre-line}', stylesheet)
         self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
-        self.assertIn("text: payload.axis_title || '% of target'", source)
+        self.assertIn('MiniAppReportControls.applyChartMeasurement(options', source)
+        self.assertIn("payload.axis_title || 'Percentage (%)'", source)
         self.assertIn("'branch', 'product', 'stage', 'role', 'status', 'sla_state'", source)
         self.assertIn("'date_from', 'date_to', 'granularity'", source)
         self.assertIn('No target performance data is available for this selection.', source)

@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {test,expect}=require('playwright/test');
+const {mountPortalShell,addOfflineStyle}=require('./fixtures/portal_shell');
 const root=path.resolve(__dirname,'../..');
 const script=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.js'),'utf8');
 const style=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.css'),'utf8');
@@ -68,11 +69,14 @@ for(const app of ['portal','tat','complaints']) {
   test(`${app} recipient settings fit mobile and save configured addresses`,async({page})=>{
     for(const width of [320,360,390,430]) {
       await page.setViewportSize({width,height:740});
-      await page.setContent(`<style>body{margin:0;padding:12px;font-family:Arial;box-sizing:border-box}button{border:1px solid #ccd5df;border-radius:8px;background:white;padding:8px;color:#243244}#settings{padding:12px;border:1px solid #e3e6eb;border-radius:12px}${style}</style><section id="settings"></section>`);
-      await page.evaluate(app=>{document.body.className=app==='portal'?'portal-app':app==='complaints'?'complaint-cases-app':'';document.getElementById('settings').className=app==='portal'?'portal-settings-card':app==='tat'?'form-card':'panel';},app);
-      await page.addStyleTag({path:path.join(root,'core/static/miniapp/base.css')});
-      await page.addStyleTag({path:path.join(root,`core/static/miniapp/${app==='portal'?'portal':app==='tat'?'tat_tracker':'complaint_cases'}.css`)});
-      await page.addStyleTag({content:style});
+      if(app==='portal') {
+        await mountPortalShell(page,'<div id="portal-screen"><section id="settings" class="portal-settings-card"></section></div>');
+      } else {
+        const template=fs.readFileSync(path.join(root,`core/templates/${app==='tat'?'tat_tracker':'complaint_cases'}/app.html`),'utf8');
+        await page.route(/^https?:\/\//,route=>route.abort());
+        await page.setContent(`<body><main class="${app==='tat'?'tat-app':'complaint-app'}"><section id="settings" class="${app==='tat'?'form-card':'panel'}"></section></main></body>`);
+        for(const match of template.matchAll(/<link[^>]+static 'miniapp\/([^']+\.css)'/g))await addOfflineStyle(page,match[1]);
+      }
       await page.addScriptTag({content:script});
       await page.evaluate(app=>{
         window.confirm=()=>true;
@@ -88,7 +92,7 @@ for(const app of ['portal','tat','complaints']) {
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       await page.screenshot({path:`test-results/${app}-email-settings-${width}.png`,fullPage:true});
       await page.getByRole('button',{name:'Save',exact:true}).click();
-      await expect(page.getByRole('status')).toHaveText('Report settings saved.');
+      await expect(page.locator('#settings').getByRole('status')).toHaveText('Report settings saved.');
       expect(await page.evaluate(()=>window.calls.at(-1).recipients)).toEqual(['first@example.invalid','second@example.invalid']);
       expect(await page.evaluate(()=>window.calls.at(-1).active)).toBe(true);
     }

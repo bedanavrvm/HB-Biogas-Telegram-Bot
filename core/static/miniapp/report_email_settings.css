@@ -3,33 +3,31 @@
 .report-email-head h3 { margin:0; flex:1; font-size:1rem; }
 .report-email-head button { margin-left:auto; }
 .report-email-settings .report-email-head > button { width:auto!important; min-width:40px!important; flex:0 0 auto; }
-.report-email-row { padding:10px 0; border-bottom:1px solid var(--tg-theme-hint-color,#e3e6eb); }
+.report-email-row { padding:6px 0; border-bottom:1px solid var(--border-color,var(--tat-line,var(--line,#e3e6eb))); }
 .report-email-row .report-email-copy { flex:1; min-width:0; }
 .report-email-copy strong,.report-email-copy small { display:block; overflow-wrap:anywhere; }
 .report-email-copy small { font-size:12px; opacity:.75; margin-top:3px; }
-.report-email-settings button { min-height:40px; }
-.report-email-icon { width:40px; min-width:40px!important; padding:8px!important; flex:none; }
-.report-email-icon svg { width:20px; height:20px; display:block; }
+.report-email-settings button { min-height:44px; width:auto; border-radius:8px; }
+.report-email-settings .report-email-icon { width:44px; height:44px; min-width:44px!important; padding:0!important; margin:0; flex:0 0 44px; border:0; background:transparent; color:var(--brand-primary,var(--tat-accent,var(--tg-theme-button-color,#2481cc))); display:grid; place-items:center; }
+.report-email-settings .report-email-icon svg { width:16px; height:16px; display:block; }
 .report-email-form { margin-top:12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .report-email-form label { min-width:0; display:flex; flex-direction:column; gap:4px; font-size:13px; }
-.report-email-form input,.report-email-form select,.report-email-form textarea { width:100%; min-width:0; box-sizing:border-box; min-height:42px; font-size:14px; font-weight:400; border:1px solid #b9c4ce; border-radius:8px; padding:8px; color:var(--tg-theme-text-color,#243244); background:var(--tg-theme-bg-color,#fff); }
+.report-email-form input,.report-email-form select,.report-email-form textarea { width:100%; min-width:0; box-sizing:border-box; min-height:44px; font-size:14px; font-weight:400; border:1px solid var(--border-color,var(--tat-line,var(--line,#dce2e9))); border-radius:8px; padding:8px; color:var(--tg-theme-text-color,#243244); background:var(--bg-surface,var(--tat-surface,var(--surface,#fff))); }
 .report-email-wide { grid-column:1/-1; }
 .report-email-form label { text-transform:none; letter-spacing:normal; }
 .report-email-form label.report-email-check { flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; }
 .report-email-check input { width:20px; min-height:20px; flex:0 0 20px; margin:0; }
 .report-email-status { font-size:13px; margin:8px 0; overflow-wrap:anywhere; }
 .report-email-settings [hidden] { display:none!important; }
-.report-email-sheet { width:min(540px,100%); max-height:90dvh; overflow:auto; padding:16px; border-radius:16px 16px 0 0; background:var(--tg-theme-bg-color,#fff); box-sizing:border-box; }
+.report-email-sheet { width:min(540px,100%); max-height:85dvh; overflow:auto; padding:12px; border-radius:14px 14px 0 0; background:var(--tg-theme-bg-color,#fff); box-sizing:border-box; }
 #complaintSettingsOverlay { align-items:flex-end; }
 .complaint-app .app-top { flex-direction:row; flex-wrap:nowrap; padding-right:8px; }
 .complaint-app .app-top .app-brand { flex:1 1 0; min-width:0; }
 .complaint-app .app-top .app-brand h1,.complaint-app .app-top .app-brand p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .complaint-app .app-top > div:not(.app-brand) { margin-left:auto; align-self:center; }
-.complaint-app .report-email-sheet { padding:14px; }
+.complaint-app .report-email-sheet { padding:12px; }
 .complaint-app .report-email-sheet > .report-email-head { padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--line,#e3e6eb); }
 .complaint-app .report-email-sheet > .report-email-head > .icon-button { width:40px; min-width:40px; height:40px; min-height:40px; flex:0 0 40px; padding:0; }
-.complaint-app .report-email-sheet .report-email-form { padding:12px; border:1px solid var(--line,#e3e6eb); border-radius:12px; background:var(--surface,#fff); }
-.complaint-app .report-email-sheet .report-email-actions { display:grid; grid-template-columns:1fr 1fr; }
-.complaint-app .report-email-sheet .report-email-actions button { width:100%; }
+.report-email-form { padding:10px 0 0; border:0; background:transparent; }
+.report-email-form > .report-email-actions { display:flex; justify-content:flex-end; padding-top:8px; border-top:1px solid var(--border-color,var(--tat-line,var(--line,#e3e6eb))); }
 .complaint-app .app-top > div:not(.app-brand) .icon-button { position:static; transform:none; flex:0 0 40px; }
-@media(max-width:360px) { .report-email-form { grid-template-columns:minmax(0,1fr); } }

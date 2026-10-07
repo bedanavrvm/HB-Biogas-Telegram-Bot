@@ -16,6 +16,8 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     .replace(/{% static '[^']+' %}/g, '').replace(/<script[^>]*>[\s\S]*?<\/script>/g, '').replace(/<link[^>]*>/g, '');
   await page.setViewportSize({ width: 320, height: 800 });
   await page.setContent(template);
+  await page.addStyleTag({ path: asset('components.css') });
+  await page.addStyleTag({ path: asset('base.css') });
   await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.addStyleTag({ path: asset('activity_changes.css') });
   await page.addScriptTag({ path: asset('activity_changes.js') });
@@ -54,6 +56,23 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await expect(page.locator('#caseList a[href="tel:+254700000000"]')).toBeVisible();
   await page.locator('#caseList .case-row').click();
   await expect(page.locator('#detailIdentifiers a[href="tel:+254700000000"]')).toBeVisible();
+  // The dialler link has a minimum height. Its neighbouring ID badge must
+  // centre its text rather than stretching the blue box around top-aligned text.
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const id of ['123456', '12345678']) {
+      const offset = await page.locator('#detailIdentifiers > span').last().evaluate((badge, value) => {
+        badge.textContent = value;
+        const range = document.createRange(); range.selectNodeContents(badge);
+        const box = badge.getBoundingClientRect(), text = range.getBoundingClientRect();
+        return { x: Math.abs(text.x + text.width / 2 - box.x - box.width / 2),
+          y: Math.abs(text.y + text.height / 2 - box.y - box.height / 2) };
+      }, id);
+      expect(offset.x).toBeLessThanOrEqual(1);
+      expect(offset.y).toBeLessThanOrEqual(2);
+    }
+  }
+  await page.setViewportSize({ width: 320, height: 800 });
   await expect(page.locator('#commentForm')).toBeVisible();
   await expect(page.locator('#commentForm h2')).toHaveText('Add Comment');
   await expect(page.locator('#detailSource')).toBeHidden();

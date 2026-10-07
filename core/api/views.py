@@ -737,6 +737,10 @@ def tat_tracker_home(request):
     capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
     if capability_error:
         return capability_error
+    if str(payload.get('query') or '').strip():
+        capability_error = _tat_capability_error(user, 'tat.case.search', group_config)
+        if capability_error:
+            return capability_error
     from core.services.tat_tracker import home_data
     return JsonResponse({
         'ok': True,
@@ -751,6 +755,7 @@ def tat_tracker_home(request):
             branches=payload.get('branches'),
             statuses=payload.get('statuses'),
             queue=payload.get('queue') or 'role',
+            query=payload.get('query') or '',
             page=_tat_home_page(payload.get('page')),
             page_size=_tat_home_page_size(payload.get('page_size')),
         ),
@@ -871,6 +876,10 @@ def tat_tracker_home_fragment(request):
     capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
     if capability_error:
         return capability_error
+    if str(payload.get('query') or '').strip():
+        capability_error = _tat_capability_error(user, 'tat.case.search', group_config)
+        if capability_error:
+            return capability_error
     from core.services.tat_tracker import home_data
 
     list_key = str(payload.get('list') or 'action_required').strip()
@@ -886,13 +895,16 @@ def tat_tracker_home_fragment(request):
         product_keys=payload.get('product_keys'),
         branches=payload.get('branches'),
         statuses=payload.get('statuses'),
+        query=payload.get('query') or '',
+        queue=payload.get('queue') or ('all' if list_key == 'recent' else 'role'),
+        page=_tat_home_page(payload.get('page')),
     )
     empty = {
         'action_required': ('No action needed', 'Cases that need your role will appear here.'),
         'recent': ('No recent cases', 'Create a case or search existing records.'),
     }[list_key]
     return render(request, 'tat_tracker/partials/case_list.html', {
-        'cases': data.get(list_key) or [],
+        'cases': (data.get('items') if payload.get('page') else data.get(list_key)) or [],
         'empty_title': empty[0],
         'empty_detail': empty[1],
     })

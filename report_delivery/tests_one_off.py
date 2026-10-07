@@ -217,6 +217,15 @@ class OneOffTests(TestCase):
             with self.assertRaises(ValidationError):
                 self.queue(payload={**self.payload, **changed})
 
+    def test_calendar_period_survives_frozen_export_filters(self):
+        for workflow, preset in [('jawabu_portal', 'pipeline'), ('tat_tracker', 'tat')]:
+            for mode, period in [('quarter', {'quarter': '3', 'year': '2026'}), ('year', {'year': '2025'})]:
+                with self.subTest(workflow=workflow, mode=mode):
+                    filters = {'date_mode': mode, **period}
+                    delivery = self.queue(workflow, {**self.payload, 'preset': preset, 'filters': filters,
+                                                    'client_request_id': str(uuid.uuid4())})
+                    self.assertEqual(delivery.configuration['filters'], filters)
+
     def test_retry_key_cannot_change_destination_or_filters(self):
         self.queue()
         for changed in ({'email': 'other@example.invalid'}, {'filters': {}}):

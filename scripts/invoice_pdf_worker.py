@@ -22,11 +22,15 @@ def main():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
     import django
     django.setup()
-    from core.services.invoice_parser import _parse_invoice_pdf_bytes
+    from core.services.invoice_parser import _parse_invoice_pdf_bytes, InvoiceFilePolicyError
     content = sys.stdin.buffer.read(8 * 1024 * 1024 + 1)
     if len(content) > 8 * 1024 * 1024:
         raise ValueError('Invoice file exceeds the parser byte budget.')
-    invoices, pages = _parse_invoice_pdf_bytes(content)
+    try:
+        invoices, pages = _parse_invoice_pdf_bytes(content)
+    except InvoiceFilePolicyError:
+        sys.stdout.write(json.dumps({'error': 'one_invoice_per_file'}))
+        return
     sys.stdout.write(json.dumps({'invoices': invoices, 'pages': pages}, default=str))
 
 

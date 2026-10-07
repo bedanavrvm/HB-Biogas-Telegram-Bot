@@ -45,6 +45,10 @@ button,input,textarea,select{font:inherit}button{min-height:44px;padding:0 14px;
 @media(min-width:700px){.complaint-app{padding-inline:18px}.app-top{margin-inline:-18px;padding-inline:20px}.metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.register-filters{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:520px){.form-grid{grid-template-columns:1fr}.full{grid-column:auto}.queue-head .primary{min-height:40px;padding-inline:10px}.evidence-picker{align-items:stretch;flex-direction:column}.evidence-actions{display:grid;grid-template-columns:1fr 1fr}.category-suggestion{grid-template-columns:1fr}.sticky-action .primary{min-width:150px}}
 
+/* Identifiers share a row with the taller dialler link. Centre each badge's
+   contents within that row instead of leaving national IDs top-aligned. */
+.identifiers > span { display:inline-flex; align-items:center; justify-content:center; text-align:center; }
+
 /* Compact complaint workspace and shared secure-viewer feedback. */
 body{font:14px/1.4 "Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 button{min-height:40px;padding-inline:12px;border-radius:9px}input,textarea,select{min-height:40px;padding:8px 10px;border-radius:8px}textarea{min-height:88px}label{gap:4px;color:var(--text);font-size:12px;letter-spacing:0;text-transform:none}.label-line{display:flex;align-items:center;justify-content:space-between;gap:8px}

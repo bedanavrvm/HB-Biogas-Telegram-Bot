@@ -1,6 +1,5 @@
 """Server-owned Portal insights; bucket selections never accept ORM expressions."""
 from collections import defaultdict
-from calendar import monthrange
 from datetime import date, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -12,6 +11,21 @@ from django.utils.dateparse import parse_date, parse_datetime
 from core.models import JawabuPipelineEvent
 from core.services.jawabu_pipeline import current_workflow_state, JAWABU_TERMINAL_STATES
 from core.services.jawabu_case360 import calculate_case_tat, _tat_targets
+from core.services.report_periods import calendar_period
+
+
+def county_labels(values):
+    """Project approved aliases without rewriting historical case data."""
+    from core.models import OperationalLocation, OperationalLocationAlias
+    from core.services.location_catalog import normalize_location_value
+    known = {normalize_location_value(item.name): item.name for item in
+             OperationalLocation.objects.filter(location_type='county', active=True)}
+    for alias in OperationalLocationAlias.objects.select_related('location').filter(
+        location_type='county', active=True, location__active=True,
+    ):
+        known.setdefault(alias.normalized_alias, alias.location.name)
+    return {value: known.get(normalize_location_value(value), str(value).strip().title())
+            for value in values if value}
 
 NAIROBI = ZoneInfo('Africa/Nairobi')
 STAGES = {'jbl_visit': 'Awaiting visit', 'credit': 'Credit analysis', 'final_review': 'Final review',
@@ -25,27 +39,27 @@ def prepare(preset, supplied, queryset):
         raise PortalReportingError('Choose Pipeline, Outcomes, or Orders & finance.')
     if not isinstance(supplied, dict):
         raise PortalReportingError('Choose valid report filters.')
-    allowed = {'branch', 'county', 'product', 'search', 'stage', 'date_mode', 'month', 'from', 'to',
+    allowed = {'branch', 'county', 'product', 'search', 'stage', 'date_mode', 'month', 'quarter', 'year', 'from', 'to',
                'granularity', 'chart_key', 'bucket_key', 'series_key'}
     if set(supplied) - allowed or any(not isinstance(v, (str, int)) or isinstance(v, bool) for v in supplied.values()):
         raise PortalReportingError('Choose valid report filters.')
     filters = {key: str(value).strip() for key, value in supplied.items() if value != ''}
     mode = filters.get('date_mode') or ('custom' if filters.get('from') or filters.get('to') else 'all' if preset == 'pipeline' else 'month')
-    if mode not in {'all', 'month', 'custom'}:
-        raise PortalReportingError('Choose Any Time, Specific Month, or Custom Range.')
+    if mode not in {'all', 'month', 'quarter', 'year', 'custom'}:
+        raise PortalReportingError('Choose Any time, Month, Quarter, Year, or Date range.')
     today = timezone.localtime(timezone.now(), NAIROBI).date()
     period = None
-    if mode == 'month':
+    if mode in {'month', 'quarter', 'year'}:
         try:
-            start = parse_date((filters.get('month') or today.strftime('%Y-%m')) + '-01')
-        except ValueError:
-            start = None
-        if start is None:
-            raise PortalReportingError('Choose a valid month.')
-        end = start.replace(day=monthrange(start.year, start.month)[1])
-        # The current month reports through today, matching the existing contract.
-        end = min(end, today) if start.year == today.year and start.month == today.month else end
-        filters['month'] = start.strftime('%Y-%m')
+            start, end = calendar_period(mode, filters, today)
+        except (ValueError, TypeError):
+            raise PortalReportingError('Choose a valid period.')
+        if mode == 'month':
+            filters['month'] = start.strftime('%Y-%m')
+        else:
+            filters['year'] = str(start.year)
+            if mode == 'quarter':
+                filters['quarter'] = str((start.month - 1) // 3 + 1)
     elif mode == 'custom':
         try:
             start = parse_date(filters.get('from') or '')
@@ -58,7 +72,7 @@ def prepare(preset, supplied, queryset):
         period = {'from': start.isoformat(), 'to': end.isoformat()}
         filters.update(period)
     else:
-        for key in ('from', 'to', 'month'):
+        for key in ('from', 'to', 'month', 'quarter', 'year'):
             filters.pop(key, None)
     filters['date_mode'] = mode
     grouping = filters.get('granularity', 'month')
@@ -69,7 +83,14 @@ def prepare(preset, supplied, queryset):
                for key, field in [('branches', 'branch'), ('counties', 'county'), ('products', 'product__code')]}
     # Null products are not filter choices.
     choices['products'] = [value for value in choices['products'] if value]
-    for key in ('branch', 'county'):
+    county_map = county_labels(queryset.exclude(county='').values_list('county', flat=True).distinct())
+    choices['counties'] = sorted(set(county_map.values()), key=str.casefold)
+    if filters.get('county'):
+        label = county_map.get(filters['county'], filters['county'].strip().title())
+        variants = [value for value, canonical in county_map.items() if canonical.casefold() == label.casefold()]
+        queryset = queryset.filter(county__in=variants)
+        filters['county'] = label
+    for key in ('branch',):
         if filters.get(key):
             queryset = queryset.filter(**{key + '__iexact': filters[key]})
     if filters.get('product'):
@@ -125,6 +146,7 @@ def insights(preset, queryset, filters, period):
     from core.services.business_calendar import active_holiday_dates
     holidays = active_holiday_dates() if preset != 'finance' else set()
     group = filters['granularity']
+    county_map = county_labels(queryset.values_list('county', flat=True).distinct())
     charts, membership, measures, cohort = {}, defaultdict(set), defaultdict(dict), set()
     states, totals, counts = defaultdict(int), defaultdict(lambda: Decimal('0')), defaultdict(int)
 
@@ -180,7 +202,7 @@ def insights(preset, queryset, filters, period):
             cohort.add(record.pk)
             states[state] += 1
             for location in ('branch', 'county'):
-                label = getattr(record, location) or 'Not recorded'
+                label = (county_map.get(record.county) if location == 'county' else record.branch) or 'Not recorded'
                 add(location, f'Cases by {location}', label, label, record)
             if preset == 'pipeline':
                 add('stages', 'Cases by pipeline stage', state, STAGES.get(state, state), record)
@@ -229,7 +251,7 @@ def insights(preset, queryset, filters, period):
                     bucket = _bucket(record.invoice_date, group)
                     add('invoice_trend', 'Invoice value over time', bucket, bucket, record, value=record.invoice_amount or 0, series='Invoice value', kind='line', unit='KES')
                 for location in ('branch', 'county'):
-                    label = getattr(record, location) or 'Not recorded'
+                    label = (county_map.get(record.county) if location == 'county' else record.branch) or 'Not recorded'
                     for series, field in [('Invoice value', 'invoice_amount'), ('Recorded payments', 'payment'), ('Outstanding balance', 'balance_due')]:
                         add('finance_' + location, f'Financial comparison by {location}', label, label, record, value=getattr(record, field) or 0, series=series, unit='KES', context='Current recorded values for cases with order/invoice activity in this period')
     if preset == 'outcomes' and measures:

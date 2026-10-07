@@ -81,6 +81,7 @@
         typeGroup.appendChild(choice);
       });
       menu.appendChild(typeGroup);
+      window.MiniAppReportControls.prepareChartMenu(menu);
       window.MiniAppReportControls.setChartHelp(slide.querySelector('.chart-context'),
         `${slide.querySelector('h3').textContent}. ${temporal ? 'Compare values over time.' : 'Compare the groups shown.'} Select an item to view its complaints.`);
       canvas.setAttribute('role','img'); canvas.setAttribute('aria-label',slide.querySelector('h3').textContent);
@@ -127,12 +128,12 @@
           const limit=innerWidth<480?20:32;
           return row.label.length>limit?row.label.slice(0,limit-1)+'…':row.label;
         }),datasets},
-        options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:spec.horizontal?'y':'x',
+        options:window.MiniAppReportControls.applyChartMeasurement({responsive:true,maintainAspectRatio:false,animation:false,indexAxis:spec.horizontal?'y':'x',
           onClick:(_event,elements)=>{if(elements.length){const item=elements[0];onSelect(spec.select(rows[item.index],item.datasetIndex),`${slide.querySelector('h3').textContent} · ${rows[item.index].label}`);}},
           plugins:{legend:{display:!!spec.datasets || pie,position:'bottom',labels:{color:text,boxWidth:10}},
-            tooltip:{callbacks:{title:items=>items.length?rows[items[0].dataIndex].label:'',label:context=>`${context.dataset.label || context.label}: ${spec.hours?hours(context.raw):context.raw}${spec.hours?` · ${rows[context.dataIndex].count} cases`:''}`}}},
+            tooltip:{callbacks:{title:items=>items.length?rows[items[0].dataIndex].label:'',afterLabel:context=>spec.hours?`${rows[context.dataIndex].count} complaints`:''}}},
           scales:pie?{}:{x:{beginAtZero:true,ticks:{color:text,maxRotation:0,autoSkip:true,maxTicksLimit:innerWidth<480?4:8},grid:{color:grid}},y:{beginAtZero:true,ticks:{color:text,precision:0},grid:{color:grid}}},
-        },
+        }, {unit:spec.hours?'hours':'complaints', horizontal:spec.horizontal, color:text}),
       }));
     }
   }

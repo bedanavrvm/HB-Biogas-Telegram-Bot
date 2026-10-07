@@ -360,17 +360,73 @@
     return { defaultType: 'bar', allowedTypes: ['bar', ...(id === 'case_progression' ? ['line'] : [])] };
   }
 
+  // One measurement contract for report axes and tooltips. Numeric values
+  // stay in their source unit; do not silently label minutes as hours/days.
+  function chartMeasurement(unit = 'cases', label = '') {
+    const names = { cases:'Cases', complaints:'Complaints', actions:'Actions',
+      minutes:'Minutes', hours:'Hours', days:'Days', percent:'Percentage (%)',
+      KES:'KES', cases_per_assignee:'Cases per assignee' };
+    const axisTitle = label || names[unit] || unit;
+    const suffix = {percent:'%', KES:' KES', cases_per_assignee:' cases per assignee'}[unit] || ` ${unit}`;
+    return { axisTitle, format(value) {
+      if (value == null || !Number.isFinite(Number(value))) return 'Unavailable';
+      return `${new Intl.NumberFormat('en-KE', {maximumFractionDigits:2}).format(Number(value))}${suffix}`;
+    } };
+  }
+
+  function applyChartMeasurement(options, {unit, label, horizontal = false, color} = {}) {
+    const measurement = chartMeasurement(unit, label);
+    options.plugins ||= {};
+    options.plugins.tooltip ||= {};
+    options.plugins.tooltip.callbacks ||= {};
+    options.plugins.tooltip.callbacks.label = context => `${context.dataset.label || context.label}: ${measurement.format(context.raw)}`;
+    if (options.scales && Object.keys(options.scales).length) {
+      const axis = options.scales[horizontal ? 'x' : 'y'];
+      axis.title = {display:true, text:measurement.axisTitle, color, font:{size:11}};
+    } else {
+      options.plugins.subtitle = {display:true, text:measurement.axisTitle, position:'bottom', color, font:{size:11}};
+    }
+    return options;
+  }
+
+  const chartMenus = '.miniapp-chart-help[open], .miniapp-chart-options[open], .tat-chart-options[open], .portal-chart-settings[open], .portal-chart-cases[open]';
+  function prepareChartMenu(menu) {
+    menu.classList.add('miniapp-chart-popover');
+    let panel = menu.querySelector(':scope > .miniapp-chart-menu');
+    if (!panel) { panel = document.createElement('div'); panel.className = 'miniapp-chart-menu'; menu.appendChild(panel); }
+    [...menu.children].filter(child => child.tagName !== 'SUMMARY' && child !== panel).forEach(child => panel.appendChild(child));
+  }
+  function closeChartMenus(root = document, restoreFocus = true) {
+    const menus = [...root.querySelectorAll(chartMenus)];
+    menus.forEach(menu => {menu.open = false;});
+    if (restoreFocus) menus[0]?.querySelector('summary')?.focus();
+    return menus.length > 0;
+  }
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    document.querySelectorAll('.miniapp-chart-help[open]').forEach(help => {
-      help.open = false; help.querySelector('summary').focus(); event.preventDefault(); event.stopPropagation();
-    });
+    if (event.key === 'Escape' && closeChartMenus()) {event.preventDefault(); event.stopPropagation();}
   }, true);
   document.addEventListener('click', event => {
-    document.querySelectorAll('.miniapp-chart-help[open]').forEach(help => {
+    document.querySelectorAll(chartMenus).forEach(help => {
       if (!help.contains(event.target)) help.open = false;
     });
   });
   const chartOptionsIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/><circle cx="15" cy="17" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/></svg>';
-  window.MiniAppReportControls = Object.freeze({ chooseExcelExport, closeExcelExport, setChartHelp, chartPresentation, chartOptionsIcon });
+  function periodDates(mode, values = {}) {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const p = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    const today = `${p.year}-${p.month}-${p.day}`;
+    if (mode === 'all') return { from: '', to: '' };
+    if (mode === 'custom') return { from: values.from || '', to: values.to || '' };
+    const year = Number(values.year || p.year);
+    const quarter = Number(values.quarter || Math.ceil(Number(p.month) / 3));
+    let startMonth = mode === 'year' ? 1 : mode === 'quarter' ? quarter * 3 - 2 : Number((values.month || `${p.year}-${p.month}`).slice(5));
+    const selectedYear = mode === 'month' ? Number((values.month || p.year).slice(0, 4)) : year;
+    if (!['month','quarter','year'].includes(mode) || !Number.isInteger(selectedYear) || selectedYear < 1900 || selectedYear > 9998 || !Number.isInteger(startMonth) || startMonth < 1 || startMonth > 12) throw new Error('Choose a valid period.');
+    const endMonth = mode === 'year' ? 12 : mode === 'quarter' ? startMonth + 2 : startMonth;
+    const from = `${selectedYear}-${String(startMonth).padStart(2, '0')}-01`;
+    let to = `${selectedYear}-${String(endMonth).padStart(2, '0')}-${new Date(Date.UTC(selectedYear, endMonth, 0)).getUTCDate()}`;
+    if (from <= today && today <= to) to = today;
+    return { from, to };
+  }
+  window.MiniAppReportControls = Object.freeze({ chooseExcelExport, closeExcelExport, setChartHelp, chartPresentation, chartOptionsIcon, periodDates, chartMeasurement, applyChartMeasurement, prepareChartMenu, closeChartMenus });
 })();

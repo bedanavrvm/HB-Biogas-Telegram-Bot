@@ -10,7 +10,7 @@
     let watchVersion = 0;
     const node = (tag, text, className) => { const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n; };
     const icon = path => { const n = document.createElementNS('http://www.w3.org/2000/svg','svg'); n.setAttribute('viewBox','0 0 24 24'); n.setAttribute('fill','none'); n.setAttribute('stroke','currentColor'); n.setAttribute('stroke-width','2'); n.setAttribute('aria-hidden','true'); const p=document.createElementNS(n.namespaceURI,'path'); p.setAttribute('d',path); n.append(p); return n; };
-    const button = (label, action, path) => { const b=node('button', path ? '' : label, path ? 'report-email-icon' : ''); b.type='button'; b.setAttribute('aria-label',label); b.title=label; if(path)b.append(icon(path)); b.addEventListener('click',action); return b; };
+    const button = (label, action, path) => { const b=node('button', path ? '' : label, path ? 'report-email-icon miniapp-compact-icon' : ''); b.type='button'; b.setAttribute('aria-label',label); b.title=label; if(path)b.append(icon(path)); b.addEventListener('click',action); return b; };
     // These are idempotency identifiers, not authentication tokens. Older
     // WebViews must still be able to open the editor without crypto helpers.
     const uuid = () => {
@@ -89,7 +89,7 @@
       }
     }
     function renderForm() {
-      const form=node('form','', 'report-email-form');
+      const form=node('form','', 'report-email-form miniapp-report-filter-fields');
       function field(key,label,options,type) { const wrap=node('label',label,key==='recipients'?'report-email-wide':''); const input=node(key==='recipients'?'textarea':options?'select':'input'); input.name=key; if(options)for(const [value,text] of options){const o=node('option',text);o.value=value;input.append(o);} else if(type)input.type=type; if(key==='recipients'){input.rows=3;input.placeholder='One email address per line';} input.value=key==='recipients'?editing.recipients.join('\n'):(editing[key] || ''); if(['title','group_configuration','recipients'].includes(key))input.required=true; wrap.append(input);form.append(wrap); }
       field('title','Report name',null,'text');
       const group=node('input');group.type='hidden';group.name='group_configuration';group.value=editing.group_configuration || '';form.append(group);

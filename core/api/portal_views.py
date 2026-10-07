@@ -9419,8 +9419,20 @@ def portal_invoice_receipt_item_preview(request, item_id):
             subject_type='invoice_upload_batch', subject_id=str(batch.pk),
             actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request),
             request_id=str(getattr(request, 'portal_request_id', '') or uuid.uuid4().hex))
+        page_limit = 1
+        if item.invoice_id and item.invoice.batch_id == batch.pk:
+            from core.services.invoice_processing_limits import MAX_PDF_PAGES
+            from core.services.secure_media_preview import PDF_PREVIEW_MAX_PAGES
+            raw = item.invoice.raw_payload
+            # New single-invoice uploads retain positively identified continuation
+            # pages. Legacy collated files must remain limited to this invoice page.
+            if (item.invoice.page == 1 and batch.total_parsed == 1
+                    and 1 <= batch.total_pages <= MAX_PDF_PAGES
+                    and isinstance(raw, dict)
+                    and raw.get('page_numbers') == list(range(1, batch.total_pages + 1))):
+                page_limit = min(batch.total_pages, PDF_PREVIEW_MAX_PAGES)
         content = _portal_pdf_preview_html(GoogleDriveMediaStorage().download(batch.drive_file_id), batch.original_filename or 'Invoice.pdf',
-            start_page=item.invoice.page if item.invoice_id else 1, page_limit=1)
+            start_page=item.invoice.page if item.invoice_id else 1, page_limit=page_limit)
     except Exception:
         logger.exception('Delivery invoice preview failed item_id=%s', item_id)
         return JsonResponse({'ok': False, 'error': 'Could not load this invoice. Please retry.'}, status=503)

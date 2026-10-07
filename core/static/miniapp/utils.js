@@ -21,6 +21,7 @@
     let digits = text.replace(/\D/g, '');
     if (text.startsWith('00')) digits = digits.slice(2);
     else if (digits.startsWith('0')) digits = '254' + digits.slice(1);
+    else if (/^[17]\d{8}$/.test(digits) && !text.startsWith('+')) digits = '254' + digits;
     else if (!text.startsWith('+') && !digits.startsWith('254')) return '';
     return /^[1-9]\d{6,14}$/.test(digits) ? 'tel:+' + digits : '';
   }

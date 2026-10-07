@@ -1,5 +1,24 @@
 # Changelog
 
+## 7 October 2026 - Shared report controls and focused TAT queues
+
+- Portal and TAT report filters include month, quarter, year and date-range
+  periods, shared with exports and emailed reports. County options and chart
+  buckets consolidate capitalization and approved aliases without rewriting cases.
+- Chart menus stay anchored; axes and tooltips identify counts, time, percentages
+  and KES. Shared compact controls and email settings reduce layout drift.
+- TAT queue search follows the selected role/all-case queue and current access,
+  ignores stale responses, and preserves the query when returning from a case.
+  Detail phones open the dialler; target-mirror health no longer claims success
+  when work is pending and failed retries respect a cooldown.
+- Invoice intake validates one invoice per file before Drive upload, allowing
+  explicitly numbered continuations of that invoice and retaining upload recovery.
+  Payment previews include verified continuation pages within the existing preview
+  budget; historical collated files remain restricted to the selected invoice page.
+- Document History cards are separated; Portal score details are more compact.
+  Complaint national-ID text is centered in its badge, including six-digit IDs.
+- Static asset versions refreshed. No migration or production-side action.
+
 ## 7 October 2026 - Compact orders, documents and shared phone actions
 
 - Order selection keeps the number and date on one row, with Preview Form

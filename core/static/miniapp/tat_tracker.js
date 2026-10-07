@@ -301,6 +301,10 @@
   }
 
   function show(view) {
+    if (view === 'search') {
+      view = 'queue';
+      window.setTimeout(() => $('queueSearchInput')?.focus(), 0);
+    }
     if (view !== 'dashboard' && state.report.filterSheetOpen) closeTatReportFilters({ restoreFocus: false });
     if (view !== 'recognition') {
       state.recognition.sequence += 1;
@@ -1352,6 +1356,7 @@
       && filterValuesEqual(left.branches, right.branches)
       && filterValuesEqual(left.statuses, right.statuses)
       && String(left.queue || '') === String(right.queue || '')
+      && String(left.query || '') === String(right.query || '')
       && Number(left.page || 1) === Number(right.page || 1);
   }
 
@@ -1393,6 +1398,7 @@
       branches: checkedFilterValues('queueBranchFilters'),
       statuses: checkedFilterValues('queueStatusFilters'),
       queue: state.homeQueue,
+      query: $('queueSearchInput')?.value.trim() || '',
       page: state.homePages[state.homeQueue] || 1,
     };
   }
@@ -1454,7 +1460,7 @@
     if (!['role', 'all'].includes(queue) || queue === state.homeQueue) return;
     state.pendingHome = null;
     state.homeQueue = queue;
-    state.homePages[queue] = state.homePages[queue] || 1;
+    state.homePages[queue] = 1;
     renderHomeQueueSelection(queue, true);
     window.scrollTo(0, 0);
     try {
@@ -1651,13 +1657,15 @@
     const status = String(health?.status || 'not_configured');
     const canRetry = Boolean(health?.can_retry) && (account.roles || [])
       .some((role) => String(role || '').toUpperCase() === 'IT');
-    if (status === 'synced' || status === 'not_configured') {
+    const isAdmin = (account.roles || []).some(role => String(role).toUpperCase() === 'IT');
+    if (!isAdmin) {
       node.classList.add('hidden');
       node.replaceChildren();
       return;
     }
     node.classList.remove('hidden');
-    node.innerHTML = `<strong>Target sheet needs sync</strong><span>Database targets are live. The read-only TAT TARGETS tab has not caught up yet.</span>${canRetry ? '<button id="retryTargetSheetSyncBtn" type="button" class="secondary compact-btn">Retry sheet sync</button>' : ''}`;
+    const messages = {not_configured:'No target sheet configured',not_attempted:'Target sheet not synced yet',pending:'Target sheet sync pending',in_progress:'Target sheet syncing',synced:'Target sheet up to date',failed:'Target sheet sync failed'};
+    node.innerHTML = `<strong>${escapeHtml(messages[status] || 'Target sheet status unavailable')}</strong>${status === 'synced' ? '' : '<span>App targets are saved and remain in use.</span>'}${canRetry ? '<button id="retryTargetSheetSyncBtn" type="button" class="secondary compact-btn">Sync target sheet</button>' : ''}`;
     $('retryTargetSheetSyncBtn')?.addEventListener('click', async (event) => {
       const button = event.currentTarget;
       try {
@@ -1733,6 +1741,7 @@
     setCheckedFilterValues('queueBranchFilters', savedFilters.branches || savedFilters.branch || []);
     setCheckedFilterValues('queueStatusFilters', savedFilters.statuses || savedFilters.status || []);
     const canCreate = (((state.data || {}).user || {}).capabilities || []).includes('tat.case.create');
+    if (personal.default_screen === 'search') return 'search';
     return personal.default_screen === 'new' && canCreate ? 'new' : 'queue';
   }
 
@@ -2280,7 +2289,7 @@
         </div>
         <div class="fact">
           <small>Phone Number</small>
-          <span data-miniapp-phone>${escapeHtml(summary.primary_phone || 'Not recorded')}</span>
+          <span data-miniapp-phone>${utils.phoneLink ? utils.phoneLink(summary.primary_phone || 'Not recorded') : escapeHtml(summary.primary_phone || 'Not recorded')}</span>
         </div>
         <div class="fact">
           <small>Next Action</small>
@@ -2831,6 +2840,11 @@
     form.elements.date_from.value = dateInputValue(start); form.elements.date_to.value = endText;
     state.report.defaultValues.date_from = form.elements.date_from.value;
     state.report.defaultValues.date_to = form.elements.date_to.value;
+    form.elements.date_mode.value = 'custom';
+    form.elements.month.value = endText.slice(0, 7);
+    form.elements.year.value = endText.slice(0, 4);
+    form.elements.quarter.value = String(Math.ceil(Number(endText.slice(5, 7)) / 3));
+    syncTatPeriodControls();
     syncReportDateDisplays();
   }
 
@@ -2842,6 +2856,30 @@
       sort: state.report.sort,
       ...(state.report.heatSelection || {}),
     }, extra || {}));
+  }
+
+  function syncTatPeriodControls() {
+    const form = $('tatReportFilters');
+    const datesLabel = form.querySelector('.report-period-mode');
+    const firstDate = form.elements.date_from.closest('label');
+    if (datesLabel.compareDocumentPosition(firstDate) & Node.DOCUMENT_POSITION_PRECEDING) firstDate.before(datesLabel);
+    const mode = form.elements.date_mode.value;
+    form.querySelectorAll('[data-tat-period]').forEach(label => {
+      label.hidden = !label.dataset.tatPeriod.split(' ').includes(mode);
+      label.querySelectorAll('input,select').forEach(input => { input.required = !label.hidden; });
+    });
+    ['date_from', 'date_to'].forEach(name => {
+      form.elements[name].closest('label').hidden = mode !== 'custom';
+    });
+    const monthDisplay = form.querySelector('[data-date-display="month"]');
+    if (monthDisplay) monthDisplay.textContent = form.elements.month.value
+      ? new Intl.DateTimeFormat('en-GB', {month:'short',year:'numeric',timeZone:'Africa/Nairobi'}).format(new Date(`${form.elements.month.value}-01T00:00:00+03:00`)) : 'Choose month';
+    if (mode !== 'custom') {
+      const dates = window.MiniAppReportControls.periodDates(mode, Object.fromEntries(new FormData(form)));
+      form.elements.date_from.value = dates.from;
+      form.elements.date_to.value = dates.to;
+    }
+    syncReportDateDisplays();
   }
 
   function focusedReportPayload(insight, options) {
@@ -2970,7 +3008,7 @@
   }
 
   function bindReportDatePickers() {
-    document.querySelectorAll('#tatReportFilters input[type="date"]').forEach(input => {
+    document.querySelectorAll('#tatReportFilters input[type="date"], #tatReportFilters input[type="month"]').forEach(input => {
       input.addEventListener('click', () => {
         if (typeof input.showPicker !== 'function') return;
         try { input.showPicker(); } catch (error) { /* The native click remains the fallback. */ }
@@ -3073,6 +3111,7 @@
     const form = $('tatReportFilters');
     $('tatReportDateSummary').textContent = `${formatReportDate(form.elements.date_from.value)} – ${formatReportDate(form.elements.date_to.value)}`;
     const count = active.length;
+    if (form.elements.date_mode.value === 'all') $('tatReportDateSummary').textContent = 'Any time';
     const badge = $('tatReportActiveFilterCount');
     badge.textContent = String(count); badge.hidden = count === 0;
     const warning = $('tatReportFilterWarning');
@@ -3628,6 +3667,7 @@
         const toggle = document.createElement('summary'); toggle.setAttribute('aria-label', 'Chart options'); toggle.innerHTML = window.MiniAppReportControls.chartOptionsIcon;
         group.before(menu); menu.append(toggle, group);
       }
+      window.MiniAppReportControls.prepareChartMenu(menu);
       group.replaceChildren(...rule.allowed.map(type => {
         const button = document.createElement('button'); button.type = 'button';
         button.dataset.tatChartKey = key; button.dataset.tatChartType = type;
@@ -3725,16 +3765,18 @@
           x: { beginAtZero: !line || undefined, ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: verticalGridlineLimit, font: { size: 8 } }, grid: { color: grid } },
           y: { beginAtZero: true, ticks: { color: text, precision: 0, autoSkip: true, maxTicksLimit: horizontal ? categoryGridlineLimit : numericGridlineLimit, font: { size: 8 } }, grid: { color: grid } },
         };
-        if (['tat_percentiles', 'case_progression'].includes(key)) options.scales.y.ticks.callback = value => formatMinutes(value);
-        if (key === 'case_progression') options.scales.y.title = { display: true, text: payload.axis_title || 'Time in stage', color: text };
-        if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
-        if (key === 'stage_target') options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '% of target', color: text };
-        if (key === 'explorer' && payload.metric === 'duration') options.scales[horizontal ? 'x' : 'y'].ticks.callback = value => formatMinutes(value);
+        if (key === 'sla_compliance') options.scales.y.max = 100;
         if (chartType === 'stacked_bar') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
-        if (key === 'explorer' && ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric)) {
-          options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '%', color: text };
-        }
       }
+      const unit = payload.unit || (['tat_percentiles', 'case_progression'].includes(key) || payload.metric === 'duration' ? 'minutes'
+        : ['sla_compliance', 'stage_target'].includes(key) || ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric) ? 'percent'
+        : payload.metric === 'load_per_assignee' ? 'cases_per_assignee'
+        : (payload.basis || '').includes('completed') && (payload.basis || '').includes('action') ? 'actions' : 'cases');
+      window.MiniAppReportControls.applyChartMeasurement(options, {unit, horizontal, color:text,
+        label:unit === 'percent' ? payload.axis_title || 'Percentage (%)' : ''});
+      const chartCanvas = $(`${prefix}Chart`);
+      chartCanvas.setAttribute('role', 'img');
+      chartCanvas.setAttribute('aria-label', `${payload.title}: ${window.MiniAppReportControls.chartMeasurement(unit).axisTitle}`);
       const semanticColors = { within_target: '#23a67a', near_target: '#ef9b36', overdue: '#e45858', target_unavailable: '#6a7a89' };
       const statusColors = { active: '#3390ec', stalled: '#ef9b36', declined: '#e45858', disbursed: '#23a67a' };
       const datasets = (payload.series || []).map((item, index) => {
@@ -4008,6 +4050,12 @@
   });
   let tatReportFilterTimer = null;
   let tatReportFiltersDirty = false;
+  ['date_mode', 'month', 'quarter', 'year'].forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => {
+    syncTatPeriodControls();
+    state.report.heatSelection = null; renderHeatmapSelection();
+    syncReportFilterGuidance();
+    queueTatReportFilterRefresh(140);
+  }));
   function queueTatReportFilterRefresh(delay) {
     clearTimeout(tatReportFilterTimer);
     tatReportFiltersDirty = true;
@@ -4311,6 +4359,15 @@
   });
   configureClipboardFields();
 
+  $('queueSearchInput')?.addEventListener('input', () => {
+    clearTimeout(state.queueSearchTimer);
+    // Invalidate already-running responses immediately, not after debounce.
+    state.homeRequestNumber += 1;
+    state.pendingHome = null;
+    state.homePages = { role: 1, all: 1 };
+    state.queueSearchTimer = setTimeout(() => refresh({forceHomeRender:true}).catch(presentTatError), 250);
+  });
+
   $('searchBtn').addEventListener('click', runSearch);
   $('searchInput').addEventListener('input', scheduleSearch);
   $('searchInput').addEventListener('keydown', (event) => {
@@ -4519,6 +4576,7 @@
       const excelDialog = document.querySelector('.miniapp-excel-dialog[open]');
       if (excelDialog) { excelDialog.close(); return; }
       if (window.MiniAppReportEmailExport?.closeActive()) return;
+      if (window.MiniAppReportControls.closeChartMenus()) return;
       if (state.assessmentPreview.open) return closeAssessmentPreview();
       if (state.report.filterSheetOpen) return closeTatReportFilters();
       if (state.filterSheetOpen) return closeQueueFilters();

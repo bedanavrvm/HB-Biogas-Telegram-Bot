@@ -1528,7 +1528,7 @@
       const detail = document.getElementById('invoice-pool-file-detail');
       dropzone?.classList.toggle('has-selection', files.length > 0);
       if (title) title.textContent = files.length ? (files.length === 1 ? files[0].name : files.length + ' invoice PDFs selected') : 'Upload invoice PDFs';
-      if (detail) detail.textContent = files.length > 1 ? files.slice(0, 3).map(function (file) { return file.name; }).join(' · ') : (files.length ? 'Ready to upload and parse' : 'Tap to select one or more PDF files');
+      if (detail) detail.textContent = files.length > 1 ? files.slice(0, 3).map(function (file) { return file.name; }).join(' · ') : (files.length ? 'Ready to upload and parse' : 'One invoice per file. Select separate PDFs together.');
     });
     document.addEventListener('submit', async function (event) {
       const form = event.target.closest('#invoice-pool-upload-form');

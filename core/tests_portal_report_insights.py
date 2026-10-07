@@ -18,6 +18,21 @@ from core.services.jawabu_case360 import calculate_case_tat
 
 
 class PortalInsightTests(TestCase):
+    def test_quarter_and_year_use_nairobi_calendar(self):
+        with patch('core.services.portal_report_insights.timezone.now', return_value=datetime(2026, 10, 7, tzinfo=ZoneInfo('UTC'))):
+            quarter = self.run_report(filters={'date_mode': 'quarter', 'year': '2026', 'quarter': '3'})
+            year = self.run_report(filters={'date_mode': 'year', 'year': '2026'})
+        self.assertEqual(quarter['period'], {'from': '2026-07-01', 'to': '2026-09-30'})
+        self.assertEqual(year['period'], {'from': '2026-01-01', 'to': '2026-10-07'})
+
+    def test_county_choices_and_buckets_are_case_insensitive(self):
+        self.case(county='NAKURU')
+        self.case(county='Nakuru')
+        report = self.run_report(filters={'county': 'Nakuru'})
+        self.assertEqual(report['filter_options']['counties'], ['Nakuru'])
+        self.assertEqual(report['total_rows'], 2)
+        self.assertEqual(len(self.chart(report, 'county')['labels']), 1)
+
     def setUp(self):
         self.user = get_user_model().objects.create_user(username='synthetic-insight-superuser', is_superuser=True)
         self.now = timezone.now()

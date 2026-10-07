@@ -228,7 +228,7 @@ def email_context(snapshot, configuration=None):
     titles = {'pipeline': 'Pipeline overview', 'finance': 'Finance overview', 'outcomes': 'Case outcomes',
               'tat': 'TAT overview', 'complaints': 'Complaints overview'}
     metrics = [_email_metric(label, value) for label, value in snapshot['summary'].items()]
-    excluded = {'date_mode', 'month', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group'}
+    excluded = {'date_mode', 'month', 'quarter', 'year', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group'}
     scope = [{'label': key.replace('_', ' ').capitalize(), 'value': str(value).replace('_', ' ') if key in {'stage', 'view', 'sla_state', 'date_basis'} else str(value)}
              for key, value in filters.items() if value not in (None, '') and key not in excluded]
     breakdowns = []

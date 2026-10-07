@@ -11,6 +11,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from typing import Any
@@ -599,6 +600,7 @@ def home_data(
     statuses=None,
     queue: str = 'role',
     page: int = 1,
+    query: str = '',
 ) -> dict:
     """Return one compact queue plus filtered dashboard metrics.
 
@@ -620,6 +622,18 @@ def home_data(
     )
     scoped_total = scoped_queryset.count()
     queryset = scoped_queryset
+    search_term = str(query or '').strip()[:120]
+    if search_term:
+        # Intersect both capabilities; never expand Home access using search.
+        queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
+        match = Q(case_id__icontains=search_term) | Q(client_name__icontains=search_term)
+        normalized_id = normalize_national_id(search_term)
+        normalized_phone = normalize_kenyan_phone(search_term)
+        if normalized_id:
+            match |= Q(national_id=normalized_id)
+        if normalized_phone:
+            match |= Q(primary_phone=normalized_phone)
+        queryset = queryset.filter(match)
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     def selected_values(values, legacy=''):
         source = values if values not in (None, '') else legacy
@@ -676,7 +690,7 @@ def home_data(
             if tat_reporting_status(case, workflow=workflow) in selected_statuses
         ]
     recent_total = len(cases)
-    filters_active = bool(selected_products or selected_branches or selected_statuses)
+    filters_active = bool(selected_products or selected_branches or selected_statuses or search_term)
     if recent_total:
         visibility_code = 'cases_visible'
         visibility_message = ''
@@ -2931,12 +2945,18 @@ def tat_target_sheet_sync_health(group_config) -> dict[str, Any]:
         deduplication_key=_tat_target_sync_key(group_config, getattr(group_config, 'workflow', None)),
     ).first()
     if not operation:
-        return {'status': 'needs_sync', 'can_retry': True}
+        return {'status': 'not_attempted', 'can_retry': True}
     if operation.status == IntegrationOperation.STATUS_SUCCEEDED:
         return {'status': 'synced', 'can_retry': False, 'last_synced_at': operation.completed_at.isoformat() if operation.completed_at else ''}
+    now = timezone.now()
+    cooldown_end = operation.last_attempt_at + timedelta(seconds=60) if operation.last_attempt_at else now
+    if operation.next_retry_at:
+        cooldown_end = max(cooldown_end, operation.next_retry_at)
+    status = 'in_progress' if operation.status == IntegrationOperation.STATUS_RUNNING else 'pending' if operation.status == IntegrationOperation.STATUS_PENDING else 'failed'
     return {
-        'status': 'needs_sync',
-        'can_retry': True,
+        'status': status,
+        'can_retry': status == 'failed' and cooldown_end <= now,
+        'retry_after_seconds': max(0, int((cooldown_end - now).total_seconds())),
         'last_attempted_at': operation.last_attempt_at.isoformat() if operation.last_attempt_at else '',
     }
 
@@ -2960,16 +2980,20 @@ def sync_tat_target_sheet_mirror(group_config, *, actor=None, force_retry: bool 
         operation_payload=(workflow.get('tat_targets_minutes') or {}),
         max_attempts=1,
     )
-    if force_retry and operation.status in {
-        IntegrationOperation.STATUS_RETRYABLE,
-        IntegrationOperation.STATUS_DEAD_LETTER,
-    }:
-        operation.status = IntegrationOperation.STATUS_PENDING
-        operation.attempts = 0
-        operation.last_error = ''
-        operation.last_error_code = ''
-        operation.next_retry_at = None
-        operation.save(update_fields=['status', 'attempts', 'last_error', 'last_error_code', 'next_retry_at', 'updated_at'])
+    if force_retry:
+        with transaction.atomic():
+            # Two retry clicks must not reset a newly claimed live attempt.
+            operation = IntegrationOperation.objects.select_for_update().get(pk=operation.pk)
+            if operation.status in {IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_DEAD_LETTER}:
+                health = tat_target_sheet_sync_health(group_config)
+                if not health['can_retry']:
+                    return health
+                operation.status = IntegrationOperation.STATUS_PENDING
+                operation.attempts = 0
+                operation.last_error = ''
+                operation.last_error_code = ''
+                operation.next_retry_at = None
+                operation.save(update_fields=['status', 'attempts', 'last_error', 'last_error_code', 'next_retry_at', 'updated_at'])
     try:
         result = execute_operation(
             operation,
@@ -2979,7 +3003,10 @@ def sync_tat_target_sheet_mirror(group_config, *, actor=None, force_retry: bool 
     except ExternalOperationError:
         logger.warning('TAT target sheet mirror needs retry for group %s.', group_config.group_id)
         return tat_target_sheet_sync_health(group_config)
-    return {'status': 'synced', 'can_retry': False, 'result': result or {}}
+    health = tat_target_sheet_sync_health(group_config)
+    if health['status'] == 'synced':
+        health['result'] = result or {}
+    return health
 
 
 def _sync_tat_target_sheet_or_raise(group_config, workflow: dict) -> dict:

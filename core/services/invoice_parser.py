@@ -682,28 +682,57 @@ def parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
     if result.returncode:
         raise ValueError('This invoice PDF could not be read. Check that it is unlocked, valid and no more than 200 pages.')
     payload = json.loads(result.stdout)
+    if payload.get('error') == 'one_invoice_per_file':
+        raise ValueError(INVOICE_FILE_POLICY_MESSAGE)
     return payload['invoices'], payload['pages']
 
 
+INVOICE_FILE_POLICY_MESSAGE = 'Upload one invoice per file. Separate merged invoices or repeated copies, then select the separate files together.'
+
+
+class InvoiceFilePolicyError(ValueError):
+    """Safe, structured worker error; never includes extracted customer text."""
+
+
 def _parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
-    """Parse invoice records from a PDF without tying them to an order."""
+    """Accept one invoice, with only positively identified continuation pages."""
     reader = PdfReader(BytesIO(pdf_bytes))
     from core.services.invoice_processing_limits import MAX_PDF_PAGES
     if len(reader.pages) > MAX_PDF_PAGES:
         raise ValueError('Split this PDF into files of at most 200 pages.')
     invoices = []
+    first_number = None
+    total = len(reader.pages)
     for page_number, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
+        starts = re.findall(r'\bBILL\s+TO\b', text, flags=re.IGNORECASE)
+        markers = re.findall(r'\bPage\s+(\d+)\s+of\s+(\d+)\b', text, flags=re.IGNORECASE)
+        if len(starts) > 1 or len(markers) > 1:
+            raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+        if total > 1:
+            numbers = re.findall(r'\bINVOICE\s+([A-Z0-9-]+)', text, flags=re.IGNORECASE)
+            number = numbers[0].upper() if len(numbers) == 1 else None
+            if markers != [(str(page_number), str(total))] or not number:
+                raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+            if first_number is None:
+                first_number = number
+            elif first_number != number:
+                raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
         parsed = parse_invoice_text(text, page_number)
         if parsed:
-            invoices.append(parsed)
-        else:
-            logger.warning(
-                "Invoice page %s was not parsed. Text preview: %s",
-                page_number,
-                " ".join(text.split())[:300],
-            )
-    return invoices, len(reader.pages)
+            if invoices:
+                # Repeated headers are allowed only on numbered continuations;
+                # conflicting identities/financial summaries are not one invoice.
+                for key in ('invoice_no', 'customer_id', 'customer_name', 'invoice_amount', 'total_after_discount', 'balance_due'):
+                    if parsed.get(key) and invoices[0].get(key) and parsed[key] != invoices[0][key]:
+                        raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+            else:
+                invoices.append(parsed)
+        elif page_number == 1:
+            raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+    if invoices:
+        invoices[0]['page_numbers'] = list(range(1, total + 1))
+    return invoices, total
 
 
 def ingest_invoice_upload_batch(
@@ -796,10 +825,21 @@ def ingest_invoice_upload_batch(
             resume_requests[resume_key] = True
         metadata['resume_requests'] = resume_requests
         metadata.update(processing_token=token, processing_until=(timezone.now() + timedelta(minutes=3)).isoformat(),
-                        processing_stage='parsing' if batch.drive_file_id else 'uploading')
+                        processing_stage='parsing')
         batch.metadata = metadata
         batch.save(update_fields=['metadata', 'updated_at'])
     received_at = batch.created_at
+    # Validate before external storage or matching. The durable hash/attempt
+    # lease remains the same on a retry; completed historical batches are untouched.
+    try:
+        invoices, total_pages = parse_invoice_pdf_bytes(pdf_bytes)
+        if len(invoices) != 1:
+            raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+    except Exception as exc:
+        batch.status = 'parse_failed'
+        batch.error = str(exc)
+        _finish_invoice_attempt(batch, token, failed=True)
+        raise
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
         from core.services.external_resilience import external_call_budget
@@ -833,14 +873,6 @@ def ingest_invoice_upload_batch(
             raise InvoiceUploadRequestConflictError('A newer upload attempt is processing this invoice. Refresh its result.')
         batch.metadata = {**current.metadata, 'processing_stage': 'parsing'}
         batch.save(update_fields=['drive_file_id', 'drive_url', 'metadata', 'updated_at'])
-
-    try:
-        invoices, total_pages = parse_invoice_pdf_bytes(pdf_bytes)
-    except Exception as exc:
-        batch.status = 'parse_failed'
-        batch.error = str(exc)
-        _finish_invoice_attempt(batch, token, failed=True)
-        raise
 
     parsed_rows = []
     for inv in invoices:

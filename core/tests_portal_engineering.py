@@ -182,7 +182,7 @@ class InvoiceRecoveryTests(TestCase):
         self.assertEqual(ParsedInvoice.objects.count(), 1)
         self.assertEqual(ParsedInvoiceEvent.objects.count(), 1)
         storage.return_value.upload.assert_called_once()
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 1))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_new_request_can_resume_same_unfinished_hash(self, storage, parser):
         import hashlib
@@ -198,7 +198,7 @@ class InvoiceRecoveryTests(TestCase):
         with self.assertRaises(InvoiceUploadRequestConflictError):
             ingest_invoice_upload_batch(pdf_bytes=b'different PDF', filename='synthetic.pdf', client_request_id='new-request')
 
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 1))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_existing_file_resumes_parse_without_reupload(self, storage, parser):
         import hashlib
@@ -209,15 +209,16 @@ class InvoiceRecoveryTests(TestCase):
         )
         result = ingest_invoice_upload_batch(pdf_bytes=content, filename='synthetic.pdf', client_request_id='synthetic-resume')
         self.assertEqual(result.pk, batch.pk)
-        self.assertEqual(result.status, 'needs_review')
+        self.assertEqual(result.status, 'awaiting_confirmation')
         storage.return_value.upload.assert_not_called()
         parser.assert_called_once()
         replay = ingest_invoice_upload_batch(pdf_bytes=content, filename='synthetic.pdf', client_request_id='synthetic-resume')
         self.assertEqual(replay.pk, batch.pk)
         parser.assert_called_once()
 
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_interrupted_live_upload_is_not_reported_as_complete(self, storage):
+    def test_interrupted_live_upload_is_not_reported_as_complete(self, storage, parser):
         storage.return_value.upload.side_effect = SystemExit('synthetic interruption')
         kwargs = dict(pdf_bytes=b'%PDF-synthetic', filename='synthetic.pdf', client_request_id='synthetic-stop')
         with self.assertRaises(SystemExit):
@@ -225,6 +226,17 @@ class InvoiceRecoveryTests(TestCase):
         with self.assertRaises(InvoiceUploadRequestConflictError):
             ingest_invoice_upload_batch(**kwargs)
         self.assertEqual(storage.return_value.upload.call_count, 1)
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', side_effect=ValueError('Upload one invoice per file.'))
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_merged_invoice_rejection_happens_before_drive_acceptance(self, storage, parser):
+        with self.assertRaisesRegex(ValueError, 'one invoice per file'):
+            ingest_invoice_upload_batch(pdf_bytes=b'%PDF-synthetic-merged', filename='merged.pdf', client_request_id='synthetic-merged')
+        result = InvoiceUploadBatch.objects.get(client_request_id='synthetic-merged')
+        self.assertEqual(result.status, 'parse_failed')
+        self.assertFalse(result.drive_file_id)
+        storage.return_value.upload.assert_not_called()
+        self.assertTrue(result.content_sha256)
 
 
 class PDFBudgetTests(TestCase):
@@ -276,7 +288,8 @@ class PDFBudgetTests(TestCase):
         writer.add_blank_page(width=100, height=100)
         stream = BytesIO()
         writer.write(stream)
-        self.assertEqual(parse_invoice_pdf_bytes(stream.getvalue()), ([], 1))
+        with self.assertRaisesRegex(ValueError, 'one invoice per file'):
+            parse_invoice_pdf_bytes(stream.getvalue())
         from core.services.secure_media_preview import pdf_preview_html
         self.assertIn(b'data:image/jpeg', pdf_preview_html(stream.getvalue(), 'synthetic.pdf'))
 

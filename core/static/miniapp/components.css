@@ -1,6 +1,8 @@
 /* Shared Mini App interaction primitives. Workflow-specific presentation may
    extend these classes, but must not redefine their state semantics. */
 :root {
+  --miniapp-icon-glyph:16px;
+  --miniapp-close-glyph:20px;
   --miniapp-touch-primary: 44px;
   --miniapp-touch-icon: 40px;
   --miniapp-text-body: 12px;
@@ -132,6 +134,27 @@ body.portal-app .miniapp-panel-heading {
   gap: 12px;
   text-align: left;
 }
+
+/* The same control geometry is used in each explicitly opted-in workspace. */
+.miniapp-compact-icon {
+  display:inline-grid; place-items:center; flex:0 0 44px; width:44px; min-width:44px;
+  height:44px; min-height:44px; padding:0; margin:0; border:0; border-radius:8px;
+  background:transparent; color:inherit; box-sizing:border-box;
+}
+.miniapp-compact-icon svg { display:block; width:var(--miniapp-icon-glyph); height:var(--miniapp-icon-glyph); stroke-width:1.8; flex:none; }
+.miniapp-compact-icon[aria-label^="Close"] svg { width:var(--miniapp-close-glyph); height:var(--miniapp-close-glyph); }
+.miniapp-report-filter-fields {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;
+  padding:12px; min-width:0; overflow-y:auto; overscroll-behavior:contain;
+}
+.miniapp-report-filter-fields > label { display:grid; align-content:start; gap:4px; min-width:0; margin:0; font-size:12px; font-weight:600; }
+.miniapp-report-filter-fields > label[hidden] { display:none!important; }
+.miniapp-report-filter-fields :is(input,select) {
+  width:100%; min-width:0; min-height:44px; box-sizing:border-box; padding:8px;
+  border:1px solid var(--border-color,var(--tat-line,#dce2e9)); border-radius:8px;
+  color:var(--text-primary,var(--tat-text,#243244)); background:var(--bg-surface,var(--tat-surface,#fff)); font:inherit; font-size:14px;
+}
+.miniapp-report-filter-fields .report-period-mode { grid-column:1/-1; }
 body.portal-app .miniapp-toolbar > :first-child,
 body.portal-app .miniapp-panel-heading > :first-child {
   flex: 1 1 auto;
@@ -293,7 +316,11 @@ article:has(.miniapp-chart-help) { position: relative; }
 .miniapp-chart-options > summary { display: grid; place-items: center; width: 44px; height: 44px; list-style: none; cursor: pointer; font-size: 18px; }
 .miniapp-chart-options > summary::-webkit-details-marker { display: none; }
 .miniapp-chart-options > :not(summary) { padding: 8px; }
-.miniapp-chart-options[open] { position: absolute; z-index: 10; top: 8px; right: 48px; max-width: calc(100% - 64px); border: 1px solid var(--line, #dce1e8); border-radius: 8px; background: var(--bg-surface, var(--tat-surface, var(--surface, #fff))); box-shadow: 0 8px 24px #0003; }
+.miniapp-chart-options[open] { position:relative; z-index:10; }
+.miniapp-chart-popover { position:relative; }
+.miniapp-chart-menu { position:absolute; z-index:11; top:44px; right:0; display:grid; gap:6px; width:min(240px,calc(100vw - 80px)); padding:8px; box-sizing:border-box; border:1px solid var(--line,var(--border-color)); border-radius:10px; background:var(--tat-surface,var(--surface,var(--bg-surface))); box-shadow:0 8px 24px #0003; }
+.miniapp-chart-menu > div { display:flex; flex-wrap:wrap; gap:6px; }
+.tat-chart-options.miniapp-chart-popover .tat-insight-chart-toggle { position:static; padding:0; border:0; box-shadow:none; }
 .miniapp-chart-types { display: flex; gap: 6px; flex-wrap: wrap; }
 .miniapp-chart-types button { min-height: 44px; padding: 6px 10px; font-size: 12px; }
 .miniapp-chart-help summary:focus-visible, .miniapp-excel-dialog button:focus-visible { outline: 2px solid var(--accent, #2481cc); outline-offset: 2px; }

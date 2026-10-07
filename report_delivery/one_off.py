@@ -64,7 +64,7 @@ def queue_export(actor, workflow, payload):
         raise ValidationError('Review the report filters.')
     # Only report inputs survive; never retain Telegram tokens/initData.
     allowed = {'branch', 'county', 'product', 'stage', 'status', 'category', 'search',
-               'date_mode', 'month', 'from', 'to', 'date_from', 'date_to', 'date_basis',
+               'date_mode', 'month', 'quarter', 'year', 'from', 'to', 'date_from', 'date_to', 'date_basis',
                'metric', 'metric_value', 'view', 'group', 'role', 'granularity', 'sort',
                'comparison_dimension', 'comparison_metric', 'heatmap_row', 'heatmap_column',
                'heatmap_metric', 'heatmap_pair', 'chart_dimension', 'chart_metric', 'sla_state',

@@ -4699,7 +4699,11 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .portal-performance-breakdown .positive { color:var(--color-success,#15803d); }
 .portal-performance-breakdown .negative { color:var(--color-danger,#b91c1c); }
 .portal-performance-breakdown .caution { color:var(--color-warning,#a16207); }
-.portal-performance-detail-row { display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-top:1px solid var(--border-color); font-size:11px; }
+.portal-performance-detail-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 0; border-top:1px solid var(--border-color); font-size:12px; }
+.portal-performance-detail-row b { flex:none; color:var(--color-success,#15803d); font-variant-numeric:tabular-nums; }
+.portal-performance-detail-summary { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
+.portal-performance-detail-summary > div { display:grid; gap:2px; }
+.portal-performance-detail-summary > strong { grid-row:auto; color:var(--brand-primary); font-size:31px; }
 @media (max-width:350px) {
   .portal-performance-standing-heading { align-items:flex-start; }
   .portal-performance-standing-heading .portal-performance-switch button { padding-inline:5px; }
@@ -5061,9 +5065,8 @@ body.portal-app .sheet-overlay :is(#sheet-info, .sheet-quick-actions, .case360-t
 .portal-app .history-toolbar .history-tabs .btn{width:auto;min-height:44px;padding:8px 12px;font-size:14px}
 .portal-app .history-order-partner-filters{display:flex;align-items:center;flex:0 0 auto;gap:4px;margin:0;padding:0;border:0;background:none}
 .portal-app .history-order-partner-filters .queue-filter-button{width:44px;min-width:44px;height:44px;min-height:44px}
-.portal-app #history-list:not(:has(>.empty-state)){display:block;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-surface);overflow:hidden}
-body.portal-app .farmer-card.history-document-card{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;padding:8px;gap:4px;border:0;border-bottom:1px solid var(--border-color);border-radius:0;box-shadow:none;background:transparent;transform:none}
-body.portal-app .farmer-card.history-document-card:last-child{border-bottom:0}
+.portal-app #history-list:not(:has(>.empty-state)){display:grid;gap:6px;border:0;background:transparent;overflow:visible}
+body.portal-app .farmer-card.history-document-card{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;padding:8px;gap:3px;border:1px solid var(--border-color);border-radius:10px;box-shadow:none;background:var(--bg-surface);transform:none}
 .portal-app .history-document-card>*{min-width:0;overflow-wrap:anywhere;margin:0}
 body.portal-app .history-document-header.miniapp-panel-heading{gap:6px;padding:0;margin:0}
 .portal-app .history-document-title{min-width:0;flex:1;line-height:1.35}
@@ -5246,7 +5249,7 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .portal-performance-own-cell { padding: 0; border: 0; background: transparent; }
 .portal-performance-own-cell strong { font-size: 20px; }
 .portal-performance-own-cell:first-child strong { font-size: 36px; line-height: 1.05; color: var(--brand-primary); }
-.portal-performance-row, .portal-performance-row-heading { display: grid; grid-template-columns: 28px minmax(0,1fr) 52px 32px; align-items: center; gap: 7px; padding: 7px 10px; min-height: 54px; }
+.portal-performance-row, .portal-performance-row-heading { display: grid; grid-template-columns: 30px minmax(0,1fr) 58px 32px; align-items: center; gap: 8px; padding: 6px 10px; min-height: 50px; }
 .portal-performance-row.current-user { background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface)); }
 .portal-performance-row-heading { min-height: 30px; color: var(--text-muted); background: var(--bg-muted); font-size: 11px; font-weight: 700; }
 .portal-performance-row-heading > :nth-child(3), .portal-performance-row-heading > :nth-child(4) { text-align: right; }

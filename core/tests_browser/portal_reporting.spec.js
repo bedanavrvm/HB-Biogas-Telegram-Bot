@@ -3,11 +3,10 @@ const path=require('node:path');
 const fs=require('node:fs');
 const {test,expect}=require('playwright/test');
 const asset=name=>path.resolve(__dirname,'../static/miniapp',name);
+const {mountPortalShell}=require('./fixtures/portal_shell');
 
 async function open(page,{chartsUnavailable=false}={}) {
-  await page.route('https://portal-report.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body class="workflow-standard portal-app"><main style="max-width:1000px;margin:auto;padding:12px"><div id="portal-reports-root"></div></main></body></html>'}));
-  await page.goto('https://portal-report.test/portal/s/reports/');
-  for(const name of ['base.css','components.css','portal.css','workflow_standard.css','report_email_export.css','portal_report_insights.css'])await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
+  await mountPortalShell(page,'<div id="portal-screen" data-screen="reports"><section class="page active" id="page-reports"><div id="portal-reports-root"></div></section></div>');
   if(!chartsUnavailable)await page.addScriptTag({path:asset('vendor-chartjs-4.5.1.umd.min.js')});
   await page.addScriptTag({path:asset('components.js')});
   await page.addScriptTag({path:asset('report_email_export.js')});
@@ -88,6 +87,49 @@ async function clickChartDatum(page, chartId, index=0, dataset=0) {
   },{index,dataset});
   await page.mouse.click(point.x,point.y);
 }
+
+test('Portal charts label cases, hours and KES on the value axis and tooltip', async ({page}) => {
+  await open(page);
+  for (const preset of ['pipeline','outcomes','finance']) {
+    await page.locator(`[data-preset="${preset}"]`).click();
+    await expect(page.locator(`[data-preset="${preset}"]`)).toHaveAttribute('aria-selected','true');
+    await expect.poll(()=>page.evaluate(()=>Object.keys(Chart.instances).length)).toBe(preset==='pipeline'?5:preset==='outcomes'?6:4);
+    const units = await page.evaluate(() => [...document.querySelectorAll('[data-chart] canvas')].map(canvas => {
+      const chart = Chart.getChart(canvas), horizontal = chart.options.indexAxis === 'y';
+      return { key:canvas.closest('[data-chart]').dataset.chart,
+        axis:chart.options.scales[horizontal ? 'x' : 'y']?.title?.text,
+        pie:chart.options.plugins.subtitle?.text,
+        tooltip:chart.options.plugins.tooltip.callbacks.label({dataset:chart.data.datasets[0],raw:4,dataIndex:0}) };
+    }));
+    for (const item of units) {
+      const unit = item.key === 'duration' ? 'Hours' : preset === 'finance' && item.key !== 'activity' ? 'KES' : 'Cases';
+      expect(item.axis || item.pie).toBe(unit);
+      expect(item.tooltip.toLowerCase()).toContain(unit.toLowerCase());
+    }
+  }
+});
+
+test('chart options stay anchored and report dates include quarters and years',async({page})=>{
+  await page.setViewportSize({width:320,height:850});await open(page);
+  const trigger=page.locator('[data-chart="stages"] .portal-chart-settings summary');
+  const before=await trigger.boundingBox();await trigger.click();const after=await trigger.boundingBox();
+  expect(Math.abs(after.x-before.x)).toBeLessThan(1);
+  expect(Math.abs(after.y-before.y)).toBeLessThan(1);
+  await page.keyboard.press('Escape');
+  await expect(trigger.locator('..')).not.toHaveAttribute('open','');
+  await trigger.click();
+  expect(await page.evaluate(()=>PortalMiniAppReports.canHandleBack())).toBe(true);
+  expect(await page.evaluate(()=>PortalMiniAppReports.handleBack())).toBe(true);
+  await expect(trigger.locator('..')).not.toHaveAttribute('open','');
+  await page.locator('[data-action="filters"]').click();
+  await expect(page.locator('[name="date_mode"] option')).toHaveCount(5);
+  await expect(page.locator('#portal-report-filters [name="granularity"]')).toHaveCount(0);
+  await page.locator('[name="date_mode"]').selectOption('quarter');
+  await page.locator('[name="quarter"]').selectOption('3');
+  await page.locator('[name="year"]').fill('2026');
+  await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters)).toMatchObject({date_mode:'quarter',year:'2026',quarter:'3',granularity:'month'});
+});
 
 test('real bar and line clicks filter cases in place, preserve table state and export selection',async({page})=>{
   await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:'reduce'});await open(page);

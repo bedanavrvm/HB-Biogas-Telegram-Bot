@@ -310,7 +310,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_upload_request_id_is_idempotent(self, storage, parse_pdf):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
-        parse_pdf.return_value = ([], 0)
+        parse_pdf.return_value = ([{'page': 1, 'invoice_no': 'synthetic-001'}], 1)
 
         first = ingest_invoice_upload_batch(
             pdf_bytes=b'%PDF-1.4',
@@ -332,7 +332,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         storage.return_value.upload.assert_called_once()
         parse_pdf.assert_called_once()
 
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_upload_request_id_cannot_replay_different_pdf(self, storage, parse_pdf):
         from core.services.invoice_parser import InvoiceUploadRequestConflictError
@@ -343,7 +343,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             ingest_invoice_upload_batch(pdf_bytes=b'%PDF-1.4 changed', filename='invoice.pdf', client_request_id='same-key')
         storage.return_value.upload.assert_called_once()
 
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_same_pdf_hash_is_rejected_before_second_drive_upload(self, storage, parse_pdf):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
@@ -360,7 +360,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         storage.return_value.upload.assert_called_once()
         parse_pdf.assert_called_once()
 
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_failed_drive_upload_retains_hash_and_request_for_resumable_retry(self, storage, parse_pdf):
         from core.services.invoice_parser import InvoiceUploadStorageError
@@ -605,6 +605,23 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(response['Cache-Control'], 'private, no-store')
         renderer.assert_called_once_with(b'Synthetic PDF', 'invoices.pdf', start_page=17, page_limit=1)
 
+    @patch('core.api.portal_views._portal_pdf_preview_html', return_value=b'<html>Synthetic invoice</html>')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_receipt_preview_includes_verified_same_invoice_continuation(self, storage, renderer):
+        from payments.models import PaymentReceiptBatch, PaymentReceiptItem
+        batch = self.invoice_batch()
+        batch.total_pages = 2
+        batch.save(update_fields=['total_pages'])
+        invoice = batch.invoices.get()
+        invoice.raw_payload = {'page_numbers': [1, 2]}
+        invoice.save(update_fields=['raw_payload'])
+        receipt = PaymentReceiptBatch.objects.create(group_configuration=GroupSheetConfiguration.objects.first())
+        item = PaymentReceiptItem.objects.create(receipt_batch=receipt, source_upload=batch, invoice=invoice)
+        storage.return_value.download.return_value = b'Synthetic PDF'
+        response = self.client.get(reverse('portal_invoice_receipt_item_preview', args=[item.pk]))
+        self.assertEqual(response.status_code, 200)
+        renderer.assert_called_once_with(b'Synthetic PDF', 'invoices.pdf', start_page=1, page_limit=2)
+
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_receipt_preview_permission_denial_never_downloads_evidence(self, storage):
         from django.http import JsonResponse
@@ -617,7 +634,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_upload_request_id_cannot_be_reused_for_another_order(self, storage, parse_pdf):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
-        parse_pdf.return_value = ([], 0)
+        parse_pdf.return_value = ([{'page': 1, 'invoice_no': 'synthetic-001'}], 1)
 
         ingest_invoice_upload_batch(
             pdf_bytes=b'%PDF-1.4',
@@ -684,7 +701,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(InvoiceUploadBatch.objects.count(), 2)
         self.assertEqual(ParsedInvoice.objects.count(), 2)
 
-    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([], 0))
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes', return_value=([{'page': 1, 'invoice_no': 'synthetic-001'}], 1))
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_reuploading_identical_pdf_reports_duplicate_without_new_receipt(self, storage, parse_pdf):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
@@ -733,7 +750,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_review_upload_reports_partial_file_failures_by_name(self, storage, parse_pdf):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
-        parse_pdf.return_value = ([], 1)
+        parse_pdf.return_value = ([{'page': 1, 'invoice_no': 'synthetic-001'}], 1)
 
         with patch('core.api.portal_views._portal_import_group_ids', return_value=None):
             response = self.client.post(reverse('portal_invoice_pool_upload'), {

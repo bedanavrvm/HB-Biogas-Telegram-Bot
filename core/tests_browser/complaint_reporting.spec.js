@@ -127,6 +127,21 @@ test('empty timing charts remain honest and keyboard-friendly', async ({page})=>
   await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 8');
 });
 
+test('complaint charts show their units on the value axis and in tooltips', async ({page}) => {
+  await openReport(page);
+  const units = await page.evaluate(() => [...document.querySelectorAll('[data-complaint-chart] canvas')].map(canvas => {
+    const chart = Chart.getChart(canvas), horizontal = chart.options.indexAxis === 'y';
+    return { key:canvas.closest('[data-complaint-chart]').dataset.complaintChart,
+      axis:chart.options.scales[horizontal ? 'x' : 'y']?.title?.text || chart.options.plugins.subtitle?.text,
+      tooltip:chart.options.plugins.tooltip.callbacks.label({dataset:chart.data.datasets[0],raw:chart.data.datasets[0].data[0],dataIndex:0}) };
+  }));
+  for (const item of units) {
+    const duration = ['resolution','category_time','response'].includes(item.key);
+    expect(item.axis).toBe(duration ? 'Hours' : 'Complaints');
+    expect(item.tooltip).toMatch(duration ? /hours/ : /complaints/);
+  }
+});
+
 test('Real Complaints envelope sends current result filters without leaving the report',async({page},info)=>{
   await page.setViewportSize({width:390,height:850});await openReport(page);
   const email=await page.locator('#emailResultsBtn').boundingBox();const exportButton=await page.locator('#exportResultsBtn').boundingBox();

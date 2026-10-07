@@ -147,9 +147,20 @@ def _filters(payload):
     today = timezone.localdate()
     date_to = _parse_date(payload.get('date_to'), default=today)
     date_from = _parse_date(payload.get('date_from'), default=date_to - timedelta(days=29))
+    mode = str(payload.get('date_mode') or 'custom')
+    if mode in {'month', 'quarter', 'year'}:
+        from core.services.report_periods import calendar_period
+        date_from, date_to = calendar_period(mode, payload, today)
+    elif mode == 'all':
+        # Imported stage outcomes can predate the Django creation timestamp.
+        # Any time must include them too, not start at the oldest local row.
+        date_from = date.min
+        date_to = today
+    elif mode != 'custom':
+        raise ValueError('Choose a valid report period.')
     if date_from > date_to:
         raise ValueError('Start date must be on or before end date.')
-    if (date_to - date_from).days > 3652:
+    if mode != 'all' and (date_to - date_from).days > 3652:
         raise ValueError('Choose a reporting period of 10 years or less.')
     granularity = str(payload.get('granularity') or 'month').lower()
     if granularity not in {'day', 'week', 'month', 'year'}:
@@ -160,7 +171,7 @@ def _filters(payload):
         'month': (date_to.year - date_from.year) * 12 + date_to.month - date_from.month + 1,
         'year': date_to.year - date_from.year + 1,
     }[granularity]
-    if bucket_estimate > 366:
+    if bucket_estimate > 366 and mode != 'all':
         raise ValueError('This grouping would create more than 366 chart points. Choose a coarser time grouping.')
     chart_dimension = str(payload.get('chart_dimension') or 'stage').strip().lower()
     chart_metric = str(payload.get('chart_metric') or 'workload').strip().lower()
@@ -187,7 +198,7 @@ def _filters(payload):
         'status': status,
         'sla_state': str(payload.get('sla_state') or '').strip(),
         'search': str(payload.get('search') or '').strip(),
-        'date_from': date_from, 'date_to': date_to, 'granularity': granularity,
+        'date_from': date_from, 'date_to': date_to, 'granularity': granularity, 'date_mode': mode,
         'chart_dimension': chart_dimension, 'chart_metric': chart_metric,
         'heatmap_pair': heatmap_pair, 'heatmap_metric': heatmap_metric,
         'heat_row': str(payload.get('heat_row') or '').strip(),
@@ -663,6 +674,18 @@ def _chart_payload(
     }
     if extras:
         payload.update(extras)
+    if chart_id in {'trend', 'sla_compliance', 'tat_percentiles'} and len(payload['labels']) > 366:
+        raise ValueError('This grouping would create more than 366 chart points. Choose a coarser time grouping.')
+    metric = payload.get('metric')
+    if chart_id in {'tat_percentiles', 'case_progression'} or metric == 'duration':
+        unit = 'minutes'
+    elif chart_id in {'sla_compliance', 'stage_target'} or metric in {'target_usage', 'sla_met', 'correction_rate'}:
+        unit = 'percent'
+    elif metric == 'load_per_assignee':
+        unit = 'cases_per_assignee'
+    else:
+        unit = 'actions' if 'completed' in basis and 'action' in basis else 'cases'
+    payload['unit'] = unit
     if chart_id in {'trend', 'sla_compliance', 'tat_percentiles'}:
         default, allowed = 'line', ['line', 'bar']
     elif chart_id == 'explorer' and payload.get('metric') == 'sla_state':

@@ -58,7 +58,7 @@
     const item = data.personal || {};
     const stages = item.milestones || [];
     $('portal-performance-details-content').innerHTML = `<div class="portal-performance-detail-body">
-      <div class="portal-performance-detail-summary"><strong>${safe(item.points || 0)}</strong><span>points in ${safe(periodLabel(data))}</span><small>${data.final ? 'Final result' : 'Live result'}${data.captured_at ? ` · Captured ${safe(new Date(data.captured_at).toLocaleDateString())}` : ''}</small></div>
+      <div class="portal-performance-detail-summary"><strong>${safe(item.points || 0)}</strong><div><span>points in ${safe(periodLabel(data))}</span><small>${data.final ? 'Final result' : 'Live result'}${data.captured_at ? ` · Captured ${safe(new Date(data.captured_at).toLocaleDateString())}` : ''}</small></div></div>
       <section><h3>Point breakdown</h3>${stages.map(stage => `<div class="portal-performance-detail-row"><span>${safe(stage.label)}</span><b>+${safe(stage.count)}</b></div>`).join('') || '<p class="meta">No milestones yet.</p>'}</section>
       <p class="meta">One point per case milestone, credited to the JBL officer who first logged its visit. Points appear in the month each milestone happened.</p>
     </div>`;
@@ -105,6 +105,7 @@
     const filter = $('portal-performance-filter');
     if (!filter || filter.dataset.bound) return;
     filter.dataset.bound = 'true';
+    $('portal-performance-filters').querySelector('.portal-performance-filter-fields').classList.add('miniapp-report-filter-fields');
     filter.addEventListener('click', () => {
       const parts = state.period.split('-');
       $('portal-performance-period-kind').value = state.kind;
