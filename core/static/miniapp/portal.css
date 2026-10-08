@@ -3361,13 +3361,9 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   .batch-summary-grid { grid-template-columns: 1fr 1fr; }
 }
 
-.jbl-form-errors,
 .jbl-workflow-conflict { display: grid; gap: 5px; margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 11px; padding: 10px 12px; background: var(--bg-muted); }
-.jbl-form-errors[hidden],
 .jbl-workflow-conflict[hidden] { display: none !important; }
 .jbl-workflow-conflict p { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
-.jbl-form-errors { border-color: color-mix(in srgb, var(--status-danger) 55%, var(--border-color)); background: color-mix(in srgb, var(--status-danger) 8%, var(--bg-surface)); color: var(--status-danger); }
-.jbl-form-errors ul { margin: 0; padding-left: 18px; font-size: 10px; }
 .jbl-workflow-conflict { border-color: color-mix(in srgb, var(--portal-status-warning) 55%, var(--border-color)); background: color-mix(in srgb, var(--portal-status-warning) 9%, var(--bg-surface)); }
 .jbl-workflow-conflict button { min-height: 40px; justify-self: start; }
 .jbl-conflict-actions { display: flex; flex-wrap: wrap; gap: 7px; }

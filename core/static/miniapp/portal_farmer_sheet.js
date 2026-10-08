@@ -896,6 +896,7 @@
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireJblDateInput();
       wireGpsButton();
+      wireJblVisitMedia(farmer);
       if (!isNewLead) wireJblVisitDraft(farmer);
       wireJblLocationFields(farmer);
       wireVoiceWidget('jbl_visit_comment');
@@ -1222,7 +1223,6 @@
         <div class="form-row form-row-wide" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
       </div>` : '';
     return `
-      <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
       <section id="jbl-workflow-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This case changed since you opened it.</strong><p id="jbl-workflow-conflict-message"></p><p>Your draft and selected files are still here. Review the latest case before retrying.</p><button type="button" id="jbl-review-latest">Review latest case and keep my draft</button></section>
       <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
       ${newLeadFields}
@@ -2095,8 +2095,6 @@
       node.querySelectorAll('[aria-invalid="true"]').forEach(control => control.removeAttribute('aria-invalid'));
     });
     document.querySelectorAll('[data-error-message-for]').forEach(node => { node.textContent = ''; });
-    const summary = el('jbl-form-errors');
-    if (summary) { summary.hidden = true; summary.querySelector('ul')?.replaceChildren(); }
   }
 
   function showJblFieldErrors(errors) {
@@ -2106,8 +2104,6 @@
     if (controller) return controller.show(errors);
     const entries = Object.entries(errors || {}).filter(([, message]) => Boolean(message));
     if (!entries.length) return false;
-    const summary = el('jbl-form-errors');
-    const list = summary?.querySelector('ul');
     entries.forEach(([field, message]) => {
       const wrapper = document.querySelector(`[data-jbl-field="${field}"]`);
       wrapper?.classList.add('invalid');
@@ -2115,9 +2111,7 @@
       control?.setAttribute('aria-invalid', 'true');
       const detail = document.querySelector(`[data-error-message-for="${field}"]`);
       if (detail) detail.textContent = message;
-      if (list) { const item = document.createElement('li'); item.textContent = message; list.appendChild(item); }
     });
-    if (summary) { summary.hidden = false; summary.focus(); }
     const first = document.querySelector('[data-jbl-field].invalid');
     first?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => first?.querySelector('input:not([type="hidden"]), select, textarea, button')?.focus(), 180);
@@ -2189,13 +2183,29 @@
     el('jbl-review-latest')?.addEventListener('click', reviewLatestJblCase);
     el('jbl-use-local-draft')?.addEventListener('click', () => resolveJblDraftConflict('local'));
     el('jbl-use-server-draft')?.addEventListener('click', () => resolveJblDraftConflict('server'));
+    const form = el('sheet-form');
+    if (form) form.oninput = () => {
+      jblDraftInputVersion += 1;
+      saveJblVisitDraft(farmer);
+    };
+    if (form) form.onchange = () => {
+      jblDraftInputVersion += 1;
+      saveJblVisitDraft(farmer);
+    };
+  }
+
+  // Media capture belongs to both Create lead and existing visits. Recovery
+  // wiring is separate: an unsaved lead has no server draft to restore/save.
+  function wireJblVisitMedia(farmer) {
     ['jbl-id-media', 'jbl-id-media-2', 'jbl-laf-media', 'jbl-laf-media-2', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
         addJblMediaFiles(input?.dataset.mediaCategory, input?.files, { side: input?.dataset.mediaSide !== undefined ? Number(input.dataset.mediaSide) : null });
         if (input) input.value = '';
-        jblDraftInputVersion += 1;
-        saveJblVisitDraft(farmer);
+        if (!farmer.is_new_jbl_lead) {
+          jblDraftInputVersion += 1;
+          saveJblVisitDraft(farmer);
+        }
       });
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
@@ -2237,15 +2247,6 @@
       event.preventDefault();
       if (sourceButton.getAttribute('aria-disabled') !== 'true') el(sourceButton.dataset.inputId)?.click();
     });
-    const form = el('sheet-form');
-    if (form) form.oninput = () => {
-      jblDraftInputVersion += 1;
-      saveJblVisitDraft(farmer);
-    };
-    if (form) form.onchange = () => {
-      jblDraftInputVersion += 1;
-      saveJblVisitDraft(farmer);
-    };
   }
 
   const PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY = 'portal:case-workflow-active';

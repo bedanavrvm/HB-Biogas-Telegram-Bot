@@ -803,7 +803,7 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
   await expect(page.locator('#jbl-camera-capture-state')).toContainText('2 of 6');
   expect(await page.evaluate(() => ({ permissions: window.__permissions, stops: window.__stops }))).toEqual({ permissions: 1, stops: 0 });
   await page.locator('[data-camera-step-category="CLIENT_ID"][data-camera-step-side="0"]').click();
-  await expect(page.locator('#jbl-camera-shutter')).toContainText('Retake Front');
+  await expect(page.locator('#jbl-camera-shutter')).toHaveAttribute('aria-label', 'Retake Client ID Front');
   await page.locator('#jbl-camera-shutter').click();
   expect(await page.evaluate(() => ({ permissions: window.__permissions, stops: window.__stops }))).toEqual({ permissions: 1, stops: 0 });
   await page.locator('#jbl-camera-done').click();

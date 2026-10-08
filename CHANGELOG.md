@@ -1,5 +1,18 @@
 # Changelog
 
+## 8 October 2026 - Restore form proportions and new-lead camera
+
+- Restored established label, helper and input sizing across all four Mini Apps
+  by removing the form pass's shared typography and minimum-height overrides.
+- Removed repeated top error lists. Field errors remain inline with accessible
+  associations and first-invalid-field focus; general failures retain one notice.
+- Coloured draft Restore green and Discard red with light/dark semantic tokens.
+  Validation, recovery data, required markers and workflow rules are unchanged.
+- Fixed Create lead camera, gallery, preview and remove controls: these were
+  incorrectly installed only when an existing case's draft recovery was wired.
+- Added synthetic scale/error/draft/camera regression checks and refreshed asset
+  versions so clients receive the corrected presentation and event handlers.
+
 ## 8 October 2026 - Shared Mini App form behaviour
 
 - Centralized submission-time validation, linked field errors, summary focus,

@@ -386,31 +386,25 @@ input:focus, select:focus, textarea:focus {
 .miniapp-form { --miniapp-form-error: #b42318; }
 .miniapp-form :is(label,.form-grid > *) { min-width: 0; }
 .miniapp-form :is(input,select,textarea) { max-width: 100%; box-sizing: border-box; }
-.miniapp-form label { font-size: 14px; line-height: 1.4; align-content: start; }
-.miniapp-form :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea) {
-  min-height: 44px; font-size: 16px; line-height: 1.4;
-}
 .miniapp-form :is(input,select,textarea,button,a):focus-visible {
   outline: 2px solid var(--accent, #2481cc); outline-offset: 2px;
 }
 .miniapp-form :is(.miniapp-required-mark,.required-mark,.required-marker) { display: inline; color: var(--miniapp-form-error); }
 .miniapp-form [aria-invalid="true"] { border: 1px solid var(--miniapp-form-error); }
-.miniapp-form .miniapp-field-error, .miniapp-form .miniapp-form-errors,
-.miniapp-form .miniapp-form-errors :is(strong,a,span) { font-size: 13px; line-height: 1.5; }
 .miniapp-field-error { display: block; color: var(--miniapp-form-error); font-weight: 600; }
-.miniapp-form :is(.miniapp-field-error,.miniapp-form-errors) { text-transform: none; letter-spacing: normal; }
+.miniapp-form :is(.miniapp-field-error,.miniapp-form-notice) { text-transform: none; letter-spacing: normal; }
 .miniapp-field-error[hidden] { display: none !important; }
-.miniapp-form-errors { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--miniapp-form-error); background: var(--bg-surface, #fff); color: var(--miniapp-form-error); }
-.miniapp-form-errors ul { margin: 4px 0 0; padding-left: 20px; }
-.miniapp-form-errors a { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
-.miniapp-form-errors:focus { outline: 2px solid var(--accent, #2481cc); outline-offset: 2px; }
-.miniapp-form small { font-size: 13px; }
-:is(#origination-root,.miniapp-form).miniapp-form label { font-size: 14px; line-height: 1.4; }
-:is(#origination-root,.miniapp-form).miniapp-form :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea) { min-height: 44px; font-size: 16px; }
-:is(#origination-root,.miniapp-form).miniapp-form :is(small,.field-help,.jbl-field-error) { font-size: 13px; }
+.miniapp-form-notice { margin: 0 0 8px; color: var(--miniapp-form-error); overflow-wrap: anywhere; }
+.miniapp-form-notice:focus { outline: 2px solid var(--accent, #2481cc); outline-offset: 2px; }
 .miniapp-draft-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-bottom: 12px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }
 .miniapp-draft-prompt strong { flex: 1 1 100%; font-size: 14px; }
 .miniapp-draft-prompt button { min-height: 44px; }
+.miniapp-draft-prompt [data-draft-action="restore"] {
+  background: var(--status-success-bg); color: var(--status-success); border-color: var(--status-success);
+}
+.miniapp-draft-prompt [data-draft-action="discard"] {
+  background: var(--status-danger-bg); color: var(--status-danger); border-color: var(--status-danger);
+}
 [data-miniapp-color-scheme="dark"] .miniapp-form { --miniapp-form-error: #ffb4ab; }
 
 input[type="checkbox"] {

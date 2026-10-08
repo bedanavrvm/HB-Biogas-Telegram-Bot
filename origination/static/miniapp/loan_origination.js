@@ -1635,10 +1635,11 @@
   function showErrors(errors, focus = true) {
     const controller = window.MiniAppUtils?.bindAccessibleForm?.(root(), {
       resolveField: originationErrorControl,
+      isFieldError: key => originationErrorSection(key) >= 0,
       validate: () => sectionErrors(wizardSections()[step]?.key || ''),
       focusField: key => {
         const index = originationErrorSection(key);
-        if (index < 0) return;
+        if (index < 0) return false;
         current.form_payload = collectPayload();
         const configuration = collectProductConfiguration();
         current.product_requirements = configuration.requirements;
@@ -1649,6 +1650,7 @@
         renderEditor(current, index);
         showErrors(errors, false);
         originationErrorControl(key)?.focus();
+        return true;
       },
     });
     if (!controller) return;

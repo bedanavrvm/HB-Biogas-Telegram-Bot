@@ -1,5 +1,27 @@
 # Known Gaps and Verified Workarounds
 
+## Form presentation correction and Portal camera - 8 October 2026
+
+Restored the existing per-app form text and control scale; validation now uses
+inline errors and first-field focus without a repeated top list. Non-field
+failures remain visible as one notice. Restore is green and Discard red in both
+themes. Required markers, input preservation, recovery and workflow rules remain.
+
+The inert Create lead camera was reproduced: media listeners were installed only
+inside existing-case recovery. Camera/gallery/preview/removal now have separate
+wiring for both new and existing cases. Synthetic tests cover ID/LAF/supporting
+captures, one reused stream, permission denial, unsupported cameras and file picks.
+
+57 focused Playwright checks pass, plus the existing full camera flow (58 total).
+JavaScript syntax and all nine existing Node suites pass. Mobile/desktop screenshots
+were inspected, including inline errors, both draft themes and the camera overlay.
+Browser log: `test-results/forms-correction-browser.txt`.
+
+The full repository suite and PostgreSQL tests were not rerun for these frontend-only
+changes. Earlier broad-suite gaps below remain separate. Physical Telegram camera,
+keyboard and screen-reader verification remains required. No migrations, new settings,
+production deployment, customer data or real integration writes were involved.
+
 ## Shared Mini App forms verification — 8 October 2026
 
 The shared submission-time validation, accessible error summaries and field-only

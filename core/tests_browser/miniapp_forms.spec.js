@@ -9,7 +9,15 @@ const asset = name => path.join(root, 'core/static/miniapp', name);
 async function mount(page, markup) {
   await page.setContent(`<body>${markup}</body>`);
   await page.addStyleTag({path: asset('base.css')});
+  await page.addStyleTag({content:'* { transition: none !important; animation: none !important; }'});
   await page.addScriptTag({path: asset('utils.js')});
+}
+
+async function formScale(page, selector = 'form') {
+  return page.locator(selector).evaluate(form => [...form.querySelectorAll('label,input,select,textarea,small:not(.miniapp-field-error),.field-help')].map(node => {
+    const css = getComputedStyle(node);
+    return {font:css.fontSize,line:css.lineHeight,minHeight:css.minHeight,padding:css.padding};
+  }));
 }
 
 test('Shared forms collect all errors, preserve input, and revalidate only flagged fields', async ({page}, info) => {
@@ -26,8 +34,9 @@ test('Shared forms collect all errors, preserve input, and revalidate only flagg
   await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
   await expect(page.locator('[aria-invalid=true]')).toHaveCount(0);
   await page.getByRole('button', {name: 'Save'}).click();
-  await expect(page.locator('.miniapp-form-errors li')).toHaveCount(2);
-  await expect(page.locator('.miniapp-form-errors')).toBeFocused();
+  await expect(page.locator('.miniapp-field-error:visible')).toHaveCount(2);
+  await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
+  await expect(page.locator('[name=name]')).toBeFocused();
   expect(await page.evaluate(() => window.writes)).toBe(0);
   await page.locator('[name=phone]').fill('07');
   await expect(page.locator('[name=phone]')).toHaveAttribute('aria-invalid', 'true');
@@ -35,8 +44,8 @@ test('Shared forms collect all errors, preserve input, and revalidate only flagg
   await expect(page.locator('[name=name]')).not.toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('[name=name]')).toHaveAttribute('aria-describedby', 'name-help');
   await page.locator('[name=id]').fill('123456');
-  await expect(page.locator('.miniapp-form-errors li')).toHaveCount(1);
-  await page.locator('.miniapp-form-errors a').click();
+  await expect(page.locator('.miniapp-field-error:visible')).toHaveCount(1);
+  await page.getByRole('button', {name:'Save'}).click();
   await expect(page.locator('[name=phone]')).toBeFocused();
   await page.locator('[name=phone]').fill('0712345678');
   await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
@@ -83,7 +92,7 @@ test('Origination repeating-row errors target the actual column rather than the 
   }, resolver);
   await expect(page.locator('[data-repeat-row]').nth(1).locator('[data-repeat-column=value]')).toHaveAttribute('aria-invalid','true');
   await expect(page.locator('[data-repeat-row]').nth(0).locator('[aria-invalid=true]')).toHaveCount(0);
-  await page.locator('.miniapp-form-errors a').click();
+  await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
   await expect(page.locator('[data-repeat-row]').nth(1).locator('[data-repeat-column=value]')).toBeFocused();
 });
 
@@ -111,26 +120,28 @@ for (const [app, template, id, css] of [
   ['complaints', 'core/templates/complaint_cases/app.html', 'createCaseForm', 'complaint_cases.css'],
   ['tat', 'core/templates/tat_tracker/app.html', 'newCaseForm', 'tat_tracker.css'],
 ]) for (const width of [320, 360, 390, 430, 768, 1280]) {
-  test(`${app} creation has readable labelled fields at ${width}px`, async ({page}, info) => {
+  test(`${app} creation keeps the existing form scale and inline errors at ${width}px`, async ({page}, info) => {
     const source = fs.readFileSync(path.join(root, template), 'utf8');
     const start = source.indexOf(`<form id="${id}"`);
     const html = source.slice(start, source.indexOf('</form>', start) + 7).replace(/\{%[\s\S]*?%\}/g, '').replace(/\{\{[\s\S]*?\}\}/g, '');
     await mount(page, `<main style="padding:12px">${html}</main>`);
     await page.setViewportSize({width, height: 820});
     await page.addStyleTag({path: asset(css)});
+    const previousScale = await formScale(page);
     await page.evaluate(id => MiniAppUtils.bindAccessibleForm(document.getElementById(id)), id);
+    expect(await formScale(page)).toEqual(previousScale);
     await page.screenshot({path: info.outputPath(`${app}-ready-${width}.png`), fullPage: true});
     await page.evaluate(id => MiniAppUtils.bindAccessibleForm(document.getElementById(id)).validate(), id);
-    await expect(page.locator('.miniapp-form-errors li')).not.toHaveCount(0);
+    await expect(page.locator('.miniapp-field-error:visible')).not.toHaveCount(0);
+    await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
     const inspect = () => page.locator('form').evaluate(form => {
       const controls = [...form.querySelectorAll('input:not([type=file]),select,textarea')];
       return {
         unlabelled: controls.filter(input => !input.labels?.length && !input.hasAttribute('aria-label')).map(input => input.name),
-        tooSmall: controls.filter(input => parseFloat(getComputedStyle(input).fontSize) < 16).map(input => input.name),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
-    await expect.poll(inspect).toEqual({unlabelled: [], tooSmall: [], overflow: false});
+    await expect.poll(inspect).toEqual({unlabelled: [], overflow: false});
     await page.screenshot({path: info.outputPath(`${app}-errors-${width}.png`), fullPage: true});
   });
 }
@@ -156,6 +167,90 @@ test('Creation recovery prompts before restoring and never saves files, tokens o
   await expect(page.locator('.miniapp-draft-prompt')).toHaveCount(0);
 });
 
+test('Non-field server failures remain one concise notice without duplicating field errors', async ({page}) => {
+  await mount(page, '<form><label>Name<input name="name"></label></form>');
+  await page.evaluate(() => {
+    window.controller = MiniAppUtils.bindAccessibleForm(document.querySelector('form'));
+    window.controller.show({name:'Check the name.',__all__:'Connection interrupted. Retry saving.',other:'A second general error.'});
+  });
+  await expect(page.locator('[name=name]')).toBeFocused();
+  await expect(page.locator('.miniapp-field-error')).toHaveText('Check the name.');
+  await expect(page.getByRole('alert')).toHaveText('Connection interrupted. Retry saving.');
+  await expect(page.locator('.miniapp-form-errors,ul')).toHaveCount(0);
+  await page.evaluate(() => window.controller.show({__all__:'Please refresh before saving.'}));
+  await expect(page.getByRole('alert')).toBeFocused();
+  await page.evaluate(() => window.controller.clear());
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('Multi-section editors open and focus the first invalid field without a summary', async ({page}) => {
+  await mount(page, '<main><section><label>Name<input name="name" value="Retained name"></label></section><section id="next-section"></section></main>');
+  await page.evaluate(() => {
+    window.controller = MiniAppUtils.bindAccessibleForm(document.querySelector('main'), {
+      isFieldError: key=>key==='amount',
+      focusField: key=>{
+        if (key !== 'amount') return false;
+        document.getElementById('next-section').innerHTML='<label>Amount<input name="amount"></label>';
+        window.controller.show({amount:'Enter an amount.'},false);
+        document.querySelector('[name=amount]').focus();
+        return true;
+      },
+    });
+    window.controller.show({amount:'Enter an amount.'});
+  });
+  await expect(page.locator('[name=amount]')).toBeFocused();
+  await expect(page.locator('[name=amount]')).toHaveAttribute('aria-invalid','true');
+  await expect(page.locator('.miniapp-field-error')).toHaveText('Enter an amount.');
+  await expect(page.locator('[name=name]')).toHaveValue('Retained name');
+  await expect(page.locator('.miniapp-form-errors,.miniapp-form-notice')).toHaveCount(0);
+});
+
+for (const width of [320,1280]) test(`Origination editor fields retain their original scale at ${width}px`, async ({page}, info) => {
+  const source=fs.readFileSync(path.join(root,'origination/static/miniapp/loan_origination.js'),'utf8');
+  const start=source.indexOf('  function fieldInput(');
+  const renderer=source.slice(start,source.indexOf('  function numericInputError(',start));
+  await mount(page,'<main id="origination-root"><div class="laf-grid"></div></main>');
+  await page.setViewportSize({width,height:820});
+  await page.addStyleTag({path:asset('workflow_standard.css')});
+  await page.addStyleTag({path:path.join(root,'origination/static/miniapp/loan_origination.css')});
+  await page.evaluate(renderer=>{
+    const render=new Function(`const escapeHtml=value=>String(value??''); const normalizeLabel=field=>field.label; const FULL_WIDTH=new Set(); const current={status:'draft'}; ${renderer}; return fieldInput;`)();
+    const fields=[{key:'name',label:'Applicant name',type:'text',required:true},
+      {key:'national_id',label:'National ID',type:'national_id',required:true},
+      {key:'phone',label:'Mobile number',type:'phone',required:true},
+      {key:'loan_amount',label:'Loan amount',type:'money',required:true,help_text:'Enter whole KES amounts.'}];
+    document.querySelector('.laf-grid').innerHTML=fields.map(field=>render(field,'',false)).join('');
+  },renderer);
+  const previousScale=await formScale(page,'#origination-root');
+  await page.evaluate(()=>MiniAppUtils.bindAccessibleForm(document.getElementById('origination-root')).validate());
+  expect(await formScale(page,'#origination-root')).toEqual(previousScale);
+  await expect(page.locator('[data-field=name]')).toBeFocused();
+  await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath(`origination-editor-errors-${width}.png`),fullPage:true});
+});
+
+for (const theme of ['light','dark']) test(`Restore is green and Discard red in ${theme} without changing draft behavior`, async ({page}, info) => {
+  await page.setViewportSize({width:320,height:700});
+  await mount(page, '<form><label>Name<input name="name" value="Entered name"></label></form>');
+  await page.evaluate(async theme => {
+    document.documentElement.dataset.miniappColorScheme=theme;
+    window.draftDeletes=0;
+    window.fetch = async (_, options) => {
+      if (options.method==='DELETE') window.draftDeletes++;
+      return new Response(JSON.stringify({ok:true,draft:options.method==='GET'?{revision:1,payload:{name:'Saved name'}}:null}),{status:200});
+    };
+    window.recovery=MiniAppUtils.bindCreationDraft(document.querySelector('form'),{workflow:'tat_create',contextKey:'synthetic-group'});
+    await window.recovery.load();
+  }, theme);
+  await expect(page.getByRole('button',{name:'Restore',exact:true})).toHaveCSS('color',theme==='dark'?'rgb(103, 211, 145)':'rgb(22, 128, 60)');
+  await expect(page.getByRole('button',{name:'Discard',exact:true})).toHaveCSS('color',theme==='dark'?'rgb(255, 156, 151)':'rgb(192, 57, 43)');
+  await page.screenshot({path:info.outputPath(`draft-actions-${theme}-320.png`)});
+  await page.getByRole('button',{name:'Discard',exact:true}).click();
+  expect(await page.evaluate(()=>window.draftDeletes)).toBe(1);
+  await expect(page.locator('[name=name]')).toHaveValue('Entered name');
+  await expect(page.locator('.miniapp-draft-prompt')).toHaveCount(0);
+});
+
 test('Real Origination signer form validates signature and OTP without losing typed input', async ({page}, info) => {
   let session = {reference:'SYNTHETIC-LAF',signer_role:'borrower',phone_masked:'+254 *** 001',access_mode:'remote',
     documents:[{key:'laf',name:'Synthetic loan form',page_count:1}],reviewed_pages:[],consented:false,status:'pending',otp:{},packet_version:'test-v1'};
@@ -176,8 +271,10 @@ test('Real Origination signer form validates signature and OTP without losing ty
   await page.addStyleTag({path:asset('base.css')});
   await page.addStyleTag({path:path.join(root,'origination/static/miniapp/origination_signing.css')});
   await page.addScriptTag({path:asset('utils.js')});
+  const originalOtpScale=await page.locator('#otp-code').evaluate(input=>[getComputedStyle(input).fontSize,getComputedStyle(input).minHeight]);
   await page.addScriptTag({path:path.join(root,'origination/static/miniapp/origination_signing.js')});
   await expect(page.locator('#page-label')).toHaveText('1 / 1');
+  expect(await page.locator('#otp-code').evaluate(input=>[getComputedStyle(input).fontSize,getComputedStyle(input).minHeight])).toEqual(originalOtpScale);
   await page.locator('#save-signature').click();
   await expect(page.locator('#signature-pad')).toHaveAttribute('aria-invalid','true');
   expect(consentWrites).toBe(0);

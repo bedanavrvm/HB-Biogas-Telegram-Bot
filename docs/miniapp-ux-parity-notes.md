@@ -9,16 +9,20 @@ This note records the mobile and operational UX patterns proven in Loan Originat
 - Open and type without premature error messages. Validate the visible,
   enabled requirements on submission; hidden and disabled controls must not
   block an unrelated action.
-- Use `MiniAppUtils.bindAccessibleForm(container, options)` for inline errors,
-  a keyboard-focusable summary and links to fields. Preserve existing helper
+- Use `MiniAppUtils.bindAccessibleForm(container, options)` for inline errors
+  and focus on the first invalid field, without a duplicate list at the top.
+  Keep a single concise notice for non-field failures. Preserve existing helper
   `aria-describedby` values. Revalidate only previously flagged fields while
   correcting; do not reveal new errors for untouched fields.
 - Use `installAccessibleForms()` once per app for dynamically mounted forms.
   Non-form workspaces such as Portal's visit sheet and Origination's editor
   bind explicitly after rendering. Dispose controllers before replacing an
   editor's fields. Supply `resolveField` for domain/repeating-row error keys.
+  Multi-section editors use `isFieldError` to identify fields in other sections
+  and `focusField` to open/focus that section (return `true` when handled).
 - Visible labels, red required markers, text-based errors, visible keyboard
-  focus, 16px editable input text and 44px field targets share `base.css`.
+  focus and overflow protection share `base.css`. Keep each app's established
+  typography and control sizing; the validation helper must not rescale forms.
   Do not disable copy/paste or replace a visible label with a placeholder.
 - Supported Kenyan phone formats normalize after leaving a phone field.
   Invalid values remain intact for correction; ID fields are never reformatted.
@@ -26,15 +30,16 @@ This note records the mobile and operational UX patterns proven in Loan Originat
   complaint creation, retry evidence/publication for that same complaint;
   never create a second complaint or clear a newer form's selected files.
 - Creation drafts are private, seven-day, field-only and revision-checked.
-  Offer Restore / Discard. Never persist files, signing material or authentication
+  Offer green Restore / red Discard using shared theme tokens and visible labels.
+  Never persist files, signing material or authentication
   secrets. A failed draft save is not a claim that workflow data was submitted.
 
 | Surface | Integration |
 |---|---|
 | Complaints | Create, complete legacy details, HB comment, resolve/reopen, filters and email settings; ID/phone/location checks and complaint-reference confirmation |
 | TAT | Create, dynamic stage/assessment forms, settings and filters; product amount checks and field-only recovery |
-| Portal | Shared forms/dialogs, JBL visit field summaries and HB action date errors; existing workflow draft/permission rules retained |
-| Origination | Editor, repeated-row error targeting, cross-section error links and signer/OTP validation; existing encrypted recovery and signature gates retained |
+| Portal | Shared forms/dialogs, JBL visit inline errors and HB action date errors; media controls work on both new leads and existing cases, independently of draft recovery |
+| Origination | Editor, repeated-row error targeting, cross-section error focus and signer/OTP validation; existing encrypted recovery and signature gates retained |
 
 Verification commands:
 
@@ -42,6 +47,7 @@ Verification commands:
 npm run check:js
 npm run test:node
 npx playwright test core/tests_browser/miniapp_forms.spec.js
+npx playwright test core/tests_browser/portal_camera.spec.js
 .\.venv\Scripts\python.exe manage.py test core.tests_miniapp_drafts --noinput
 ```
 

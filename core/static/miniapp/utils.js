@@ -794,7 +794,7 @@
     }
     let settings = options || {};
     let errors = {};
-    let summary = null;
+    let notice = null;
     const outputs = new Map();
     const controls = () => Array.from(form.querySelectorAll('input,select,textarea'));
     const keyFor = control => control.name || control.dataset.field || control.dataset.documentField || control.id;
@@ -897,26 +897,27 @@
         output.textContent = String(message); output.hidden = false;
         control.setAttribute('aria-invalid', 'true'); associate(control, output, true);
       });
-      if (!entries.length) { summary?.remove(); summary = null; return false; }
-      if (!summary) {
-        summary = document.createElement('aside'); summary.className = 'miniapp-form-errors';
-        summary.tabIndex = -1; summary.setAttribute('aria-label', 'Please check these fields');
-        form.prepend(summary);
+      notice?.remove(); notice = null;
+      if (!entries.length) return false;
+      // Field errors belong beside fields, not in a duplicate list above them.
+      // Keep one notice only for failures that cannot be attached to a field.
+      const unassigned = entries.find(([key]) => !findControl(key) && !settings.isFieldError?.(key));
+      if (unassigned) {
+        notice = document.createElement('p'); notice.className = 'miniapp-form-notice';
+        notice.tabIndex = -1; notice.setAttribute('role', 'alert');
+        notice.textContent = String(unassigned[1]); form.prepend(notice);
       }
-      summary.replaceChildren();
-      const title = document.createElement('strong'); title.textContent = 'Please check'; summary.append(title);
-      const list = document.createElement('ul'); summary.append(list);
-      entries.forEach(([key, message]) => {
-        const item = document.createElement('li'); const control = findControl(key);
-        const link = document.createElement(control ? 'a' : settings.focusField ? 'button' : 'span'); link.textContent = String(message);
-        if (control) {
-          link.href = `#${control.id}`;
-          link.onclick = event => { event.preventDefault(); control.focus(); control.scrollIntoView?.({block: 'center'}); };
+      if (focus) {
+        for (const [key] of entries) {
+          const control = findControl(key);
+          if (control && !control.closest('[hidden],.hidden') && control.getClientRects().length) {
+            control.focus(); control.scrollIntoView?.({block: 'center'}); break;
+          }
+          // Multi-step editors can open the section containing this field.
+          if (settings.focusField?.(key) === true) break;
         }
-        else if (settings.focusField) { link.type = 'button'; link.onclick = () => settings.focusField(key); }
-        item.append(link); list.append(item);
-      });
-      if (focus) summary.focus();
+        if (unassigned && !entries.some(([key]) => findControl(key))) notice?.focus();
+      }
       return true;
     }
     function validate() { return !show(collect()); }
@@ -1028,6 +1029,7 @@
           const title = document.createElement('strong'); title.textContent = 'Unfinished form found'; prompt.append(title);
           for (const [label, action] of [['Restore', async () => restore(existing.payload)], ['Discard', async () => { await draft.clear(); text('Draft discarded'); }]]) {
             const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+            button.dataset.draftAction = label.toLowerCase();
             button.onclick = async () => {
               button.disabled = true;
               try { await action(); prompt.remove(); prompt = null; ready = true; }
