@@ -153,6 +153,13 @@ def reconcile_shared_eligibility(template):
     source = OriginationDocumentTemplate.objects.filter(document_type=template.document_type, status='active').exclude(pk=template.pk).first()
     if not source:
         return
+    explicit = template.events.filter(action='editor_products_selected').order_by('-occurred_at','-pk').first()
+    if explicit:
+        current_ids = sorted(str(pk) for pk in source.eligible_products.values_list('pk',flat=True))
+        if current_ids != explicit.metadata['source_ids']:
+            raise ValidationError('The products using this document changed. Review and save its product choices again.')
+        # The editor saved an explicit allowlist; do not silently reattach a removed product.
+        return
     added = set()
     for event in template.events.filter(action='setup_product_connected').order_by('occurred_at', 'pk'):
         product_id = event.metadata['product_id']

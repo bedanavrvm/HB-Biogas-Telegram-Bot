@@ -21,6 +21,46 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def test_autosave_retry_binds_actor_and_content_and_preserves_invalid_input(self):
+        self.test_terms_can_save_without_forcing_optional_repeatable_rows()
+        definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
+        url = reverse('admin:origination_origination_setup_step', args=[definition.pk, 'identity'])
+        payload = {
+            'name': 'Autosaved name', 'code': definition.product_version.product.code,
+            'branches': [self.branch.pk], 'sort_order': '0', 'intent': 'stay',
+            'request_id': 'autosave-identity', 'expected_tokens': json.dumps(step_tokens(definition)),
+        }
+        headers = {'HTTP_X_REQUESTED_WITH': 'XMLHttpRequest'}
+        saved = self.client.post(url, payload, **headers)
+        self.assertEqual(saved.status_code, 200, saved.content[:500])
+        self.assertTrue(saved.json()['ok'])
+        replay = self.client.post(url, payload, **headers)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(definition.events.filter(action='setup_autosave_accepted',
+                         metadata__request_id='autosave-identity').count(), 1)
+        changed = self.client.post(url, {**payload, 'name': 'Wrong retry'}, **headers)
+        self.assertEqual(changed.status_code, 400)
+        definition.product_version.product.refresh_from_db()
+        self.assertEqual(definition.product_version.product.name, 'Autosaved name')
+        invalid = self.client.post(url, {**payload, 'name': '', 'request_id': 'invalid-name',
+                                  'expected_tokens': json.dumps(step_tokens(definition))}, **headers)
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn('name', invalid.json()['errors'])
+        recovered = self.client.post(url, {**payload, 'name': 'Recovered name', 'request_id': 'recovered-name',
+                                   'expected_tokens': json.dumps(invalid.json()['data']['expected_tokens'])}, **headers)
+        self.assertEqual(recovered.status_code, 200)
+
+    def test_autosave_after_another_tab_publishes_returns_a_clear_conflict(self):
+        definition, _document = self._published_maintenance_product()
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('admin:origination_origination_setup_step',
+                                           args=[definition.pk,'identity']),
+                                   {'request_id':'stale-editor','name':'Unsaved name'},
+                                   HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('published', response.json()['error'])
+        self.assertIn('input is still here', response.json()['error'])
+
     def test_maintenance_retry_payload_and_discard_are_idempotent(self):
         from origination.services.origination_setup_documents import stage_change, cancel_changes
         definition, source = self._published_maintenance_product()
@@ -119,7 +159,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         ProductVersion.objects.filter(pk=version.pk).update(status='published')
         OriginationProductDefinition.objects.create(product_version=version, product_key=other.code,
             name=other.name, version=1, is_active=True, lifecycle_status='published',
-            form_schema=definition.form_schema, signer_rules=[{'role':'branch_manager', 'required':True}])
+            form_schema=definition.form_schema, signer_rules=[{'role':'branch_manager', 'required':True}], approval_roles=['branch_manager'])
         OriginationDocumentProductEligibility.objects.create(template=source, product=other)
         draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='incompatible-edit')
         with self.assertRaises(ValidationError):
@@ -369,7 +409,6 @@ class OriginationSetupWorkspaceTests(TestCase):
         from origination.services.origination_setup_documents import selected_documents
         definition = self._ready_guided_draft()
         template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
-        OriginationDocumentProductEligibility.objects.filter(template=template).delete()
         definition.signer_rules = []
         definition.save(update_fields=['signer_rules'])
         response = self.client.post(self._documents_url(definition), {
@@ -378,20 +417,20 @@ class OriginationSetupWorkspaceTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         chosen = selected_documents(definition).get()
-        self.assertNotEqual(chosen.pk, template.pk)
-        self.assertEqual(chosen.status, 'ready')
+        self.assertEqual(chosen.pk, template.pk)
+        self.assertEqual(chosen.status, 'active')
         self.assertEqual(chosen.form_schema, template.form_schema)
         self.assertEqual(chosen.drive_file_id, template.drive_file_id)
         template.refresh_from_db()
         self.assertEqual(template.status, 'active')
-        self.assertFalse(template.eligible_products.filter(pk=definition.product_version.product_id).exists())
+        self.assertTrue(template.eligible_products.filter(pk=definition.product_version.product_id).exists())
         definition.refresh_from_db()
         self.assertEqual(definition.signer_rules, template.signer_rules)
         self.assertEqual(chosen.configuration_revisions.count(), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_enable_publishes_draft_document_and_product_together(self, storage):
+    def test_product_publish_requires_separate_document_publication(self, storage):
         from core.tests_origination_templates import synthetic_pdf
         storage.return_value.download.return_value = synthetic_pdf()
         definition = self._ready_guided_draft()
@@ -399,7 +438,16 @@ class OriginationSetupWorkspaceTests(TestCase):
         definition.events.create(action='setup_documents_selected', actor=self.superuser,
                                  metadata={'template_ids': [str(draft.pk)]})
         response = self._publish_guided(definition)
-        self.assertEqual(response.status_code, 302, getattr(response, 'context_data', None))
+        self.assertEqual(response.status_code,400)
+        self.assertContains(response,'Publish documents in the Document editor first',status_code=400)
+        draft.refresh_from_db();definition.refresh_from_db()
+        self.assertEqual(draft.status,'ready')
+        self.assertEqual(definition.product_version.status,'draft')
+        from origination.services.document_editor import publish_document
+        from origination.services.origination_setup_documents import shared_review
+        publish_document(document=draft,actor=self.superuser,revision=1,request_id='publish-document-first',impact_token=shared_review(draft)['token'])
+        response=self._publish_guided(definition)
+        self.assertEqual(response.status_code,302)
         draft.refresh_from_db()
         definition.refresh_from_db()
         self.assertEqual(draft.status, 'active')
@@ -475,7 +523,9 @@ class OriginationSetupWorkspaceTests(TestCase):
             response = self.client.post(self._documents_url(definition), payload)
             payload['pdf_file'].seek(0)
             replay = self.client.post(self._documents_url(definition), payload)
-        self.assertEqual(response.url, replay.url)
+        self.assertEqual(response.url.split('?')[0], replay.url.split('?')[0])
+        self.assertEqual(resolve_return_token(response.url.split('setup_return=')[1])['definition_id'],
+                         resolve_return_token(replay.url.split('setup_return=')[1])['definition_id'])
         self.assertEqual(response.status_code, 302)
         template = selected_documents(definition).get(name='New LAF')
         self.assertIsNone(template.product_definition_id)
@@ -668,6 +718,8 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertEqual(definition.product_version.status, 'draft')
 
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         from core.tests_origination_templates import synthetic_pdf
         source = patch('origination.services.origination_templates.load_template_source', return_value=synthetic_pdf())
         source.start()

@@ -33,7 +33,7 @@ body.osw-admin-page .osw-page {
 .osw-preview-form label { display: block; font-weight: 650; }
 .osw-preview-form input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--osw-border); border-radius: 6px; }
 .osw-preview-image { max-width: 100%; height: auto; margin-top: 8px; border: 1px solid var(--osw-border); }
-.osw-document-list article.osw-maintenance-document { display: block; }
+.osw-document-list article.osw-maintenance-document { display: flex; }
 .osw-document-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .osw-document-heading > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .osw-maintenance-document details { margin: 4px 0 0; }

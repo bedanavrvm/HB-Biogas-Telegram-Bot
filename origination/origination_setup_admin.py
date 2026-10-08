@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import uuid
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.urls import reverse
 
@@ -86,7 +87,7 @@ def _definition(object_id, *, lock=False):
             version = ProductVersion.objects.select_for_update().select_related(
                 'product',
             ).get(pk=definition.product_version_id)
-            Product.objects.select_for_update().get(pk=version.product_id)
+            Product.objects.select_for_update(no_key=True).get(pk=version.product_id)
             list(version.fees.select_for_update())
             list(version.requirements.select_for_update())
             list(version.custom_attributes.select_for_update())
@@ -110,9 +111,9 @@ def dashboard_view(model_admin, request):
     draft_rows = [
         {
             'definition': item,
-            'readiness': setup_readiness(item),
+            'readiness': product_workspace_data(item)['tasks'],
             'resume_url': _workspace_url(item),
-            'resume_label': dict(SETUP_STEPS).get(resume_step(item), 'Resume setup'),
+            'resume_label': 'Product',
         }
         for item in drafts
     ]
@@ -375,7 +376,8 @@ def workspace_view(model_admin, request, object_id):
     definition = _definition(object_id)
     if not definition:
         return HttpResponse(status=404)
-    return HttpResponseRedirect(_workspace_url(definition, resume_step(definition)))
+    return TemplateResponse(request, 'admin/origination/product_tasks.html',
+                            _base_context(model_admin, request, definition, 'identity'))
 
 
 def revise_view(model_admin, request, object_id):
@@ -453,6 +455,8 @@ def _sync_availability(product, branches):
 def _base_context(model_admin, request, definition, step_key):
     rows = setup_readiness(definition)
     keys = [key for key, _label in SETUP_STEPS]
+    data = product_workspace_data(definition)
+    from origination.services.origination_setup_documents import selected_documents, maintenance_impact
     return {
         **model_admin.admin_site.each_context(request),
         'opts': model_admin.model._meta,
@@ -473,10 +477,78 @@ def _base_context(model_admin, request, definition, step_key):
             'admin:origination_originationproductdefinition_change', args=[definition.pk],
         ),
         'published_readonly': definition.lifecycle_status != definition.STATUS_DRAFT,
+        'tasks':data['tasks'], 'outstanding_count':data['outstanding_count'],
+        'workspace_can_publish':data['can_publish'],
+        'product_publish_url':_workspace_url(definition, 'documents' if definition.lifecycle_status == definition.STATUS_PUBLISHED else 'publish'),
+        'document_new_url':reverse('admin:origination_document_new')+'?product='+str(definition.product_version.product_id),
+        'selected_document_ids':[str(item.pk) for item in selected_documents(definition)],
+        'maintenance':maintenance_impact(definition),
     }
 
 
+def product_workspace_data(definition):
+    from origination.services.origination_setup_documents import selected_documents, maintenance_impact
+    documents = list(selected_documents(definition))
+    impact = maintenance_impact(definition)
+    tasks = []
+    for row in setup_readiness(definition)[:3]:
+        valid, detail = row['valid'], row['detail']
+        if valid:
+            detail = {'identity':'Name and branches saved.', 'terms':'Limits, interest and repayment saved.',
+                      'documents':'Published documents selected.'}[row['key']]
+        if row['key'] == 'documents':
+            unpublished = [item.name for item in documents if item.status != 'active']
+            if unpublished:
+                valid, detail = False, 'Publish these documents in the Document editor: '+', '.join(unpublished)
+        tasks.append({**row, 'label':{'identity':'Details','terms':'Lending terms','documents':'Documents'}[row['key']],
+            'status_label':'Done' if valid else 'Not started' if row['key'] == 'documents' and not documents else 'Needs attention',
+            'status':'complete' if valid else 'in_progress', 'valid':valid,
+            'detail':detail, 'url':_workspace_url(definition, row['key'])})
+    can_publish = all(t['valid'] for t in tasks)
+    stop_new = definition.lifecycle_status == 'published' and bool(impact['changes']) and impact['unavailable']
+    if stop_new and all(item.status == 'active' for item in documents):
+        can_publish = all(t['valid'] for t in tasks if t['key'] != 'documents')
+    if definition.lifecycle_status == 'published' and not impact['changes']:
+        can_publish = False
+    return {'tasks':tasks,'outstanding_count':sum(not t['valid'] for t in tasks),
+            'can_publish':can_publish, 'expected_tokens':step_tokens(definition),
+            'selected_document_ids':[str(item.pk) for item in documents],
+            'maintenance_token':impact['token'], 'stop_new_applications':stop_new}
+
+
+def _autosave_response(definition, context=None, status=200):
+    # Validation can mutate bound form instances even when their save fails.
+    # Readiness and concurrency tokens must describe persisted state only.
+    definition.refresh_from_db()
+    data = product_workspace_data(definition)
+    errors = {}
+    for key in ('form','fees','requirements','attributes'):
+        form = (context or {}).get(key)
+        if form and form.errors:
+            if key == 'form':
+                errors.update(form.errors.get_json_data())
+            else:
+                for item in form.forms:
+                    for name, messages_for_field in item.errors.get_json_data().items():
+                        errors[item.add_prefix(name)] = messages_for_field
+                if form.non_form_errors():
+                    errors['__all__'] = [{'message':str(message)} for message in form.non_form_errors()]
+    if errors:
+        status = 400
+    return JsonResponse({'ok':status == 200, 'data':data, 'errors':errors,
+                         'error':(context or {}).get('step_error','')}, status=status)
+
+
 def step_view(model_admin, request, object_id, step_key):
+    if request.method == 'POST' and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        # The saved state and its retry receipt must commit together. Serialize
+        # first requests before checking their request key, not after the save.
+        with transaction.atomic():
+            return _step_view(model_admin, request, object_id, step_key, lock=True)
+    return _step_view(model_admin, request, object_id, step_key)
+
+
+def _step_view(model_admin, request, object_id, step_key, *, lock=False):
     _guard(request)
     if step_key in {'form', 'calibration'}:
         return HttpResponseRedirect(reverse(
@@ -490,7 +562,7 @@ def step_view(model_admin, request, object_id, step_key):
         return HttpResponseRedirect(_workspace_url(definition, 'publish'))
     if step_key not in dict(SETUP_STEPS):
         return HttpResponse(status=404)
-    definition = _definition(object_id)
+    definition = _definition(object_id, lock=lock)
     if not definition:
         return HttpResponse(status=404)
     if not definition.product_version_id:
@@ -498,6 +570,9 @@ def step_view(model_admin, request, object_id, step_key):
         return HttpResponseRedirect(reverse('admin:origination_origination_setup_detail', args=[definition.pk]))
     if (request.method == 'POST' and step_key != 'documents' and definition.lifecycle_status != definition.STATUS_DRAFT
             and not completed_request(definition=definition, step_key=step_key, request_id=_request_id(request))):
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return _autosave_response(definition, {'step_error':
+                'This product was published. Your input is still here; open an editable product to continue.'}, 409)
         messages.error(request, 'Published versions are immutable. Create an editable successor.')
         return HttpResponseRedirect(_workspace_url(definition, step_key))
     context = _base_context(model_admin, request, definition, step_key)
@@ -505,6 +580,18 @@ def step_view(model_admin, request, object_id, step_key):
     try:
         if request.method == 'POST':
             posted_request_id = _request_id(request)
+            ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            payload_hash = hashlib.sha256(json.dumps(
+                {key:request.POST.getlist(key) for key in sorted(request.POST)
+                 if key not in {'csrfmiddlewaretoken','expected_tokens','request_id'}},
+                sort_keys=True).encode()).hexdigest()
+            accepted = definition.events.filter(action='setup_autosave_accepted',
+                metadata__step_key=step_key,metadata__request_id=posted_request_id).first() if ajax else None
+            if accepted and (accepted.metadata.get('payload_hash') != payload_hash or accepted.actor_id != request.user.pk):
+                raise ValidationError('This retry contains different changes. Start a new save.')
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' and completed_request(
+                    definition=definition, step_key=step_key, request_id=posted_request_id):
+                return _autosave_response(definition)
             if completed_request(
                 definition=definition, step_key=step_key,
                 request_id=posted_request_id,
@@ -534,6 +621,9 @@ def step_view(model_admin, request, object_id, step_key):
         context['form'] = context.get('form') or SetupIdentityForm(
             request.POST, instance=definition.product_version.product,
         )
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            context['step_error'] = 'Changed in another tab: '+', '.join(context['conflict']['changed'])+'. Your input is still here.'
+            return _autosave_response(definition, context, 409)
         return TemplateResponse(
             request, 'admin/core/origination_setup/workspace.html', context, status=409,
         )
@@ -541,12 +631,18 @@ def step_view(model_admin, request, object_id, step_key):
         context['step_error'] = (
             '; '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
         )
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return _autosave_response(definition, context, 400)
         return TemplateResponse(
             request, 'admin/core/origination_setup/workspace.html', context, status=400,
         )
-    return response or TemplateResponse(
-        request, 'admin/core/origination_setup/workspace.html', context,
-    )
+    if request.method == 'POST' and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        definition.refresh_from_db()
+        if response is not None and getattr(response, 'status_code',0) in {200,302}:
+            definition.events.create(action='setup_autosave_accepted',actor=request.user,
+                metadata={'step_key':step_key,'request_id':posted_request_id,'payload_hash':payload_hash})
+        return _autosave_response(definition, context)
+    return response or TemplateResponse(request, 'admin/core/origination_setup/workspace.html', context)
 
 
 def _check_locked(definition, request, step_key=None):
@@ -582,7 +678,8 @@ def _step_identity(model_admin, request, definition, context):
             definition=definition, step_key='identity', actor=request.user,
             request_id=request_id,
         )
-    messages.success(request, 'Product and branch availability saved.')
+    if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+        messages.success(request, 'Product and branch availability saved.')
     return HttpResponseRedirect(_workspace_url(definition, 'identity' if request.POST.get('intent') == 'stay' else 'terms'))
 
 
@@ -628,7 +725,8 @@ def _step_terms(model_admin, request, definition, context):
             definition=definition, step_key='terms', actor=request.user,
             request_id=request_id,
         )
-    messages.success(request, 'Commercial terms saved as a draft.')
+    if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+        messages.success(request, 'Commercial terms saved as a draft.')
     return HttpResponseRedirect(_workspace_url(definition, 'terms' if request.POST.get('intent') == 'stay' else 'documents'))
 
 
@@ -654,12 +752,14 @@ def _step_documents(model_admin, request, definition, context):
                     'replacement_options': selection.fields['templates'].queryset,
                     'documents': [{
                         'template': item,
-                        'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk])
-                               + '?setup_return=' + token,
+                        'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk]),
+                        'edit_url':reverse('admin:origination_document_edit', args=[item.pk])+'?product='+str(definition.product_version.product_id),
                     } for item in templates]})
     if request.method != 'POST':
         return None
     action = request.POST.get('action')
+    if action == 'enable_documents' and any(item.status != 'active' for item in templates):
+        raise ValidationError('Publish documents in the Document editor first.')
     if action in {'edit', 'remove', 'switch', 'replace_pdf', 'cancel_changes'}:
         request_id = _request_id(request)
         with transaction.atomic():
@@ -726,6 +826,16 @@ def _step_documents(model_admin, request, definition, context):
             chosen = list(selected_documents(definition)) + [template]
         else:
             chosen = list(selection.cleaned_data['templates'])
+            if definition.lifecycle_status == definition.STATUS_PUBLISHED and action != 'enable_documents':
+                chosen_ids = {item.pk for item in chosen}
+                changes = pending_changes(definition)
+                kept = [item for item in changes if not (item['action'] == 'remove' and any(str(pk) == item['source'] for pk in chosen_ids))]
+                if kept != changes:
+                    definition.events.create(action='maintenance_staged', actor=request.user,
+                        metadata={'request_id':request_id+':restore', 'request':{'action':'restore_choices'}, 'changes':kept})
+                for source in list(selected_documents(definition)):
+                    if source.pk not in chosen_ids:
+                        stage_change(definition=definition, action='remove', source=source, actor=request.user, request_id=request_id+':remove:'+str(source.pk))
             if definition.lifecycle_status == definition.STATUS_DRAFT:
                 approval_mode = selection.cleaned_data.get('approval_mode')
                 modes = {'independent': [], 'bm': ['branch_manager'],
@@ -739,16 +849,14 @@ def _step_documents(model_admin, request, definition, context):
             prepare_document_profile(definition=definition, templates=chosen)
         record_step_completion(definition=definition, step_key='documents', actor=request.user, request_id=request_id)
         if request.POST.get('action') == 'enable_documents' and definition.lifecycle_status == definition.STATUS_PUBLISHED:
-            from origination.services.origination_setup_documents import publish_setup_documents
             if pending_changes(definition):
                 apply_changes(definition=definition, actor=request.user, request_id=request_id,
                     expected_impact=request.POST.get('maintenance_token'),
                     allow_unavailable=request.POST.get('allow_unavailable') == 'yes')
-            else:
-                publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
             messages.success(request, 'Document changes applied. Existing product terms and applications were kept.')
             return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
-    messages.success(request, 'Document choices saved.' if not uploading else 'PDF uploaded. Set up its fields and alignment.')
+    if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+        messages.success(request, 'Document choices saved.' if not uploading else 'PDF uploaded. Set up its fields and alignment.')
     if uploading:
         return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
                                     + '?setup_return=' + token)
@@ -818,6 +926,9 @@ def _step_publish(model_admin, request, definition, context):
         definition = _check_locked(definition, request, 'publish')
         if completed_request(definition=definition, step_key='publish', request_id=request_id):
             return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
+        from origination.services.origination_setup_documents import selected_documents
+        if any(item.status != 'active' for item in selected_documents(definition)):
+            raise ValidationError('Publish documents in the Document editor first. Product publishing does not publish PDFs.')
         readiness = setup_readiness(definition)
         blockers = [
             item for item in readiness[:-1]
@@ -831,12 +942,10 @@ def _step_publish(model_admin, request, definition, context):
             allow_same_day_replacement=True,
         )
         definition.refresh_from_db()
-        from origination.services.origination_setup_documents import publish_setup_documents, pending_changes, apply_changes
+        from origination.services.origination_setup_documents import pending_changes, apply_changes
         if pending_changes(definition):
             apply_changes(definition=definition, actor=request.user, request_id=request_id,
                 expected_impact=request.POST.get('maintenance_token'))
-        else:
-            publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
         if not catalogue_for_product(definition)['ready']:
             raise ValidationError('Documents are not ready for applications. Review the document step.')
         from origination.services.origination_setup import publish_product_profile

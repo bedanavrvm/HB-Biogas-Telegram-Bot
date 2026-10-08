@@ -1,0 +1,25 @@
+{% extends "admin/base_site.html" %}{% load static %}
+{% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=6"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=5">{% endblock %}
+{% block content %}
+<main class="osw-page">
+  <header class="osw-hero"><h1>New document</h1><a href="{% url 'admin:origination_originationdocumenttemplate_changelist' %}">Documents</a></header>
+  <section class="osw-card">
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}">
+      {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+      <div class="osw-field">{{ form.source.label_tag }}{{ form.source }}{{ form.source.errors }}</div>
+      <div class="osw-field">{{ form.name.label_tag }}{{ form.name }}{{ form.name.errors }}</div>
+      <div class="osw-field">{{ form.role.label_tag }}{{ form.role }}{{ form.role.errors }}</div>
+      <details {% if form.pdf.errors %}open{% endif %}>
+        <summary>Upload a PDF instead</summary>
+        <div class="osw-field">{{ form.pdf.label_tag }}{{ form.pdf }}{{ form.pdf.errors }}</div>
+      </details>
+      <details {% if form.products.errors %}open{% endif %}>
+        <summary>Used by products</summary>{{ form.products }}{{ form.products.errors }}
+      </details>
+      <button class="osw-primary">Create document</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

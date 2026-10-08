@@ -40,6 +40,10 @@
   let mobileReturnFocus = null;
   let writeInFlight = null;
   let pendingWriteKeys = {};
+  let serverReadiness = {tasks: [], can_publish: false};
+  let signerRules = [], signerRoles = [], signersDirty = false;
+  let detailsDirty = false, documentDetails = {}, pendingFieldPack = '';
+  let autosaveTimer = null, autosaveFailed = false, armedPlacement = null;
   const TAP_DISTANCE = 10;
   const TAP_DURATION = 350;
   const HISTORY_LIMIT = 50;
@@ -248,10 +252,13 @@
     return state;
   };
   function refreshDirtyState() {
-    dirty = configurationHash(configuration) !== savedBaselineHash;
-    $('calibration-save-state').textContent = published ? 'Published' : dirty ? 'Unsaved' : `Saved r${revision}`;
+    dirty = signersDirty || detailsDirty || Boolean(pendingFieldPack) || configurationHash(configuration) !== savedBaselineHash;
+    $('calibration-save-state').textContent = published ? 'Published' : autosaveFailed ? 'Not saved · retry' : operationState === 'saving' ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
     $('calibration-save-state').classList.toggle('is-dirty', dirty);
     updateReadiness();
+    if (dirty && !published && !autosaveFailed) {
+      clearTimeout(autosaveTimer); autosaveTimer = window.setTimeout(() => autosave().catch(() => {}), 650);
+    }
   }
   function resetHistory() {
     const initial = snapshotState('Loaded');
@@ -330,6 +337,13 @@
       sharedReview = state.shared_review || {};
       formSections = state.form_sections || [];
       signatureCatalog = state.signature_slots || [];
+      serverReadiness = state.readiness || serverReadiness;
+      signerRules = state.signers || []; signerRoles = state.signer_roles || [];
+      renderSigners();
+      documentDetails=state.details || {};
+      $('document-name').value=documentDetails.name || '';
+      $('document-name').disabled=published;
+      $('document-product-choices').innerHTML=(state.product_choices || []).map(item => `<label><input type="checkbox" value="${escapeHtml(item.id)}" ${documentDetails.products?.includes(String(item.id)) ? 'checked' : ''} ${published ? 'disabled' : ''}>${escapeHtml(item.name)}</label>`).join('');
       normalizeChoiceSamples();
       zoomMode = mobileLayout() ? 'fit-width' : 'manual';
       zoom = 1;
@@ -438,27 +452,18 @@
   }
   const signatureByKey = key => signatureCatalog.find(item => `${item.role}.${item.slot_key}` === key);
   function readinessState() {
-    const placedContexts = new Set(Object.values(fields()).map(spec => String(spec.context_key || '')));
-    const requiredFields = contextKeys.filter(item => item.attached && item.required);
-    const requiredSignatures = signatureCatalog.filter(item => item.required);
-    const missingFields = requiredFields.filter(item => !placedContexts.has(item.key));
-    const missingSignatures = requiredSignatures.filter(item => !signatures()[`${item.role}.${item.slot_key}`]);
-    const total = requiredFields.length + requiredSignatures.length;
-    const complete = total - missingFields.length - missingSignatures.length;
-    const blockers = [];
-    if (!Object.keys(fields()).length) blockers.push('Place at least one application field.');
-    missingFields.forEach(item => blockers.push(`Required field: ${item.label || item.key}`));
-    missingSignatures.forEach(item => blockers.push(`Required signer: ${item.label || `${item.role}.${item.slot_key}`}`));
-    if (serverReadinessIssue) blockers.push(`Server check: ${serverReadinessIssue}`);
-    return { total, complete, blockers, missingFields, missingSignatures, ready: !blockers.length };
+    const tasks = serverReadiness.tasks || [];
+    const blockers = tasks.map(item => item.label);
+    if (serverReadinessIssue) blockers.push(serverReadinessIssue);
+    return {tasks, blockers, ready: Boolean(serverReadiness.can_publish) && !serverReadinessIssue && !dirty};
   }
   function updateReadiness() {
     if (!configuration || !$('calibration-readiness-count')) return;
     const state = readinessState();
-    $('calibration-readiness-count').textContent = state.total ? `${state.complete} of ${state.total} required items placed` : 'No required placements';
+    $('calibration-readiness-count').textContent = dirty ? 'Saving changes…' : state.ready ? 'All tasks done' : `${state.blockers.length} things left`;
     $('calibration-readiness-label').textContent = state.ready ? 'Ready to publish' : `${state.blockers.length} item${state.blockers.length === 1 ? '' : 's'} needed`;
-    $('calibration-readiness-message').textContent = state.ready ? 'All required placements are complete. Django will perform the final validation.' : 'Complete the following items before publishing.';
-    $('calibration-readiness-items').innerHTML = state.blockers.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    $('calibration-readiness-message').textContent = state.ready ? 'Ready to publish.' : 'Choose a task to continue.';
+    $('calibration-readiness-items').innerHTML = state.tasks.map((item,index) => `<li><button type="button" class="document-task" data-document-task="${index}">${escapeHtml(item.label)}</button></li>`).join('') + (serverReadinessIssue ? `<li>${escapeHtml(serverReadinessIssue)}</li>` : '');
     $('calibration-readiness').classList.toggle('is-ready', state.ready);
     $('calibration-publish').disabled = published || operationState !== 'idle' || !state.ready;
     $('calibration-publish').title = state.ready ? '' : state.blockers[0] || 'Publishing is not available.';
@@ -483,7 +488,7 @@
   }
   function navigatorRowMarkup(item) {
     const selected = item.placed && item.kind === selectedKind && item.key === selectedKey;
-    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.canonicalKey)}</small></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
   }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
@@ -494,7 +499,7 @@
       const filtered = rows.filter(item => !query || [item.kind, item.key, item.label, item.canonicalKey, item.category, ...(item.aliases || [])].join(' ').toLowerCase().includes(query));
       return `<section class="calibration-nav-group"><h3>${label}<span>${filtered.length}</span></h3>${filtered.length ? filtered.map(navigatorRowMarkup).join('') : '<p class="calibration-nav-empty">No matching items.</p>'}</section>`;
     };
-    $('calibration-fields').innerHTML = group('Product fields', fieldRows) + group('Signer slots', signatureRows);
+    $('calibration-fields').innerHTML = group('Fields', fieldRows) + group('Signatures', signatureRows);
     renderOverlays(); updateReadiness();
   }
 
@@ -628,6 +633,19 @@
 
   function beginDraw(event) {
     if (operationState === 'publishing' || published || event.target !== event.currentTarget) return;
+    if (armedPlacement && event.isPrimary !== false) {
+      const task = armedPlacement; armedPlacement = null;
+      const point = screenPointToPage(event.clientX,event.clientY,event.currentTarget.getBoundingClientRect());
+      if(task.kind === 'signature') placeSignatureOverlay(task.item_key); else addFieldOverlay(task.item_key);
+      const spec = currentSpec(), size = pageSize();
+      if(spec && size) {
+        const box = boxFor(spec);
+        setBox(spec,{...box,x:Math.max(0,Math.min(point.x-box.width/2,size.width-box.width)),y:Math.max(0,Math.min(point.y-box.height/2,size.height-box.height))});
+        markDirty(); inspect(); renderOverlays();
+        $('calibration-status').hidden = true;
+      }
+      event.preventDefault(); return;
+    }
     if (manualGuideAxis) {
       event.preventDefault();
       const before = configurationHash(configuration);
@@ -832,10 +850,10 @@
     if (mode !== 'view') {
       sidebar.classList.add('mobile-open', `mobile-mode-${mode}`);
       $('calibration-sheet-title').textContent = mode === 'fields'
-        ? 'Fields and signer slots'
+        ? 'Fields and signatures'
         : mode === 'global'
           ? 'Global formatting'
-          : selectedKind === 'signature' ? 'Selected signer slot' : 'Selected field';
+          : selectedKind === 'signature' ? 'Selected signature' : 'Selected field';
       if (mode === 'global') document.querySelector('.global-formatting').open = true;
       if (mode === 'inspector') $('calibration-inspector').open = true;
     } else toolbar.classList.add('mobile-open');
@@ -868,7 +886,7 @@
     panel.hidden = !spec;
     if (!spec) return;
     const isSignature = selectedKind === 'signature';
-    $('calibration-inspector-title').textContent = isSignature ? 'Selected signer slot' : 'Selected field';
+    $('calibration-inspector-title').textContent = isSignature ? 'Selected signature' : 'Selected field';
     $('calibration-field-controls').hidden = isSignature;
     $('calibration-signature-controls').hidden = !isSignature;
     $('calibration-format-controls').hidden = isSignature;
@@ -943,7 +961,7 @@
   }
 
   function markDirty() {
-    serverReadinessIssue = '';
+    autosaveFailed = false; serverReadinessIssue = '';
     refreshDirtyState();
     if (mode === 'filled') {
       window.clearTimeout(previewTimer);
@@ -954,7 +972,9 @@
     operationState = next;
     const saving = next === 'saving', locked = next === 'publishing' || next === 'published';
     published = next === 'published' || published;
+    app.querySelector('.calibration-topbar').classList.toggle('is-published', published);
     app.classList.toggle('is-write-locked', locked);
+    app.querySelectorAll('.document-signer-controls input, .document-signer-controls select, .document-signer-controls button, #document-name, #document-product-choices input, #document-lending-fields, .tool-row button, #calibration-inspector input, #calibration-inspector select, #calibration-inspector button, .global-formatting input, .global-formatting select, .global-formatting button').forEach(control => {control.disabled = locked;});
     $('calibration-save').disabled = saving || locked;
     if (locked) $('calibration-publish').disabled = true;
     updateReadiness(); updateHistoryControls();
@@ -1106,6 +1126,7 @@
 
   async function submitFieldDialog(event) {
     event.preventDefault();
+    try {await autosave();if(autosaveFailed || dirty) return;} catch(error) {return;}
     const custom = $('cal-field-custom').checked;
     const selected = selectedCatalogueField($('cal-field-catalogue').value);
     const type = custom ? $('cal-new-type').value : selected?.type;
@@ -1146,6 +1167,7 @@
       schemaRevision = data.schema_revision;
       formSections = data.form_sections || formSections;
       sharedReview = data.shared_review || sharedReview;
+      await refreshServerReadiness();
       populateCatalogs();
       closeFieldDialog();
       if (editingFieldKey) {
@@ -1164,7 +1186,8 @@
   }
 
   async function changeDocumentField(action) {
-    if (!editingFieldKey || writeInFlight) return;
+    if (!editingFieldKey) return;
+    try {await autosave();if(autosaveFailed || dirty) return;} catch(error) {return;}
     if (action === 'remove' && !window.confirm('Remove this field and its PDF placements from this draft?')) return;
     return runWrite(async () => {
       const body = {action, field_key:editingFieldKey, schema_revision:schemaRevision, revision,
@@ -1181,6 +1204,7 @@
         }
         delete pendingWriteKeys['field-action'];
         populateCatalogs(); closeFieldDialog(); renderItemList(); inspect();
+        await refreshServerReadiness();
         status(action === 'remove' ? 'Field and its placements removed from this draft.' : 'Field order updated.');
       } catch (error) { $('cal-field-error').textContent = error.message; $('cal-field-error').hidden = false; }
     });
@@ -1258,13 +1282,11 @@
     if (button.dataset.navAction === 'edit') { openFieldDialog(button.dataset.key, true); return; }
     const kind = button.dataset.kind, key = button.dataset.key;
     if (button.dataset.navAction === 'select') { selectAndReveal(kind, key); return; }
-    if (kind === 'field') openFieldDialog(key);
-    else placeSignatureOverlay(key);
+    armPlacement({kind,item_key:key});
   };
   $('calibration-search').oninput = renderItemList;
 
   $('calibration-add').onclick = () => {
-    if (!contextKeys.length) return status('No canonical data fields are available.', true);
     openFieldDialog();
   };
 
@@ -1304,7 +1326,12 @@
   function placeSignatureOverlay(identity = '') {
     if (operationState === 'publishing' || published) return;
     const slot = identity ? signatureByKey(identity) : signatureCatalog.find(item => !signatures()[`${item.role}.${item.slot_key}`]);
-    if (!slot) return status('Every configured signer slot is already placed.', true);
+    if (!slot && !signatureCatalog.length) {
+      $('document-signers').open = true;
+      $('document-signer-pack').focus();
+      return status('Add signers here first.');
+    }
+    if (!slot) return status('All signatures are placed. Select one to adjust it.');
     const key = `${slot.role}.${slot.slot_key}`;
     if (signatures()[key]) return selectAndReveal('signature', key);
     const box = centeredBox(140, slot.slot_type === 'stamp' ? 55 : 28);
@@ -1470,11 +1497,101 @@
     });
     revision = data.revision;
     sharedReview = data.shared_review || sharedReview;
+    serverReadiness = data.readiness || serverReadiness;
     savedBaselineHash = snapshotHash;
     delete pendingWriteKeys['calibration-save'];
     refreshDirtyState();
     return data;
   }
+  function renderSigners() {
+    const list = $('document-signer-list'); if(!list) return;
+    list.innerHTML = signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(rule.label || rule.role)}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(rule.label || rule.role)}" ${published ? 'disabled' : ''}>×</button></div>`).join('');
+    $('document-signer-role').innerHTML = signerRoles.filter(([role]) => !signerRules.some(r => r.role === role)).map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
+    $('document-signer-add').disabled = published || !$('document-signer-role').options.length;
+    $('document-signer-pack').disabled = published;
+  }
+  function addSigner(role) {
+    if(!role || signerRules.some(rule => rule.role === role)) return;
+    const label=signerRoles.find(([key]) => key === role)?.[1] || role;
+    signerRules.push({role,label,required:true,slots:[{key:'signature',type:'signature',label:`${label} signature`,required:true}]});
+  }
+  function signerChanged() {signersDirty=true;autosaveFailed=false;serverReadinessIssue='';refreshDirtyState();}
+  function detailsChanged() {documentDetails={name:$('document-name').value,products:[...$('document-product-choices').querySelectorAll('input:checked')].map(i => i.value)};detailsDirty=true;autosaveFailed=false;refreshDirtyState();}
+  $('document-name')?.addEventListener('input',detailsChanged);
+  $('document-product-choices')?.addEventListener('change',detailsChanged);
+  $('document-signer-add')?.addEventListener('click',() => {addSigner($('document-signer-role').value);renderSigners();signerChanged();});
+  $('document-signer-pack')?.addEventListener('change',event => {
+    for(const role of event.target.value.split(',')) addSigner(role);
+    event.target.value='';renderSigners();signerChanged();
+  });
+  $('document-lending-fields')?.addEventListener('click',() => {
+    pendingFieldPack='lending';autosaveFailed=false;refreshDirtyState();
+  });
+  $('document-signer-list')?.addEventListener('change',event => {
+    if(event.target.hasAttribute('data-signer-label')) signerRules[Number(event.target.dataset.signerLabel)].label=event.target.value;
+    if(event.target.hasAttribute('data-signer-required')) {
+      const rule=signerRules[Number(event.target.dataset.signerRequired)];rule.required=event.target.checked;
+      rule.slots.forEach(slot => {slot.required=event.target.checked;});
+    }
+    signerChanged();
+  });
+  $('document-signer-list')?.addEventListener('click',event => {
+    const button=event.target.closest('[data-signer-remove]');if(!button) return;
+    const rule=signerRules[Number(button.dataset.signerRemove)];
+    if(!window.confirm(`Remove ${rule.label}? Their signing fields will also be removed from this draft.`)) return;
+    signerRules.splice(Number(button.dataset.signerRemove),1);renderSigners();signerChanged();
+  });
+  function armPlacement(task) {
+    if(published) return;
+    armedPlacement=task;closeMobileSheets();
+    status('Click the PDF to place this field.',false,true);
+    $('calibration-canvas').scrollIntoView({block:'nearest'});
+  }
+  $('calibration-readiness-items').onclick = event => {
+    const button=event.target.closest('[data-document-task]');if(!button) return;
+    const task=serverReadiness.tasks[Number(button.dataset.documentTask)];
+    if(task.item_key) {armPlacement(task);return;}
+    const section=$(task.section === 'signers' ? 'document-signers' : task.section === 'pdf' ? 'document-pdf' : 'calibration-field-browser');
+    openMobileSheet('fields',$('cal-mobile-fields'));section.open=true;section.scrollIntoView({block:'nearest'});
+    if(task.key === 'fields') openFieldDialog();
+  };
+  async function refreshServerReadiness() {
+    const data=await jsonRequest(app.dataset.readinessUrl);
+    serverReadiness=data.readiness;sharedReview=data.shared_review;updateReadiness();
+  }
+  async function autosave() {
+    clearTimeout(autosaveTimer);
+    if(writeInFlight) {await writeInFlight;if(dirty && !autosaveFailed) return autosave();return;}
+    if(!dirty || published) return;
+    return runWrite(async () => {
+      setOperationState('saving');autosaveFailed=false;refreshDirtyState();
+      const snapshot=copy(configuration),snapshotHash=configurationHash(snapshot);
+      const controls=[...document.querySelectorAll('.document-signer-controls input,.document-signer-controls select,.document-signer-controls button,#document-name,#document-product-choices input')];
+      controls.forEach(control => {control.disabled=true;});
+      try {
+        if(signersDirty || detailsDirty || pendingFieldPack) {
+          const rules=copy(signerRules);
+          const details=detailsDirty ? copy(documentDetails) : undefined;
+          const key=requestKey('signers',JSON.stringify([rules,snapshot,details,pendingFieldPack]));
+          const data=await jsonRequest(app.dataset.signersUrl,{method:'POST',body:JSON.stringify({signers:rules,details,field_pack:pendingFieldPack,configuration:snapshot,schema_revision:schemaRevision,revision,client_request_id:key})});
+          revision=data.revision;schemaRevision=data.schema_revision;signerRules=data.signers;
+          signatureCatalog=data.signature_slots;contextKeys=data.context_keys;formSections=data.form_sections;
+          serverReadiness=data.readiness;sharedReview=data.shared_review;signersDirty=false;detailsDirty=false;pendingFieldPack='';
+          documentDetails=data.details;$('document-name').value=data.details.name;
+          document.querySelector('.calibration-heading h1').textContent=data.details.name;
+          if(configurationHash(configuration) === snapshotHash) configuration=data.configuration;
+          else {
+            const allowed=new Set(signatureCatalog.map(item => `${item.role}.${item.slot_key}`));
+            for(const key of Object.keys(signatures())) if(!allowed.has(key)) delete signatures()[key];
+          }
+          savedBaselineHash=configurationHash(data.configuration);delete pendingWriteKeys.signers;
+          populateCatalogs();renderItemList();inspect();resetHistory();
+        } else await saveDraft(snapshot,snapshotHash);
+      } catch(error) {autosaveFailed=true;status(`${error.message} Your changes are still here.`,true,true);throw error;}
+      finally {controls.forEach(control => {control.disabled=false;});renderSigners();setOperationState('idle');refreshDirtyState();}
+    });
+  }
+  $('calibration-save-state').onclick = () => {autosaveFailed=false;autosave().catch(() => {});};
   async function runWrite(work) {
     if (writeInFlight) return writeInFlight;
     writeInFlight = Promise.resolve().then(work);
@@ -1484,78 +1601,32 @@
       writeInFlight = null;
     }
   }
-  $('calibration-save').onclick = () => runWrite(async () => {
-    const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
+  $('calibration-save').onclick = () => autosave().catch(() => {});
+  $('calibration-publish').onclick = async () => {
     try {
-      setOperationState('saving');
-      $('calibration-save').setAttribute('aria-busy', 'true');
-      $('calibration-publish').setAttribute('aria-busy', 'true');
-      status('Saving captured draft…', false, true);
-      await saveDraft(snapshot, snapshotHash);
-      status(configurationHash(configuration) === snapshotHash ? `Draft revision ${revision} saved.` : `Revision ${revision} saved; newer changes remain unsaved.`);
-    } catch (error) {
-      status(error.message, true, true); throw error;
-    } finally {
-      $('calibration-save').removeAttribute('aria-busy'); $('calibration-publish').removeAttribute('aria-busy');
-      if (!published) setOperationState('idle');
-    }
-  }).catch(() => {});
-  const saveReturn = $('calibration-save-return');
-  if (saveReturn) saveReturn.onclick = () => runWrite(async () => {
-    const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
-    try {
-      setOperationState('saving');
-      saveReturn.setAttribute('aria-busy', 'true');
-      status('Saving reviewed alignment…', false, true);
-      if (snapshotHash !== savedBaselineHash) await saveDraft(snapshot, snapshotHash);
-      window.location.assign(app.dataset.setupReturnUrl);
-    } catch (error) {
-      status(error.message, true, true);
-      if (!published) setOperationState('idle');
-      saveReturn.removeAttribute('aria-busy');
-      throw error;
-    }
-  }).catch(() => {});
-  $('calibration-publish').onclick = () => runWrite(async () => {
-    try {
-      if (!readinessState().ready) { updateReadiness(); openMobileSheet('fields', $('cal-mobile-fields')); return; }
-      setOperationState('publishing');
-      $('calibration-save').setAttribute('aria-busy', 'true'); $('calibration-publish').setAttribute('aria-busy', 'true');
-      const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
-      if (snapshotHash !== savedBaselineHash) { status('Saving reviewed alignment…', false, true); await saveDraft(snapshot, snapshotHash); }
-      if (sharedReview.required && !window.confirm(`Upgrade this shared document for: ${(sharedReview.products || []).join(', ')}? Existing applications keep their versions.`)) {
-        setOperationState('idle'); return;
-      }
-      status(app.dataset.publishLabel || 'Validating and publishing…', false, true);
-      const clientRequestId = requestKey('calibration-publish', `${revision}:${savedBaselineHash}`);
-      const data = await jsonRequest(app.dataset.publishUrl, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
-        body: JSON.stringify({ revision, client_request_id: clientRequestId, impact_token: sharedReview.token }),
+      await autosave();
+      if(dirty || autosaveFailed) return;
+      await runWrite(async () => {
+        await refreshServerReadiness();
+        if(!readinessState().ready) {updateReadiness();openMobileSheet('fields',$('cal-mobile-fields'));return;}
+        if(sharedReview.required && !window.confirm(`Change this document for ${(sharedReview.products || []).join(', ')}? Existing applications stay unchanged.`)) return;
+        setOperationState('publishing');status('Publishing…',false,true);
+        const clientRequestId=requestKey('calibration-publish',`${revision}:${savedBaselineHash}`);
+        const data=await jsonRequest(app.dataset.publishUrl,{method:'POST',headers:{'Idempotency-Key':clientRequestId,'X-Request-ID':clientRequestId},
+          body:JSON.stringify({revision,client_request_id:clientRequestId,impact_token:sharedReview.token})});
+        revision=data.revision;delete pendingWriteKeys['calibration-publish'];
+        published=true;setOperationState('published');renderSigners();renderItemList();refreshDirtyState();
+        status('Document published. Existing applications stay unchanged.',false,true);
       });
-      revision = data.revision; delete pendingWriteKeys['calibration-publish'];
-      published = true; setOperationState('published'); refreshDirtyState();
-      const attachProduct = $('calibration-attach-product');
-      if (attachProduct) attachProduct.hidden = false;
-      status(
-        data.assignment_name
-          ? `${data.assignment_name} was published and added to this product's document packet.`
-          : data.product_name
-            ? `${data.product_name} version ${data.product_version} is published and available for new production applications.`
-            : `${data.template_name || 'Document template'} is published and available for product document packets.`,
-        false, true,
-      );
-      if (app.dataset.setupReturnUrl) {
-        window.setTimeout(() => window.location.assign(app.dataset.setupReturnUrl), 650);
-      }
-    } catch (error) {
-      serverReadinessIssue = error.message;
-      if (!published) setOperationState('idle');
-      updateReadiness(); status(error.message, true, true); throw error;
-    } finally {
-      $('calibration-save').removeAttribute('aria-busy'); $('calibration-publish').removeAttribute('aria-busy');
-    }
-  }).catch(() => {});
+    } catch(error) {serverReadinessIssue=error.message;status(error.message,true,true);}
+    finally {if(!published) setOperationState('idle');updateReadiness();}
+  };
+  window.addEventListener('beforeunload',event => {if(dirty) {event.preventDefault();event.returnValue='';}});
+  app.addEventListener('click',async event => {
+    const link=event.target.closest('a');
+    if(!link || !dirty || link.target || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();try {await autosave();if(!dirty && !autosaveFailed) location.assign(link.href);} catch(error) {}
+  });
 
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && mobileSheet) { event.preventDefault(); closeMobileSheets(); return; }

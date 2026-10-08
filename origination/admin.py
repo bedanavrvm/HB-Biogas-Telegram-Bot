@@ -2726,6 +2726,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path('new-document/', self.admin_site.admin_view(self.document_new_view), name='origination_document_new'),
+            path('<path:object_id>/edit-document/', self.admin_site.admin_view(self.document_edit_view), name='origination_document_edit'),
+            path('<path:object_id>/editor-signers/', self.admin_site.admin_view(self.document_signers_view), name='origination_document_signers'),
+            path('<path:object_id>/editor-readiness/', self.admin_site.admin_view(self.document_readiness_view), name='origination_document_readiness'),
             path(
                 '<path:object_id>/create-editable-version/',
                 self.admin_site.admin_view(self.create_editable_version_view),
@@ -2740,6 +2744,22 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             path('<path:object_id>/calibration-publish/', self.admin_site.admin_view(self.calibration_publish_view), name='origination_originationdocumenttemplate_calibration_publish'),
         ]
         return custom + urls
+
+    def document_new_view(self, request):
+        from origination.document_editor_admin import new_view
+        return new_view(self, request)
+
+    def document_edit_view(self, request, object_id):
+        from origination.document_editor_admin import edit_view
+        return edit_view(self, request, object_id)
+
+    def document_signers_view(self, request, object_id):
+        from origination.document_editor_admin import write_view
+        return write_view(self, request, object_id)
+
+    def document_readiness_view(self, request, object_id):
+        from origination.document_editor_admin import readiness_view
+        return readiness_view(self, request, object_id)
 
     def create_editable_version_view(self, request, object_id):
         if not request.user.is_active or not request.user.is_superuser:
@@ -2895,7 +2915,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 )
         return TemplateResponse(request, 'admin/core/originationdocumenttemplate/calibrate.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
-            'title': f'Calibrate fields: {obj}', 'template_record': obj,
+            'title': f'Document: {obj.name}', 'template_record': obj,
+            'editor_edit_url': reverse('admin:origination_document_edit', args=[obj.pk]),
             'calibration_create_editable_url': reverse(
                 'admin:origination_originationdocumenttemplate_create_editable_version', args=[obj.pk],
             ) if obj.status == obj.STATUS_ACTIVE and obj.published_configuration_revision_id else '',
@@ -2928,7 +2949,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         ).order_by('-version').first()
         from origination.services.origination_fields import (
             catalogue_for_product, product_schema_revision, template_owns_form_schema,
-            template_schema_revision,
+            template_schema_revision, template_form_contract,
         )
         owns_schema = template_owns_form_schema(obj)
         fields = (
@@ -2957,16 +2978,23 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         order = {key: index for index, key in enumerate(presentations)}
         context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
         from origination.services.origination_setup_documents import shared_review
+        from origination.services.document_editor import readiness, authoring_products
+        from origination.services.loan_origination import SIGNER_ROLE_CATALOG
         return JsonResponse({
             'ok': True,
             'revision': latest.revision if latest else 0,
             'published': bool(latest and latest.is_published),
             'product_published': obj.status == obj.STATUS_ACTIVE or bool(obj.product_definition_id and product and product.is_active),
             'shared_review': shared_review(obj),
+            'readiness': readiness(obj),
+            'details':{'name':obj.name,'products':[str(pk) for pk in obj.eligible_products.values_list('pk',flat=True)]},
+            'product_choices':list(authoring_products().order_by('name').values('id','name')),
+            'signers': template_form_contract(obj)[1],
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
             'schema_revision': template_schema_revision(obj) if owns_schema else product_schema_revision(product) if product else 0,
+            'signer_roles': [(key, 'Officer' if key == 'officer' else label) for key, label in SIGNER_ROLE_CATALOG],
             'form_sections': list(fields.get('sections') or []),
             'signature_slots': list(_expected_signature_slots(product, obj).values()),
         })
@@ -2992,7 +3020,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
 
     def _calibration_error_response(self, exc):
         from origination.services.origination_templates import OriginationTemplateError
-        from origination.services.origination_fields import OriginationFieldError
+        from origination.services.origination_fields import OriginationFieldError, OriginationFieldConflict
+        if isinstance(exc, OriginationFieldConflict):
+            return JsonResponse({'ok':False,'error':str(exc)}, status=409)
         if isinstance(exc, (OriginationTemplateError, OriginationFieldError, ValidationError)):
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
         logger.exception('Origination template calibration request failed.')
@@ -3036,7 +3066,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         except Exception as exc:
             return self._calibration_error_response(exc)
         from origination.services.origination_setup_documents import shared_review
-        return JsonResponse({'ok': True, 'revision': saved.revision, 'shared_review': shared_review(obj)})
+        from origination.services.document_editor import readiness
+        return JsonResponse({'ok': True, 'revision': saved.revision, 'shared_review': shared_review(obj), 'readiness':readiness(obj)})
 
     def calibration_field_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
@@ -3138,6 +3169,16 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         obj = self._calibration_template(request, object_id)
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        if obj.product_definition_id is None:
+            try:
+                from origination.services.document_editor import publish_document
+                body = self._json_body(request)
+                document = publish_document(document=obj, actor=request.user, revision=int(body.get('revision',0)),
+                    request_id=str(body.get('client_request_id') or ''), impact_token=body.get('impact_token',''))
+                return JsonResponse({'ok':True,'revision':document.published_configuration_revision.revision,
+                                     'template_name':document.name})
+            except Exception as exc:
+                return self._calibration_error_response(exc)
         try:
             from origination.services.origination_templates import (
                 publish_and_attach_shared_supporting_template, publish_product_template,

@@ -98,10 +98,9 @@ def main_laf_contract(
     else:
         schema = document_schema
 
-    required_roles = _signer_roles(definition.signer_rules)
-    missing_roles = sorted(required_roles - _signer_roles(document_signers))
-    if missing_roles:
-        reasons.append('The Main LAF is missing required signer roles: ' + ', '.join(missing_roles) + '.')
+    # The chosen Main LAF owns its signer contract. Product-level mirrors must
+    # not reintroduce retired roles; the independently governed approval policy
+    # is validated below and application snapshots remain unchanged.
     if schema is not None:
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         try:

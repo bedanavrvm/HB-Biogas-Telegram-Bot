@@ -1,0 +1,13 @@
+<footer class="osw-publish-bar">
+  <span data-outstanding>{% if published_readonly and not maintenance.changes %}Published{% elif outstanding_count %}{{ outstanding_count }} thing{{ outstanding_count|pluralize }} left{% else %}Ready{% endif %}</span>
+  <button type="button" class="osw-save-feedback" aria-live="polite" data-save-feedback></button>
+  <form method="post" action="{{ product_publish_url }}" data-product-publish data-stop-new="{% if maintenance.unavailable and maintenance.changes %}true{% else %}false{% endif %}">
+    {% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}
+    {% if published_readonly %}
+      <input type="hidden" name="action" value="enable_documents">
+      {% for id in selected_document_ids %}<input type="hidden" name="templates" value="{{ id }}">{% endfor %}
+      <input type="hidden" name="maintenance_token" value="{{ maintenance.token }}">
+    {% endif %}
+    <button class="osw-primary" {% if not workspace_can_publish %}disabled{% endif %}>Publish</button>
+  </form>
+</footer>

@@ -3,22 +3,22 @@
 
 {% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
 
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=4"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=3">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=6"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=5">{% endblock %}
 
 {% block content %}
 <main class="osw-page">
   <header class="osw-hero">
-    <div><p class="osw-kicker">JBL ORIGINATION</p><h1>Product setup workspace</h1><p>Set up a product, choose its documents, preview and enable applications.</p></div>
-    <nav><a href="{{ laf_library_url }}">Document catalogue</a><a href="{{ advanced_url }}">Advanced records</a></nav>
+    <div><p class="osw-kicker">JBL ORIGINATION</p><h1>Product setup workspace</h1><p>Manage lending terms here. Author PDFs separately in Documents.</p></div>
+    <nav><a href="{{ laf_library_url }}">Documents</a><a href="{{ advanced_url }}">Advanced records</a></nav>
   </header>
 
   <section class="osw-card osw-start">
-    <div><span class="osw-step-number">1</span><h2>Start a product</h2><p>Save your progress. Enable applications only when terms and documents are ready.</p></div>
+    <div><h2>Start a product</h2><p>Complete Details, Lending terms and Documents in any order.</p></div>
     <form method="post" action="{{ start_url }}" data-osw-submit>
       {% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}">
       {{ start_form.non_field_errors }}
       {{ start_form.code }}<div class="osw-form-grid"><div class="osw-field">{{ start_form.name.label_tag }}{{ start_form.name }}{{ start_form.name.errors }}</div><div class="osw-field">{{ start_form.branches.label_tag }}{{ start_form.branches }}{{ start_form.branches.errors }}</div></div><details><summary>Optional details</summary><div class="osw-form-grid">{% for field in start_form %}{% if field.name != 'code' and field.name != 'name' and field.name != 'branches' %}<div class="osw-field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}</div></details>
-      <button class="osw-primary" type="submit"><span data-label>Create draft and continue</span><span class="osw-spinner" aria-hidden="true"></span></button>
+      <button class="osw-primary" type="submit"><span data-label>Create product</span><span class="osw-spinner" aria-hidden="true"></span></button>
     </form>
   </section>
 
@@ -26,18 +26,18 @@
     <div class="osw-section-title"><div><h2>Resume drafts</h2><p>Continue an incomplete section or review changed settings.</p></div><span class="osw-count">{{ draft_rows|length }}</span></div>
     <div class="osw-card-grid">
       {% for row in draft_rows %}<article class="osw-card osw-product-card">
-        <header><div><h3>{{ row.definition.name }}</h3><p>Version {{ row.definition.version }}</p></div><span class="osw-status in-progress">Draft</span></header>
+        <header><div><h3>{{ row.definition.name }}</h3></div><span class="osw-status in-progress">Draft</span></header>
         <ol class="osw-mini-progress">{% for item in row.readiness %}<li class="{{ item.status }}" title="{{ item.detail }}"><span></span>{{ item.label }}</li>{% endfor %}</ol>
-        <a class="osw-primary" href="{{ row.resume_url }}">Continue: {{ row.resume_label }}</a>
+        <a class="osw-primary" href="{{ row.resume_url }}">Open product</a>
       </article>{% empty %}<div class="osw-card osw-empty">No product drafts are waiting.</div>{% endfor %}
     </div>
   </section>
 
   <section class="osw-section">
     <div class="osw-section-title"><div><h2>Published products</h2><p>Update terms or repair document availability without changing existing applications.</p></div><span class="osw-count">{{ published_products|length }}</span></div>
-    <div class="osw-table-wrap"><table class="osw-table"><thead><tr><th>Product</th><th colspan="2">Version</th><th>Readiness</th><th></th></tr></thead><tbody>
-      {% for row in published_product_rows %}{% with product=row.definition catalogue=row.catalogue %}<tr><td><a href="{% url 'admin:origination_origination_setup_detail' product.pk %}"><b>{{ product.name }}</b></a><small>{{ product.product_key }}</small></td><td>Profile v{{ product.version }}</td><td>{% if product.product_version %}Terms v{{ product.product_version.version }}{% else %}Legacy{% endif %}</td><td>{% if catalogue.ready %}<span class="osw-status complete">{% if product.product_version.status == 'scheduled' %}Available from {{ product.product_version.effective_from }}{% else %}Ready for applications{% endif %}</span>{% else %}<span class="osw-status blocked">Needs fixing</span><small>{{ catalogue.reasons|join:' ' }}</small>{% endif %}</td><td><div class="osw-inline-actions"><a class="osw-secondary" href="{% url 'admin:origination_origination_setup_step' product.pk 'documents' %}">Documents</a><a class="osw-secondary" href="{% url 'admin:origination_origination_setup_detail' product.pk %}">Details</a><form method="post" action="{% url 'admin:origination_origination_setup_revise' product.pk %}" data-osw-submit>{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}"><button type="submit" class="osw-secondary"><span data-label>Edit terms</span><span class="osw-spinner"></span></button></form></div></td></tr>{% endwith %}
-      {% empty %}<tr><td colspan="5">No published Origination products yet.</td></tr>{% endfor %}
+    <div class="osw-table-wrap"><table class="osw-table"><thead><tr><th>Product</th><th>History</th><th>Readiness</th><th></th></tr></thead><tbody>
+      {% for row in published_product_rows %}{% with product=row.definition catalogue=row.catalogue %}<tr><td><a href="{% url 'admin:origination_origination_setup_detail' product.pk %}"><b>{{ product.name }}</b></a></td><td><details><summary>Versions</summary>Product {{ product.version }}{% if product.product_version %} · Terms {{ product.product_version.version }}{% endif %}</details></td><td>{% if catalogue.ready %}<span class="osw-status complete">{% if product.product_version.status == 'scheduled' %}Available from {{ product.product_version.effective_from }}{% else %}Ready for applications{% endif %}</span>{% else %}<span class="osw-status blocked">Needs fixing</span><small>{{ catalogue.reasons|join:' ' }}</small>{% endif %}</td><td><div class="osw-inline-actions"><a class="osw-secondary" href="{% url 'admin:origination_origination_setup_step' product.pk 'documents' %}">Documents</a><a class="osw-secondary" href="{% url 'admin:origination_origination_setup_detail' product.pk %}">Details</a><form method="post" action="{% url 'admin:origination_origination_setup_revise' product.pk %}" data-osw-submit>{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}"><button type="submit" class="osw-secondary"><span data-label>Edit terms</span><span class="osw-spinner"></span></button></form></div></td></tr>{% endwith %}
+      {% empty %}<tr><td colspan="4">No published Origination products yet.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 </main>

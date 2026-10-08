@@ -144,8 +144,11 @@ class OriginationDocumentCatalogueTests(TestCase):
         main, successor = self._legacy_main_and_successor()
         successor.signer_rules = [*successor.signer_rules, {'role': 'branch_manager'}]
         catalogue = catalogue_for_product(successor)
-        self.assertFalse(catalogue['ready'])
-        self.assertIn('branch_manager', ' '.join(catalogue['rejected_main_lafs'][0]['reasons']))
+        # The selected Main LAF owns its signers, not a product's stale mirror.
+        self.assertTrue(catalogue['ready'], catalogue)
+        from origination.services.origination_fields import template_form_contract
+        _schema, signers = template_form_contract(main)
+        self.assertNotIn('branch_manager', [item['role'] for item in signers])
 
     def test_retired_product_legacy_document_has_idempotent_independent_editable_exit(self):
         main, successor = self._legacy_main_and_successor()

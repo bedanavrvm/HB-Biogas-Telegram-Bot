@@ -1,100 +1,158 @@
-# Guided Origination product setup
+# Origination: Product and Document workspaces
 
-## Purpose
+## Open the right workspace
 
-The guided workspace is the default Superuser path for creating and maintaining an Origination product. It coordinates the existing global `Product`, immutable `ProductVersion`, `OriginationProductDefinition`, document packet, and PDF calibration records. It does not create a second setup-state database.
+- **Product:** Django Admin → Origination product definitions → Guided product setup.
+- **Document:** Django Admin → Origination document templates → New document, or open a document's editor.
+- Configuration requires an active Django Superuser. Mini App grants are separate.
 
-Open **Django Admin → Origination product definitions → Guided product setup**.
+A Product owns lending terms and chooses documents. A Document owns its PDF,
+signers, applicant fields and placement. Products do not own editable PDF copies.
+See [ADR 0041](adr/0041-independent-origination-authoring.md).
 
-## User workflow
+## Product: three tasks, any order
 
-1. **Product** — enter its name and branches. The internal stable code is generated automatically. Additional descriptive settings are optional.
-2. **Terms** — enter lending limits, tenor, interest and repayment. Fees and additional requirements are collapsed until needed; technical quote keys are derived.
-3. **Documents** — choose existing Main LAFs and supporting documents, or upload a blank PDF. A new PDF may start with the reviewed Jawabu field preset or the visual field builder. Define applicant fields and signing locations once on the document, then save and return. Draft products are connected automatically; no catalogue trip is required.
-4. **Preview & enable** — inspect branches, terms, signers, the applicant form and synthetic filled-PDF samples. Enable publishes the selected prepared documents, financial terms and product profile atomically; failure rolls canonical changes back.
+Open a product to see three cards with **Not started**, **Needs attention**, or
+**Done**. Each card opens its own task; there is no forced next step.
 
-The dashboard resumes the first incomplete section, then any section marked **Review changes**. Sections remain navigable and valid saves do not require earlier confirmations. Review changes are advisory; genuinely invalid financial, form, signer or consent configuration still blocks final publication with an actionable error.
+- **Details:** name, available branches and optional descriptive information.
+- **Lending terms:** amount limits, tenor, interest and repayment. Fees and
+  additional requirements stay collapsed until needed.
+- **Documents:** select eligible published Main LAFs and optional supporting
+  documents. Open a document to author it in the separate editor.
 
-The independent Document Catalogue remains the application-selection authority. Guided enablement requires a compatible Main LAF; it cannot report success while officers are unable to start applications. Dashboard readiness never downloads PDFs or contacts Drive. Full geometry/source checks run during explicit publication.
+Changes autosave after a short pause. **Saved** means the server confirmed the
+save. If saving fails, entered values remain; fix the inline error or tap the
+save status to retry. Relevant changes in another tab produce a conflict rather
+than overwriting them.
 
-**Save draft** keeps typed valid values and stays on the current section. Missing required terms retain their existing draft values; invalid typed values still show errors. Setup can be reopened without requiring earlier confirmation clicks. Choose the final approval policy in Documents; its existing governed consent and signer checks remain mandatory at enablement.
+The sticky footer shows how many tasks remain and one **Publish** button.
 
-Published products have a **Documents** action for document-only repairs without cloning unchanged financial terms. A reused published document that needs another product in its allowlist creates/reopens a draft successor, retaining fields, PDF bytes, alignment and prior allowed products. Final review names other affected products before activation. Existing applications remain pinned to their captured versions. Selecting documents prepares additions/replacements; it does not silently withdraw previously published choices.
+- Publish documents separately before selecting them for a usable product.
+- Product Publish atomically publishes its lending terms and Origination
+  profile. A failure does not leave only the terms enabled.
+- Existing consent and final-approver checks remain mandatory.
+- Incomplete drafts can be saved and reopened.
+- Publishing a product never publishes an unfinished PDF.
 
-Older drafts with already-published financial terms can finish using those terms. To change them, use **Create editable successor**. Old Publish terms links redirect to final review and do not publish early.
+## Document: PDF → Signers → Fields → Placement → Preview
 
-## Published product overview
+### Start
 
-Select a product name or **View product** under **Published products** to open its read-only family overview. It shows current branch/workflow availability plus every form and terms version, fees, requirements, custom attributes, form fields, signer roles, owned or reusable LAFs, supporting documents, version policies, calibration status, hashes, and publication history.
+- Prefer **Start from an existing document** to reuse its PDF, signers, fields
+  and placement as an independent copy.
+- Alternatively expand **Upload a PDF instead** and select a PDF.
+- Give it a name and choose Main LAF or supporting-document purpose.
+- Optionally choose products that may use it, including draft products.
+- Select **Create document** to enter the editor.
+- A failed upload retains its reserved document and retry identity. Retry the
+  same file instead of creating another document.
 
-Availability is current product-level configuration. Terms, forms, signer rules, and document packets are shown separately for each exact version. Use **Create editable successor** to change a published version.
+### Signers
 
-## Bulk availability
+- Choose a signer pack, then adjust it; or add signers individually.
+- Edit the displayed signer names and required status in this same editor.
+- Remove a signer with confirmation. Only that draft's signing placements are
+  removed; published documents and existing applications do not change.
+- External signer identity fields are added to the draft form automatically.
+- Approval roles still come from the product's governed approval policy. A
+  signer pack never changes that policy or activates consent wording.
 
-Open **Manage availability** from a Product record or the published-product overview. Select several branches and workflows and apply them once; the internal `portal` channel is derived automatically and is not an Admin choice. Repeating the same request is safe. To remove coverage, select the existing assignments and use **Deactivate selected**. Assignments are deactivated rather than deleted and the operation is recorded in the compliance audit ledger.
+### Fields and placement
 
-**Select all current** stores each currently active branch explicitly. A branch created later is not automatically authorized.
+- Add existing canonical fields or create fields through the established field
+  dialog.
+- Use **Add lending fields** for the standard amount and repayment-tenor inputs.
+- Edit labels, required status and order. Canonical keys and types stay governed.
+- Use the server's **To do** list to find missing work.
+- Select a **Place** item, then click the PDF where it belongs.
+- Select a placed field to move or resize it.
+- Coordinates, rotation and padding are under **Advanced** controls.
+- A removed field loses its draft placement, not its historical application
+  values.
 
-## Maintenance and version safety
+### Preview and publish
 
-- Open **Documents** on a published product for document-only work; unchanged lending terms are not cloned.
-- **Edit** opens an editable successor. Field labels, help, requiredness and order can be changed in the visual editor. Removing a field also removes its placement; canonical field keys and types stay unchanged.
-- **Replace PDF** retains the field and signer definitions but clears their coordinates for fresh alignment. Failed uploads retain the original draft and retry key instead of creating another version.
-- **Add document** retains current choices. **Replace with another document** stages a switch; **Remove from product** stages a withdrawal. Neither changes officer availability until final review is applied.
-- Review shows the proposed documents and affected products. A shared upgrade updates all currently linked products atomically; one incompatible product prevents the whole upgrade. Withdrawn product links are not restored by an older inherited draft.
-- Removing the last Main LAF requires explicit confirmation that new applications will stop. Existing applications and external files are retained.
-- **Discard changes** restores current published choices. Incomplete drafts can be saved; compatibility, consent, signing and alignment checks still apply at publication.
-- Existing applications, including unsigned applications, retain their original captured versions. They are never silently moved onto an upgraded document or lending contract.
-- Published `ProductVersion` and `OriginationProductDefinition` rows are never edited.
-- **Create editable successor** reuses an existing draft when present, otherwise creates the next terms and form versions and inherits the prior packet/calibration through the established cloning services.
-- Existing applications continue to use their captured product, schema, template, and packet snapshots.
-- Published legacy Main LAFs retain the fields and signers of their original product definition, even when that product is retired. The catalogue validates this original contract against the selected product; it never borrows a newer product's fields to make an incompatible PDF appear ready.
-- In the document catalogue, select one document and choose **Create / open editable version**, or open the document's version button. A legacy published PDF can create an independent catalogue successor with its existing PDF, alignment, original form, signers and eligible products. Repeated requests reopen the draft; publishing it does not rewrite existing application snapshots.
-- Publishing a linked successor with the same start date replaces its exact predecessor: the earlier terms are retired, not deleted, and their dates, history and application references are preserved. Unrelated overlapping versions remain blocked. Document versions can reuse the same global product through their eligibility assignments.
-- Advanced model pages remain available. Meaningful configuration changes show a review reminder; publication status and actor/time metadata do not invalidate financial confirmation. Historical confirmation events are retained and do not become publication gates.
+- Switch between the original PDF and **Filled sample** without leaving the
+  editor.
+- Fields, signers, product choices and placement autosave. There is no separate
+  Save draft / Save & return / Check again sequence.
+- Readiness is recomputed on the server after saves.
+- One **Publish** validates the saved layout, source file, contract and
+  affected products before activating it.
+- Missing required signers, consent, lending inputs or valid placement still
+  block publication with repair tasks or a specific error.
+- Published documents are read-only. Choose **Edit** to make the next change.
 
-## Concurrency and idempotency
+Readiness is deliberately a cheap database projection: it does not download a
+PDF during every refresh. Final publication retains full source and geometry
+validation; an external file failure cannot be mistaken for a successful publish.
 
-Every workspace write includes:
+## Editing a published document
 
-- a per-request retry key;
-- canonical SHA-256 state tokens, checked for the section being edited and its dependencies; and
-- a database lock over the definition and terms version.
+Choose explicitly:
 
-Relevant concurrent changes return HTTP 409 with the changed sections and submitted values. Unrelated section changes do not prevent saving. Final enablement checks identity, financial terms, compatibility profile, selected document versions, eligibility and alignment revisions together. Readiness uses separate content fingerprints rather than the write-conflict tokens. Existing document-selection events retain draft intent; published catalogue eligibility remains the source of truth.
+- **Change for all products:** reopen/create the next shared editable version.
+  Publishing names the affected products and validates the current impact.
+- **Make a copy for one product:** choose a product that uses the document.
+  The copy keeps the original PDF and mapping but belongs to an independent
+  document family. Publishing it replaces only that product's eligibility.
 
-Successful step confirmations are append-only `setup_step_completed` events on the existing product-version or Origination product event streams. Replaying the same request key does not create duplicate setup evidence.
+No automatic product-specific fork is created by simply selecting a document.
+Old published versions and application snapshots are retained.
 
-## Authorization and security
+On a published Product, change document choices without cloning unchanged
+lending terms. Removing its last Main LAF requires confirmation that new
+applications will stop. Existing applications remain unchanged. Editing
+commercial terms uses the existing next-draft Product action.
 
-- Every workspace route independently requires an active Django Superuser.
-- Navigation visibility is not treated as authorization.
-- Calibration return tokens contain only a definition ID and allowlisted step key, are Django-signed, expire after 24 hours, and are checked against the selected document family.
-- Invalid or expired return tokens fall back to the setup dashboard with a visible warning; external return URLs are never accepted.
+## Safety and compatibility
 
-## Developer notes
-
-- `origination/services/origination_setup.py` owns snapshots, hashes, readiness, resume selection, signed returns, and setup completion events.
-- `origination/services/origination_setup_documents.py` coordinates catalogue-backed preparation and activation without legacy packet assignments or another setup-state model.
-- `origination/origination_setup_forms.py` owns bounded multi-model forms.
-- `origination/origination_setup_admin.py` owns the Superuser routes and transaction boundaries.
-- The authoritative final publication still runs the existing product-catalog and Origination-template publication services. The workspace readiness projection is guidance; it does not replace final server-side validation.
-- Migration `0140_repair_origination_availability_channel` changes active legacy Loan Origination `telegram` availability rows to the operational `portal` channel. It merges safely when an equivalent portal row already exists.
+- Django owns configuration; Drive stores the source PDF, not workflow state.
+- Every new write checks active-Superuser authority server-side.
+- Request keys bind retries to saved content; stale revisions do not overwrite
+  another editor's work.
+- Product autosaves and their retry receipts commit in the same transaction.
+- Document publication and eligibility replacement are transactional.
+- The selected Main LAF owns its signer contract. Stale product mirrors cannot
+  silently inject additional signers; configured final approval roles are
+  still validated.
+- Existing applications retain their exact terms, schema, documents, mappings,
+  signer rules, consent and approval policy.
+- Legacy advanced model routes and signed setup-return links remain supported.
+  Old Form/Calibration links lead to Documents; old terms-publication links
+  lead to Product publication.
+- No new model, migration, setting or external dependency is required.
 
 ## Verification
 
-Run the focused checks with the repository virtual environment:
+The local synthetic browser journey exercises:
 
-```powershell
-$env:DEBUG='true'
-$env:DJANGO_SECRET_KEY='local-test-secret-long-enough'
-.\.venv\Scripts\python.exe manage.py test core.tests_origination_setup
-.\.venv\Scripts\python.exe manage.py test core.tests_origination_document_catalogue
-.\.venv\Scripts\python.exe manage.py test core.tests_origination_maintenance_browser
-npm run test:browser -- core/tests_browser/origination_guided_setup.spec.js core/tests_browser/origination_document_versioning.spec.js
-.\.venv\Scripts\python.exe manage.py check
-```
+- custom PDF upload from the new-document form;
+- signer pack, signer edit and lending fields;
+- required field/signature placement through the server to-do list;
+- successful filled-PDF rendering and document publication;
+- selecting that document and publishing a draft Product;
+- shared-document editing and explicit last-Main-LAF withdrawal;
+- 320, 390, 430 and 1280px layouts, including light/dark Product screens.
 
-Before production use, create a synthetic draft, save financial terms, save fields/signers, revisit and change the draft terms, then publish once. Confirm that a compatible document from the independent catalogue makes the product available for the assigned test branch. Application approval and signing safeguards remain unchanged.
+Evidence is under `test-results/origination-authoring/` and
+`test-results/origination-maintenance-live/`, including Playwright traces.
+The baseline recording began at a synthetic **post-upload editor checkpoint**:
+zero signers and one add-signature dead end. It was not a complete recording of
+the former upload flow. The replacement run starts with the actual upload form
+and finishes with document and product publication.
 
-The live admin browser journey uses an isolated Django test server, synthetic PDF bytes and mocked Drive retrieval. Screenshots are written under `test-results/origination-maintenance-live`; no production URL or customer data is permitted. Run the same Django suites with the repository PostgreSQL test settings to verify PostgreSQL-specific locking as well.
+These are localhost synthetic fixtures with mocked Drive. No production data,
+external writes or deployment are included. See [KNOWN_GAPS](../KNOWN_GAPS.md)
+for the latest passed, failed and unverified validation scope.
+
+## Code ownership
+
+- `origination/services/document_editor.py`: document creation, signer edits,
+  readiness, independent copies and publication.
+- `origination/document_editor_admin.py`: Superuser forms and JSON adapters.
+- `origination/origination_setup_admin.py`: Product task projection, autosaves
+  and transactional Product publication.
+- Existing catalogue, commercial-term, field and template services remain the
+  authoritative contracts; no parallel setup database is introduced.

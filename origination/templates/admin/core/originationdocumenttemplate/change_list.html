@@ -2,9 +2,11 @@
 {% block content %}
   {% if request.user.is_superuser %}
     <section style="margin-bottom:12px;padding:11px 13px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033">
-      <strong style="display:block;font-size:14px">Origination document catalogue</strong>
-      <p style="margin:3px 0 0;color:#64748b;font-size:12px">Each document declares its eligible products. Upload the PDF, build its fields and signer slots visually, calibrate the alignment, preview it, then publish. Products with no compatible Main LAF remain unavailable.</p>
+      <strong style="display:block;font-size:14px">Documents</strong>
+      <p style="margin:3px 0 8px;color:#64748b;font-size:12px">Copy a document or upload a PDF. Set up signers, fields and placement, then publish.</p>
+      <a href="{% url 'admin:origination_document_new' %}" class="addlink">New document</a>
     </section>
   {% endif %}
   {{ block.super }}
 {% endblock %}
+{% block object-tools-items %}{% endblock %}

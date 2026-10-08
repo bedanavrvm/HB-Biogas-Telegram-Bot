@@ -246,7 +246,7 @@ class SetupCatalogueSelectionForm(forms.Form):
         super().__init__(*args, **kwargs)
         from django.db.models import Q
         self.fields['templates'].queryset = OriginationDocumentTemplate.objects.filter(
-            Q(status='active', published_configuration_revision__isnull=False)
+            Q(status='active', published_configuration_revision__isnull=False, product_eligibilities__product_id=definition.product_version.product_id)
             | Q(status='ready', product_eligibilities__product_id=definition.product_version.product_id),
         ).distinct().order_by('document_role', 'name', '-version')
         self.fields['templates'].label_from_instance = lambda item: (

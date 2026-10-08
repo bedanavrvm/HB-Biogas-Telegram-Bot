@@ -1,5 +1,41 @@
 # Known Gaps and Verified Workarounds
 
+## Independent Origination authoring - 8 October 2026
+
+Product setup now has three non-linear tasks: Details, Lending terms and Documents.
+The independent Document editor owns PDF, signers, fields, placement and preview.
+Both save drafts with server-confirmed feedback and have one Publish action each.
+Product publication never publishes a document. Shared edits and product-only
+copies preserve existing applications and their exact signing snapshots.
+
+Verification completed with synthetic local data and mocked integrations:
+
+- 71 focused Django checks pass, including two real localhost browser journeys.
+  A subsequently added published-copy retry regression passes separately.
+- Seven focused Playwright layout checks, all nine Node suites and JavaScript
+  syntax checks (116 files) pass. Django checks pass; no migration drift.
+- A custom PDF was uploaded, signers added and edited, lending fields added,
+  nine fields/signatures placed, the rendered preview checked and the document
+  published. The draft product was then linked and published without a dead end.
+- Screenshots were inspected at mobile and desktop sizes, including dark mode.
+  Published documents remain read-only while the mobile panel can still close.
+- The before-change evidence is a synthetic post-upload editor checkpoint,
+  not a recording of the entire original upload journey.
+
+The broader fresh-database selection is not fully green: 183 of 188 tests pass.
+The remaining three failures and two errors were reproduced against unchanged
+HEAD Python code. They concern older template-admin expectations and an incomplete
+supporting-document fixture, not the new independent-authoring flow. Evidence:
+`test-results/origination-workspaces-final.txt`, `origination-copy-retry.txt`,
+`origination-workspaces-fresh.txt` and `origination-baseline-check.txt`.
+Screenshots and the final trace are under `test-results/origination-authoring/`.
+
+Backend verification used isolated SQLite. PostgreSQL row-lock and concurrency
+parity, production Python 3.12, physical Telegram devices and the full repository
+suite remain unverified. Ruff/Black are not installed locally. No new models,
+migrations, dependencies, settings, production deployment or real integration
+writes were involved. See `docs/origination_product_setup_workspace.md`.
+
 ## Form presentation correction and Portal camera - 8 October 2026
 
 Restored the existing per-app form text and control scale; validation now uses

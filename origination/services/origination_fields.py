@@ -704,7 +704,7 @@ def attach_data_field_to_template(
         raise OriginationFieldConflict('This document schema changed. Reload before adding the field.')
     sections = [item for item in (schema.get('sections') or []) if isinstance(item, dict)]
     if not sections:
-        sections = [{'key': 'document', 'label': template.name, 'help_text': ''}]
+        sections = [{'key': 'document', 'label': 'Document', 'help_text': ''}]
     schema['sections'] = sections
     presentation = {**presentation, 'section_key': str(presentation.get('section_key') or sections[0]['key'])}
     schema['fields'].append(_field_schema_item(data_field, presentation))

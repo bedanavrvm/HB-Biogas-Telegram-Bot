@@ -1,6 +1,9 @@
 # Loan Origination Mini App: Django Admin Guide
 
-Last verified against the repository on **26 August 2026**.
+Product and Document authoring updated on **8 October 2026**. The operational
+chapters below also describe advanced and legacy routes; use the current
+[Product and Document workspace guide](origination_product_setup_workspace.md)
+for normal setup.
 
 This guide is for Django Superusers and staff responsible for configuring loan
 products, LAFs, supporting documents, and Mini App access. It describes the
@@ -16,12 +19,10 @@ or assigning grants.
 One usable loan product is assembled from several governed records:
 
 ```text
-Global Product
-    └── Product Terms and Requirements (versioned commercial terms)
-            └── Origination Product Definition (versioned form contract)
-                    ├── Main LAF PDF and its field/signature mapping
-                    └── Supporting document assignments
-                            └── Reusable supporting PDF versions and mappings
+Product workspace                 Independent Document editor
+  Details and lending terms         PDF, Signers, Fields, Placement, Preview
+  Eligible document selections <--- Document's product allowlist
+  Publish terms + profile            Publish document
 ```
 
 When an officer starts an application, Django freezes snapshots of the product

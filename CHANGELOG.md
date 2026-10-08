@@ -1,5 +1,19 @@
 # Changelog
 
+## 8 October 2026 - Independent Origination authoring
+
+- Split commercial Product setup from independent Document authoring. Three
+  non-linear Product tasks replace the stepper; selecting documents never forks
+  them or publishes unfinished PDFs.
+- Added draft autosave, server-confirmed save status and one Publish per workspace.
+  Inline errors retain input; revision conflicts and content-bound retries remain.
+- Added signer editing and packs, a standard lending-field shortcut, and a
+  server-owned placement to-do list. Advanced geometry stays collapsed.
+- Published documents offer an explicit shared update or one-product copy.
+  Transactions preserve existing applications, approval policy and signed history.
+- Added synthetic service and localhost browser journeys, screenshots and traces.
+  No new models, migrations, settings or dependencies.
+
 ## 8 October 2026 - Restore form proportions and new-lead camera
 
 - Restored established label, helper and input sizing across all four Mini Apps

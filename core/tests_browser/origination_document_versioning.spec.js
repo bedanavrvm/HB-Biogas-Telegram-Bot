@@ -20,7 +20,7 @@ django.setup()
 from types import SimpleNamespace as N
 from django.template import engines
 document=N(pk='00000000-0000-0000-0000-000000000001',name='Synthetic published legacy Main LAF',status='active',product_definition_id='00000000-0000-0000-0000-000000000002')
-context=dict(request=N(user=N(is_superuser=True)),original=document,template_record=document,origination_create_editable_template_url='/admin/synthetic/create-editable-version/',calibration_create_editable_url='/admin/synthetic/create-editable-version/',calibration_back_url='/admin/synthetic/')
+context=dict(request=N(user=N(is_superuser=True)),original=document,template_record=document,origination_create_editable_template_url='/admin/synthetic/create-editable-version/',calibration_create_editable_url='/admin/synthetic/create-editable-version/',editor_edit_url='/admin/synthetic/edit-document/',calibration_back_url='/admin/synthetic/')
 print(engines['django'].from_string(sys.stdin.read()).render(context))
 `], {cwd: root, input: fragment, encoding: 'utf8', env: {...process.env,
     DATABASE_URL: 'sqlite:///:memory:', DJANGO_SECRET_KEY: 'synthetic-browser-only-'.padEnd(64, 'x')},
@@ -32,9 +32,12 @@ for (const mode of ['detail', 'alignment']) {
     await page.setContent(render(mode));
     await page.addStyleTag({content: 'body{font:14px/1.4 Arial,sans-serif;margin:8px;background:#f5f7fa}button{font:inherit}'});
     await page.addStyleTag({path: path.join(root, 'origination/static/admin', mode === 'detail' ? 'origination_product_builder.css' : 'origination_calibration.css')});
-    const action = page.getByRole('button', {name: mode === 'detail' ? 'Create editable version' : 'Edit new version', exact: true});
+    const action = mode === 'detail'
+      ? page.getByRole('button', {name: 'Create editable version', exact: true})
+      : page.getByRole('link', {name: 'Edit', exact: true});
     await expect(action).toBeVisible();
-    await expect(action.locator('..')).toHaveAttribute('method', 'post');
+    if (mode === 'detail') await expect(action.locator('..')).toHaveAttribute('method', 'post');
+    else await expect(action).toHaveAttribute('href', '/admin/synthetic/edit-document/');
     if (mode === 'alignment') {
       await page.locator('#calibration-publish').evaluate(button => {button.disabled = true;});
       await expect(action).toBeEnabled();
