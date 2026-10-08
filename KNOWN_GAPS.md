@@ -1,5 +1,37 @@
 # Known Gaps and Verified Workarounds
 
+## Shared controls, media and TAT chart selection - 8 October 2026
+
+Implemented shared native primary-action ownership, compact draft recovery,
+right-aligned correction/status controls, fixed media zoom/pan and scoped chart
+point selection. Form typography, workflow transitions and authorization remain
+unchanged. Historical workload snapshots cannot identify their original cases;
+clicking them explains this limitation instead of showing today's unrelated cases.
+
+Verification used only synthetic local fixtures and mocked integrations:
+
+- 80 focused Playwright checks pass, covering native-button validation/fallback,
+  unavailable complaint types, real select taps/keyboard input, dependent locations,
+  image corners at three aspect ratios, preview cleanup, chart series selection,
+  historical totals and existing form/report/navigation regressions.
+- 44 focused Django/report-email checks pass on isolated SQLite, including scope,
+  distinct cohorts, measurement denominators and matching Excel/email filters.
+- All nine Node suites and syntax checks for 118 first-party JavaScript files pass.
+- Screenshot checks cover 320, 360, 390, 430, 768 and 1280px in both themes.
+  Final mobile/tablet/desktop Complaint and TAT screenshots and a zoomed photo
+  corner were visually inspected; the tablet draft-retry alignment was corrected.
+- Text logs: `test-results/miniapp-controls-browser.txt` and
+  `test-results/miniapp-controls-backend.txt`. Synthetic screenshots remain under
+  `test-results/playwright/` (a later Playwright run replaces that output).
+
+The original Complaint Type "does not open" symptom was not reproduced in local
+Chromium: native tap/keyboard selection works in the real form shell. Catalogue
+unavailability now has an explicit recoverable state; this is not proof of the
+original device-specific cause. Physical Telegram Android/iOS picker, keyboard
+and pinch behavior, assistive technology, PostgreSQL parity and the full repository
+suite remain unverified. No production deployment or real integration writes were
+performed. See `docs/miniapp-ux-parity-notes.md` for the shared component contract.
+
 ## Independent Origination authoring - 8 October 2026
 
 Product setup now has three non-linear tasks: Details, Lending terms and Documents.

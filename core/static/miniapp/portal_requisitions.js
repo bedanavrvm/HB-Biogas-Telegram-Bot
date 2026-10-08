@@ -930,12 +930,10 @@
     if (progress) progress.hidden = true;
     // One visible finalization action: Telegram's main button when supported,
     // otherwise the ordinary page button. The hidden proxy retains its handler.
-    const nativeMain = typeof deps.tg?.MainButton?.show === 'function' && typeof deps.tg?.MainButton?.onClick === 'function';
-    confirm.hidden = readOnly || nativeMain;
+    confirm.hidden = readOnly;
     confirm.toggleAttribute('aria-hidden', confirm.hidden);
     delete confirm.dataset.validationBlocked;
-    if (!readOnly && nativeMain) confirm.dataset.mainActionProxy = 'true';
-    else delete confirm.dataset.mainActionProxy;
+    delete confirm.dataset.mainActionProxy;
     if (readOnly) confirm.removeAttribute('data-main-action');
     else confirm.dataset.mainAction = `Generate ${data.order_number}`;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);

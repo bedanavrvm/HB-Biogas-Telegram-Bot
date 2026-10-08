@@ -2,7 +2,7 @@
   'use strict';
   const tg = window.MiniAppUtils?.initTelegram?.() || window.Telegram?.WebApp;
   let backHandler = null;
-  let mainHandler = null;
+  let mainAction = null;
   let lastFocusedElement = null;
 
   function clearBackHandler() {
@@ -194,24 +194,15 @@
   }
 
   function syncMainButton() {
-    if (!tg?.MainButton) return;
-    if (mainHandler) tg.MainButton.offClick(mainHandler);
-    const action = [...document.querySelectorAll('#content [data-main-action]')]
-      .find(element => {
+    if (!mainAction) mainAction = window.MiniAppUtils?.bindMainAction?.({telegram:tg, resolve:() => {
+      if (document.querySelector('dialog[open], #media-viewer-overlay.open, #jbl-camera-overlay.open, .portal-media-overlay.open')) return null;
+      return [...document.querySelectorAll('#content [data-main-action]')].find(element => {
         const overlay = element.closest('.sheet-overlay');
-        const visibleOverlay = !overlay || overlay.classList.contains('open');
-        const visibleAction = element.getClientRects().length || element.dataset.mainActionProxy === 'true';
-        return visibleOverlay && visibleAction && !element.disabled;
-      });
-    if (!action) {
-      tg.MainButton.hide();
-      mainHandler = null;
-      return;
-    }
-    tg.MainButton.setText(action.dataset.mainAction || action.textContent.trim() || 'Continue');
-    mainHandler = () => action.click();
-    tg.MainButton.onClick(mainHandler);
-    tg.MainButton.show();
+        return (!overlay || overlay.classList.contains('open')) && !element.closest('[hidden]')
+          && (element.getClientRects().length || element.dataset.mainActionProxy === 'true');
+      }) || null;
+    }});
+    mainAction?.sync();
   }
 
   function activateScreen() {

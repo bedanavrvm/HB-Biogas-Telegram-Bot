@@ -77,12 +77,11 @@
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
   let activeCameraStream = null;
-  let mainButtonHandler = null;
+  let mainActionController = null;
   let lastActivatedButton = null;
   let primaryBusy = false;
   let createInFlight = false;
-  let previewPinch = null;
-  let previewSwipe = null;
+  let previewGestures = null;
   let keyboardFocusTimer = null;
 
   function syncCloseProtection() {
@@ -103,7 +102,6 @@
   let keyboardViewportOpen = false;
   let telegramMainSuppressed = false;
   let nativeMainButtonVisible = false;
-  const previewPointers = new Map();
   const previewPageUrls = new Map();
   const previewPageLoads = new Map();
   const volatileStorage = new Map();
@@ -125,19 +123,6 @@
   function storageRemove(key) {
     volatileStorage.delete(key);
     try { window.localStorage?.removeItem(key); } catch (_) { /* Restricted WebViews may deny storage. */ }
-  }
-
-  function pointDistance(points) {
-    const x = points[0].x - points[1].x;
-    const y = points[0].y - points[1].y;
-    return Math.hypot(x, y);
-  }
-
-  function pointMidpoint(points) {
-    return {
-      x: (points[0].x + points[1].x) / 2,
-      y: (points[0].y + points[1].y) / 2,
-    };
   }
 
   function requestKey(prefix) {
@@ -361,10 +346,7 @@
   }
 
   function clearMainButtonHandler() {
-    if (mainButtonHandler && tg?.MainButton) {
-      try { tg.MainButton.offClick?.(mainButtonHandler); } catch (_) { /* Do not let bridge errors break the form. */ }
-    }
-    mainButtonHandler = null;
+    mainActionController?.dispose(); mainActionController = null;
   }
 
   function hideMainButton() {
@@ -375,54 +357,18 @@
   }
 
   function syncPrimaryAction() {
-    const actions = [...document.querySelectorAll('[data-primary-action]')];
-    actions.forEach(action => {
-      action.hidden = false;
-      action.removeAttribute('aria-hidden');
-    });
-    clearMainButtonHandler();
-    document.body.classList.remove('telegram-main-button-active');
-    // The native Telegram button is useful in the short creation sheet, but
-    // in the editor it competes with the software keyboard. Keep editor
-    // actions in the document so they can disappear with the keyboard state.
-    if (current) {
-      if (nativeMainButtonVisible) hideMainButton();
-      return;
-    }
-    if (keyboardViewportOpen) {
-      try { tg?.MainButton?.hideProgress?.(); tg?.MainButton?.hide?.(); } catch (_) { /* Keep the form usable. */ }
-      return;
-    }
-    if (!tg?.MainButton) return;
-    const blockedByOverlay = !document.getElementById('document-preview-overlay')?.hidden
-      || !document.getElementById('origination-review-overlay')?.hidden
-      || (sheetMode && sheetMode !== 'create');
-    const action = blockedByOverlay ? null : actions.find(item => item.getClientRects().length > 0);
-    actions.forEach(item => {
-      item.hidden = true;
-      item.setAttribute('aria-hidden', 'true');
-    });
-    if (!action) return hideMainButton();
-    try {
-      document.body.classList.add('telegram-main-button-active');
-      tg.MainButton.setText?.(action.dataset.primaryAction || action.textContent.trim() || 'Continue');
-      if (primaryBusy || action.disabled) tg.MainButton.disable?.();
-      else tg.MainButton.enable?.();
-      mainButtonHandler = () => {
-        if (!primaryBusy && !action.disabled) action.click();
-      };
-      tg.MainButton.onClick?.(mainButtonHandler);
-      tg.MainButton.show?.();
-      nativeMainButtonVisible = true;
-    } catch (_) {
-      clearMainButtonHandler();
-      document.body.classList.remove('telegram-main-button-active');
-      actions.forEach(item => {
-        item.hidden = false;
-        item.removeAttribute('aria-hidden');
-      });
-      nativeMainButtonVisible = false;
-    }
+    if (!mainActionController) mainActionController = window.MiniAppUtils?.bindMainAction?.({telegram:tg,
+      busy:() => primaryBusy, resolve:() => {
+        const blocked = keyboardViewportOpen
+          || document.querySelector('dialog[open]')
+          || !document.getElementById('document-preview-overlay')?.hidden
+          || !document.getElementById('origination-review-overlay')?.hidden
+          || (sheetMode && sheetMode !== 'create');
+        return blocked ? null : [...document.querySelectorAll('[data-primary-action]')]
+          .find(item => !item.closest('[hidden]') && item.getClientRects().length) || null;
+      }});
+    mainActionController?.sync();
+    nativeMainButtonVisible = Boolean(document.querySelector('.miniapp-native-action'));
   }
 
   function setPrimaryBusy(busy, label = '') {
@@ -2585,6 +2531,8 @@
       overlay.hidden = false;
       overlay.setAttribute('aria-hidden', 'false');
       document.body.classList.add('origination-modal-open');
+      bindPreviewPinch();
+      previewGestures?.reset();
       syncTelegramControls();
       return;
     }
@@ -3082,6 +3030,8 @@
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('origination-modal-open');
+    bindPreviewPinch();
+    previewGestures?.reset();
     syncTelegramControls();
     window.requestAnimationFrame(() => document.getElementById('preview-close')?.focus());
     await loadPreviewPage();
@@ -3193,7 +3143,7 @@
 
   function updatePreviewFrame() {
     const image = document.getElementById('document-preview-image');
-    if (image && previewUrl) { image.src = previewUrl; image.style.width = `${previewZoom}%`; }
+    if (image && previewUrl) image.src = previewUrl;
     const page = document.getElementById('preview-page'); if (page) page.textContent = `Page ${previewPage} of ${previewPageCount}`;
     const zoom = document.getElementById('preview-zoom'); if (zoom) zoom.textContent = `${previewZoom}%`;
     const previous = document.getElementById('preview-previous'); if (previous) previous.disabled = previewPage <= 1;
@@ -3201,83 +3151,28 @@
   }
 
   function setPreviewZoom(value, focalPoint) {
-    const stage = document.getElementById('document-preview-stage');
-    const previousZoom = previewZoom;
-    const nextZoom = Math.max(50, Math.min(300, Math.round(value)));
-    if (!stage || nextZoom === previousZoom) return;
-    const bounds = stage.getBoundingClientRect();
-    const localX = (focalPoint?.x ?? (bounds.left + bounds.width / 2)) - bounds.left;
-    const localY = (focalPoint?.y ?? (bounds.top + bounds.height / 2)) - bounds.top;
-    const ratio = nextZoom / previousZoom;
-    previewZoom = nextZoom;
-    updatePreviewFrame();
-    // Retain the document point beneath the user's fingers after resizing.
-    stage.scrollLeft = (stage.scrollLeft + localX) * ratio - localX;
-    stage.scrollTop = (stage.scrollTop + localY) * ratio - localY;
+    bindPreviewPinch();
+    previewGestures?.zoom(value / 100, focalPoint);
   }
 
   function bindPreviewPinch() {
     const stage = document.getElementById('document-preview-stage');
-    if (!stage) return;
-    stage.addEventListener('pointerdown', event => {
-      previewPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      if (previewPointers.size === 1) {
-        previewSwipe = {
-          pointerId: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          startedAt: Date.now(),
-          cancelled: false,
-        };
-      }
-      try { stage.setPointerCapture(event.pointerId); } catch (_) { /* WebView may already own capture. */ }
-      if (previewPointers.size === 2) {
-        if (previewSwipe) previewSwipe.cancelled = true;
-        const points = [...previewPointers.values()];
-        previewPinch = { distance: pointDistance(points), zoom: previewZoom };
-      }
-      event.preventDefault();
+    const image = document.getElementById('document-preview-image');
+    if (!stage || !image || previewGestures) return;
+    previewGestures = window.SecureMediaViewer?.bindImageGestures(stage, image, {
+      onNavigate: direction => { if (!evidencePreviewUrl) void navigatePreviewPage(direction); },
+      onZoom: scale => {
+        previewZoom = Math.round(scale * 100);
+        document.getElementById('preview-zoom').textContent = `${previewZoom}%`;
+      },
     });
-    stage.addEventListener('pointermove', event => {
-      const previous = previewPointers.get(event.pointerId);
-      if (!previous) return;
-      previewPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      if (previewPointers.size === 2 && previewPinch) {
-        const points = [...previewPointers.values()];
-        const distance = pointDistance(points);
-        if (previewPinch.distance) {
-          setPreviewZoom(previewPinch.zoom * (distance / previewPinch.distance), pointMidpoint(points));
-        }
-      } else if (previewPointers.size === 1) {
-        stage.scrollLeft -= event.clientX - previous.x;
-        stage.scrollTop -= event.clientY - previous.y;
-      }
-      event.preventDefault();
-    });
-    const finishPointer = event => {
-      const swipe = previewSwipe;
-      if (event.type === 'pointerup' && swipe && swipe.pointerId === event.pointerId && !swipe.cancelled && previewPointers.size === 1) {
-        const deltaX = event.clientX - swipe.startX;
-        const deltaY = event.clientY - swipe.startY;
-        const threshold = Math.max(56, stage.clientWidth * .16);
-        const deliberateHorizontalSwipe = Math.abs(deltaX) >= threshold
-          && Math.abs(deltaX) > Math.abs(deltaY) * 1.35
-          && Date.now() - swipe.startedAt <= 900;
-        if (deliberateHorizontalSwipe) navigatePreviewPage(deltaX < 0 ? 1 : -1);
-      }
-      previewPointers.delete(event.pointerId);
-      previewPinch = null;
-      if (!previewPointers.size || swipe?.pointerId === event.pointerId) previewSwipe = null;
-    };
-    stage.addEventListener('pointerup', finishPointer);
-    stage.addEventListener('pointercancel', finishPointer);
-    stage.addEventListener('lostpointercapture', finishPointer);
   }
 
   async function navigatePreviewPage(direction) {
     const requestedPage = previewPage + direction;
     if (requestedPage < 1 || requestedPage > previewPageCount) return;
     previewPage = requestedPage;
+    previewGestures?.reset();
     await loadPreviewPage();
     const stage = document.getElementById('document-preview-stage');
     if (stage) { stage.scrollLeft = 0; stage.scrollTop = 0; }
@@ -3297,9 +3192,8 @@
     previewPacketVersion = '';
     const updateNotice = document.getElementById('preview-update-notice');
     if (updateNotice) updateNotice.hidden = true;
-    previewPinch = null;
-    previewSwipe = null;
-    previewPointers.clear();
+    previewGestures?.dispose();
+    previewGestures = null;
     document.body.classList.remove('origination-modal-open');
     syncTelegramControls();
     const returnFocus = previewReturnFocus;

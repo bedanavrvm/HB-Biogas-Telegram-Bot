@@ -2887,6 +2887,7 @@
       view: state.report.view, page: state.report.page, page_size: state.report.pageSize,
       sort: state.report.sort,
       ...(state.report.heatSelection || {}),
+      ...(state.report.chartSelection?.filters || {}),
     }, extra || {}));
   }
 
@@ -2920,6 +2921,7 @@
       insight,
       include_overview: false,
       include_options: false,
+      drill_chart: '', drill_series: '', drill_bucket: '', heat_row: '', heat_column: '',
     }, options || {}));
   }
 
@@ -3523,6 +3525,7 @@
     target.onclick = event => {
       const button = event.target.closest('[data-heat-row]');
       if (!button || button.disabled) return;
+      state.report.chartSelection = null;
       state.report.heatSelection = { heat_row: rows[Number(button.dataset.heatRow)], heat_column: columns[Number(button.dataset.heatColumn)] };
       state.report.page = 1; renderHeatmapSelection();
       refreshTatReport({ summary: false }).then(() => $('tatReportGrid').scrollIntoView({ block: 'start', behavior: 'smooth' }));
@@ -3534,12 +3537,30 @@
     if (!button) {
       button = document.createElement('button'); button.id = 'tatHeatmapSelection'; button.type = 'button'; button.className = 'miniapp-filter-chip';
       $('tatReportGrid').before(button);
-      button.addEventListener('click', () => { state.report.heatSelection = null; state.report.page = 1; renderHeatmapSelection(); refreshTatReport({ summary: false }); });
+      button.addEventListener('click', () => { clearReportSelection(); state.report.page = 1; refreshTatReport({ summary: false }); });
     }
     const selection = state.report.heatSelection;
-    button.hidden = !selection;
-    button.textContent = selection ? `${selection.heat_row} · ${selection.heat_column} ×` : '';
-    button.setAttribute('aria-label', 'Clear heatmap selection');
+    const chart = state.report.chartSelection;
+    button.hidden = !selection && !chart;
+    button.textContent = selection ? `${selection.heat_row} · ${selection.heat_column} ×` : chart ? `${chart.label} ×` : '';
+    button.setAttribute('aria-label', chart ? 'Clear chart selection' : 'Clear heatmap selection');
+  }
+
+  function clearReportSelection() {
+    state.report.heatSelection = state.report.chartSelection = null; renderHeatmapSelection();
+  }
+
+  function selectTatChartPoint(key, payload, seriesIndex, pointIndex) {
+    if (payload.drilldown?.available === false) {
+      setStatus(payload.drilldown.reason || 'Individual cases aren’t available for this historical total.', 'ok'); return;
+    }
+    const series = payload.series?.[seriesIndex], bucket = (payload.point_keys || payload.labels || [])[pointIndex];
+    if (!series || bucket == null || series.values?.[pointIndex] == null) return;
+    state.report.heatSelection = null;
+    state.report.chartSelection = {filters:{drill_chart:key, drill_series:series.key, drill_bucket:String(bucket)},
+      label:`${series.label} · ${['trend','sla_compliance','tat_percentiles'].includes(key) ? formatReportDate(bucket) : bucket}`};
+    state.report.page = 1; renderHeatmapSelection();
+    refreshTatReport({summary:false}).then(() => $('tatReportGrid').scrollIntoView({block:'start',behavior:'smooth'}));
   }
 
   function renderTargetReviewSignals(payload) {
@@ -3788,6 +3809,12 @@
         : (payload.labels || []).map(compactTatReportLabel);
       const options = {
         responsive: true, maintainAspectRatio: false,
+        onClick(event, elements, chart) {
+          // Index-mode tooltips include every series. Drill into the point
+          // actually touched, not whichever series happens to come first.
+          const point = (chart?.getElementsAtEventForMode(event, 'nearest', {intersect:true}, true) || elements)?.[0];
+          if (point) selectTatChartPoint(key, payload, point.datasetIndex, point.index);
+        },
         interaction: { mode: pie ? 'nearest' : 'index', intersect: pie },
         plugins: { legend: { labels: { color: text, boxWidth: 10, font: { size: 9 } } } },
       };
@@ -3984,7 +4011,7 @@
   }
 
   function setTatReportView(view) {
-    state.report.heatSelection = null; renderHeatmapSelection();
+    clearReportSelection();
     state.report.view = view; state.report.page = 1; state.report.activeSlide = 0;
     document.querySelectorAll('[data-report-view]').forEach(button => { const active = button.dataset.reportView === view; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
     $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Disbursed and Declined';
@@ -4084,7 +4111,7 @@
   let tatReportFiltersDirty = false;
   ['date_mode', 'month', 'quarter', 'year'].forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => {
     syncTatPeriodControls();
-    state.report.heatSelection = null; renderHeatmapSelection();
+    clearReportSelection();
     syncReportFilterGuidance();
     queueTatReportFilterRefresh(140);
   }));
@@ -4109,13 +4136,13 @@
     }
   });
   $('tatReportFilters').elements.search.addEventListener('input', () => {
-    state.report.heatSelection = null; renderHeatmapSelection();
+    clearReportSelection();
     clearTimeout(tatReportFilterTimer); syncReportFilterGuidance();
     utils.haptic?.('light');
     queueTatReportFilterRefresh(350);
   });
   $('tatReportReset').addEventListener('click', () => {
-    state.report.heatSelection = null; renderHeatmapSelection();
+    clearReportSelection();
     $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1;
     clearTimeout(tatReportFilterTimer); tatReportFiltersDirty = false;
     invalidateTatReportInsights(); syncReportFilterGuidance(); refreshTatReport(); utils.haptic?.('light');
@@ -4126,7 +4153,7 @@
     'chart_dimension', 'chart_metric', 'heatmap_pair', 'heatmap_metric',
   ];
   immediateReportFilters.forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => {
-    state.report.heatSelection = null; renderHeatmapSelection();
+    clearReportSelection();
     if (name === 'date_from' || name === 'date_to') syncReportDateDisplays();
     state.report.page = 1; syncReportFilterGuidance();
     utils.haptic?.('light');
@@ -4621,6 +4648,13 @@
       }
     });
   }
+  utils.bindMainAction?.({telegram:tg, resolve:() => {
+    if (state.assessmentPreview.open || state.filterSheetOpen || state.report.filterSheetOpen
+        || document.querySelector('dialog[open]')) return null;
+    if (state.currentView === 'detail' && !$('caseCorrectionPanel').classList.contains('hidden')) return $('saveCaseCorrectionBtn');
+    if (state.currentView === 'new') return $('newCaseForm').querySelector('button[type="submit"]');
+    return null;
+  }});
   startApp()
     .then(startRuntimeTimers)
     .catch(presentTatError);

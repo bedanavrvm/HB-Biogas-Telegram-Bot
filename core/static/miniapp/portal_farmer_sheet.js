@@ -892,7 +892,7 @@
       resetJblMediaSelections();
       formEl.innerHTML = buildJblForm(farmer);
       wireDecisionReasonFields('jbl');
-      footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>';
+      footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl" data-main-action="Log JBL Visit">Log JBL Visit</button>';
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireJblDateInput();
       wireGpsButton();
@@ -903,7 +903,7 @@
       if (!isNewLead) sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
       formEl.innerHTML = buildCreditForm(farmer);
-      footerEl.innerHTML = '<button class="primary" id="btn-submit-credit">Set Credit Decision</button>';
+      footerEl.innerHTML = '<button class="primary" id="btn-submit-credit" data-main-action="Set Credit Decision">Set Credit Decision</button>';
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
       wireCreditImabFields();
       wireDecisionReasonFields('credit');
@@ -911,7 +911,7 @@
       wireVoiceWidget('credit_decision_comment');
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
-      footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
+      footerEl.innerHTML = '<button class="primary" id="btn-submit-final" data-main-action="Save Final Review">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       wireDecisionReasonFields('final');
       wireFinalCommentShortcut();

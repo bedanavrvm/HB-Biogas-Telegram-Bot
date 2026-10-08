@@ -7,7 +7,7 @@
   <meta name="description" content="JBL paperless loan origination">
   <title>Loan Origination</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=11">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=12">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
   <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=20261007-2">
 </head>
@@ -31,7 +31,7 @@
       <div id="preview-update-notice" class="feedback-banner warning" role="status" hidden><span>A newer signature is available.</span><button id="preview-update-now" type="button">Refresh packet</button></div>
       <div class="preview-toolbar"><button id="preview-previous" type="button">Previous page</button><button id="preview-next" type="button">Next page</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button><button id="preview-zoom-out" type="button" aria-label="Zoom out">-</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button" aria-label="Zoom in">+</button></div>
     </div>
-    <div id="document-preview-stage" class="preview-stage"><img id="document-preview-image" alt="Filled loan application preview"></div>
+    <div id="document-preview-stage" class="preview-stage" tabindex="0" aria-label="Document preview. Pinch to zoom; swipe to change pages."><img id="document-preview-image" alt="Filled loan application preview"></div>
   </div>
   <div id="origination-review-overlay" class="review-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <form id="origination-review-dialog" class="review-dialog">
@@ -54,7 +54,8 @@
   </div>
   <div id="origination-toast" class="origination-toast" role="status" aria-live="polite" hidden></div>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=24"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=20261008-2"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=25"></script>
+  <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=20261008-3"></script>
 </body>
 </html>

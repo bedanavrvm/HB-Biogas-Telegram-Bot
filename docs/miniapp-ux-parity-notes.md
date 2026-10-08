@@ -55,6 +55,45 @@ The tests use synthetic data. Screenshots cover 320–430px mobile, 768px and
 1280px; real Telegram keyboard/voice/camera and assistive-technology testing
 remain explicit release checks, not claims of complete WCAG certification.
 
+## Shared action and preview controls - 8 October 2026
+
+- `MiniAppUtils.bindMainAction({telegram, resolve, busy})` owns one Telegram
+  MainButton. Resolve only the active form's explicit primary button; return
+  `null` during previews, unrelated dialogs or autosave-only screens. Native
+  clicks use that button's existing handler, including validation and write
+  guards. Disabled/progress states stay synchronized. Missing authentication
+  or a failed Telegram bridge leaves the normal in-page action available.
+- Draft recovery uses **You have a saved draft**, with compact labelled Restore
+  and Discard icons. Both controls disable during either action; recovery remains
+  field-only and user-owned. Existing form typography is unchanged.
+- Read-only images and rendered document pages use
+  `SecureMediaViewer.bindImageGestures(stage, image, options)`. Fit-to-5x zoom,
+  focal pinch and bounded pan keep every corner reachable in a fixed viewport.
+  Swipe changes the file/page only at fit scale; a pinch or zoomed pan never
+  changes it. Dispose when closing or replacing a preview. Authoring and
+  signature canvases retain their own controls.
+- TAT point selection passes allowlisted `drill_chart`, `drill_series` and
+  `drill_bucket` values. The server resolves the exact authorized contributing
+  cohort, returning distinct cases. Percentages and percentiles select their
+  measurement denominator, not just successful cases. Reset to page one, keep
+  the base charts unchanged and show a removable selection chip. Paging,
+  sorting, filtered Excel and email export retain the same cohort.
+- Historical workload points stay aggregate-only: explain that their original
+  individual cases are unavailable rather than substituting today's cases.
+- Complaint types remain native selects. If their catalogue is unavailable,
+  disable creation and offer **Reload complaint types**, retaining all input.
+  Dependent location reloads retain a selection only when it remains valid.
+
+Focused browser checks (synthetic fixtures only):
+
+```powershell
+npm run test:browser -- core/tests_browser/miniapp_controls_regressions.spec.js core/tests_browser/miniapp_workflow_controls.spec.js core/tests_browser/tat_queue_search.spec.js core/tests_browser/origination_queues.spec.js core/tests_browser/portal_media_gestures.spec.js
+```
+
+Inspect the screenshots in `test-results/playwright/` at 320, 360, 390, 430,
+768 and 1280px in both themes. Browser-bridge mocks do not replace a physical
+Telegram Android/iOS release check; native picker behavior must be checked there.
+
 ## Proven patterns across workflows
 
 | Pattern | Origination | TAT Tracker | Complaint Case application |

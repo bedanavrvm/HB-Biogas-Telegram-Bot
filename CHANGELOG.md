@@ -1,5 +1,25 @@
 # Changelog
 
+## 8 October 2026 - Shared form actions, media gestures and TAT chart selection
+
+- Right-aligned TAT correction Cancel and Complaint draft status/retry controls.
+  Recovery now says "You have a saved draft" with compact green Restore and red
+  Discard icons, retaining established form typography and input sizes.
+- Shared Telegram MainButton ownership across applicable forms in all four Mini
+  Apps. Existing submission/validation handlers remain authoritative; disabled
+  states, previews, bridge failures and in-page fallback actions are synchronized.
+- Shared fixed-viewport image/rendered-page gestures: fit-to-5x focal pinch,
+  bounded corner panning and page/file swipes only when fitted. Closing previews
+  disposes their handlers, including Complaint and Origination adapters.
+- Complaint type catalogue recovery retains entered data. Native type selection
+  and dependent county/constituency dropdowns have touch/keyboard regression tests.
+- TAT graph points select distinct, authorized contributing cases, preserving
+  paging, filtered Excel and email exports. Multi-series clicks select the actual
+  touched series; historical workload totals explain why case drilldown is absent.
+- Verified 80 focused Playwright checks, 44 backend checks, all nine Node suites
+  and syntax for 118 first-party JavaScript files. Synthetic screenshot coverage
+  includes six viewport widths and both themes. No schema or dependency changes.
+
 ## 8 October 2026 - Independent Origination authoring
 
 - Split commercial Product setup from independent Document authoring. Three

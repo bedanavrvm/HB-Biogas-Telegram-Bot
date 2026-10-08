@@ -116,3 +116,74 @@ class ReportScopeIntegrationTests(TestCase):
         self.assertEqual(report_cases(self.actor, {'heat_row': 'unknown', 'heat_column': 'Training'})['count'], 0)
         with self.assertRaisesMessage(ValueError, 'filtered records or all records'):
             export_report_xlsx(self.actor, {'export_scope': 'unknown'})
+
+    def test_chart_selection_is_scoped_paged_and_exported(self):
+        self.case('TAT-CHART-DONE')
+        self.case('TAT-CHART-OPEN', completed=False)
+        self.case('TAT-CHART-OUTSIDE', branch='Other')
+        base = {'view': 'performance', 'chart_dimension': 'branch', 'chart_metric': 'workload'}
+        chart = report_summary(self.actor, base)['charts']['explorer']
+        self.assertTrue(chart['drilldown']['available'])
+        selection = {**base, 'drill_chart': 'explorer', 'drill_series': 'count', 'drill_bucket': 'Training'}
+        result = report_cases(self.actor, selection)
+        self.assertEqual([row['case_id'] for row in result['results']], ['TAT-CHART-DONE'])
+        self.assertEqual(export_report_xlsx(self.actor, selection, request_id='training-chart')[1], 1)
+        self.assertEqual(report_cases(self.actor, {**selection, 'drill_bucket': 'Other'})['count'], 0)
+
+    def test_unknown_and_incomplete_chart_selections_are_rejected(self):
+        self.case('TAT-CHART-OPEN', completed=False)
+        for selection in [{'drill_chart': 'explorer'},
+                          {'drill_chart': 'customer', 'drill_series': 'count', 'drill_bucket': 'Training'}]:
+            with self.assertRaises(ValueError):
+                report_cases(self.actor, selection)
+
+    def test_historical_workload_cannot_masquerade_as_current_cases(self):
+        chart = report_summary(self.actor, {})['charts']['trend']
+        self.assertFalse(chart['drilldown']['available'])
+        with self.assertRaisesMessage(ValueError, 'historical total'):
+            report_cases(self.actor, {'drill_chart': 'trend', 'drill_series': 'active', 'drill_bucket': '2026-10-01'})
+
+    def test_chart_metrics_select_their_denominator_and_keep_summary_unchanged(self):
+        self.case('TAT-CHART-A')
+        self.case('TAT-CHART-B')
+        self.case('TAT-CHART-OUTSIDE', branch='Other')
+        for metric in ['workload', 'sla_state', 'duration', 'target_usage', 'sla_met', 'correction_rate']:
+            base = {'view':'performance', 'chart_dimension':'branch', 'chart_metric':metric}
+            chart = report_summary(self.actor, base)['charts']['explorer']
+            for series in chart['series']:
+                selection = {**base, 'drill_chart':'explorer', 'drill_series':series['key'], 'drill_bucket':'Training'}
+                rows = report_cases(self.actor, selection)['results']
+                if metric == 'sla_state':
+                    expected = 2 if series['values'][0] else 0
+                    self.assertEqual(len(rows), expected)
+                else:
+                    # Percentiles, correction rates and percentages represent
+                    # the entire measured cohort, not only numerator cases.
+                    self.assertEqual(len(rows), 2)
+                self.assertEqual(report_summary(self.actor, selection)['charts']['explorer'], chart)
+
+    def test_time_and_target_points_retain_scopes_and_distinct_cases(self):
+        self.case('TAT-CHART-A')
+        self.case('TAT-CHART-B')
+        self.case('TAT-CHART-OUTSIDE', branch='Other')
+        base = {'view':'performance', 'stage':'mpesa_to_admin', 'granularity':'day'}
+        charts = report_summary(self.actor, base)['charts']
+        for key in ['trend', 'sla_compliance', 'tat_percentiles', 'stage_target']:
+            chart = charts[key]
+            for series in chart['series']:
+                selection = {**base, 'drill_chart':key, 'drill_series':series['key'], 'drill_bucket':chart['labels'][0]}
+                result = report_cases(self.actor, selection)
+                self.assertEqual({row['case_id'] for row in result['results']}, {'TAT-CHART-A', 'TAT-CHART-B'})
+                self.assertEqual(export_report_xlsx(self.actor, selection)[1], 2)
+        with self.assertRaisesMessage(ValueError, 'supported chart series'):
+            report_cases(self.actor, {**base, 'drill_chart':'trend', 'drill_series':'not-a-series', 'drill_bucket':'unknown'})
+
+    def test_backlog_points_match_the_case_count_in_the_chart(self):
+        self.case('TAT-BACKLOG-A', completed=False)
+        self.case('TAT-BACKLOG-B', completed=False)
+        self.case('TAT-BACKLOG-OUTSIDE', completed=False, branch='Other')
+        chart = report_summary(self.actor, {'view': 'current'})['charts']['backlog_age']
+        for index, bucket in enumerate(chart['labels']):
+            result = report_cases(self.actor, {'view': 'current', 'drill_chart': 'backlog_age',
+                'drill_series': 'cases', 'drill_bucket': bucket})
+            self.assertEqual(result['count'], chart['series'][0]['values'][index])

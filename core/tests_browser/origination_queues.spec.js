@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(root, 'origination/templates/loan_origina
 const options = [{value:'draft',label:'Draft'}, {value:'correction_required',label:'Changes requested'},
   {value:'signing_pending',label:'Awaiting signatures'}, {value:'approved',label:'Approved'}];
 
-async function boot(page, width, empty = false) {
+async function boot(page, width, empty = false, native = false) {
   await page.setViewportSize({width,height:850});
   await page.route('http://127.0.0.1:8123/**', route => {
     const url = new URL(route.request().url());
@@ -28,9 +28,15 @@ async function boot(page, width, empty = false) {
     return route.abort();
   });
   await page.goto('http://127.0.0.1:8123/');
+  if(native) await page.evaluate(()=>{
+    window.__handlers=new Set();window.__native={show(){this.visible=true;},hide(){this.visible=false;},setText(){},enable(){},disable(){},showProgress(){},hideProgress(){},onClick(fn){__handlers.add(fn);},offClick(fn){__handlers.delete(fn);}};
+    window.Telegram={WebApp:{initData:'synthetic-only',ready(){},expand(){},onEvent(){},MainButton:__native,BackButton:{show(){},hide(){},onClick(){},offClick(){}}}};
+  });
   for (const css of ['core/static/miniapp/base.css','core/static/miniapp/workflow_standard.css','origination/static/miniapp/loan_origination.css']) {
     await page.addStyleTag({path:path.join(root,css)});
   }
+  await page.addScriptTag({path:path.join(root,'core/static/miniapp/utils.js')});
+  await page.addScriptTag({path:path.join(root,'core/static/miniapp/secure_media_viewer.js')});
   await page.addScriptTag({path:path.join(root,'origination/static/miniapp/loan_origination.js')});
   await expect(page.locator('.queue-tab')).toHaveCount(2);
 }
@@ -61,4 +67,42 @@ test('Caught up state links directly to applications', async ({page}) => {
   await expect(page.getByText('You’re caught up')).toBeVisible();
   await page.getByRole('button',{name:'My applications',exact:true}).click();
   await expect(page.getByRole('button',{name:'My applications 2'})).toHaveAttribute('aria-pressed','true');
+});
+
+test('Origination read-only preview shares bounded zoom and does not navigate while panning', async ({page}) => {
+  await boot(page,390);
+  await page.evaluate(async () => {
+    document.getElementById('document-preview-overlay').hidden=false;
+    const image=document.getElementById('document-preview-image');
+    image.src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="100%" height="100%" fill="white"/><rect width="60" height="60" fill="red"/></svg>');
+    await image.decode();
+  });
+  const stage=page.locator('#document-preview-stage'), initial=await stage.boundingBox();
+  for(let i=0;i<16;i++) await page.locator('#preview-zoom-in').click();
+  await expect(page.locator('#preview-zoom')).toHaveText('500%');
+  await expect(stage).toHaveAttribute('data-zoom','5');
+  await stage.dispatchEvent('pointerdown',{pointerId:1,clientX:150,clientY:150});
+  await stage.dispatchEvent('pointermove',{pointerId:1,clientX:10000,clientY:10000});
+  await stage.dispatchEvent('pointerup',{pointerId:1,clientX:10000,clientY:10000});
+  expect((await stage.boundingBox()).height).toBe(initial.height);
+  const boxes=await stage.evaluate(node=>({s:node.getBoundingClientRect().toJSON(),i:node.querySelector('img').getBoundingClientRect().toJSON()}));
+  expect(boxes.i.left).toBeGreaterThanOrEqual(boxes.s.left-1);
+  await page.locator('#preview-close').click();
+  await expect(stage).not.toHaveAttribute('data-zoom',/.+/);
+});
+
+test('Origination native editor action keeps section validation and input intact',async({page})=>{
+  await boot(page,390,false,true);
+  await page.route('**/applications/00000000-0000-0000-0000-000000000001/',route=>route.fulfill({json:{ok:true,application:{
+    id:'00000000-0000-0000-0000-000000000001',revision:1,status:'draft',reference_number:'ORG-TRAINING-1',product_name:'Training product',
+    form_payload:{},form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_name',label:'Applicant name',type:'text',section:'applicant',required:true}]},
+  }}}));
+  await page.locator('.application-card').click();
+  await expect.poll(()=>page.evaluate(()=>__native.visible&&__handlers.size===1)).toBe(true);
+  await page.evaluate(()=>[...__handlers][0]());
+  await expect(page.locator('[data-field=applicant_name]')).toHaveAttribute('aria-invalid','true');
+  await page.locator('[data-field=applicant_name]').fill('Synthetic Applicant');
+  await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Synthetic Applicant');
+  await page.evaluate(()=>{document.getElementById('document-preview-overlay').hidden=false;});
+  await expect.poll(()=>page.evaluate(()=>__native.visible)).toBe(false);
 });

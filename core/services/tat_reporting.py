@@ -188,7 +188,16 @@ def _filters(payload):
     status = canonical_tat_status(payload.get('status'))
     if status and status not in {'Active', 'Stalled', 'Declined', 'Disbursed'}:
         raise ValueError('Choose Active, Stalled, Declined, or Disbursed status.')
+    drill = {key: str(payload.get(key) or '').strip() for key in ('drill_chart', 'drill_series', 'drill_bucket')}
+    if any(drill.values()):
+        if not all(drill.values()) or any(len(value) > 250 for value in drill.values()):
+            raise ValueError('Choose a complete chart point.')
+        if drill['drill_chart'] not in {'trend', 'backlog_age', 'sla_compliance', 'tat_percentiles', 'stage_target', 'explorer', 'case_progression'}:
+            raise ValueError('Choose a supported chart.')
+        if payload.get('heat_row') or payload.get('heat_column'):
+            raise ValueError('Choose either a chart point or a heatmap cell.')
     return {
+        **drill,
         'view': 'performance' if payload.get('view') == 'performance' else 'current',
         'group': str(payload.get('group') or '').strip(),
         'branch': str(payload.get('branch') or '').strip(),
@@ -527,6 +536,8 @@ def _finished_in_reporting_period(row, filters):
 
 
 def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=None):
+    if filters.get('drill_chart'):
+        return _chart_selected_rows(actor, filters, include_people=include_people, cases=cases, context=context)
     if filters.get('heat_row') or filters.get('heat_column'):
         return _heatmap_selected_rows(actor, filters, include_people=include_people,
                                       cases=cases, context=context)
@@ -697,6 +708,10 @@ def _chart_payload(
         if chart_id == 'backlog_age':
             allowed.extend(['doughnut', 'pie'])
     payload.update(default_type=default, allowed_types=allowed)
+    historical = basis == 'daily_point_in_time_snapshots'
+    payload['drilldown'] = {'available': not historical,
+        'reason': 'Individual cases aren’t available for this historical total.' if historical else ''}
+    payload['point_keys'] = list(payload['labels'])
     return payload
 
 
@@ -1318,6 +1333,95 @@ def _comparison_explorer(rows, samples, filters):
     )
 
 
+def _chart_selected_rows(actor, filters, *, include_people=False, cases=None, context=None):
+    """Resolve a chart's measurement cohort, never a numeric aggregate match.
+
+    Reuse the authorized base scope and timestamp observations used by charts.
+    Multiple contributing actions still produce only one row per case.
+    """
+    chart, series, bucket = (filters[key] for key in ('drill_chart', 'drill_series', 'drill_bucket'))
+    base = {**filters, 'drill_chart': '', 'drill_series': '', 'drill_bucket': ''}
+    case_list = list(cases) if cases is not None else _filtered_cases(actor, base)
+    context = context or _ReportContext(actor, case_list, include_people=include_people)
+    if base['status']:
+        now = timezone.now()
+        case_list = [case for case in case_list if tat_reporting_status(case,
+            workflow=context.config(case).workflow if context.config(case) else {}, now=now) == base['status']]
+    rows = _eligible_rows(actor, base, include_people=include_people, cases=case_list, context=context)
+    samples = _stage_samples(case_list, base, include_people=include_people, context=context)
+    action_filtered = bool(base['stage'] or base['role'] or base['sla_state'])
+    allowed = {
+        'backlog_age': {'cases'}, 'sla_compliance': {'sla_met_percent'},
+        'tat_percentiles': {'median_minutes', 'p90_minutes'},
+        'stage_target': {'median_percent', 'p90_percent'},
+        'case_progression': {'actual_minutes', 'target_minutes'},
+    }
+    source = []
+    if chart == 'explorer':
+        spec = _comparison_explorer(rows, samples, base)
+        allowed[chart] = {item['key'] for item in spec['series']}
+        sample_based = base['view'] == 'performance' or base['chart_metric'] in {'duration', 'target_usage', 'sla_met', 'correction_rate'}
+        source = [item for item in (samples if sample_based else rows)
+                  if _dimension_value(item, base['chart_dimension'], sample=sample_based) == bucket]
+        metric = base['chart_metric']
+        if metric == 'sla_state':
+            source = [item for item in source if item['sla_state'] == series]
+        elif metric in {'duration', 'target_usage', 'sla_met'}:
+            source = _heatmap_contributors(source, metric)
+        elif metric == 'load_per_assignee' and not spec.get('assignee_counts', {}).get(bucket):
+            source = []
+    elif chart == 'trend':
+        action_trend = (action_filtered if base['view'] == 'performance'
+                        else bool(base['search'] or base['status'] or action_filtered))
+        if base['view'] == 'current' and not action_trend:
+            raise ValueError('Individual cases aren’t available for this historical total.')
+        allowed[chart] = {'completed_actions'} if action_trend else {'created', 'disbursed', 'declined'}
+        if action_trend:
+            source = [item for item in samples if _bucket_label(_iso_local_date(item['completed_at']), base['granularity']) == bucket]
+        elif series == 'created':
+            selected = {str(case.pk) for case in case_list if _created_in_reporting_period(case, base)
+                        and _bucket_label(timezone.localdate(case.created_at), base['granularity']) == bucket}
+            source = [row for row in rows if row['_case_pk'] in selected]
+        else:
+            source = [row for row in rows if _finished_in_reporting_period(row, base)
+                      and row['status'].lower() == series
+                      and _bucket_label(_iso_local_date(row['finished_at']), base['granularity']) == bucket]
+    elif chart in {'sla_compliance', 'tat_percentiles'}:
+        if base['view'] != 'performance':
+            raise ValueError('Choose a chart available in this report.')
+        source = samples if action_filtered else [row for row in rows if _finished_in_reporting_period(row, base)]
+        timestamp = 'completed_at' if action_filtered else 'finished_at'
+        source = [item for item in source if item.get(timestamp)
+                  and _bucket_label(_iso_local_date(item[timestamp]), base['granularity']) == bucket]
+        source = _heatmap_contributors(source, 'sla_met' if chart == 'sla_compliance' else 'duration')
+    elif chart == 'stage_target':
+        if base['view'] != 'performance':
+            raise ValueError('Choose a chart available in this report.')
+        source = _heatmap_contributors([item for item in samples if item['stage'] == bucket], 'target_usage')
+    elif chart == 'backlog_age':
+        if base['view'] != 'current':
+            raise ValueError('Choose a chart available in this report.')
+        for row in rows:
+            if row.get('elapsed_minutes') is None:
+                continue
+            days = max(0, row['elapsed_minutes'] / 1440)
+            label = '0–1 day' if days < 1 else '1–3 days' if days < 3 else '3–7 days' if days < 7 else '7+ days'
+            if label == bucket:
+                source.append(row)
+    elif chart == 'case_progression':
+        spec = _case_progression_chart(case_list, base, context=context)
+        if len(case_list) == 1 and bucket in spec['labels']:
+            index = spec['labels'].index(bucket)
+            values = next((item['values'] for item in spec['series'] if item['key'] == series), [])
+            if index < len(values) and values[index] is not None:
+                source = [_case_row(case_list[0], include_people=include_people, context=context)]
+    if series not in allowed.get(chart, set()):
+        raise ValueError('Choose a supported chart series.')
+    selected = {item['_case_pk'] for item in source}
+    return [_case_row(case, include_people=include_people, context=context)
+            for case in case_list if str(case.pk) in selected]
+
+
 def _heatmap_contributors(cohort, metric):
     """The same measurement cohort powers cell values, counts and drill-down."""
     if metric == 'workload':
@@ -1533,6 +1637,8 @@ def _target_review_signals(actor, filters, selected_samples, *, context=None):
 
 def report_summary(actor, payload, *, include_people=False):
     filters = _filters(payload)
+    # Point selection narrows the table/export, not the charts that produced it.
+    filters.update(drill_chart='', drill_series='', drill_bucket='')
     focused = str(payload.get('response_mode') or '') == 'focused_v1'
     insight = str(payload.get('insight') or 'trend').strip().lower()
     if focused and insight not in FOCUSED_INSIGHTS:
@@ -2018,7 +2124,7 @@ def report_cases(actor, payload, *, include_people=False):
     except (TypeError, ValueError):
         raise ValueError('Page and page size must be valid numbers.')
     start = (page - 1) * page_size
-    if not (filters.get('heat_row') or filters.get('heat_column')) and _table_fast_path_allowed(filters, key):
+    if not (filters.get('heat_row') or filters.get('heat_column') or filters.get('drill_chart')) and _table_fast_path_allowed(filters, key):
         queryset = _filtered_case_queryset(actor, filters).exclude(status__in=TERMINAL)
         count = queryset.count()
         stage_columns = _stage_columns_for_case_scope(queryset) if count else []

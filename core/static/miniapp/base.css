@@ -595,3 +595,12 @@ tr.row-review textarea {
 @media (prefers-reduced-motion: reduce) {
   .miniapp-top-progress, .miniapp-shared-toast { transition-duration: .01ms !important; }
 }
+.miniapp-native-action { visibility: hidden !important; pointer-events: none !important; }
+.miniapp-draft-prompt button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 10px; width:auto; flex:0 0 auto; }
+.miniapp-draft-prompt button svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; flex:none; }
+.secure-media-stage { position:relative; width:100%; height:calc(100dvh - 180px); min-height:180px; overflow:hidden; touch-action:none; }
+.secure-media-controls { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; }
+.secure-media-controls button { min-width:44px; min-height:44px; }
+.secure-media-pages { display:flex !important; flex-direction:column; overflow:hidden !important; align-self:stretch; width:100%; min-width:0; }
+.secure-media-pages > .secure-media-stage { flex:1 1 auto; min-height:180px; }
+.secure-media-pages > .secure-media-controls { flex:none; }

@@ -31,8 +31,7 @@
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
     mediaViewerMode: '', mediaViewerTarget: '', mediaViewerItemId: '',
     mediaViewerRequestSequence: 0, persistedEvidence: [],
-    mediaViewerPointers: new Map(), mediaViewerSwipe: null,
-    mediaViewerPinch: null, mediaViewerZoom: 100,
+    categoriesAvailable: false,
     exportObjectUrl: '', exportDownloadUrl: '', exportFilename: '', exportFile: null,
     errorRetry: null,
     pendingWrites: new Map(),
@@ -538,10 +537,35 @@
       select.appendChild(option);
     });
   }
+  function setComplaintCategories(data) {
+    const categories = data.categories || [];
+    state.categoriesAvailable = categories.length > 0;
+    for (const id of ['createCaseForm', 'completeDetailsForm']) {
+      const select = $(id).elements.complaint_category, previous = select.value;
+      selectOptions(select, categories, categories.length ? 'Select complaint type' : 'Complaint types unavailable');
+      if ([...select.options].some(item => item.value === previous)) select.value = previous;
+      select.disabled = !state.categoriesAvailable;
+    }
+    state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
+    let retry = $('retryComplaintTypes');
+    if (!retry) {
+      retry = document.createElement('button'); retry.id = 'retryComplaintTypes'; retry.type = 'button'; retry.textContent = 'Reload complaint types';
+      $('categoryGuidance').after(retry);
+      retry.onclick = async () => {
+        retry.disabled = true;
+        try { const response = await json('bootstrap/'); setComplaintCategories(response.data); updateCategoryGuidance(); }
+        catch (error) { presentError(error, () => retry.click()); }
+        finally { retry.disabled = false; }
+      };
+    }
+    retry.hidden = state.categoriesAvailable;
+    $('createSaveBtn').disabled = state.submitting || state.locationOptionsLoading || !state.categoriesAvailable;
+  }
   async function refreshLocationOptions() {
     const formNode = $('createCaseForm');
     const branch = formNode.elements.branch_region.value;
     const county = formNode.elements.county.value;
+    const constituency = formNode.elements.sub_county.value;
     const sequence = ++state.locationOptionsSequence;
     state.locationOptionsLoading = true; $('createSaveBtn').disabled = true;
     try {
@@ -558,9 +582,10 @@
         retainedCounty ? 'Select constituency' : 'Select county first',
       );
       formNode.elements.sub_county.disabled = !retainedCounty;
+      if ([...formNode.elements.sub_county.options].some(option => option.value === constituency)) formNode.elements.sub_county.value = constituency;
     } finally {
       if (sequence === state.locationOptionsSequence) {
-        state.locationOptionsLoading = false; $('createSaveBtn').disabled = false;
+        state.locationOptionsLoading = false; $('createSaveBtn').disabled = state.submitting || !state.categoriesAvailable;
       }
     }
   }
@@ -593,9 +618,7 @@
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
       state.locationOptions = data.location_options || state.locationOptions;
       locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
-      selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
-      selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
-      state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
+      setComplaintCategories(data);
       if (!creationDraft && can('complaint.case.create')) creationDraft = utils.bindCreationDraft?.($('createCaseForm'), {
         workflow: 'complaint_create', contextKey: state.groupId, initData: () => state.initData, status: $('createSaveState'),
         restore: async payload => {
@@ -776,19 +799,9 @@
   function mediaHeaders(accessRequestId) {
     return { 'X-Telegram-Init-Data': state.initData, 'X-Request-ID': accessRequestId || requestId('complaint-evidence') };
   }
-  function mediaPointDistance(points) {
-    return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
-  }
-  function mediaPointMidpoint(points) {
-    return { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
-  }
+  let complaintImageGestures = null;
   function resetMediaViewerGestures() {
-    state.mediaViewerPointers.clear(); state.mediaViewerSwipe = null;
-    state.mediaViewerPinch = null; state.mediaViewerZoom = 100;
-    const content = $('mediaViewerContent'); const image = content.querySelector('.media-viewer-image');
-    content.classList.remove('image-gestures', 'zoomed'); delete content.dataset.zoom;
-    content.removeAttribute('aria-label'); content.scrollLeft = 0; content.scrollTop = 0;
-    if (image) image.style.width = '';
+    complaintImageGestures?.dispose(); complaintImageGestures = null;
   }
   function activateMediaViewerGestures() {
     resetMediaViewerGestures();
@@ -796,66 +809,7 @@
     content.setAttribute('aria-label', image
       ? 'File preview. Swipe left or right to browse files. Pinch to zoom this image.'
       : 'File preview. Swipe left or right to browse files.');
-    if (image) { content.classList.add('image-gestures'); content.dataset.zoom = '100'; image.style.width = '100%'; }
-  }
-  function setMediaViewerZoom(value, focalPoint) {
-    const content = $('mediaViewerContent'); const image = content.querySelector('.media-viewer-image');
-    if (!image) return;
-    const previousZoom = state.mediaViewerZoom;
-    const nextZoom = Math.max(50, Math.min(300, Math.round(value)));
-    if (nextZoom === previousZoom) return;
-    const bounds = content.getBoundingClientRect();
-    const localX = (focalPoint?.x ?? (bounds.left + bounds.width / 2)) - bounds.left;
-    const localY = (focalPoint?.y ?? (bounds.top + bounds.height / 2)) - bounds.top;
-    const ratio = nextZoom / previousZoom;
-    state.mediaViewerZoom = nextZoom; content.dataset.zoom = String(nextZoom);
-    content.classList.toggle('zoomed', nextZoom !== 100); image.style.width = `${nextZoom}%`;
-    content.scrollLeft = (content.scrollLeft + localX) * ratio - localX;
-    content.scrollTop = (content.scrollTop + localY) * ratio - localY;
-  }
-  function mediaViewerPointerDown(event) {
-    if (event.pointerType === 'mouse' || $('mediaViewerOverlay').hidden) return;
-    state.mediaViewerPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (state.mediaViewerPointers.size === 1) {
-      state.mediaViewerSwipe = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startedAt: Date.now(), cancelled: false };
-    }
-    if (state.mediaViewerPointers.size === 2 && $('mediaViewerContent').querySelector('.media-viewer-image')) {
-      if (state.mediaViewerSwipe) state.mediaViewerSwipe.cancelled = true;
-      const points = Array.from(state.mediaViewerPointers.values());
-      state.mediaViewerPinch = { distance: mediaPointDistance(points), zoom: state.mediaViewerZoom };
-    }
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* Synthetic and older WebView events may not capture. */ }
-    event.preventDefault();
-  }
-  function mediaViewerPointerMove(event) {
-    const previous = state.mediaViewerPointers.get(event.pointerId);
-    if (!previous) return;
-    state.mediaViewerPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (state.mediaViewerPointers.size === 2 && state.mediaViewerPinch) {
-      const points = Array.from(state.mediaViewerPointers.values());
-      const distance = mediaPointDistance(points);
-      if (state.mediaViewerPinch.distance) {
-        setMediaViewerZoom(state.mediaViewerPinch.zoom * (distance / state.mediaViewerPinch.distance), mediaPointMidpoint(points));
-      }
-    } else if (state.mediaViewerPointers.size === 1) {
-      event.currentTarget.scrollLeft -= event.clientX - previous.x;
-      event.currentTarget.scrollTop -= event.clientY - previous.y;
-    }
-    event.preventDefault();
-  }
-  function finishMediaViewerPointer(event, cancelled) {
-    if (!state.mediaViewerPointers.has(event.pointerId)) return;
-    const swipe = state.mediaViewerSwipe;
-    if (!cancelled && event.type === 'pointerup' && swipe && swipe.pointerId === event.pointerId && !swipe.cancelled && state.mediaViewerPointers.size === 1) {
-      const deltaX = event.clientX - swipe.startX; const deltaY = event.clientY - swipe.startY;
-      const threshold = Math.max(56, event.currentTarget.clientWidth * .16);
-      const deliberateHorizontalSwipe = Math.abs(deltaX) >= threshold
-        && Math.abs(deltaX) > Math.abs(deltaY) * 1.35
-        && Date.now() - swipe.startedAt <= 900;
-      if (deliberateHorizontalSwipe && navigateMediaViewer(deltaX < 0 ? 1 : -1)) utils.haptic?.('light');
-    }
-    state.mediaViewerPointers.delete(event.pointerId); state.mediaViewerPinch = null;
-    if (!state.mediaViewerPointers.size || swipe?.pointerId === event.pointerId) state.mediaViewerSwipe = null;
+    if (image) complaintImageGestures = window.SecureMediaViewer.bindImageGestures(content, image, {onNavigate:navigateMediaViewer});
   }
   function closeMediaViewer() {
     state.mediaViewerRequestSequence += 1;
@@ -916,9 +870,9 @@
       });
       if (requestSequence !== state.mediaViewerRequestSequence || state.mediaViewerItemId !== item.preview_url) return;
       state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), blob, {
-        mimeType: item.mime_type || '', name: item.name || 'Complaint evidence', gestures: false,
+        mimeType: item.mime_type || '', name: item.name || 'Complaint evidence',
+        onNext:() => navigateMediaViewer(1), onPrevious:() => navigateMediaViewer(-1),
       });
-      activateMediaViewerGestures();
     } catch (error) {
       if (requestSequence !== state.mediaViewerRequestSequence) return;
       $('mediaViewerContent').replaceChildren(textNode('p', `${error.message || 'The evidence could not be opened.'} Close this view and retry.`, 'media-viewer-error'));
@@ -2085,13 +2039,9 @@
   $('mediaViewerDelete').addEventListener('click', deleteSelectedMediaFromViewer);
   $('mediaViewerRetake').addEventListener('click', retakeSelectedMediaFromViewer);
   $('mediaViewerOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeMediaViewer(); });
-  $('mediaViewerContent').addEventListener('pointerdown', mediaViewerPointerDown);
-  $('mediaViewerContent').addEventListener('pointermove', mediaViewerPointerMove);
-  $('mediaViewerContent').addEventListener('pointerup', event => finishMediaViewerPointer(event, false));
-  $('mediaViewerContent').addEventListener('pointercancel', event => finishMediaViewerPointer(event, true));
-  $('mediaViewerContent').addEventListener('lostpointercapture', event => finishMediaViewerPointer(event, true));
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);
+  $('createCaseForm').elements.complaint_category.addEventListener('change', updateCategoryGuidance);
   $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
   $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
@@ -2148,6 +2098,12 @@
   telegram?.BackButton?.onClick(returnPrevious);
   updateReportDateControls();
   bindCollapsingHeader();
+  utils.bindMainAction?.({telegram, resolve:() => {
+    if ([...document.querySelectorAll('[role="dialog"]')].some(node => !node.hidden && node.getClientRects().length)
+        || !$('cameraOverlay').hidden || !$('mediaViewerOverlay').hidden) return null;
+    return [...document.querySelectorAll('#createCaseForm button[type="submit"], #commentForm button[type="submit"], #completeDetailsForm button[type="submit"], #resolveForm button[type="submit"], #reopenForm button[type="submit"]')]
+      .find(button => button.getClientRects().length && !button.closest('[hidden]')) || null;
+  }});
   bindReportGridZoom();
   utils.bindMiniAppTheme?.(telegram, refreshComplaintTheme);
   bootstrap();

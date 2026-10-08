@@ -8,17 +8,17 @@
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=6">
   <script src="{% static 'miniapp/components.js' %}?v=6"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=24"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=25"></script>
   <script src="{% static 'miniapp/activity_changes.js' %}?v=4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/activity_changes.css' %}?v=3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=11">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=12">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=44">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=45">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -87,7 +87,7 @@
     <section id="createView" hidden>
       <button class="back-button" type="button" data-back><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
       <form id="createCaseForm" class="panel create-complaint-panel" novalidate>
-        <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
+        <div class="panel-heading complaint-create-heading"><div><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2></div><div class="complaint-create-save"><span id="createSaveState" class="muted" role="status">Not saved</span></div></div>
         <div class="form-grid">
           <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="off" autocapitalize="words" placeholder="Enter customer full name" required></label>
           <label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required></label>
@@ -103,7 +103,7 @@
         <section class="optional-row location-field" aria-labelledby="locationFieldLabel"><div class="optional-heading"><span id="locationFieldLabel" class="field-label">Location</span><span class="muted">Optional</span></div><button id="captureLocationBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-map-pin"></use></svg><span>Use My Current Location</span></button><span id="captureState" class="muted" role="status" aria-live="polite">Location not added</span></section>
         <section class="evidence-picker create-evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photos</span></button><button type="button" data-files-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>Upload Files</span></button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
         <ul id="createSelectedEvidence" class="file-list"></ul>
-        <div class="sticky-action"><span id="createSaveState" class="muted">Not Saved</span><button id="createSaveBtn" class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-send"></use></svg><span>Submit Complaint</span></button></div>
+        <div class="sticky-action"><button id="createSaveBtn" class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-send"></use></svg><span>Submit Complaint</span></button></div>
       </form>
     </section>
 
@@ -139,7 +139,7 @@
     </div>
   </main>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=4"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
@@ -149,6 +149,6 @@
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=6"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=64"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=65"></script>
 </body>
 </html>

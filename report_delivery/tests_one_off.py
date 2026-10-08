@@ -232,6 +232,15 @@ class OneOffTests(TestCase):
             with self.assertRaises(ValidationError):
                 self.queue(payload={**self.payload, **changed})
 
+    def test_tat_point_and_heatmap_selection_survive_email_export(self):
+        for filters in [
+            {'drill_chart': 'explorer', 'drill_series': 'count', 'drill_bucket': 'Training'},
+            {'heat_row': 'Credit', 'heat_column': 'Training'},
+        ]:
+            delivery = self.queue('tat_tracker', {**self.payload, 'preset': 'tat',
+                'filters': filters, 'client_request_id': str(uuid.uuid4())})
+            self.assertEqual(delivery.configuration['filters'], filters)
+
     def test_revoked_authority_blocks_frozen_payload(self):
         delivery = self.queue()
         self.actor.is_superuser = False

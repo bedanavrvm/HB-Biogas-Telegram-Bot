@@ -1798,3 +1798,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 @media (max-width: 700px) {
   .tat-report-grid { height: max(50dvh, 310px); min-height: max(50dvh, 310px); }
 }
+#cancelCaseCorrectionBtn { margin:0 0 0 auto; flex:0 0 auto; min-height:44px; align-self:center; }
+.case-correction-panel .section-head { display:flex; flex-flow:row nowrap; align-items:center; }
+.case-correction-panel .section-head h2 { margin:0; }
+.case-correction-panel .section-head > div { min-width:0; flex:1; }

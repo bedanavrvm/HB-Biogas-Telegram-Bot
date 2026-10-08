@@ -1026,14 +1026,20 @@
           const existing = await draft.load();
           if (!existing) { ready = true; if (generation !== started) draft.schedule(collect()); return; }
           prompt = document.createElement('aside'); prompt.className = 'miniapp-draft-prompt';
-          const title = document.createElement('strong'); title.textContent = 'Unfinished form found'; prompt.append(title);
+          const title = document.createElement('strong'); title.textContent = 'You have a saved draft'; prompt.append(title);
           for (const [label, action] of [['Restore', async () => restore(existing.payload)], ['Discard', async () => { await draft.clear(); text('Draft discarded'); }]]) {
-            const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+            const button = document.createElement('button'); button.type = 'button';
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
+            icon.innerHTML = label === 'Restore'
+              ? '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>'
+              : '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>';
+            button.append(icon, document.createTextNode(label));
             button.dataset.draftAction = label.toLowerCase();
             button.onclick = async () => {
-              button.disabled = true;
+              prompt.querySelectorAll('button').forEach(item => { item.disabled = true; });
               try { await action(); prompt.remove(); prompt = null; ready = true; }
-              catch (_) { button.disabled = false; text('Could not recover the draft. Try again.'); }
+              catch (_) { prompt?.querySelectorAll('button').forEach(item => { item.disabled = false; }); text('Could not recover the draft. Try again.'); }
             };
             prompt.append(button);
           }
@@ -1070,6 +1076,58 @@
       try { window.sessionStorage.setItem(storageKey, JSON.stringify(value || {})); } catch (_) {}
     }
     return { read: read, write: write };
+  }
+
+  // One native primary action per page. Dispatch through the existing DOM
+  // button so form validation, confirmation and idempotency remain unchanged.
+  let mainActionOwner = null;
+  function bindMainAction(options) {
+    const settings = options || {};
+    const telegram = settings.telegram || telegramWebApp();
+    let action = null, bound = false, disposed = false, scheduled = false;
+    const native = telegram?.MainButton;
+    function click() { if (action?.isConnected && !action.disabled) action.click(); }
+    function release() {
+      if (bound) { try { native?.offClick?.(click); } catch (_) {} }
+      bound = false;
+      if (action?.classList.contains('miniapp-native-action')) action.classList.remove('miniapp-native-action');
+      if (action?.hasAttribute('aria-hidden')) action.removeAttribute('aria-hidden');
+      action = null;
+      try { native?.hideProgress?.(); native?.hide?.(); } catch (_) {}
+    }
+    const controller = {sync, dispose() {
+      disposed = true; observer.disconnect(); window.removeEventListener('pagehide', controller.dispose);
+      release(); if (mainActionOwner === controller) mainActionOwner = null;
+    }};
+    function sync() {
+      if (disposed) return;
+      let next;
+      try { next = settings.resolve?.(); } catch (_) { next = null; }
+      if (next !== action) release();
+      if (!next || !native || !telegram?.initData || typeof native.onClick !== 'function') { release(); return; }
+      if (mainActionOwner !== controller) { mainActionOwner?.dispose(); mainActionOwner = controller; }
+      action = next;
+      try {
+        native.setText(next.dataset.mainAction || next.dataset.primaryAction || next.textContent.trim() || 'Continue');
+        if (next.disabled) native.disable?.(); else native.enable?.();
+        if (next.getAttribute('aria-busy') === 'true' || settings.busy?.()) native.showProgress?.(false);
+        else native.hideProgress?.();
+        if (!bound) { native.onClick(click); bound = true; }
+        native.show();
+        // Keep layout/visibility checks stable while removing the duplicate
+        // visual action and its keyboard stop. Programmatic click still works.
+        if (!next.classList.contains('miniapp-native-action')) next.classList.add('miniapp-native-action');
+        if (next.getAttribute('aria-hidden') !== 'true') next.setAttribute('aria-hidden', 'true');
+      } catch (_) { release(); }
+    }
+    const observer = new MutationObserver(() => {
+      if (scheduled || disposed) return;
+      scheduled = true; queueMicrotask(() => { scheduled = false; sync(); });
+    });
+    observer.observe(document.body, {subtree:true, childList:true, attributes:true,
+      attributeFilter:['hidden', 'disabled', 'aria-busy', 'class']});
+    window.addEventListener('pagehide', controller.dispose);
+    sync(); return controller;
   }
 
   function renderSettingsAccount(target, account) {
@@ -1144,6 +1202,7 @@
     normalizeKenyanPhone: normalizeKenyanPhone,
     installAccessibleForms: installAccessibleForms,
     bindCreationDraft: bindCreationDraft,
+    bindMainAction: bindMainAction,
     createUiContext: createUiContext,
     renderSettingsAccount: renderSettingsAccount,
     createRequestId: createRequestId,
