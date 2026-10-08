@@ -905,7 +905,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=19', template)
+        self.assertRegex(template, r"origination_calibration\.js' %}\?v=\d+")
 
     def test_checkbox_builder_uses_canonical_selectors_and_sample_control(self):
         source = (

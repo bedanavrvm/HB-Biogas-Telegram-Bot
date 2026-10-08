@@ -26,7 +26,8 @@ if mode=='documents':
     upload=forms.Form()
     upload.fields['name']=forms.CharField(label='Document name')
     upload.fields['pdf_file']=forms.FileField(label='Blank PDF')
-    context.update(step_key='documents',step_label='Documents',form=selection,upload_form=upload,documents=[dict(template=N(name='Reviewed Jawabu LAF',status='active',get_document_role_display='Main LAF'),url='/align/')])
+    options=[N(pk='00000000-0000-0000-0000-000000000002',name='Reviewed Jawabu LAF',document_role='primary',version=1,get_document_role_display='Main LAF'),N(pk='00000000-0000-0000-0000-000000000003',name='Supporting declaration with a long readable name',document_role='supporting',version=1,get_document_role_display='Supporting document')]
+    context.update(step_key='documents',step_label='Documents',form=selection,upload_form=upload,replacement_options=options,documents=[dict(template=N(pk=options[0].pk,name='Reviewed Jawabu LAF',document_role='primary',version=1,status='active',get_document_role_display='Main LAF'),url='/align/')])
 if mode=='conflict':context['conflict']=dict(changed=['Financial terms'],submitted={'interest_rate':'12'})
 if mode=='review':context['same_day_replacement']=True
 print(engines['django'].from_string(sys.stdin.read()).render(context))
@@ -55,7 +56,8 @@ for (const mode of ['review','legacy','conflict','incomplete','documents']) {
       await expect(page.getByRole('button',{name:'Create editable successor'})).toBeVisible();
       await expect(page.getByRole('link',{name:'Continue to documents'})).toHaveAttribute('href',/\/documents\/$/);
     } else if(mode==='documents') {
-      await expect(page.getByRole('button',{name:'Save choices & continue'})).toBeVisible();
+      await page.getByText('Add document',{exact:true}).click();
+      await expect(page.getByRole('button',{name:'Add & continue'})).toBeVisible();
       await expect(page.getByRole('textbox',{name:'Document name'})).not.toBeVisible();
       await page.getByText('Upload a new document',{exact:true}).click();
       await expect(page.getByRole('textbox',{name:'Document name'})).toBeVisible();

@@ -12,6 +12,8 @@
   let pageSizes = [];
   let contextKeys = [];
   let schemaRevision = 0;
+  let editingFieldKey = '';
+  let sharedReview = {};
   let formSections = [];
   let signatureCatalog = [];
   let selectedKind = 'field';
@@ -325,6 +327,7 @@
       pageSizes = state.page_sizes || [];
       contextKeys = state.context_keys || [];
       schemaRevision = state.schema_revision || 0;
+      sharedReview = state.shared_review || {};
       formSections = state.form_sections || [];
       signatureCatalog = state.signature_slots || [];
       normalizeChoiceSamples();
@@ -480,7 +483,7 @@
   }
   function navigatorRowMarkup(item) {
     const selected = item.placed && item.kind === selectedKind && item.key === selectedKey;
-    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.canonicalKey)}</small></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button></div>`;
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.canonicalKey)}</small></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
   }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
@@ -1056,7 +1059,8 @@
     $('cal-field-options').value = fieldOptionLines(item);
   }
 
-  function openFieldDialog(preselectedKey = '') {
+  function openFieldDialog(preselectedKey = '', editing = false) {
+    editingFieldKey = editing ? preselectedKey : '';
     const dialog = $('calibration-field-dialog');
     $('cal-field-error').hidden = true;
     $('cal-field-custom').checked = false;
@@ -1079,6 +1083,15 @@
     const selected = contextKeys.find(item => item.key === preselectedKey);
     if (selected?.id) $('cal-field-catalogue').value = selected.id;
     populateFieldDefaults();
+    $('cal-field-catalogue').disabled = editing;
+    $('cal-field-custom').disabled = editing;
+    dialog.querySelector('h2').textContent = editing ? 'Edit document field' : 'Add a data field';
+    $('cal-field-confirm').textContent = editing ? 'Save field' : 'Add to form and PDF';
+    ['cal-field-remove', 'cal-field-up', 'cal-field-down'].forEach(id => { if ($(id)) $(id).hidden = !editing; });
+    if (editing && selected) {
+      $('cal-field-width').value = selected.width || 'half';
+      $('cal-field-help').value = selected.help_text || '';
+    }
     dialog.showModal();
   }
 
@@ -1108,6 +1121,10 @@
         options: type === 'choice' ? parseProductOptions($('cal-field-options').value) : [],
       },
     };
+    if (editingFieldKey) {
+      body.action = 'update'; body.field_key = editingFieldKey;
+      body.client_request_id = requestKey('field-update', JSON.stringify(body));
+    }
     if (custom) {
       body.create_field = {
         label: $('cal-new-label').value,
@@ -1128,16 +1145,45 @@
       contextKeys = data.context_keys || contextKeys;
       schemaRevision = data.schema_revision;
       formSections = data.form_sections || formSections;
+      sharedReview = data.shared_review || sharedReview;
       populateCatalogs();
       closeFieldDialog();
-      addFieldOverlay(data.field.key);
-      status(data.replayed ? `${data.field.label} mapped to the PDF.` : `${data.field.label} added to the form and PDF.`);
+      if (editingFieldKey) {
+        renderItemList(); status(`${data.field.label} updated.`);
+        delete pendingWriteKeys['field-update'];
+      } else {
+        addFieldOverlay(data.field.key);
+        status(data.replayed ? `${data.field.label} mapped to the PDF.` : `${data.field.label} added to the form and PDF.`);
+      }
     } catch (requestError) {
       error.textContent = requestError.message;
       error.hidden = false;
     } finally {
       $('cal-field-confirm').disabled = false;
     }
+  }
+
+  async function changeDocumentField(action) {
+    if (!editingFieldKey || writeInFlight) return;
+    if (action === 'remove' && !window.confirm('Remove this field and its PDF placements from this draft?')) return;
+    return runWrite(async () => {
+      const body = {action, field_key:editingFieldKey, schema_revision:schemaRevision, revision,
+                    configuration:copy(configuration)};
+      body.client_request_id = requestKey('field-action', JSON.stringify(body));
+      try {
+        const data = await jsonRequest(app.dataset.fieldUrl, {method:'POST', body:JSON.stringify(body)});
+        schemaRevision = data.schema_revision; contextKeys = data.context_keys;
+        sharedReview = data.shared_review || sharedReview;
+        if (data.configuration) {
+          configuration = data.configuration; revision = data.revision;
+          savedBaselineHash = configurationHash(configuration); refreshDirtyState();
+          selectedKey = ''; history = []; historyIndex = -1;
+        }
+        delete pendingWriteKeys['field-action'];
+        populateCatalogs(); closeFieldDialog(); renderItemList(); inspect();
+        status(action === 'remove' ? 'Field and its placements removed from this draft.' : 'Field order updated.');
+      } catch (error) { $('cal-field-error').textContent = error.message; $('cal-field-error').hidden = false; }
+    });
   }
 
   function addFieldOverlay(context) {
@@ -1209,6 +1255,7 @@
   $('calibration-fields').onclick = event => {
     const button = event.target.closest('[data-nav-action]');
     if (!button) return;
+    if (button.dataset.navAction === 'edit') { openFieldDialog(button.dataset.key, true); return; }
     const kind = button.dataset.kind, key = button.dataset.key;
     if (button.dataset.navAction === 'select') { selectAndReveal(kind, key); return; }
     if (kind === 'field') openFieldDialog(key);
@@ -1248,6 +1295,9 @@
     $('cal-field-options-wrap').hidden = !choice;
   };
   $('calibration-field-form').onsubmit = submitFieldDialog;
+  if ($('cal-field-remove')) $('cal-field-remove').onclick = () => changeDocumentField('remove');
+  if ($('cal-field-up')) $('cal-field-up').onclick = () => changeDocumentField('move_up');
+  if ($('cal-field-down')) $('cal-field-down').onclick = () => changeDocumentField('move_down');
   $('cal-field-cancel').onclick = closeFieldDialog;
   $('cal-field-dismiss').onclick = closeFieldDialog;
 
@@ -1303,7 +1353,7 @@
   };
   $('calibration-delete').onclick = () => {
     if (operationState === 'publishing' || published) return;
-    if (!selectedKey || !window.confirm(`Delete ${selectedKey}?`)) return;
+    if (!selectedKey || !window.confirm('Remove this PDF placement? The applicant field will be kept.')) return;
     const before = configurationHash(configuration);
     delete currentCollection()[selectedKey];
     selectedKey = Object.keys(fields())[0] || Object.keys(signatures())[0] || '';
@@ -1419,6 +1469,7 @@
       body: JSON.stringify({ revision, configuration: snapshot, client_request_id: clientRequestId }),
     });
     revision = data.revision;
+    sharedReview = data.shared_review || sharedReview;
     savedBaselineHash = snapshotHash;
     delete pendingWriteKeys['calibration-save'];
     refreshDirtyState();
@@ -1472,12 +1523,15 @@
       $('calibration-save').setAttribute('aria-busy', 'true'); $('calibration-publish').setAttribute('aria-busy', 'true');
       const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
       if (snapshotHash !== savedBaselineHash) { status('Saving reviewed alignment…', false, true); await saveDraft(snapshot, snapshotHash); }
+      if (sharedReview.required && !window.confirm(`Upgrade this shared document for: ${(sharedReview.products || []).join(', ')}? Existing applications keep their versions.`)) {
+        setOperationState('idle'); return;
+      }
       status(app.dataset.publishLabel || 'Validating and publishing…', false, true);
       const clientRequestId = requestKey('calibration-publish', `${revision}:${savedBaselineHash}`);
       const data = await jsonRequest(app.dataset.publishUrl, {
         method: 'POST',
         headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
-        body: JSON.stringify({ revision, client_request_id: clientRequestId }),
+        body: JSON.stringify({ revision, client_request_id: clientRequestId, impact_token: sharedReview.token }),
       });
       revision = data.revision; delete pendingWriteKeys['calibration-publish'];
       published = true; setOperationState('published'); refreshDirtyState();

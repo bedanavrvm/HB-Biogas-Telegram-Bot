@@ -3,7 +3,7 @@
 
 {% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
 
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=4"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=2">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=4"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=3">{% endblock %}
 
 {% block content %}
 <main class="osw-page">
@@ -41,5 +41,5 @@
     </tbody></table></div>
   </section>
 </main>
-<script src="{% static 'admin/origination_setup.js' %}?v=2" defer></script>
+<script src="{% static 'admin/origination_setup.js' %}?v=3" defer></script>
 {% endblock %}

@@ -133,7 +133,7 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
         _model_values(item, {'id', 'created_at'})
         for item in definition.document_assignments.order_by('display_order', 'document_key', 'pk')
     ]
-    from origination.services.origination_setup_documents import selected_documents
+    from origination.services.origination_setup_documents import selected_documents, maintenance_impact
     catalogue_documents = [
         {**_model_values(item, {'updated_at', 'drive_url', 'upload_error'}),
          'latest_revision': item.configuration_revisions.order_by('-revision').values_list('revision', flat=True).first(),
@@ -155,7 +155,8 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
             'schema': definition.form_schema,
             'signers': definition.signer_rules,
         },
-        'documents': {'owned': owned_documents, 'assignments': assignments, 'catalogue': catalogue_documents},
+        'documents': {'owned': owned_documents, 'assignments': assignments, 'catalogue': catalogue_documents,
+                      'maintenance': maintenance_impact(definition)['token'] if version else ''},
         'calibration': {
             'owned': [
                 {
@@ -402,8 +403,9 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
         ).exists()
     )
     terms_valid, terms_detail = _valid_terms(definition.product_version)
-    from origination.services.origination_setup_documents import document_readiness
+    from origination.services.origination_setup_documents import document_readiness, pending_changes
     _documents, document_errors = document_readiness(definition) if product else ([], ['Choose a product.'])
+    maintenance_pending = bool(pending_changes(definition))
     documents_valid = not document_errors
     candidates = {
         'identity': (identity_valid, 'Product and availability are saved.' if identity_valid else 'Add product details and at least one Origination availability assignment.'),
@@ -419,7 +421,10 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
     for key, label in SETUP_STEPS:
         valid, detail = candidates[key]
         event = _last_completion(definition, key)
-        if key == 'publish' and valid:
+        if key in {'documents', 'publish'} and valid and maintenance_pending:
+            status = 'stale'
+            detail = 'Proposed document changes are awaiting review. Published choices stay unchanged until applied.'
+        elif key == 'publish' and valid:
             status = 'published'
         elif not valid:
             status = 'in_progress'

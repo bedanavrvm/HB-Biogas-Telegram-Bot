@@ -33,7 +33,22 @@ body.osw-admin-page .osw-page {
 .osw-preview-form label { display: block; font-weight: 650; }
 .osw-preview-form input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--osw-border); border-radius: 6px; }
 .osw-preview-image { max-width: 100%; height: auto; margin-top: 8px; border: 1px solid var(--osw-border); }
+.osw-document-list article.osw-maintenance-document { display: block; }
+.osw-document-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.osw-document-heading > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.osw-maintenance-document details { margin: 4px 0 0; }
+.osw-maintenance-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.osw-maintenance-actions form { min-width: 0; display: grid; gap: 6px; align-content: start; }
+.osw-maintenance-actions label { font-weight: 600; }
+.osw-maintenance-actions input, .osw-maintenance-actions select { max-width: 100%; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--osw-border); border-radius: 6px; }
+.osw-danger { color: #b91c1c !important; }
+.osw-warning-confirm { display: flex; gap: 8px; margin: 10px 0; }
+.osw-confirm-dialog { max-width: 420px; width: calc(100% - 48px); padding: 20px; border: 1px solid #d1d5db; border-radius: 10px; }
+.osw-confirm-dialog::backdrop { background: #0f172a66; }
+.dark .osw-confirm-dialog { background: #111827; color: #f1f5f9; }
 @media(max-width:600px) {
+  .osw-document-heading { flex-wrap: wrap; }
+  .osw-maintenance-actions { grid-template-columns: 1fr; }
   .osw-step-content #id_templates, .osw-preview-form { grid-template-columns: 1fr; }
   .osw-document-list article { flex-wrap: wrap; gap: 8px; }
   .osw-readiness em { max-width: 80px; text-align: right; }

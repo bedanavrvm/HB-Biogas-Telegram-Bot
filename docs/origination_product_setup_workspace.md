@@ -37,6 +37,14 @@ Open **Manage availability** from a Product record or the published-product over
 
 ## Maintenance and version safety
 
+- Open **Documents** on a published product for document-only work; unchanged lending terms are not cloned.
+- **Edit** opens an editable successor. Field labels, help, requiredness and order can be changed in the visual editor. Removing a field also removes its placement; canonical field keys and types stay unchanged.
+- **Replace PDF** retains the field and signer definitions but clears their coordinates for fresh alignment. Failed uploads retain the original draft and retry key instead of creating another version.
+- **Add document** retains current choices. **Replace with another document** stages a switch; **Remove from product** stages a withdrawal. Neither changes officer availability until final review is applied.
+- Review shows the proposed documents and affected products. A shared upgrade updates all currently linked products atomically; one incompatible product prevents the whole upgrade. Withdrawn product links are not restored by an older inherited draft.
+- Removing the last Main LAF requires explicit confirmation that new applications will stop. Existing applications and external files are retained.
+- **Discard changes** restores current published choices. Incomplete drafts can be saved; compatibility, consent, signing and alignment checks still apply at publication.
+- Existing applications, including unsigned applications, retain their original captured versions. They are never silently moved onto an upgraded document or lending contract.
 - Published `ProductVersion` and `OriginationProductDefinition` rows are never edited.
 - **Create editable successor** reuses an existing draft when present, otherwise creates the next terms and form versions and inherits the prior packet/calibration through the established cloning services.
 - Existing applications continue to use their captured product, schema, template, and packet snapshots.
@@ -68,8 +76,8 @@ Successful step confirmations are append-only `setup_step_completed` events on t
 
 - `origination/services/origination_setup.py` owns snapshots, hashes, readiness, resume selection, signed returns, and setup completion events.
 - `origination/services/origination_setup_documents.py` coordinates catalogue-backed preparation and activation without legacy packet assignments or another setup-state model.
-- `core/origination_setup_forms.py` owns bounded multi-model forms.
-- `core/origination_setup_admin.py` owns the Superuser routes and transaction boundaries.
+- `origination/origination_setup_forms.py` owns bounded multi-model forms.
+- `origination/origination_setup_admin.py` owns the Superuser routes and transaction boundaries.
 - The authoritative final publication still runs the existing product-catalog and Origination-template publication services. The workspace readiness projection is guidance; it does not replace final server-side validation.
 - Migration `0140_repair_origination_availability_channel` changes active legacy Loan Origination `telegram` availability rows to the operational `portal` channel. It merges safely when an equivalent portal row already exists.
 
@@ -81,7 +89,12 @@ Run the focused checks with the repository virtual environment:
 $env:DEBUG='true'
 $env:DJANGO_SECRET_KEY='local-test-secret-long-enough'
 .\.venv\Scripts\python.exe manage.py test core.tests_origination_setup
+.\.venv\Scripts\python.exe manage.py test core.tests_origination_document_catalogue
+.\.venv\Scripts\python.exe manage.py test core.tests_origination_maintenance_browser
+npm run test:browser -- core/tests_browser/origination_guided_setup.spec.js core/tests_browser/origination_document_versioning.spec.js
 .\.venv\Scripts\python.exe manage.py check
 ```
 
 Before production use, create a synthetic draft, save financial terms, save fields/signers, revisit and change the draft terms, then publish once. Confirm that a compatible document from the independent catalogue makes the product available for the assigned test branch. Application approval and signing safeguards remain unchanged.
+
+The live admin browser journey uses an isolated Django test server, synthetic PDF bytes and mocked Drive retrieval. Screenshots are written under `test-results/origination-maintenance-live`; no production URL or customer data is permitted. Run the same Django suites with the repository PostgreSQL test settings to verify PostgreSQL-specific locking as well.

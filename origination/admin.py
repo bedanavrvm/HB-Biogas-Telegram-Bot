@@ -2787,7 +2787,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         if setup_token:
             try:
                 from origination.services.origination_setup import resolve_return_token
-                from origination.services.origination_setup_documents import select_documents, selected_documents
+                from origination.services.origination_setup_documents import stage_change, selected_documents
                 setup_target = resolve_return_token(setup_token)
                 with transaction.atomic():
                     definition = OriginationProductDefinition.objects.select_for_update().get(pk=setup_target['definition_id'])
@@ -2795,11 +2795,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                         raise ValidationError('The document is not connected to this product.')
                     selected = list(selected_documents(definition))
                     if any(item.pk == source.pk for item in selected):
-                        select_documents(
-                            definition=definition,
-                            templates=[successor if item.pk == source.pk else item for item in selected],
-                            actor=request.user, request_id=f'editable-version:{successor.pk}',
-                        )
+                        stage_change(definition=definition, action='edit', source=source, target=successor,
+                            actor=request.user, request_id=f'editable-version:{successor.pk}')
                 target += '?' + urlencode({'setup_return': setup_token})
             except (signing.BadSignature, ValidationError, OriginationProductDefinition.DoesNotExist):
                 self.message_user(request, 'Return to product setup to choose this editable document.', level=messages.WARNING)
@@ -2951,14 +2948,21 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
+            item['label'] = presentation.get('label') or item['label']
+            item['width'] = presentation.get('width', 'half')
+            item['help_text'] = presentation.get('help_text', '')
             if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
                 item['choice_options'] = list(presentation['options'])
         from origination.services.origination_templates import _expected_signature_slots
+        order = {key: index for index, key in enumerate(presentations)}
+        context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
+        from origination.services.origination_setup_documents import shared_review
         return JsonResponse({
             'ok': True,
             'revision': latest.revision if latest else 0,
             'published': bool(latest and latest.is_published),
-            'product_published': bool(product and product.is_active),
+            'product_published': obj.status == obj.STATUS_ACTIVE or bool(obj.product_definition_id and product and product.is_active),
+            'shared_review': shared_review(obj),
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
@@ -3031,7 +3035,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             )
         except Exception as exc:
             return self._calibration_error_response(exc)
-        return JsonResponse({'ok': True, 'revision': saved.revision})
+        from origination.services.origination_setup_documents import shared_review
+        return JsonResponse({'ok': True, 'revision': saved.revision, 'shared_review': shared_review(obj)})
 
     def calibration_field_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
@@ -3044,6 +3049,14 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 template_schema_revision,
             )
             body = self._json_body(request)
+            if body.get('action') in {'update', 'remove', 'move_up', 'move_down'}:
+                from origination.services.origination_fields import edit_template_field
+                obj = edit_template_field(template=obj, key=str(body.get('field_key') or ''),
+                    action=body['action'], presentation=body.get('presentation') or {}, actor=request.user,
+                    expected_schema_revision=int(body.get('schema_revision') or 0),
+                    configuration=body.get('configuration'), expected_revision=int(body.get('revision') or 0),
+                    request_id=str(body.get('client_request_id') or ''))
+                return self._edited_template_field_response(obj, body)
             with transaction.atomic():
                 create_payload = body.get('create_field')
                 if create_payload:
@@ -3098,6 +3111,29 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'replayed': replayed,
         })
 
+    def _edited_template_field_response(self, obj, body):
+        from origination.services.origination_fields import catalogue_for_product, template_schema_revision
+        from origination.services.origination_setup_documents import shared_review
+        presentations = {field['key']: field for field in obj.form_schema.get('fields', [])}
+        context_keys = catalogue_for_product(None)
+        for field in context_keys:
+            presentation = presentations.get(field['key'], {})
+            field.update(attached=bool(presentation), required=bool(presentation.get('required')),
+                         section_key=presentation.get('section_key', ''),
+                         label=presentation.get('label') or field['label'],
+                         help_text=presentation.get('help_text', ''), width=presentation.get('width', 'half'))
+            if presentation.get('options'):
+                field['choice_options'] = presentation['options']
+        # Preserve document order while leaving unattached global choices searchable.
+        order = {key: index for index, key in enumerate(presentations)}
+        context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
+        latest = obj.configuration_revisions.order_by('-revision').first()
+        return JsonResponse({'ok':True, 'context_keys':context_keys, 'schema_revision':template_schema_revision(obj),
+            'form_sections':obj.form_schema.get('sections', []), 'shared_review':shared_review(obj),
+            'field':next((item for item in context_keys if item['key'] == body['field_key']), None),
+            'configuration':latest.configuration if body['action'] == 'remove' and latest else None,
+            'revision':latest.revision if latest else 0})
+
     def calibration_publish_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
         if request.method != 'POST':
@@ -3109,12 +3145,17 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             body = self._json_body(request)
             request_id = str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '')
             pending_attachment = self._pending_supporting_attachment(request, obj)
+            from origination.services.origination_setup_documents import shared_review
+            review = shared_review(obj)
+            if review['required'] and body.get('impact_token') != review['token']:
+                raise ValidationError('Linked products changed. Reload and review the shared upgrade before publishing.')
             assignment = None
             if pending_attachment:
                 _template, published, assignment = publish_and_attach_shared_supporting_template(
                     product_definition=pending_attachment['product'], template=obj,
                     revision=int(body.get('revision')), actor=request.user,
                     client_request_id=request_id, assignment_options=pending_attachment['options'],
+                    expected_shared_impact=body.get('impact_token', ''),
                 )
                 product = pending_attachment['product']
                 self._clear_pending_supporting_attachment(request, obj)
@@ -3122,6 +3163,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 product, _template, published = publish_product_template(
                     template=obj, revision=int(body.get('revision')), actor=request.user,
                     client_request_id=request_id,
+                    expected_shared_impact=body.get('impact_token', ''),
                 )
         except Exception as exc:
             return self._calibration_error_response(exc)

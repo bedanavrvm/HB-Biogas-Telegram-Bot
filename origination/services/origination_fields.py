@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from copy import deepcopy
 import re
 from datetime import date
@@ -719,6 +720,73 @@ def attach_data_field_to_template(
         metadata={'template_id': str(template.pk)},
     )
     return template, False
+
+
+@transaction.atomic
+def edit_template_field(*, template, key, action, presentation, actor, expected_schema_revision,
+                        configuration=None, expected_revision=0, request_id=''):
+    """Edit a draft document contract without changing the global canonical field."""
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise OriginationFieldError('Only an active Superuser may edit document fields.')
+    template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
+    if not template_owns_form_schema(template) or template.status not in {'ready', 'upload_failed'}:
+        raise OriginationFieldError('Open an editable document version before changing its fields.')
+    request_digest = hashlib.sha256(json.dumps([key, action, presentation, configuration], sort_keys=True, default=str).encode()).hexdigest()
+    if request_id:
+        replay = template.events.filter(action='schema_field_edited', metadata__request_id=request_id).first()
+        if replay:
+            if replay.metadata.get('request_digest') != request_digest:
+                raise OriginationFieldError('This retry is for another field action.')
+            return template
+    revision = template_schema_revision(template)
+    if int(expected_schema_revision) != revision:
+        raise OriginationFieldConflict('Document fields changed. Reload before saving.')
+    schema = deepcopy(template.form_schema)
+    fields = schema.get('fields', [])
+    index = next((i for i, field in enumerate(fields) if field.get('key') == key), None)
+    if index is None:
+        raise OriginationFieldError('This field is no longer on the document.')
+    original = fields[index]
+    if action == 'update':
+        canonical = OriginationDataField.objects.filter(key=key, data_type=original.get('type', 'text')).first()
+        if not canonical:
+            raise OriginationFieldError('Resolve this field in the canonical catalogue before editing it.')
+        replacement = _field_schema_item(canonical, {**original, **presentation})
+        replacement['validation'] = {**original.get('validation', {}), **replacement.get('validation', {})}
+        fields[index] = {**original, **replacement}
+    elif action == 'remove':
+        for field in fields:
+            if field is original:
+                continue
+            dependencies = {name: value for name, value in field.items()
+                            if name in {'validation', 'show_when', 'required_when', 'calculation', 'formula'}}
+            if re.search(r'(?<![a-zA-Z0-9_])' + re.escape(key) + r'(?![a-zA-Z0-9_])', json.dumps(dependencies)):
+                raise OriginationFieldError(f"Update the condition or calculation on {field.get('label') or field.get('key')} before removing this field.")
+        fields.pop(index)
+    elif action in {'move_up', 'move_down'}:
+        target = index + (-1 if action == 'move_up' else 1)
+        if 0 <= target < len(fields):
+            fields[index], fields[target] = fields[target], fields[index]
+    else:
+        raise OriginationFieldError('Choose a supported field action.')
+    schema['_revision'] = revision + 1
+    template.form_schema = schema
+    template.save(update_fields=['form_schema', 'updated_at'])
+    if action == 'remove':
+        if not isinstance(configuration, dict):
+            raise OriginationFieldError('Save the current alignment with this field removal.')
+        config = deepcopy(configuration)
+        overlays = config.setdefault('field_overlay_manifest', {}).setdefault('fields', {})
+        config['field_overlay_manifest']['fields'] = {
+            name: spec for name, spec in overlays.items() if spec.get('context_key') != key}
+        config.get('sample_context', {}).pop(key, None)
+        config.get('sample_context', {}).get('_canonical_values', {}).pop(key, None)
+        from origination.services.origination_templates import save_calibration_draft
+        save_calibration_draft(template=template, configuration=config, actor=actor,
+            expected_revision=expected_revision, client_request_id=request_id)
+    OriginationDocumentTemplateEvent.objects.create(template=template, action='schema_field_edited', actor=actor,
+        metadata={'field_key':key, 'operation':action, 'schema_revision':schema['_revision'], 'request_id':request_id, 'request_digest':request_digest})
+    return template
 
 
 def bind_compatible_schema_fields(

@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=3"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=1"><link rel="stylesheet" href="{% static 'admin/origination_product_overview.css' %}?v=1">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=3"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=3"><link rel="stylesheet" href="{% static 'admin/origination_product_overview.css' %}?v=1">{% endblock %}
 
 {% block content %}
 <main class="osw-page">
@@ -36,5 +36,5 @@
     </article>{% empty %}<div class="osw-card osw-empty">No Origination versions found.</div>{% endfor %}</div>
   </section>
 </main>
-<script src="{% static 'admin/origination_setup.js' %}?v=2" defer></script>
+<script src="{% static 'admin/origination_setup.js' %}?v=3" defer></script>
 {% endblock %}

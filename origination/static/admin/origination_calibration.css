@@ -127,6 +127,9 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-nav-group h3 { display: flex; justify-content: space-between; margin: 0; color: var(--cal-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .calibration-nav-group h3 span { min-width: 19px; padding: 1px 5px; border-radius: 999px; background: #e2e8f0; color: #475569; text-align: center; }
 .calibration-nav-row button { display: flex; align-items: center; justify-content: space-between; gap: 7px; width: 100%; min-height: 43px; padding: 6px 7px; border: 1px solid #dbe3ec; border-radius: 7px; background: var(--cal-sheet-surface); color: var(--cal-text); text-align: left; cursor: pointer; }
+.calibration-nav-row { display: flex; gap: 4px; min-width: 0; }
+.calibration-nav-row > button:first-child { flex: 1; min-width: 0; }
+.calibration-nav-row button.cal-field-edit-button { width: 30px; flex: 0 0 30px; justify-content: center; font-size: 17px; padding: 4px; }
 .calibration-nav-row button > span:first-child { display: grid; min-width: 0; }
 .calibration-nav-row strong, .calibration-nav-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calibration-nav-row strong { font-size: 11px; }
@@ -193,7 +196,7 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-field-dialog header, .calibration-field-dialog footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .calibration-field-dialog header h2 { margin: 0 0 3px; font-size: 18px; }
 .calibration-field-dialog header p { margin: 0; color: #64748b; font-size: 12px; }
-.calibration-field-dialog footer { justify-content: flex-end; padding-top: 4px; }
+.calibration-field-dialog footer { justify-content: flex-end; padding-top: 4px; flex-wrap: wrap; gap: 6px; }
 .calibration-field-dialog label { display: grid; gap: 4px; margin: 0; color: #334155; font-size: 12px; font-weight: 650; }
 .calibration-field-dialog input:not([type="checkbox"]), .calibration-field-dialog select, .calibration-field-dialog textarea {
   width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 9px;

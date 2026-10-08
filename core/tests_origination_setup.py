@@ -21,6 +21,234 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def test_maintenance_retry_payload_and_discard_are_idempotent(self):
+        from origination.services.origination_setup_documents import stage_change, cancel_changes
+        definition, source = self._published_maintenance_product()
+        kwargs = dict(definition=definition, source=source, actor=self.superuser, request_id='same-change', action='remove')
+        stage_change(**kwargs)
+        stage_change(**kwargs)
+        self.assertEqual(definition.events.filter(action='maintenance_staged').count(), 1)
+        rows = {row['key']:row for row in setup_readiness(definition)}
+        self.assertEqual(rows['documents']['status'], 'stale')
+        self.assertEqual(rows['publish']['status'], 'stale')
+        with self.assertRaises(ValidationError):
+            stage_change(**{**kwargs, 'action':'edit'})
+        cancel_changes(definition=definition, actor=self.superuser, request_id='discard-once')
+        cancel_changes(definition=definition, actor=self.superuser, request_id='discard-once')
+        self.assertEqual(definition.events.filter(action='maintenance_applied').count(), 1)
+
+    def test_inflight_upload_has_one_owner(self):
+        from origination.services.origination_setup_documents import prepare_edit, _upload_reserved_document
+        definition, source = self._published_maintenance_product()
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='upload-owner')
+        OriginationDocumentTemplate.objects.filter(pk=draft.pk).update(drive_file_id='', status='upload_failed')
+        draft.refresh_from_db()
+        draft.events.create(action='setup_upload_started', actor=self.superuser, metadata={'attempt_id':'other-owner'})
+        with patch('origination.services.origination_templates.upload_template_record') as upload:
+            with self.assertRaisesMessage(ValidationError, 'already uploading'):
+                _upload_reserved_document(draft, data=b'not-used', actor=self.superuser)
+            upload.assert_not_called()
+
+    def test_old_explicit_connection_cannot_restore_withdrawn_product(self):
+        from origination.services.origination_setup_documents import prepare_edit, reconcile_shared_eligibility
+        from origination.models import OriginationDocumentProductEligibility
+        definition, source = self._published_maintenance_product()
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='withdraw-connection')
+        other = Product.objects.create(code='withdrawn-added', name='Withdrawn added')
+        OriginationDocumentProductEligibility.objects.create(template=draft, product=other)
+        draft.events.create(action='setup_product_connected', actor=self.superuser, metadata={'product_id':str(other.pk)})
+        source.events.create(action='product_withdrawn', actor=self.superuser, metadata={'product_id':str(other.pk)})
+        reconcile_shared_eligibility(draft)
+        self.assertFalse(draft.product_eligibilities.filter(product=other).exists())
+
+    def test_field_label_requiredness_and_order_are_document_local(self):
+        from origination.services.origination_setup_documents import prepare_edit
+        from origination.services.origination_fields import edit_template_field, template_schema_revision
+        from origination.models import OriginationDataField
+        definition, source = self._published_maintenance_product()
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='field-edit')
+        original = draft.form_schema['fields'][0]
+        canonical = OriginationDataField.objects.get(key=original['key'])
+        old_label = canonical.label
+        draft = edit_template_field(template=draft, key=original['key'], action='update',
+            presentation={'label':'Requested amount', 'required':False, 'width':'full'}, actor=self.superuser,
+            expected_schema_revision=template_schema_revision(draft), request_id='label-edit')
+        self.assertEqual(draft.form_schema['fields'][0]['label'], 'Requested amount')
+        self.assertFalse(draft.form_schema['fields'][0]['required'])
+        self.assertEqual(draft.form_schema['fields'][0]['type'], original['type'])
+        canonical.refresh_from_db()
+        self.assertEqual(canonical.label, old_label)
+        draft = edit_template_field(template=draft, key=original['key'], action='move_down',
+            presentation={}, actor=self.superuser, expected_schema_revision=template_schema_revision(draft))
+        self.assertEqual(draft.form_schema['fields'][1]['key'], original['key'])
+        source.refresh_from_db()
+        self.assertEqual(source.form_schema['fields'][0]['label'], original['label'])
+
+    def test_field_removal_removes_placements_and_blocks_missing_commercial_contract(self):
+        from origination.services.origination_setup_documents import prepare_edit, document_readiness
+        from origination.services.origination_fields import edit_template_field, template_schema_revision
+        definition, source = self._published_maintenance_product()
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='field-remove')
+        key = draft.form_schema['fields'][0]['key']
+        revision = draft.configuration_revisions.first()
+        draft = edit_template_field(template=draft, key=key, action='remove', presentation={}, actor=self.superuser,
+            expected_schema_revision=template_schema_revision(draft), configuration=revision.configuration,
+            expected_revision=revision.revision, request_id='remove-field')
+        self.assertNotIn(key, [item['key'] for item in draft.form_schema['fields']])
+        self.assertNotIn(key, draft.configuration_revisions.order_by('-revision').first().configuration['field_overlay_manifest']['fields'])
+        self.assertTrue(document_readiness(definition)[1])
+        self.assertIn(key, [item['key'] for item in source.form_schema['fields']])
+
+    def test_field_edit_rejects_stale_revision_and_published_documents(self):
+        from origination.services.origination_setup_documents import prepare_edit
+        from origination.services.origination_fields import edit_template_field, OriginationFieldError
+        definition, source = self._published_maintenance_product()
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='field-conflict')
+        for template, revision in [(source, 0), (draft, -1)]:
+            with self.assertRaises(OriginationFieldError):
+                edit_template_field(template=template, key=draft.form_schema['fields'][0]['key'], action='update',
+                    presentation={'label':'Changed'}, actor=self.superuser, expected_schema_revision=revision)
+
+    def test_incompatible_shared_product_blocks_entire_upgrade(self):
+        from origination.services.origination_setup_documents import prepare_edit, maintenance_impact, apply_changes
+        from origination.models import OriginationDocumentProductEligibility
+        from core.models import ProductVersion
+        definition, source = self._published_maintenance_product()
+        other = Product.objects.create(code='incompatible-shared', name='Incompatible shared')
+        version = ProductVersion.objects.create(product=other, version=1, status='draft')
+        ProductVersion.objects.filter(pk=version.pk).update(status='published')
+        OriginationProductDefinition.objects.create(product_version=version, product_key=other.code,
+            name=other.name, version=1, is_active=True, lifecycle_status='published',
+            form_schema=definition.form_schema, signer_rules=[{'role':'branch_manager', 'required':True}])
+        OriginationDocumentProductEligibility.objects.create(template=source, product=other)
+        draft = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='incompatible-edit')
+        with self.assertRaises(ValidationError):
+            apply_changes(definition=definition, actor=self.superuser, request_id='apply-incompatible',
+                          expected_impact=maintenance_impact(definition)['token'])
+        source.refresh_from_db(); draft.refresh_from_db()
+        self.assertEqual(source.status, 'active')
+        self.assertEqual(draft.status, 'ready')
+        self.assertFalse(definition.events.filter(action='maintenance_applied').exists())
+
+    def _published_maintenance_product(self):
+        definition = self._ready_guided_draft()
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+        definition.refresh_from_db()
+        return definition, OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+
+    def test_last_laf_removal_is_staged_confirmed_scoped_and_replay_safe(self):
+        from origination.services.origination_setup_documents import stage_change, apply_changes, maintenance_impact
+        from origination.services.origination_document_catalogue import catalogue_for_product
+        from origination.models import OriginationDocumentProductEligibility
+        definition, source = self._published_maintenance_product()
+        other = Product.objects.create(code='other-maintenance', name='Other maintenance')
+        OriginationDocumentProductEligibility.objects.create(template=source, product=other)
+        stage_change(definition=definition, action='remove', source=source, actor=self.superuser, request_id='remove-laf')
+        self.assertTrue(catalogue_for_product(definition)['ready'])
+        impact = maintenance_impact(definition)
+        self.assertTrue(impact['unavailable'])
+        with self.assertRaises(ValidationError):
+            apply_changes(definition=definition, actor=self.superuser, request_id='apply-laf', expected_impact=impact['token'])
+        apply_changes(definition=definition, actor=self.superuser, request_id='apply-laf', expected_impact=impact['token'], allow_unavailable=True)
+        apply_changes(definition=definition, actor=self.superuser, request_id='apply-laf', expected_impact='replay', allow_unavailable=True)
+        self.assertFalse(catalogue_for_product(definition)['ready'])
+        self.assertTrue(source.eligible_products.filter(pk=other.pk).exists())
+        source.refresh_from_db()
+        self.assertEqual(source.status, 'active')
+        self.assertEqual(source.events.filter(action='product_withdrawn').count(), 1)
+
+    def test_switch_replaces_choice_without_changing_terms(self):
+        from origination.services.origination_setup_documents import stage_change, apply_changes, maintenance_impact
+        from origination.services.origination_document_catalogue import catalogue_for_product
+        definition, source = self._published_maintenance_product()
+        replacement = self._ready_document(definition, family='another-approved-laf')
+        terms_id = definition.product_version_id
+        stage_change(definition=definition, action='replace', source=source, target=replacement,
+                     actor=self.superuser, request_id='switch-laf')
+        self.assertEqual(len(catalogue_for_product(definition)['main_lafs']), 2)
+        apply_changes(definition=definition, actor=self.superuser, request_id='apply-switch', expected_impact=maintenance_impact(definition)['token'])
+        self.assertEqual([item['id'] for item in catalogue_for_product(definition)['main_lafs']], [str(replacement.pk)])
+        definition.refresh_from_db()
+        self.assertEqual(definition.product_version_id, terms_id)
+
+    def test_impact_changes_when_another_product_changes_shared_availability(self):
+        from origination.services.origination_setup_documents import prepare_edit, maintenance_impact, apply_changes
+        from origination.models import OriginationDocumentProductEligibility
+        definition, source = self._published_maintenance_product()
+        prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='edit-shared')
+        before = maintenance_impact(definition)['token']
+        other = Product.objects.create(code='new-shared-product', name='New shared product')
+        OriginationDocumentProductEligibility.objects.create(template=source, product=other)
+        with self.assertRaises(OriginationSetupConflict):
+            apply_changes(definition=definition, actor=self.superuser, request_id='apply-shared', expected_impact=before)
+
+    def test_shared_draft_does_not_restore_a_withdrawn_product(self):
+        from origination.services.origination_setup_documents import prepare_edit, reconcile_shared_eligibility
+        from origination.models import OriginationDocumentProductEligibility
+        definition, source = self._published_maintenance_product()
+        other = Product.objects.create(code='withdrawn-shared', name='Withdrawn shared')
+        OriginationDocumentProductEligibility.objects.create(template=source, product=other)
+        successor = prepare_edit(definition=definition, source=source, actor=self.superuser, request_id='edit-withdrawn')
+        source.product_eligibilities.filter(product=other).delete()
+        reconcile_shared_eligibility(successor)
+        self.assertFalse(successor.eligible_products.filter(pk=other.pk).exists())
+        self.assertTrue(successor.eligible_products.filter(pk=definition.product_version.product_id).exists())
+
+    def test_discard_restores_published_choices(self):
+        from origination.services.origination_setup_documents import stage_change, cancel_changes, selected_documents, pending_changes
+        definition, source = self._published_maintenance_product()
+        stage_change(definition=definition, action='remove', source=source, actor=self.superuser, request_id='stage-discard')
+        self.assertFalse(selected_documents(definition).exists())
+        cancel_changes(definition=definition, actor=self.superuser, request_id='discard')
+        self.assertEqual(selected_documents(definition).get().pk, source.pk)
+        self.assertEqual(pending_changes(definition), [])
+
+    def test_same_pdf_keeps_source_and_alignment(self):
+        from origination.services.origination_setup_documents import replace_pdf
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from core.tests_origination_templates import synthetic_pdf
+        definition, source = self._published_maintenance_product()
+        result = replace_pdf(definition=definition, source=source, actor=self.superuser, request_id='same-pdf',
+                             pdf_file=SimpleUploadedFile('same.pdf', synthetic_pdf()))
+        self.assertEqual(result.pk, source.pk)
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
+
+    def test_pdf_replacement_retains_fields_clears_alignment_and_retries_same_candidate(self):
+        from origination.services.origination_setup_documents import replace_pdf
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from core.tests_origination_templates import synthetic_pdf
+        definition, source = self._published_maintenance_product()
+        replacement_bytes = synthetic_pdf() + b'\n% replacement source\n'
+        with patch('origination.services.origination_templates._upload_template_bytes', side_effect=ValueError('synthetic upload failure')):
+            failed = replace_pdf(definition=definition, source=source, actor=self.superuser, request_id='replace-source',
+                                 pdf_file=SimpleUploadedFile('updated.pdf', replacement_bytes))
+        self.assertEqual(failed.status, 'upload_failed')
+        source.refresh_from_db()
+        self.assertEqual(source.status, 'active')
+        with patch('origination.services.origination_templates._upload_template_bytes', return_value=('synthetic-replacement', 'https://example.test/pdf')):
+            result = replace_pdf(definition=definition, source=source, actor=self.superuser, request_id='replace-source',
+                                 pdf_file=SimpleUploadedFile('updated.pdf', replacement_bytes))
+        self.assertEqual(result.pk, failed.pk)
+        self.assertEqual(result.form_schema, source.form_schema)
+        self.assertIsNone(result.native_consent_policy_id)
+        self.assertEqual(result.configuration_revisions.first().configuration['field_overlay_manifest']['fields'], {})
+        self.assertEqual(result.configuration_revisions.first().configuration['signature_overlay_manifest']['slots'], {})
+        self.assertNotEqual(result.source_sha256, source.source_sha256)
+
+    def test_maintenance_view_removal_can_be_applied_without_financial_successor(self):
+        from origination.services.origination_setup_documents import maintenance_impact
+        definition, source = self._published_maintenance_product()
+        response = self.client.post(self._documents_url(definition), {'action':'remove', 'source':str(source.pk),
+            'request_id':'remove-view', 'expected_tokens':json.dumps(step_tokens(definition))})
+        self.assertEqual(response.status_code, 302)
+        review = self.client.get(response.url)
+        self.assertContains(review, 'New applications will be unavailable')
+        response = self.client.post(self._documents_url(definition), {'action':'enable_documents',
+            'request_id':'apply-view', 'expected_tokens':json.dumps(step_tokens(definition)),
+            'maintenance_token':maintenance_impact(definition)['token'], 'allow_unavailable':'yes'})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(definition.product_version.product.versions.count(), 1)
+
     def _published_with_same_day_successor(self):
         original = self._ready_guided_draft()
         self.assertEqual(self._publish_guided(original).status_code, 302)

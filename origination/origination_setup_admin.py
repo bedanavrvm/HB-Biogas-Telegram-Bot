@@ -638,6 +638,8 @@ def _step_documents(model_admin, request, definition, context):
     from origination.services.origination_setup_documents import (
         create_setup_document, document_readiness, prepare_document_profile,
         select_documents, selected_documents,
+        stage_change, prepare_edit, replace_pdf, cancel_changes, apply_changes,
+        maintenance_impact, pending_changes,
     )
     uploading = request.method == 'POST' and request.POST.get('action') == 'upload'
     selection = SetupCatalogueSelectionForm(
@@ -646,7 +648,10 @@ def _step_documents(model_admin, request, definition, context):
     upload = SetupCatalogueUploadForm(request.POST if uploading else None, request.FILES if uploading else None)
     token = make_return_token(definition_id=definition.pk, step_key='documents')
     templates, errors = document_readiness(definition)
+    impact = maintenance_impact(definition)
     context.update({'form': selection, 'upload_form': upload, 'document_errors': errors,
+                    'maintenance': impact,
+                    'replacement_options': selection.fields['templates'].queryset,
                     'documents': [{
                         'template': item,
                         'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk])
@@ -654,16 +659,62 @@ def _step_documents(model_admin, request, definition, context):
                     } for item in templates]})
     if request.method != 'POST':
         return None
+    action = request.POST.get('action')
+    if action in {'edit', 'remove', 'switch', 'replace_pdf', 'cancel_changes'}:
+        request_id = _request_id(request)
+        with transaction.atomic():
+            definition = _check_locked(definition, request, 'documents')
+            if action == 'cancel_changes':
+                cancel_changes(definition=definition, actor=request.user, request_id=request_id)
+                return HttpResponseRedirect(_workspace_url(definition, 'documents'))
+            source = OriginationDocumentTemplate.objects.filter(pk=request.POST.get('source')).first()
+            if not source:
+                raise ValidationError('This document is unavailable. Refresh the list.')
+            if action == 'edit':
+                target = prepare_edit(definition=definition, source=source, actor=request.user, request_id=request_id)
+                return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[target.pk])
+                    + '?setup_return=' + token)
+            if action == 'remove':
+                stage_change(definition=definition, action='remove', source=source, actor=request.user, request_id=request_id)
+            if action == 'switch':
+                target = selection.fields['templates'].queryset.filter(pk=request.POST.get('replacement')).first()
+                if not target:
+                    raise ValidationError('Choose an available replacement document.')
+                stage_change(definition=definition, action='replace', source=source, target=target, actor=request.user, request_id=request_id)
+        if action == 'replace_pdf':
+            pdf = request.FILES.get('pdf_file')
+            if not pdf:
+                raise ValidationError('Choose the replacement PDF.')
+            target = replace_pdf(definition=definition, source=source, pdf_file=pdf, actor=request.user, request_id=request_id)
+            if target.status == 'upload_failed':
+                context['step_error'] = target.upload_error
+                context['request_id'] = request_id
+                context['expected_tokens'] = json.dumps(step_tokens(definition), sort_keys=True)
+                return None
+            if target.pk == source.pk:
+                messages.info(request, 'This is the same PDF. Fields and alignment were kept.')
+                return HttpResponseRedirect(_workspace_url(definition, 'documents'))
+            return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[target.pk])
+                + '?setup_return=' + token)
+        return HttpResponseRedirect(_workspace_url(definition, 'publish'))
     form = upload if uploading else selection
     if not form.is_valid():
         return None
     request_id = _request_id(request)
+    if uploading:
+        with transaction.atomic():
+            definition = _check_locked(definition, request, 'documents')
+        uploaded_template = create_setup_document(definition=definition, actor=request.user,
+            request_id=request_id, **upload.cleaned_data)
+        if uploaded_template.status == uploaded_template.STATUS_UPLOAD_FAILED:
+            context['step_error'] = uploaded_template.upload_error or 'Upload failed. Please try again.'
+            context['request_id'] = request_id
+            context['expected_tokens'] = json.dumps(step_tokens(definition), sort_keys=True)
+            return None
     with transaction.atomic():
         definition = _check_locked(definition, request, 'documents')
         if uploading:
-            template = create_setup_document(
-                definition=definition, actor=request.user, **upload.cleaned_data,
-            )
+            template = uploaded_template
             if template.status == template.STATUS_UPLOAD_FAILED:
                 # Keep the failed upload checkpoint; retry does not claim success.
                 context['step_error'] = template.upload_error or 'Upload failed. Please try again.'
@@ -689,11 +740,13 @@ def _step_documents(model_admin, request, definition, context):
         record_step_completion(definition=definition, step_key='documents', actor=request.user, request_id=request_id)
         if request.POST.get('action') == 'enable_documents' and definition.lifecycle_status == definition.STATUS_PUBLISHED:
             from origination.services.origination_setup_documents import publish_setup_documents
-            from origination.services.origination_document_catalogue import catalogue_for_product
-            publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
-            if not catalogue_for_product(definition)['ready']:
-                raise ValidationError('Choose a compatible Main LAF before enabling applications.')
-            messages.success(request, 'Documents enabled. Existing product terms were kept.')
+            if pending_changes(definition):
+                apply_changes(definition=definition, actor=request.user, request_id=request_id,
+                    expected_impact=request.POST.get('maintenance_token'),
+                    allow_unavailable=request.POST.get('allow_unavailable') == 'yes')
+            else:
+                publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
+            messages.success(request, 'Document changes applied. Existing product terms and applications were kept.')
             return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
     messages.success(request, 'Document choices saved.' if not uploading else 'PDF uploaded. Set up its fields and alignment.')
     if uploading:
@@ -706,10 +759,13 @@ def _step_publish(model_admin, request, definition, context):
     from origination.services.origination_document_catalogue import catalogue_for_product
     context['document_catalogue'] = catalogue_for_product(definition)
     context['terms_summary'] = definition.product_version
-    from origination.services.origination_setup_documents import document_readiness
+    from origination.services.origination_setup_documents import document_readiness, maintenance_impact
     templates, document_errors = document_readiness(definition)
     context['document_errors'] = document_errors
     context['selected_documents'] = templates
+    context['maintenance'] = maintenance_impact(definition)
+    if context['maintenance']['changes']:
+        context['affected_products'] = context['maintenance']['affected_products']
     context['branches'] = definition.product_version.product.availability_assignments.filter(
         workflow='loan_origination', active=True,
     ).select_related('branch')
@@ -730,7 +786,23 @@ def _step_publish(model_admin, request, definition, context):
     context['documents_url'] = _workspace_url(definition, 'documents')
     context['affected_products'] = sorted({name for item in templates if item.status == item.STATUS_READY
         for name in item.eligible_products.exclude(pk=definition.product_version.product_id).values_list('name', flat=True)})
+    if context['maintenance']['changes']:
+        context['affected_products'] = context['maintenance']['affected_products']
     terms = definition.product_version
+    context['term_changes'] = []
+    if terms.supersedes_id:
+        labels = {'min_amount':'Minimum amount', 'max_amount':'Maximum amount', 'currency':'Currency',
+                  'min_tenor':'Minimum tenor', 'max_tenor':'Maximum tenor', 'tenor_unit':'Tenor unit',
+                  'interest_rate':'Interest rate', 'interest_method':'Interest method',
+                  'interest_rate_period':'Rate period', 'repayment_frequency':'Repayment frequency',
+                  'effective_from':'Start date', 'effective_to':'End date'}
+        for name, label in labels.items():
+            before, after = getattr(terms.supersedes, name), getattr(terms, name)
+            if before != after:
+                display = f'get_{name}_display'
+                context['term_changes'].append({'label':label,
+                    'before':getattr(terms.supersedes, display)() if hasattr(terms, display) else before,
+                    'after':getattr(terms, display)() if hasattr(terms, display) else after})
     context['same_day_replacement'] = bool(
         terms and terms.supersedes_id
         and terms.status == ProductVersion.STATUS_DRAFT
@@ -759,8 +831,12 @@ def _step_publish(model_admin, request, definition, context):
             allow_same_day_replacement=True,
         )
         definition.refresh_from_db()
-        from origination.services.origination_setup_documents import publish_setup_documents
-        publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
+        from origination.services.origination_setup_documents import publish_setup_documents, pending_changes, apply_changes
+        if pending_changes(definition):
+            apply_changes(definition=definition, actor=request.user, request_id=request_id,
+                expected_impact=request.POST.get('maintenance_token'))
+        else:
+            publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
         if not catalogue_for_product(definition)['ready']:
             raise ValidationError('Documents are not ready for applications. Review the document step.')
         from origination.services.origination_setup import publish_product_profile

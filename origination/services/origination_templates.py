@@ -486,7 +486,7 @@ def save_calibration_draft(
     *, template: OriginationDocumentTemplate, configuration: Any, actor,
     expected_revision: int, client_request_id: str = '',
 ) -> OriginationTemplateConfigurationRevision:
-    template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
     if template.status in {template.STATUS_ACTIVE, template.STATUS_RETIRED}:
         raise OriginationTemplateError('Published template revisions are immutable. Upload a new shared-template version.')
     if template.product_definition_id and template.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
@@ -527,7 +527,7 @@ def publish_calibration(
     *, template: OriginationDocumentTemplate, revision: int, actor,
     client_request_id: str = '',
 ) -> OriginationTemplateConfigurationRevision:
-    template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
     selected = template.configuration_revisions.get(revision=revision)
     validate_template_configuration(selected.configuration, template=template)
     request_id = _calibration_request_id(client_request_id)
@@ -995,7 +995,7 @@ def clone_reusable_template_version(
     # Lock only the concrete template row. ``published_configuration_revision``
     # is nullable, and PostgreSQL rejects FOR UPDATE when a select_related()
     # LEFT OUTER JOIN tries to lock the nullable side as well.
-    source = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    source = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
     if source.status != source.STATUS_ACTIVE or not source.published_configuration_revision_id:
         raise OriginationTemplateError(
             'Create an editable version from the current published family version.',
@@ -1083,7 +1083,7 @@ def clone_reusable_template_version(
 def publish_and_attach_shared_supporting_template(
     *, product_definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate, revision: int, actor,
-    client_request_id: str = '', assignment_options: dict[str, Any] | None = None,
+    client_request_id: str = '', assignment_options: dict[str, Any] | None = None, expected_shared_impact: str | None = None,
 ) -> tuple[OriginationDocumentTemplate, OriginationTemplateConfigurationRevision, OriginationProductDocumentAssignment]:
     """Publish a new shared PDF and attach its latest-compatible family atomically."""
     options = assignment_options or {}
@@ -1094,6 +1094,7 @@ def publish_and_attach_shared_supporting_template(
         _unused_product, activated, published = publish_product_template(
             template=template, revision=revision, actor=actor,
             client_request_id=client_request_id,
+            expected_shared_impact=expected_shared_impact,
         )
         assignment = attach_shared_supporting_template(
             product_definition=product, template=activated, actor=actor,
@@ -1409,11 +1410,14 @@ def upload_template_record(template: OriginationDocumentTemplate, *, pdf_data: b
 
 @transaction.atomic
 def activate_template(template: OriginationDocumentTemplate, *, actor) -> OriginationDocumentTemplate:
-    template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
     if not template.drive_file_id or template.status == template.STATUS_UPLOAD_FAILED:
         raise OriginationTemplateError('Only a successfully uploaded template can be activated.')
     if not template.published_configuration_revision_id:
         raise OriginationTemplateError('Publish the calibrated field alignment before activating this template.')
+    if template.status != template.STATUS_ACTIVE and template.product_definition_id is None:
+        from origination.services.origination_setup_documents import reconcile_shared_eligibility
+        reconcile_shared_eligibility(template)
     from origination.services.origination_document_catalogue import validate_catalogue_publication
     from origination.services.loan_origination import OriginationError
     try:
@@ -1823,16 +1827,21 @@ def replace_draft_template(
 @transaction.atomic
 def publish_product_template(
     *, template: OriginationDocumentTemplate, revision: int, actor,
-    client_request_id: str = '', product_definition: OriginationProductDefinition | None = None,
+    client_request_id: str = '', product_definition: OriginationProductDefinition | None = None, expected_shared_impact: str | None = None,
 ) -> tuple[OriginationProductDefinition | None, OriginationDocumentTemplate, OriginationTemplateConfigurationRevision]:
     """Publish calibration, activate its immutable PDF, and expose the product atomically."""
     # Lock only the template row. ``product_definition`` is nullable, so
     # combining select_for_update() with select_related() makes PostgreSQL try
     # to lock the nullable side of a LEFT OUTER JOIN, which it rejects. The
     # product row is locked explicitly below when the template has one.
-    template = OriginationDocumentTemplate.objects.select_for_update().get(
+    template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(
         pk=template.pk,
     )
+    if expected_shared_impact is not None:
+        from origination.services.origination_setup_documents import shared_review
+        review = shared_review(template)
+        if review['required'] and expected_shared_impact != review['token']:
+            raise OriginationTemplateError('Linked products changed. Reload and review the shared upgrade before publishing.')
     publishing_assigned_primary = bool(product_definition and not template.product_definition_id)
     if not template.product_definition_id and not publishing_assigned_primary:
         published = publish_calibration(
