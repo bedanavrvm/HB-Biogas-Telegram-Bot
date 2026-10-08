@@ -16,9 +16,17 @@ from django.template import engines
 mode = sys.argv[1]
 terms = N(version=1,min_amount='1000',max_amount='50000',min_tenor=1,max_tenor=12,interest_rate='10%',get_tenor_unit_display='Months',get_interest_method_display='Flat')
 definition = N(pk='00000000-0000-0000-0000-000000000001',name='Synthetic Loan',product_key='synthetic',version=1,product_version=terms)
-labels = [('identity','Product and availability'),('terms','Financial terms'),('form','Form and signers'),('publish','Review and publish')]
+labels = [('identity','Product'),('terms','Terms'),('documents','Documents'),('publish','Preview & enable')]
 rows = [dict(key=k,label=v,status='stale' if k=='terms' else 'complete',status_label='Review changes' if k=='terms' else 'Complete',detail='Review the current values before publishing.',url='/setup/'+k+'/') for k,v in labels]
-context = dict(definition=definition,steps=rows,review_rows=rows,step_key='terms' if mode=='legacy' else 'publish',step_label='Financial terms' if mode=='legacy' else 'Review and publish',terms_readonly=mode=='legacy',terms_summary=terms,published_readonly=False,document_catalogue=dict(ready=False,reasons=['No compatible Main LAF is available.']),expected_tokens='{}',request_id='synthetic-request',dashboard_url='/setup/',advanced_url='/advanced/')
+context = dict(definition=definition,steps=rows,review_rows=rows,step_key='terms' if mode=='legacy' else 'publish',step_label='Terms' if mode=='legacy' else 'Preview & enable',terms_readonly=mode=='legacy',terms_summary=terms,published_readonly=False,can_enable=mode not in ['incomplete'],document_errors=['Choose a Main LAF.'] if mode=='incomplete' else [],documents_url='/setup/documents/',expected_tokens='{}',request_id='synthetic-request',dashboard_url='/setup/',advanced_url='/advanced/',signer_labels=['Applicant','Officer','Branch Manager'],branches=[N(branch=N(name='Sample Branch'))],applicant_fields=[dict(label='Applicant name',type='text',required=True)])
+if mode=='documents':
+    from django import forms
+    selection=forms.Form()
+    selection.fields['templates']=forms.MultipleChoiceField(choices=[('1','Reviewed Jawabu LAF - Main LAF'),('2','Supporting declaration with a long readable name')],widget=forms.CheckboxSelectMultiple,required=False)
+    upload=forms.Form()
+    upload.fields['name']=forms.CharField(label='Document name')
+    upload.fields['pdf_file']=forms.FileField(label='Blank PDF')
+    context.update(step_key='documents',step_label='Documents',form=selection,upload_form=upload,documents=[dict(template=N(name='Reviewed Jawabu LAF',status='active',get_document_role_display='Main LAF'),url='/align/')])
 if mode=='conflict':context['conflict']=dict(changed=['Financial terms'],submitted={'interest_rate':'12'})
 if mode=='review':context['same_day_replacement']=True
 print(engines['django'].from_string(sys.stdin.read()).render(context))
@@ -32,7 +40,7 @@ function rendered(mode) {
   });
 }
 
-for (const mode of ['review','legacy','conflict']) {
+for (const mode of ['review','legacy','conflict','incomplete','documents']) {
   test(`guided setup ${mode} is navigable and compact`, async({page},testInfo)=>{
     await page.route(/^https?:\/\//, route=>route.abort());
     await page.setContent(rendered(mode));
@@ -45,11 +53,18 @@ for (const mode of ['review','legacy','conflict']) {
     await expect(page.locator('.osw-hash')).toHaveCount(0);
     if(mode==='legacy') {
       await expect(page.getByRole('button',{name:'Create editable successor'})).toBeVisible();
-      await expect(page.getByRole('link',{name:'Continue to form'})).toHaveAttribute('href',/\/form\/$/);
+      await expect(page.getByRole('link',{name:'Continue to documents'})).toHaveAttribute('href',/\/documents\/$/);
+    } else if(mode==='documents') {
+      await expect(page.getByRole('button',{name:'Save choices & continue'})).toBeVisible();
+      await expect(page.getByRole('textbox',{name:'Document name'})).not.toBeVisible();
+      await page.getByText('Upload a new document',{exact:true}).click();
+      await expect(page.getByRole('textbox',{name:'Document name'})).toBeVisible();
     } else {
-      await expect(page.getByRole('button',{name:'Publish product'})).toBeEnabled();
-      await expect(page.locator('.osw-readiness')).toContainText('Review changes');
-      await expect(page.getByText('You can publish this profile', {exact:false})).toBeVisible();
+      if(mode==='incomplete') await expect(page.getByRole('button',{name:'Enable applications'})).toBeDisabled();
+      else await expect(page.getByRole('button',{name:'Enable applications'})).toBeEnabled();
+      await expect(page.locator('.osw-readiness .stale')).toContainText('Terms');
+      await expect(page.locator('.osw-readiness .complete')).toHaveCount(0);
+      await expect(page.getByText('You can publish this profile', {exact:false})).toHaveCount(0);
     }
     if(mode==='conflict') {
       await page.getByText('Keep a copy of my submitted values').click();
@@ -59,7 +74,7 @@ for (const mode of ['review','legacy','conflict']) {
       await expect(page.getByText('Publishing replaces the earlier version', {exact:false})).toBeVisible();
       await expect(page.getByText('Its history and existing applications are kept.', {exact:false})).toBeVisible();
     }
-    for(const width of [390,1280]) {
+    for(const width of [320,390,1280]) {
       await page.setViewportSize({width,height:900});
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       await page.screenshot({path:testInfo.outputPath(`guided-${mode}-${width}.png`),fullPage:true});

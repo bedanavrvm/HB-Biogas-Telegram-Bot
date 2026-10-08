@@ -8,14 +8,18 @@ Open **Django Admin → Origination product definitions → Guided product setup
 
 ## User workflow
 
-1. **Product and availability** — enter the stable product identity and choose every branch where officers can start it. The stable code cannot change later.
-2. **Financial terms** — enter the KES amount range, tenor, interest, fees, Origination requirements, and custom attributes. Save keeps these editable as a draft.
-3. **Form and signers** — arrange canonical fields and define required signing roles. You can revisit the financial terms without creating a new version.
-4. **Review and publish** — review the current settings and publish once. Financial terms and the product profile are published in one transaction; failure rolls both back.
+1. **Product** — enter its name and branches. The internal stable code is generated automatically. Additional descriptive settings are optional.
+2. **Terms** — enter lending limits, tenor, interest and repayment. Fees and additional requirements are collapsed until needed; technical quote keys are derived.
+3. **Documents** — choose existing Main LAFs and supporting documents, or upload a blank PDF. A new PDF may start with the reviewed Jawabu field preset or the visual field builder. Define applicant fields and signing locations once on the document, then save and return. Draft products are connected automatically; no catalogue trip is required.
+4. **Preview & enable** — inspect branches, terms, signers, the applicant form and synthetic filled-PDF samples. Enable publishes the selected prepared documents, financial terms and product profile atomically; failure rolls canonical changes back.
 
 The dashboard resumes the first incomplete section, then any section marked **Review changes**. Sections remain navigable and valid saves do not require earlier confirmations. Review changes are advisory; genuinely invalid financial, form, signer or consent configuration still blocks final publication with an actionable error.
 
-Legal documents and PDF alignment are managed independently in the Document Catalogue. A missing compatible Main LAF is an availability warning: the profile can be published, but officers cannot start applications until compatible documents are available.
+The independent Document Catalogue remains the application-selection authority. Guided enablement requires a compatible Main LAF; it cannot report success while officers are unable to start applications. Dashboard readiness never downloads PDFs or contacts Drive. Full geometry/source checks run during explicit publication.
+
+**Save draft** keeps typed valid values and stays on the current section. Missing required terms retain their existing draft values; invalid typed values still show errors. Setup can be reopened without requiring earlier confirmation clicks. Choose the final approval policy in Documents; its existing governed consent and signer checks remain mandatory at enablement.
+
+Published products have a **Documents** action for document-only repairs without cloning unchanged financial terms. A reused published document that needs another product in its allowlist creates/reopens a draft successor, retaining fields, PDF bytes, alignment and prior allowed products. Final review names other affected products before activation. Existing applications remain pinned to their captured versions. Selecting documents prepares additions/replacements; it does not silently withdraw previously published choices.
 
 Older drafts with already-published financial terms can finish using those terms. To change them, use **Create editable successor**. Old Publish terms links redirect to final review and do not publish early.
 
@@ -49,7 +53,7 @@ Every workspace write includes:
 - canonical SHA-256 state tokens, checked for the section being edited and its dependencies; and
 - a database lock over the definition and terms version.
 
-Relevant concurrent changes return HTTP 409 with the changed sections and submitted values. Unrelated section changes do not prevent saving. Final Publish checks the reviewed product identity, financial terms and form together. Readiness uses separate content fingerprints rather than the write-conflict tokens.
+Relevant concurrent changes return HTTP 409 with the changed sections and submitted values. Unrelated section changes do not prevent saving. Final enablement checks identity, financial terms, compatibility profile, selected document versions, eligibility and alignment revisions together. Readiness uses separate content fingerprints rather than the write-conflict tokens. Existing document-selection events retain draft intent; published catalogue eligibility remains the source of truth.
 
 Successful step confirmations are append-only `setup_step_completed` events on the existing product-version or Origination product event streams. Replaying the same request key does not create duplicate setup evidence.
 
@@ -62,7 +66,8 @@ Successful step confirmations are append-only `setup_step_completed` events on t
 
 ## Developer notes
 
-- `core/services/origination_setup.py` owns snapshots, hashes, readiness, resume selection, signed returns, and setup completion events.
+- `origination/services/origination_setup.py` owns snapshots, hashes, readiness, resume selection, signed returns, and setup completion events.
+- `origination/services/origination_setup_documents.py` coordinates catalogue-backed preparation and activation without legacy packet assignments or another setup-state model.
 - `core/origination_setup_forms.py` owns bounded multi-model forms.
 - `core/origination_setup_admin.py` owns the Superuser routes and transaction boundaries.
 - The authoritative final publication still runs the existing product-catalog and Origination-template publication services. The workspace readiness projection is guidance; it does not replace final server-side validation.

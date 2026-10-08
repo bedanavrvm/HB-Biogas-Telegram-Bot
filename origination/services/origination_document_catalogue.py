@@ -106,6 +106,8 @@ def main_laf_contract(
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         try:
             validate_product_form_contract(schema, document_signers)
+            from origination.services.origination_approval import validate_approval_roles
+            validate_approval_roles(definition.approval_roles, document_signers)
         except OriginationError as exc:
             reasons.append(str(exc))
     return (schema if not reasons else None), reasons

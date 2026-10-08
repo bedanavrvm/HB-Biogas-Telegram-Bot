@@ -15,6 +15,38 @@ body.osw-admin-page .osw-page {
   width: 100%;
 }
 
+.osw-page details { margin: 12px 0; }
+.osw-page summary { cursor: pointer; font-weight: 650; padding: 8px 0; }
+.osw-choice-search { box-sizing: border-box; width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid var(--osw-border); border-radius: 7px; }
+.osw-submit-row { flex-wrap: wrap; gap: 8px; }
+.osw-step-content { padding: 16px; }
+.osw-step-content h2 { margin: 0 0 10px; font-size: 20px; }
+.osw-step-content p { margin: 8px 0; }
+.osw-primary:disabled { opacity: .5; cursor: not-allowed; }
+.osw-document-list article { padding: 9px 12px; }
+.osw-document-list article > div { min-width: 0; overflow-wrap: anywhere; }
+.osw-document-list .osw-secondary { flex-shrink: 0; }
+.osw-step-content #id_templates { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.osw-step-content #id_templates label { display: flex; gap: 9px; align-items: flex-start; padding: 10px; border: 1px solid var(--osw-border); border-radius: 8px; overflow-wrap: anywhere; }
+.osw-field #id_branches { max-height: 200px; overflow: auto; }
+.osw-preview-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.osw-preview-form label { display: block; font-weight: 650; }
+.osw-preview-form input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--osw-border); border-radius: 6px; }
+.osw-preview-image { max-width: 100%; height: auto; margin-top: 8px; border: 1px solid var(--osw-border); }
+@media(max-width:600px) {
+  .osw-step-content #id_templates, .osw-preview-form { grid-template-columns: 1fr; }
+  .osw-document-list article { flex-wrap: wrap; gap: 8px; }
+  .osw-readiness em { max-width: 80px; text-align: right; }
+}
+
+.dark .osw-page { --osw-ink: #f1f5f9; --osw-muted: #94a3b8; --osw-border: #374151; }
+.dark .osw-card, .dark .osw-stepper a, .dark .osw-table-wrap,
+.dark .osw-secondary, .dark .osw-field input, .dark .osw-field select,
+.dark .osw-field textarea, .dark .osw-preview-form input, .dark .osw-choice-search { background: #111827; color: var(--osw-ink); }
+.dark .osw-summary dt, .dark .osw-status { background: #1e293b; }
+.dark .osw-secondary { color: #7dd3fc !important; }
+.dark .osw-page a:not(.osw-primary):not(.osw-stepper a) { color: #7dd3fc; }
+
 @media (min-width: 1100px) {
   body.osw-admin-page .opb-grid {
     grid-template-columns: minmax(0, 1fr) minmax(340px, 30%);

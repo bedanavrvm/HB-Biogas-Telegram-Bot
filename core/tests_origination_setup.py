@@ -75,13 +75,243 @@ class OriginationSetupWorkspaceTests(TestCase):
         definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
         definition.signer_rules = [{'role': 'officer', 'required': True}]
         definition.save(update_fields=['signer_rules'])
+        self._ready_document(definition)
         return definition
+
+    def _ready_document(self, definition, *, family='guided-ready-laf', active=True):
+        from origination.models import OriginationDocumentProductEligibility, OriginationTemplateConfigurationRevision
+        from origination.services.origination_templates import initial_template_configuration
+        from core.tests_origination_templates import synthetic_pdf
+        import hashlib
+        pdf = synthetic_pdf()
+        template = OriginationDocumentTemplate.objects.create(
+            name='Guided Main LAF', document_type=family, version=1,
+            document_role='primary', document_key='primary', status='active' if active else 'ready',
+            form_schema=definition.form_schema, signer_rules=definition.signer_rules,
+            source_filename='synthetic.pdf', source_sha256=hashlib.sha256(pdf).hexdigest(),
+            source_byte_size=len(pdf), page_count=1, drive_file_id='synthetic-drive', created_by=self.superuser,
+        )
+        config = initial_template_configuration(None, form_schema=definition.form_schema)
+        config.update(document_type=family, version=1)
+        config['field_overlay_manifest']['fields'] = {
+            field['key']: {'context_key':field['key'], 'page_number':1,
+                           'box':{'x':10,'y':10,'width':100,'height':15}}
+            for field in definition.form_schema.get('fields', [])
+        }
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration=config, created_by=self.superuser,
+            is_published=active,
+        )
+        if active:
+            OriginationDocumentTemplate.objects.filter(pk=template.pk).update(published_configuration_revision=revision)
+        OriginationDocumentProductEligibility.objects.create(
+            template=template, product=definition.product_version.product, created_by=self.superuser,
+        )
+        template.refresh_from_db()
+        return template
 
     def _publish_guided(self, definition, request_id=None):
         return self.client.post(reverse(
             'admin:origination_origination_setup_step', args=[definition.pk, 'publish'],
         ), {'expected_tokens': json.dumps(step_tokens(definition)),
             'request_id': request_id or str(uuid.uuid4())})
+
+    def _documents_url(self, definition):
+        return reverse('admin:origination_origination_setup_step', args=[definition.pk, 'documents'])
+
+    def test_new_product_needs_only_name_and_branches(self):
+        self.client.force_login(self.superuser)
+        response = self.client.post(reverse('admin:origination_origination_setup_start'), {
+            'name': 'Plain Loan', 'branches': [self.branch.pk], 'request_id': 'plain-start',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Product.objects.filter(name='Plain Loan', code='plain_loan', active=False).exists())
+
+    def test_enable_requires_document_not_just_valid_terms(self):
+        definition = self._ready_guided_draft()
+        definition.events.create(action='setup_documents_selected', actor=self.superuser, metadata={'template_ids': []})
+        response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 400)
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
+        self.assertContains(response, 'Choose a Main LAF', status_code=400)
+
+    def test_reused_laf_derives_profile_and_preserves_original_document(self):
+        from origination.models import OriginationDocumentProductEligibility
+        from origination.services.origination_setup_documents import selected_documents
+        definition = self._ready_guided_draft()
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        OriginationDocumentProductEligibility.objects.filter(template=template).delete()
+        definition.signer_rules = []
+        definition.save(update_fields=['signer_rules'])
+        response = self.client.post(self._documents_url(definition), {
+            'templates': [template.pk], 'request_id': 'reuse-document',
+            'expected_tokens': json.dumps(step_tokens(definition)),
+        })
+        self.assertEqual(response.status_code, 302)
+        chosen = selected_documents(definition).get()
+        self.assertNotEqual(chosen.pk, template.pk)
+        self.assertEqual(chosen.status, 'ready')
+        self.assertEqual(chosen.form_schema, template.form_schema)
+        self.assertEqual(chosen.drive_file_id, template.drive_file_id)
+        template.refresh_from_db()
+        self.assertEqual(template.status, 'active')
+        self.assertFalse(template.eligible_products.filter(pk=definition.product_version.product_id).exists())
+        definition.refresh_from_db()
+        self.assertEqual(definition.signer_rules, template.signer_rules)
+        self.assertEqual(chosen.configuration_revisions.count(), 1)
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_enable_publishes_draft_document_and_product_together(self, storage):
+        from core.tests_origination_templates import synthetic_pdf
+        storage.return_value.download.return_value = synthetic_pdf()
+        definition = self._ready_guided_draft()
+        draft = self._ready_document(definition, family='draft-laf', active=False)
+        definition.events.create(action='setup_documents_selected', actor=self.superuser,
+                                 metadata={'template_ids': [str(draft.pk)]})
+        response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 302, getattr(response, 'context_data', None))
+        draft.refresh_from_db()
+        definition.refresh_from_db()
+        self.assertEqual(draft.status, 'active')
+        self.assertEqual(definition.lifecycle_status, 'published')
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_document_activation_rolls_back_if_product_enable_fails(self, storage):
+        from core.tests_origination_templates import synthetic_pdf
+        storage.return_value.download.return_value = synthetic_pdf()
+        definition = self._ready_guided_draft()
+        draft = self._ready_document(definition, family='rollback-laf', active=False)
+        definition.events.create(action='setup_documents_selected', actor=self.superuser,
+                                 metadata={'template_ids': [str(draft.pk)]})
+        with patch('origination.services.origination_setup.publish_product_profile', side_effect=ValidationError('Synthetic failure')):
+            response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 400)
+        draft.refresh_from_db()
+        definition.product_version.refresh_from_db()
+        self.assertEqual(draft.status, 'ready')
+        self.assertIsNone(draft.published_configuration_revision_id)
+        self.assertEqual(definition.product_version.status, 'draft')
+        self.assertFalse(draft.events.filter(action='activated').exists())
+
+    def test_readiness_never_reads_external_files(self):
+        definition = self._ready_guided_draft()
+        with patch('origination.services.origination_templates.load_template_source', side_effect=AssertionError('External read')):
+            self.assertEqual(self.client.get(self.dashboard_url).status_code, 200)
+            self.assertEqual(self.client.get(self._documents_url(definition)).status_code, 200)
+
+    def test_enabled_product_can_create_an_application_with_selected_contract(self):
+        from origination.services.loan_origination import create_application
+        from origination.services.origination_document_catalogue import catalogue_for_product
+        definition = self._ready_guided_draft()
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+        definition.refresh_from_db()
+        catalogue = catalogue_for_product(definition)
+        self.assertTrue(catalogue['ready'])
+        application, replayed = create_application(
+            product_key=definition.product_key, officer=self.superuser, branch=self.branch.name,
+            primary_template_id=catalogue['main_lafs'][0]['id'], supporting_template_ids=[],
+            client_request_id='synthetic-enabled-application',
+            expected_catalogue_revision=catalogue['catalogue_revision'],
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(application.product_definition_id, definition.pk)
+        self.assertEqual(
+            [(field['key'], field.get('type')) for field in application.schema_snapshot['fields']],
+            [(field['key'], field.get('type')) for field in definition.form_schema['fields']],
+        )
+
+    def test_aligned_document_change_invalidates_enable_token(self):
+        from origination.models import OriginationTemplateConfigurationRevision
+        definition = self._ready_guided_draft()
+        expected = step_tokens(definition)
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        OriginationTemplateConfigurationRevision.objects.create(template=template, revision=2,
+            configuration=template.published_configuration_revision.configuration, created_by=self.superuser)
+        response = self.client.post(reverse('admin:origination_origination_setup_step', args=[definition.pk, 'publish']), {
+            'expected_tokens': json.dumps(expected), 'request_id': 'stale-alignment',
+        })
+        self.assertEqual(response.status_code, 409)
+
+    def test_upload_is_independent_and_connected_to_inactive_product(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from core.tests_origination_templates import synthetic_pdf
+        from origination.services.origination_setup_documents import selected_documents
+        definition = self._ready_guided_draft()
+        with patch('origination.services.origination_templates._upload_template_bytes', return_value=('synthetic-new-file','https://example.test/pdf')):
+            payload = {'action':'upload', 'name':'New LAF', 'role':'primary', 'preset':'',
+                       'pdf_file':SimpleUploadedFile('blank.pdf', synthetic_pdf(), content_type='application/pdf'),
+                       'expected_tokens':json.dumps(step_tokens(definition)), 'request_id':'new-upload'}
+            response = self.client.post(self._documents_url(definition), payload)
+            payload['pdf_file'].seek(0)
+            replay = self.client.post(self._documents_url(definition), payload)
+        self.assertEqual(response.url, replay.url)
+        self.assertEqual(response.status_code, 302)
+        template = selected_documents(definition).get(name='New LAF')
+        self.assertIsNone(template.product_definition_id)
+        self.assertEqual(template.status, 'ready')
+        self.assertFalse(definition.product_version.product.active)
+        self.assertIn('setup_return=', response.url)
+        self.assertEqual(self.client.get(response.url).context['calibration_setup_return_warning'], '')
+
+    def test_published_document_repair_keeps_financial_version(self):
+        definition = self._ready_guided_draft()
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+        definition.refresh_from_db()
+        terms_id = definition.product_version_id
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        response = self.client.post(self._documents_url(definition), {
+            'action':'enable_documents', 'templates':[template.pk],
+            'expected_tokens':json.dumps(step_tokens(definition)), 'request_id':'repair-documents',
+        })
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertEqual(definition.product_version_id, terms_id)
+        self.assertEqual(definition.lifecycle_status, 'published')
+
+    def test_save_draft_returns_to_current_step_and_legacy_form_redirects(self):
+        definition = self._ready_guided_draft()
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        response = self.client.post(self._documents_url(definition), {
+            'intent':'stay', 'templates':[template.pk],
+            'expected_tokens':json.dumps(step_tokens(definition)), 'request_id':'stay-documents',
+        })
+        self.assertEqual(response.url, self._documents_url(definition))
+        response = self.client.get(reverse('admin:origination_origination_setup_step', args=[definition.pk, 'form']))
+        self.assertEqual(response.url, self._documents_url(definition))
+
+    def test_document_edit_version_keeps_workspace_return_and_selection(self):
+        from origination.services.origination_setup_documents import selected_documents
+        definition = self._ready_guided_draft()
+        source = selected_documents(definition).get()
+        token = make_return_token(definition_id=definition.pk, step_key='documents')
+        response = self.client.post(reverse('admin:origination_originationdocumenttemplate_create_editable_version', args=[source.pk]), {'setup_return':token})
+        self.assertEqual(response.status_code, 302)
+        successor = selected_documents(definition).get()
+        self.assertNotEqual(successor.pk, source.pk)
+        self.assertIn('setup_return=', response.url)
+        alignment = self.client.get(response.url)
+        self.assertEqual(alignment.context['calibration_back_url'], self._documents_url(definition))
+        source.refresh_from_db()
+        self.assertEqual(source.status, 'active')
+
+    def test_approval_policy_is_collected_without_another_signer_builder(self):
+        definition = self._ready_guided_draft()
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        response = self.client.post(self._documents_url(definition), {
+            'templates':[template.pk], 'approval_mode':'bm',
+            'expected_tokens':json.dumps(step_tokens(definition)), 'request_id':'bm-policy',
+        })
+        self.assertEqual(response.status_code, 302)
+        definition.refresh_from_db()
+        self.assertEqual(definition.approval_roles, ['branch_manager'])
+        self.assertIn('branch_manager', [rule['role'] for rule in definition.signer_rules])
+        response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 400)
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'draft')
 
     def test_guided_publication_is_one_atomic_action_without_confirmation_gates(self):
         definition = self._ready_guided_draft()
@@ -183,7 +413,7 @@ class OriginationSetupWorkspaceTests(TestCase):
             'signer_rules': json.dumps(definition.signer_rules)})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse(
-            'admin:origination_origination_setup_step', args=[definition.pk, 'publish']))
+            'admin:origination_origination_setup_step', args=[definition.pk, 'documents']))
         definition.product_version.refresh_from_db()
         self.assertEqual(definition.product_version.status, 'draft')
 
@@ -210,6 +440,10 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertEqual(definition.product_version.status, 'draft')
 
     def setUp(self):
+        from core.tests_origination_templates import synthetic_pdf
+        source = patch('origination.services.origination_templates.load_template_source', return_value=synthetic_pdf())
+        source.start()
+        self.addCleanup(source.stop)
         self.superuser = get_user_model().objects.create_superuser(
             username='setup-admin', email='setup@example.test', password='secret',
         )

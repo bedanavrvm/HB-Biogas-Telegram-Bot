@@ -23,10 +23,10 @@ from origination.origination_setup_forms import (
     AttributeFormSet,
     FeeFormSet,
     RequirementFormSet,
-    SetupDocumentForm,
-    SetupFormContractForm,
     SetupIdentityForm,
     SetupTermsForm,
+    SetupCatalogueSelectionForm,
+    SetupCatalogueUploadForm,
 )
 from origination.services.origination_setup import (
     SETUP_STEPS,
@@ -452,6 +452,7 @@ def _sync_availability(product, branches):
 
 def _base_context(model_admin, request, definition, step_key):
     rows = setup_readiness(definition)
+    keys = [key for key, _label in SETUP_STEPS]
     return {
         **model_admin.admin_site.each_context(request),
         'opts': model_admin.model._meta,
@@ -459,6 +460,7 @@ def _base_context(model_admin, request, definition, step_key):
         'definition': definition,
         'step_key': step_key,
         'step_label': dict(SETUP_STEPS)[step_key],
+        'previous_url': _workspace_url(definition, keys[keys.index(step_key) - 1]) if keys.index(step_key) else '',
         'steps': [
             {**row, 'url': _workspace_url(definition, row['key'])}
             for row in rows
@@ -476,6 +478,10 @@ def _base_context(model_admin, request, definition, step_key):
 
 def step_view(model_admin, request, object_id, step_key):
     _guard(request)
+    if step_key in {'form', 'calibration'}:
+        return HttpResponseRedirect(reverse(
+            'admin:origination_origination_setup_step', args=[object_id, 'documents'],
+        ))
     if step_key == 'terms_publish':
         definition = _definition(object_id)
         if not definition:
@@ -487,7 +493,10 @@ def step_view(model_admin, request, object_id, step_key):
     definition = _definition(object_id)
     if not definition:
         return HttpResponse(status=404)
-    if (request.method == 'POST' and definition.lifecycle_status != definition.STATUS_DRAFT
+    if not definition.product_version_id:
+        messages.warning(request, 'Connect this legacy product to its commercial terms before guided setup.')
+        return HttpResponseRedirect(reverse('admin:origination_origination_setup_detail', args=[definition.pk]))
+    if (request.method == 'POST' and step_key != 'documents' and definition.lifecycle_status != definition.STATUS_DRAFT
             and not completed_request(definition=definition, step_key=step_key, request_id=_request_id(request))):
         messages.error(request, 'Published versions are immutable. Create an editable successor.')
         return HttpResponseRedirect(_workspace_url(definition, step_key))
@@ -500,6 +509,15 @@ def step_view(model_admin, request, object_id, step_key):
                 definition=definition, step_key=step_key,
                 request_id=posted_request_id,
             ):
+                if step_key == 'documents' and request.POST.get('action') == 'upload':
+                    uploaded = definition.events.filter(action='setup_pdf_uploaded',
+                        metadata__request_id=posted_request_id).first()
+                    if uploaded:
+                        return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate',
+                            args=[uploaded.metadata['template_id']]) + '?setup_return=' + make_return_token(
+                                definition_id=definition.pk, step_key='documents'))
+                if request.POST.get('intent') == 'stay':
+                    return HttpResponseRedirect(_workspace_url(definition, step_key))
                 keys = [key for key, _label in SETUP_STEPS]
                 next_key = keys[keys.index(step_key) + 1] if step_key != 'publish' else ''
                 return HttpResponseRedirect(
@@ -510,7 +528,7 @@ def step_view(model_admin, request, object_id, step_key):
     except OriginationSetupConflict as exc:
         labels = dict(SETUP_STEPS)
         context['conflict'] = {
-            'changed': [labels[key] for key in exc.changed_steps],
+            'changed': list(dict.fromkeys(labels.get(key, 'Documents') for key in exc.changed_steps)),
             'submitted': request.POST,
         }
         context['form'] = context.get('form') or SetupIdentityForm(
@@ -534,6 +552,7 @@ def step_view(model_admin, request, object_id, step_key):
 def _check_locked(definition, request, step_key=None):
     locked = _definition(definition.pk, lock=True)
     if (locked.lifecycle_status != locked.STATUS_DRAFT
+            and not (step_key == 'documents' and locked.lifecycle_status == locked.STATUS_PUBLISHED)
             and not (step_key == 'publish' and completed_request(
                 definition=locked, step_key='publish', request_id=_request_id(request)))):
         raise ValidationError('This version was published. Create an editable successor to make changes.')
@@ -564,7 +583,7 @@ def _step_identity(model_admin, request, definition, context):
             request_id=request_id,
         )
     messages.success(request, 'Product and branch availability saved.')
-    return HttpResponseRedirect(_workspace_url(definition, 'terms'))
+    return HttpResponseRedirect(_workspace_url(definition, 'identity' if request.POST.get('intent') == 'stay' else 'terms'))
 
 
 def _terms_forms(request, version):
@@ -610,195 +629,107 @@ def _step_terms(model_admin, request, definition, context):
             request_id=request_id,
         )
     messages.success(request, 'Commercial terms saved as a draft.')
-    return HttpResponseRedirect(_workspace_url(definition, 'form'))
+    return HttpResponseRedirect(_workspace_url(definition, 'terms' if request.POST.get('intent') == 'stay' else 'documents'))
 
 
-def _step_form(model_admin, request, definition, context):
-    from origination.services.loan_origination import SIGNER_ROLE_CATALOG, validate_product_form_contract
-    from origination.services.origination_fields import catalogue_for_product
-    form = SetupFormContractForm(request.POST or None, instance=definition)
-    context.update({
-        'form': form,
-        'origination_signer_roles': [
-            {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
-        ],
-        'origination_data_fields': catalogue_for_product(definition),
-        'origination_data_field_add_url': reverse('admin:origination_originationdatafield_add'),
-        'origination_data_field_create_url': reverse(
-            'admin:origination_originationproductdefinition_create_canonical_field',
-        ),
-    })
-    if request.method != 'POST':
-        return None
-    if not form.is_valid():
-        return None
-    request_id = _request_id(request)
-    with transaction.atomic():
-        definition = _check_locked(definition, request, 'form')
-        form = SetupFormContractForm(request.POST, instance=definition)
-        if not form.is_valid():
-            context['form'] = form
-            return None
-        from origination.services.origination_commercial_terms import (
-            ensure_commercial_catalogue, merge_commercial_contract,
-        )
-        definition.form_schema = merge_commercial_contract(
-            form.cleaned_data['form_schema'],
-            fields=ensure_commercial_catalogue(actor=request.user),
-        )
-        definition.signer_rules = form.cleaned_data['signer_rules']
-        validate_product_form_contract(definition.form_schema, definition.signer_rules)
-        definition.save(update_fields=['form_schema', 'signer_rules', 'updated_at'])
-        from origination.services.origination_fields import bind_compatible_schema_fields
-        bind_compatible_schema_fields(definition, create_issues=True)
-        OriginationProductDefinitionEvent.objects.create(
-            product_definition=definition, action='draft_updated', actor=request.user,
-            metadata={'request_id': request_id, 'source': 'guided_setup', 'step': 'form'},
-        )
-        record_step_completion(
-            definition=definition, step_key='form', actor=request.user,
-            request_id=request_id,
-        )
-    messages.success(request, 'Form compatibility and minimum signing roles saved.')
-    return HttpResponseRedirect(_workspace_url(definition, 'publish'))
-
-
-def _reusable_primaries():
-    return OriginationDocumentTemplate.objects.filter(
-        product_definition__isnull=True,
-        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-        status=OriginationDocumentTemplate.STATUS_ACTIVE,
-        published_configuration_revision__isnull=False,
-    ).order_by('name', '-version')
 
 
 def _step_documents(model_admin, request, definition, context):
-    from origination.services.origination_templates import resolve_assignment_template
-    owned = list(definition.document_templates.exclude(
-        status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
-    ).order_by('display_order', 'name'))
-    assignments = list(definition.document_assignments.select_related(
-        'template', 'template__published_configuration_revision',
-    ).order_by('display_order', 'name'))
-    context.update({
-        'documents': owned,
-        'assignments': [
-            {'assignment': item, 'resolved': resolve_assignment_template(item)}
-            for item in assignments
-        ],
-        'supporting_url': reverse(
-            'admin:origination_originationproductdefinition_supporting_document_setup',
-            args=[definition.pk],
-        ) + '?setup_return=' + make_return_token(
-            definition_id=definition.pk, step_key='documents',
-        ),
-        'library_url': reverse('admin:origination_originationdocumenttemplate_changelist'),
-    })
-    form = SetupDocumentForm(
-        request.POST or None, request.FILES or None,
-        reusable_queryset=_reusable_primaries(),
+    from origination.services.origination_setup_documents import (
+        create_setup_document, document_readiness, prepare_document_profile,
+        select_documents, selected_documents,
     )
-    context['form'] = form
+    uploading = request.method == 'POST' and request.POST.get('action') == 'upload'
+    selection = SetupCatalogueSelectionForm(
+        request.POST if request.method == 'POST' and not uploading else None, definition=definition,
+    )
+    upload = SetupCatalogueUploadForm(request.POST if uploading else None, request.FILES if uploading else None)
+    token = make_return_token(definition_id=definition.pk, step_key='documents')
+    templates, errors = document_readiness(definition)
+    context.update({'form': selection, 'upload_form': upload, 'document_errors': errors,
+                    'documents': [{
+                        'template': item,
+                        'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk])
+                               + '?setup_return=' + token,
+                    } for item in templates]})
     if request.method != 'POST':
         return None
-    if request.POST.get('action') == 'confirm_existing':
-        request_id = _request_id(request)
-        with transaction.atomic():
-            definition = _check_locked(definition, request)
-            record_step_completion(
-                definition=definition, step_key='documents', actor=request.user,
-                request_id=request_id,
-            )
-        return HttpResponseRedirect(_workspace_url(definition, 'calibration'))
+    form = upload if uploading else selection
     if not form.is_valid():
         return None
     request_id = _request_id(request)
     with transaction.atomic():
-        definition = _check_locked(definition, request)
-        from origination.services.origination_templates import (
-            attach_shared_document_template, create_template, replace_draft_template,
-        )
-        if form.cleaned_data['source'] == SetupDocumentForm.SOURCE_EXISTING:
-            attach_shared_document_template(
-                product_definition=definition,
-                template=form.cleaned_data['reusable_template'],
-                inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-                display_order=0, officer_selectable=False, default_selected=False,
-                applicability_rule={}, actor=request.user,
-                version_policy='pinned',
-            )
-            template = form.cleaned_data['reusable_template']
-        else:
-            current = definition.document_templates.filter(
-                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-                status__in=[OriginationDocumentTemplate.STATUS_READY, OriginationDocumentTemplate.STATUS_ACTIVE],
-            ).order_by('-created_at').first()
-            creator = replace_draft_template if current else create_template
-            template = creator(
-                pdf_file=form.cleaned_data['pdf_file'], product_definition=definition,
-                name=f'{definition.name} LAF v{definition.version}', actor=request.user,
+        definition = _check_locked(definition, request, 'documents')
+        if uploading:
+            template = create_setup_document(
+                definition=definition, actor=request.user, **upload.cleaned_data,
             )
             if template.status == template.STATUS_UPLOAD_FAILED:
-                raise ValidationError(template.upload_error or 'The PDF upload failed.')
-        record_step_completion(
-            definition=definition, step_key='documents', actor=request.user,
-            request_id=request_id,
-        )
-    messages.success(request, 'Main LAF saved in this document packet.')
-    if template.product_definition_id:
-        return HttpResponseRedirect(
-            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
-            + '?setup_return=' + make_return_token(definition_id=definition.pk)
-        )
-    return HttpResponseRedirect(_workspace_url(definition, 'calibration'))
-
-
-def _step_calibration(model_admin, request, definition, context):
-    from origination.services.origination_templates import resolve_assignment_template
-    token = make_return_token(definition_id=definition.pk)
-    items = []
-    for template in definition.document_templates.exclude(status=template_status_failed()):
-        items.append({
-            'name': template.name, 'template': template,
-            'ready': bool(template.configuration_revisions.exists()),
-            'published': bool(template.published_configuration_revision_id),
-            'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
-                   + '?setup_return=' + token,
-        })
-    for assignment in definition.document_assignments.select_related('template'):
-        template = resolve_assignment_template(assignment)
-        if template:
-            items.append({
-                'name': assignment.name, 'template': template, 'ready': True,
-                'published': True,
-                'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
-                       + '?setup_return=' + token,
-            })
-    context['calibration_items'] = items
-    if request.method != 'POST':
-        return None
-    request_id = _request_id(request)
-    with transaction.atomic():
-        definition = _check_locked(definition, request)
-        row = next(item for item in setup_readiness(definition) if item['key'] == 'calibration')
-        if row['status'] not in {'complete', 'stale'} and 'complete alignment' not in row['detail']:
-            raise ValidationError(row['detail'])
-        record_step_completion(
-            definition=definition, step_key='calibration', actor=request.user,
-            request_id=request_id,
-        )
-    messages.success(request, 'PDF alignment reviewed.')
-    return HttpResponseRedirect(_workspace_url(definition, 'publish'))
-
-
-def template_status_failed():
-    return OriginationDocumentTemplate.STATUS_UPLOAD_FAILED
+                # Keep the failed upload checkpoint; retry does not claim success.
+                context['step_error'] = template.upload_error or 'Upload failed. Please try again.'
+                return None
+            OriginationProductDefinitionEvent.objects.create(
+                product_definition=definition, action='setup_pdf_uploaded', actor=request.user,
+                metadata={'request_id': request_id, 'template_id': str(template.pk)},
+            )
+            chosen = list(selected_documents(definition)) + [template]
+        else:
+            chosen = list(selection.cleaned_data['templates'])
+            if definition.lifecycle_status == definition.STATUS_DRAFT:
+                approval_mode = selection.cleaned_data.get('approval_mode')
+                modes = {'independent': [], 'bm': ['branch_manager'],
+                         'management': ['branch_manager', 'management_approver']}
+                if approval_mode in modes:
+                    definition.approval_roles = modes[approval_mode]
+                    definition.save(update_fields=['approval_roles', 'updated_at'])
+        chosen = select_documents(definition=definition, templates=chosen,
+                                  actor=request.user, request_id=request_id)
+        if definition.lifecycle_status == definition.STATUS_DRAFT and any(item.document_role == item.ROLE_PRIMARY for item in chosen):
+            prepare_document_profile(definition=definition, templates=chosen)
+        record_step_completion(definition=definition, step_key='documents', actor=request.user, request_id=request_id)
+        if request.POST.get('action') == 'enable_documents' and definition.lifecycle_status == definition.STATUS_PUBLISHED:
+            from origination.services.origination_setup_documents import publish_setup_documents
+            from origination.services.origination_document_catalogue import catalogue_for_product
+            publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
+            if not catalogue_for_product(definition)['ready']:
+                raise ValidationError('Choose a compatible Main LAF before enabling applications.')
+            messages.success(request, 'Documents enabled. Existing product terms were kept.')
+            return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
+    messages.success(request, 'Document choices saved.' if not uploading else 'PDF uploaded. Set up its fields and alignment.')
+    if uploading:
+        return HttpResponseRedirect(reverse('admin:origination_originationdocumenttemplate_calibrate', args=[template.pk])
+                                    + '?setup_return=' + token)
+    return HttpResponseRedirect(_workspace_url(definition, 'documents' if request.POST.get('intent') == 'stay' else 'publish'))
 
 
 def _step_publish(model_admin, request, definition, context):
     from origination.services.origination_document_catalogue import catalogue_for_product
     context['document_catalogue'] = catalogue_for_product(definition)
     context['terms_summary'] = definition.product_version
+    from origination.services.origination_setup_documents import document_readiness
+    templates, document_errors = document_readiness(definition)
+    context['document_errors'] = document_errors
+    context['selected_documents'] = templates
+    context['branches'] = definition.product_version.product.availability_assignments.filter(
+        workflow='loan_origination', active=True,
+    ).select_related('branch')
+    context['signer_labels'] = [rule.get('label') or rule.get('role', '').replace('_', ' ').title()
+                                for rule in definition.signer_rules if isinstance(rule, dict)]
+    main = next((item for item in templates if item.document_role == item.ROLE_PRIMARY), None)
+    if main:
+        from origination.services.origination_fields import template_form_contract
+        schema, _signers = template_form_contract(main)
+        context['applicant_fields'] = schema.get('fields', [])
+    context['document_previews'] = [{
+        'template': item,
+        'configuration': (item.published_configuration_revision if item.status == item.STATUS_ACTIVE
+                          else item.configuration_revisions.order_by('-revision').first()).configuration,
+        'url': reverse('admin:origination_originationdocumenttemplate_calibration_preview', args=[item.pk]),
+    } for item in templates if item.published_configuration_revision_id or item.configuration_revisions.exists()]
+    context['can_enable'] = not document_errors
+    context['documents_url'] = _workspace_url(definition, 'documents')
+    context['affected_products'] = sorted({name for item in templates if item.status == item.STATUS_READY
+        for name in item.eligible_products.exclude(pk=definition.product_version.product_id).values_list('name', flat=True)})
     terms = definition.product_version
     context['same_day_replacement'] = bool(
         terms and terms.supersedes_id
@@ -828,9 +759,13 @@ def _step_publish(model_admin, request, definition, context):
             allow_same_day_replacement=True,
         )
         definition.refresh_from_db()
+        from origination.services.origination_setup_documents import publish_setup_documents
+        publish_setup_documents(definition=definition, actor=request.user, request_id=request_id)
+        if not catalogue_for_product(definition)['ready']:
+            raise ValidationError('Documents are not ready for applications. Review the document step.')
         from origination.services.origination_setup import publish_product_profile
         published = publish_product_profile(definition=definition, actor=request.user)
-        for key in ('identity', 'terms', 'form'):
+        for key in ('identity', 'terms', 'documents'):
             record_step_completion(definition=published, step_key=key,
                                    actor=request.user, request_id=request_id)
         record_step_completion(
@@ -839,6 +774,7 @@ def _step_publish(model_admin, request, definition, context):
         )
     messages.success(
         request,
-        f'{published.name} v{published.version} is published. Its document choices come from the independent catalogue.',
+        f'{published.name} is ready for applications.' if published.product_version.status == ProductVersion.STATUS_PUBLISHED
+        else f'{published.name} is enabled from {published.product_version.effective_from}.',
     )
     return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))

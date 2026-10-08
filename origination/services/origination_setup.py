@@ -21,10 +21,10 @@ from core.models import ProductVersion, ProductVersionEvent
 
 
 SETUP_STEPS = (
-    ('identity', 'Product and availability'),
-    ('terms', 'Financial terms'),
-    ('form', 'Form and signers'),
-    ('publish', 'Review and publish'),
+    ('identity', 'Product'),
+    ('terms', 'Terms'),
+    ('documents', 'Documents'),
+    ('publish', 'Preview & enable'),
 )
 LEGACY_RETURN_STEPS = {'documents', 'calibration', 'terms_publish'}
 RETURN_TOKEN_SALT = 'core.origination.setup.return.v1'
@@ -133,6 +133,13 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
         _model_values(item, {'id', 'created_at'})
         for item in definition.document_assignments.order_by('display_order', 'document_key', 'pk')
     ]
+    from origination.services.origination_setup_documents import selected_documents
+    catalogue_documents = [
+        {**_model_values(item, {'updated_at', 'drive_url', 'upload_error'}),
+         'latest_revision': item.configuration_revisions.order_by('-revision').values_list('revision', flat=True).first(),
+         'eligible_products': sorted(str(pk) for pk in item.eligible_products.values_list('pk', flat=True))}
+        for item in selected_documents(definition)
+    ] if version else []
     return {
         'identity': {
             'product': _model_values(product, {'updated_at', 'active'}) if product else {},
@@ -148,7 +155,7 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
             'schema': definition.form_schema,
             'signers': definition.signer_rules,
         },
-        'documents': {'owned': owned_documents, 'assignments': assignments},
+        'documents': {'owned': owned_documents, 'assignments': assignments, 'catalogue': catalogue_documents},
         'calibration': {
             'owned': [
                 {
@@ -258,7 +265,8 @@ def assert_expected_state(
 ) -> None:
     current = step_tokens(definition)
     dependencies = {'identity': ('identity',), 'terms': ('terms',),
-                    'form': ('form',), 'publish': ('identity', 'terms', 'form')}
+                    'form': ('form',), 'documents': ('documents',),
+                    'publish': ('identity', 'terms', 'form', 'documents')}
     keys = dependencies[step_key] if step_key else tuple(key for key, _ in SETUP_STEPS)
     if step_key and any(not expected_tokens.get(key) for key in keys):
         raise ValidationError('Reload this setup before saving; its concurrency token is missing.')
@@ -394,16 +402,17 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
         ).exists()
     )
     terms_valid, terms_detail = _valid_terms(definition.product_version)
-    form_valid, form_detail = _valid_form(definition)
+    from origination.services.origination_setup_documents import document_readiness
+    _documents, document_errors = document_readiness(definition) if product else ([], ['Choose a product.'])
+    documents_valid = not document_errors
     candidates = {
         'identity': (identity_valid, 'Product and availability are saved.' if identity_valid else 'Add product details and at least one Origination availability assignment.'),
         'terms': (terms_valid, terms_detail),
-        'form': (form_valid, form_detail),
+        'documents': (documents_valid, 'Documents are ready.' if documents_valid else ' '.join(document_errors)),
         'publish': (
-            definition.lifecycle_status == definition.STATUS_PUBLISHED and definition.is_active,
-            ('The product is published. Documents are managed separately.'
-             if definition.lifecycle_status == definition.STATUS_PUBLISHED
-             else 'Review the current settings, then publish the product once.')
+            definition.lifecycle_status == definition.STATUS_PUBLISHED and definition.is_active and documents_valid,
+            ('Ready for applications.' if definition.is_active and documents_valid
+             else 'Preview the documents, then enable applications.')
         ),
     }
     rows = []

@@ -6,6 +6,7 @@ import json
 
 from django import forms
 from django.forms import inlineformset_factory
+from django.utils.text import slugify
 
 from origination.models import OriginationDocumentTemplate, OriginationProductDefinition
 from core.models import (
@@ -31,6 +32,11 @@ class SetupIdentityForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['code'].required = False
+        self.fields['code'].widget = forms.HiddenInput()
+        self.fields['sort_order'].required = False
+        if self.is_bound and self.data.get('intent') == 'stay':
+            self.fields['branches'].required = False
         self.fields['branches'].queryset = OperationalLocation.objects.filter(
             location_type='branch', active=True,
         ).order_by('sort_order', 'name')
@@ -40,8 +46,36 @@ class SetupIdentityForm(forms.ModelForm):
             ).values_list('branch_id', flat=True)
             self.fields['code'].disabled = True
 
+    def clean_code(self):
+        if self.instance.pk:
+            return self.instance.code
+        supplied = self.cleaned_data.get('code')
+        if supplied:
+            return supplied
+        base = slugify(self.cleaned_data.get('name') or 'loan').replace('-', '_')[:65] or 'loan'
+        candidate, number = base, 2
+        while Product.objects.filter(code=candidate).exists():
+            candidate = f'{base}_{number}'
+            number += 1
+        return candidate
+
+    def clean_sort_order(self):
+        return self.cleaned_data.get('sort_order') or 0
+
 
 class SetupTermsForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for key in ('quote_amount_field_key', 'quote_tenor_field_key'):
+            self.fields[key].disabled = True
+            self.fields[key].widget = forms.HiddenInput()
+        if self.is_bound and self.data.get('intent') == 'stay':
+            data = self.data.copy()
+            for key, field in self.fields.items():
+                if field.required and not str(data.get(key) or '').strip():
+                    data[key] = self.initial.get(key, getattr(self.instance, key, ''))
+            self.data = data
+
     class Meta:
         model = ProductVersion
         fields = (
@@ -194,3 +228,42 @@ class SetupDocumentForm(forms.Form):
         if cleaned.get('source') == self.SOURCE_UPLOAD and not cleaned.get('pdf_file'):
             self.add_error('pdf_file', 'Choose the blank LAF PDF.')
         return cleaned
+
+
+class SetupCatalogueSelectionForm(forms.Form):
+    approval_mode = forms.ChoiceField(required=False, label='Final approval', choices=(
+        ('', 'Keep current approval policy'),
+        ('independent', 'Independent review after signing'),
+        ('bm', 'Branch Manager approves and signs'),
+        ('management', 'Branch Manager, then Management'),
+    ))
+    templates = forms.ModelMultipleChoiceField(
+        queryset=OriginationDocumentTemplate.objects.none(), required=False,
+        label='Available documents', widget=forms.CheckboxSelectMultiple,
+    )
+
+    def __init__(self, *args, definition, **kwargs):
+        super().__init__(*args, **kwargs)
+        from django.db.models import Q
+        self.fields['templates'].queryset = OriginationDocumentTemplate.objects.filter(
+            Q(status='active', published_configuration_revision__isnull=False)
+            | Q(status='ready', product_eligibilities__product_id=definition.product_version.product_id),
+        ).distinct().order_by('document_role', 'name', '-version')
+        self.fields['templates'].label_from_instance = lambda item: (
+            f'{item.name} · {item.get_document_role_display()} · {item.get_status_display()}'
+        )
+        if definition.lifecycle_status != definition.STATUS_DRAFT:
+            self.fields.pop('approval_mode')
+        if not self.is_bound:
+            from origination.services.origination_setup_documents import selected_documents
+            self.initial['templates'] = selected_documents(definition)
+
+
+class SetupCatalogueUploadForm(forms.Form):
+    name = forms.CharField(max_length=180, label='Document name')
+    role = forms.ChoiceField(choices=OriginationDocumentTemplate.ROLE_CHOICES, label='Purpose')
+    preset = forms.ChoiceField(required=False, label='Starting fields', choices=(
+        ('', 'Set up fields visually'),
+        ('generic_jawabu_laf', 'Reviewed Jawabu LAF fields'),
+    ))
+    pdf_file = forms.FileField(label='Blank PDF', widget=forms.FileInput(attrs={'accept': 'application/pdf'}))

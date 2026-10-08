@@ -2782,9 +2782,28 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             ),
             level=messages.SUCCESS,
         )
-        return HttpResponseRedirect(reverse(
-            'admin:origination_originationdocumenttemplate_calibrate', args=[successor.pk],
-        ))
+        target = reverse('admin:origination_originationdocumenttemplate_calibrate', args=[successor.pk])
+        setup_token = str(request.POST.get('setup_return') or '').strip()
+        if setup_token:
+            try:
+                from origination.services.origination_setup import resolve_return_token
+                from origination.services.origination_setup_documents import select_documents, selected_documents
+                setup_target = resolve_return_token(setup_token)
+                with transaction.atomic():
+                    definition = OriginationProductDefinition.objects.select_for_update().get(pk=setup_target['definition_id'])
+                    if not source.product_eligibilities.filter(product_id=definition.product_version.product_id).exists():
+                        raise ValidationError('The document is not connected to this product.')
+                    selected = list(selected_documents(definition))
+                    if any(item.pk == source.pk for item in selected):
+                        select_documents(
+                            definition=definition,
+                            templates=[successor if item.pk == source.pk else item for item in selected],
+                            actor=request.user, request_id=f'editable-version:{successor.pk}',
+                        )
+                target += '?' + urlencode({'setup_return': setup_token})
+            except (signing.BadSignature, ValidationError, OriginationProductDefinition.DoesNotExist):
+                self.message_user(request, 'Return to product setup to choose this editable document.', level=messages.WARNING)
+        return HttpResponseRedirect(target)
 
     def _calibration_template(self, request, object_id):
         if not request.user.is_superuser:
@@ -2853,12 +2872,12 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 setup_target = resolve_return_token(setup_token)
                 setup_definition = OriginationProductDefinition.objects.filter(
                     pk=setup_target['definition_id'],
-                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
                 ).first()
                 owns_template = bool(
                     setup_definition
                     and (
                         obj.product_definition_id == setup_definition.pk
+                        or obj.product_eligibilities.filter(product_id=setup_definition.product_version.product_id).exists()
                         or (product and product.pk == setup_definition.pk)
                         or setup_definition.document_assignments.filter(
                             template__document_type=obj.document_type,
@@ -2889,6 +2908,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 if product else reverse('admin:origination_originationdocumenttemplate_changelist')
             ),
             'calibration_setup_return_url': setup_return_url,
+            'calibration_setup_return_token': setup_token if setup_return_url and not setup_return_warning else '',
             'calibration_setup_return_warning': setup_return_warning,
             'calibration_attach_product_url': (
                 reverse('admin:origination_originationproductdocumentassignment_add')
