@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Complaints</title>
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=6">
-  <script src="{% static 'miniapp/components.js' %}?v=6"></script>
+  <script src="{% static 'miniapp/components.js' %}?v=7"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=25"></script>
   <script src="{% static 'miniapp/activity_changes.js' %}?v=4"></script>
@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=45">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=46">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -57,10 +57,9 @@
       <section id="downloadResult" class="download-result" role="status" aria-live="polite" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><div><strong id="downloadResultTitle">Download ready</strong><p id="downloadResultMessage"><span id="downloadFilename"></span> is ready.</p></div><div class="download-result-actions"><button id="openExportBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-external-link"></use></svg><span>Open Excel File</span></button><button id="downloadAgainBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Again</span></button></div></section>
       <button id="openComplaintReportFilters" class="complaint-report-filter-bar" type="button" aria-haspopup="dialog" aria-controls="complaintReportFilterOverlay"><span class="filter-bar-action"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><strong>Filters</strong><b id="complaintActiveFilterCount" hidden>0</b></span><span class="filter-bar-summary"><strong id="complaintFilterSummary">All complaints</strong><small id="reportPeriodLabel">All reporting dates</small></span><svg class="lucide filter-bar-chevron" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
-      <button id="complaintChartSelection" class="complaint-chart-selection" type="button" aria-label="Clear chart selection" hidden></button>
       <div class="complaint-chart-toolbar"><div class="complaint-chart-display" role="group" aria-label="Chart display"><button type="button" class="active" data-complaint-chart-display="carousel" aria-pressed="true">Carousel</button><button type="button" data-complaint-chart-display="list" aria-pressed="false">List</button></div><nav id="complaintChartPagination" class="complaint-chart-pagination" aria-label="Complaint chart pages"><button id="complaintChartPrevious" type="button" aria-label="Previous chart"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg></button><span id="complaintChartPosition" aria-live="polite">1 of 2</span><button id="complaintChartNext" type="button" aria-label="Next chart"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav></div>
       <div id="complaintReportCharts" class="report-charts carousel" aria-label="Complaint charts" tabindex="0">
-        <section class="report-chart" data-complaint-chart-slide data-complaint-chart="activity" aria-label="Received vs resolved"><div class="report-chart-head"><h3>Received vs resolved</h3><label class="chart-granularity"><span class="sr-only">Time grouping</span><select id="reportGranularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label></div><div class="report-chart-body"><canvas id="timeChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
+        <section class="report-chart" data-complaint-chart-slide data-complaint-chart="activity" aria-label="Reported vs resolved"><div class="report-chart-head"><h3>Reported vs resolved</h3><label class="chart-granularity"><span class="sr-only">Time grouping</span><select id="reportGranularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label></div><div class="report-chart-body"><canvas id="timeChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
         <section class="report-chart" data-complaint-chart-slide data-complaint-chart="age" aria-label="Open complaint age"><div class="report-chart-head"><h3>Open complaint age</h3></div><div class="report-chart-body"><canvas id="ageChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
         <section class="report-chart" data-complaint-chart-slide data-complaint-chart="resolution" aria-label="Resolution time"><div class="report-chart-head"><h3>Resolution time</h3></div><div class="report-chart-body"><canvas id="resolutionChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
         <section class="report-chart" data-complaint-chart-slide data-complaint-chart="target" aria-label="Resolved on time"><div class="report-chart-head"><h3>Resolved on time</h3></div><div class="report-chart-body"><canvas id="targetChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
@@ -69,17 +68,20 @@
         <section class="report-chart" data-complaint-chart-slide data-complaint-chart="response" aria-label="HB response time"><div class="report-chart-head"><h3>HB response time</h3></div><div class="report-chart-body"><canvas id="responseChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
         <section class="report-chart" data-complaint-chart-slide data-complaint-chart="reopened" aria-label="Reopened complaints"><div class="report-chart-head"><h3>Reopened complaints</h3></div><div class="report-chart-body"><canvas id="reopenedChart"></canvas><p class="chart-state muted" role="status" hidden></p></div><p class="chart-context muted"></p></section>
       </div>
+      <button id="complaintChartSelection" class="complaint-chart-selection" type="button" aria-label="Clear chart selection" hidden></button>
       <label class="report-search"><span class="sr-only">Search complaint report</span><span class="filter-search-control"><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="globalSearch" name="search" form="globalFilters" type="search" autocomplete="off" placeholder="Search complaints, names or IDs..."></span></label>
       <div id="complaintReportFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="complaintReportFilterTitle" hidden><section id="complaintReportFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><h3 id="complaintReportFilterTitle">Filter complaints</h3><button id="closeComplaintReportFilters" type="button" aria-label="Close filters without applying">&times;</button></header><form id="globalFilters" class="register-filters">
         <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="open">OPEN</option><option value="reopened">REOPENED</option><option value="closed">CLOSED</option></select></label>
         <label class="filter-branch">Branch<select name="branch"><option value="">Any Branch</option></select></label>
         <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
-        <label class="filter-date-mode">Dates<select id="reportDateMode" name="date_mode"><option value="all">Any Time</option><option value="month">Specific Month</option><option value="custom">Custom Range</option></select></label>
+        <label class="filter-date-mode">Dates<select id="reportDateMode" name="date_mode"><option value="all">Any Time</option><option value="month">Specific Month</option><option value="quarter">Specific Quarter</option><option value="custom">Custom Range</option></select></label>
         <label class="filter-date-basis">Date type<select name="date_basis"><option value="reported">Reported</option><option value="resolved">Resolved</option></select></label>
         <label id="reportMonthField" class="filter-month" hidden>Month<input name="report_month" type="month"></label>
+        <label id="reportQuarterField" hidden>Quarter<select name="report_quarter"><option value="1">Q1 · Jan–Mar</option><option value="2">Q2 · Apr–Jun</option><option value="3">Q3 · Jul–Sep</option><option value="4">Q4 · Oct–Dec</option></select></label>
+        <label id="reportYearField" hidden>Year<input name="report_year" type="number" min="1900" max="9998" step="1" inputmode="numeric"></label>
         <fieldset id="reportCustomDates" class="date-filter" hidden><legend>Custom Date Range</legend><label>Start Date<input name="date_from" type="date"></label><label>End Date<input name="date_to" type="date"></label></fieldset>
       </form><footer class="complaint-report-filter-actions"><button id="clearGlobalFiltersBtn" type="button">Reset</button><button id="globalApplyFiltersBtn" class="primary" type="submit" form="globalFilters">Show Results</button></footer></section></div>
-      <div class="report-table-heading"><p id="globalResultCount" class="muted">0 complaints</p><div id="complaintGridZoom" class="grid-zoom-controls" role="group" aria-label="Complaint table zoom" hidden><span>Table size</span><button id="complaintGridZoomOut" type="button" aria-label="Zoom complaint table out" title="Zoom out">−</button><button id="complaintGridZoomReset" type="button" class="grid-zoom-level" aria-label="Table zoom 100%. Reset to 100%." title="Reset table zoom">100%</button><button id="complaintGridZoomIn" type="button" aria-label="Zoom complaint table in" title="Zoom in">+</button></div></div>
+      <div class="report-table-heading"><p id="globalResultCount" class="muted" role="status" aria-live="polite">0 complaints</p><div id="complaintGridZoom" class="grid-zoom-controls" role="group" aria-label="Complaint table zoom" hidden><span>Table size</span><button id="complaintGridZoomOut" type="button" aria-label="Zoom complaint table out" title="Zoom out">−</button><button id="complaintGridZoomReset" type="button" class="grid-zoom-level" aria-label="Table zoom 100%. Reset to 100%." title="Reset table zoom">100%</button><button id="complaintGridZoomIn" type="button" aria-label="Zoom complaint table in" title="Zoom in">+</button></div></div>
       <div id="complaintReportGridWrap" class="report-grid-wrap" role="region" aria-label="Complaints report table" tabindex="0"><div id="complaintReportGrid" class="ag-theme-quartz report-grid"></div></div>
       <nav id="globalPagination" class="pagination" aria-label="All complaint pages" hidden><button id="globalPreviousBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span>Previous</span></button><span id="globalPageLabel">Page 1 of 1</span><button id="globalNextBtn" type="button"><span>Next</span><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav>
     </section>
@@ -144,11 +146,11 @@
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=8"></script>
-  <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=5"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=3">
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=6"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=65"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=66"></script>
 </body>
 </html>

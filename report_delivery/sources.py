@@ -51,10 +51,10 @@ def capture_workflow_report(schedule, configuration):
         if schedule.branch:
             base = _apply_report_filters(base, {'branch': schedule.branch}, timing=False)
         overview = complaint_report_summary(filters=filters, granularity='day', base_queryset=base)
-        summary = {label: overview.get(key, 0) for key, label in [('total', 'Complaints received'), ('pending', 'Open'), ('resolved', 'Resolved'), ('needs_details', 'Needs details')]}
+        summary = {label: overview.get(key, 0) for key, label in [('total', 'Complaints reported'), ('pending', 'Open'), ('resolved', 'Resolved'), ('needs_details', 'Needs details')]}
         charts = [{'title': title, 'type': kind, 'labels': [r['label'] for r in overview.get(key, [])],
                    'datasets': [{'label': 'Complaints', 'values': [r['count'] for r in overview.get(key, [])]}], 'context': ''}
-                  for key, title, kind in [('by_time', 'Complaints received', 'line'), ('by_category', 'Complaint categories', 'bar')]]
+                  for key, title, kind in [('by_time', 'Complaints reported', 'line'), ('by_category', 'Complaint categories', 'bar')]]
         queryset = _apply_report_filters(base, filters).order_by('-timestamp', '-pk')
         total = queryset.count()
         rows = [serialize_report_case(case) for case in queryset[:2000]]

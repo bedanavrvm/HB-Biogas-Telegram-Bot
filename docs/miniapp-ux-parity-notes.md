@@ -137,4 +137,19 @@ Every future Complaint Case UI change should be checked at 320 px, 390 px, and t
 - Copy feedback retains the complete multiline cell value. Long feedback wraps and scrolls rather than truncating it.
 - Keep icon glyphs small and lightly stroked inside mobile-safe tap targets. Inspect synthetic screenshots in both themes at 320–430 px and larger screens; do not accept layout changes from source inspection alone.
 
+### Complaints report contract
+
+- Date Type remains Reported/Resolved and affects the five cards and table only.
+  Each graph retains its own reported, closure, HB-response or reopening date basis.
+- Reported vs resolved groups complaints by reporting date and counts each once:
+  current Closed (+ve), or Open & Reopened (−ve). Repeated closures are not extra complaints.
+- Specific Quarter selects Q1–Q4 and a year using Nairobi date boundaries.
+- Graph points and dropdowns filter immediately; the selection pill sits above
+  search. Table paging, filtered Excel and email exports use the same selection.
+- Total, Open, Closed, Resolution and On time fit one equal-width row.
+  Chart-type SVGs align beside grouping inside the compact chart-options menu.
+- Complaints, Portal and TAT graph dates use the shared dd-mm-yy display formatter.
+  ISO bucket keys and server/export filters remain unchanged. Complaint duration
+  tooltips pair hours with days; raw numeric axes still state their units.
+
 Focused browser checks: `npm run test:browser -- report_controls.spec.js complaint_reporting.spec.js portal_reporting.spec.js portal_recognition_layout.spec.js tat_recognition_layout.spec.js`.

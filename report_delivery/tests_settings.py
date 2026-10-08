@@ -127,7 +127,7 @@ class SettingsTests(TestCase):
         today=timezone.localdate().isoformat()
         snapshot=capture_workflow_report(schedule,{'period':{'from':today,'to':today}})
         self.assertEqual(snapshot['total_rows'],1)
-        self.assertEqual(snapshot['summary']['Complaints received'],1)
+        self.assertEqual(snapshot['summary']['Complaints reported'],1)
         self.assertEqual([r['customer_name'] for r in snapshot['rows']],['Synthetic 0'])
 
     def test_real_tat_adapter_handles_empty_period(self):

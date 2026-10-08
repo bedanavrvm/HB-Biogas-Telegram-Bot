@@ -13,6 +13,7 @@
   function fmt(v,type){if(v===null||v===undefined||v==='')return '—';if(type==='number')return new Intl.NumberFormat('en-KE',{maximumFractionDigits:2}).format(v);if(type==='date'){const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleDateString('en-GB',{timeZone:'Africa/Nairobi',day:'2-digit',month:'short',year:'numeric'});}return esc(type==='choice'?stages[v]||v:v);}
   function destroy(includeGrid=true){s.charts.forEach(c=>c.destroy());s.charts=[];s.observer?.disconnect();s.observer=null;if(includeGrid){s.grid?.destroy();s.grid=null;}}
   function month(){const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Nairobi',year:'numeric',month:'2-digit'}).formatToParts(new Date());return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}`;}
+  function chartLabel(chart,index){const key=chart.bucket_keys[index];const date=window.MiniAppReportControls.formatChartDate(key);return chart.type==='line'&&date!==key?date:chart.labels[index];}
   function filterSheet(){
     const f=s.applied,o=s.result.filter_options,mode=f.date_mode || (s.preset==='pipeline'?'all':'month');
     const select=(key,label,values)=>`<label>${label}<select name="${key}"><option value="">All</option>${values.map(v=>`<option value="${esc(v)}"${f[key]===v?' selected':''}>${esc(key==='stage'?stages[v]:v)}</option>`).join('')}</select></label>`;
@@ -121,19 +122,20 @@
     if(root()!==target||s.result!==r||seq!==s.sequence)return;
     const style=getComputedStyle(target),text=style.getPropertyValue('--text-primary').trim()||'#344054',grid=style.getPropertyValue('--border-color').trim()||'#e2e8f0',colors=['#2481cc','#168354','#d14343','#9261d5','#d69416'];
     r.charts.forEach(c=>{const card=target.querySelector(`[data-chart="${c.id}"]`),canvas=card.querySelector('canvas'),type=s.types[c.id];
+      const labels=c.labels.map((_label,index)=>chartLabel(c,index));
       if(!c.labels.length){canvas.hidden=true;const p=card.querySelector('.portal-chart-state');p.hidden=false;p.textContent=c.unit==='hours'?'Timing unavailable for this period.':'No matching data.';return;}
       const pie=type==='doughnut',stacked=type==='stacked_bar',datasets=c.datasets.map((d,i)=>({label:d.label,data:d.values.map(Number),backgroundColor:pie?c.labels.map((_,j)=>colors[j%colors.length]):colors[i%colors.length],borderColor:pie?c.labels.map((_,j)=>colors[j%colors.length]):colors[i%colors.length],borderWidth:type==='line'?2:0,pointRadius:2,tension:.2}));
       const horizontal=['bar','stacked_bar'].includes(type)&&c.type!=='line';
       const options={responsive:true,maintainAspectRatio:false,animation:false,indexAxis:horizontal?'y':'x',
         onClick:(_event,elements)=>{if(elements.length){const element=elements[0];drill(c,c.bucket_keys[element.index],c.datasets[element.datasetIndex].key);}},
         plugins:{legend:{display:pie||datasets.length>1,position:'bottom',labels:{color:text,boxWidth:10}},
-          tooltip:{callbacks:{title:items=>items.length?c.labels[items[0].dataIndex]:''}}},
+          tooltip:{callbacks:{title:items=>items.length?labels[items[0].dataIndex]:''}}},
         scales:pie?{}:{x:{stacked,beginAtZero:true,ticks:{color:text,maxRotation:0,maxTicksLimit:6},grid:{color:grid}},
           y:{stacked,beginAtZero:true,ticks:{color:text,precision:c.unit==='cases'?0:undefined},grid:{color:grid}}}};
       window.MiniAppReportControls.applyChartMeasurement(options,{unit:c.unit,horizontal,color:text});
       canvas.setAttribute('aria-label',`${c.title}: ${window.MiniAppReportControls.chartMeasurement(c.unit).axisTitle}`);
       s.charts.push(new window.Chart(canvas,{type:stacked?'bar':type,
-        data:{labels:c.labels.map(label=>label.length>25?label.slice(0,24)+'…':label),datasets},options}));
+        data:{labels:labels.map(label=>label.length>25?label.slice(0,24)+'…':label),datasets},options}));
     });
     markSelection();
     if(window.ResizeObserver){s.observer=new ResizeObserver(()=>{s.charts.forEach(c=>c.resize());position();});s.observer.observe(target.querySelector('#portal-insight-charts'));}
@@ -155,7 +157,9 @@
       if(!response.ok||!response.data?.ok)throw new Error(response.data?.error||'The report could not be loaded.');
       const focused=document.activeElement?.id==='portal-report-search';
       const cursor=document.activeElement?.selectionStart;
-      s.result=response.data.result;s.applied={...s.result.applied_filters};
+      s.result=response.data.result;
+      s.result.charts.forEach(c=>{c.labels=c.labels.map((_label,index)=>chartLabel(c,index));});
+      s.applied={...s.result.applied_filters};
       s.search=s.applied.search||'';s.loading=false;
       if(tableOnly){updateResults();reportStatus(`${s.result.total_rows.toLocaleString()} cases found.`);}
       else render();

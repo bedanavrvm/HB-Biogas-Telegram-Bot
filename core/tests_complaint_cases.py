@@ -1983,8 +1983,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
 
         for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="completeDetailsForm"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
             self.assertIn(expected, template)
-        for expected in ('id="globalView"', 'id="globalFilters"', 'id="complaintReportGrid"', 'id="exportConfirm"'):
+        for expected in ('id="globalView"', 'id="globalFilters"', 'id="complaintReportGrid"'):
             self.assertIn(expected, template)
+        self.assertIn('MiniAppReportControls.chooseExcelExport', script)
         for expected in ('name="search"', 'name="status"', 'name="branch"', 'name="category"', 'name="date_mode"', 'name="report_month"', 'name="date_from"', 'name="date_to"'):
             self.assertIn(expected, template)
         for removed in ('name="group"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
@@ -2009,7 +2010,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('"@ag-grid-enterprise/', package_lock)
         self.assertIn('type="date"', template)
         self.assertIn('type="month"', template)
-        self.assertIn('Received vs resolved', template)
+        self.assertIn('Reported vs resolved', template)
+        self.assertIn('name="report_quarter"', template)
+        self.assertIn('name="report_year"', template)
         self.assertIn('data-category-chart="bar"', template)
         self.assertIn('data-category-chart="pie"', template)
         self.assertIn('id="reportGranularity"', template)
@@ -2042,7 +2045,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for icon in ('refresh-cw', 'clipboard-list', 'layout-dashboard', 'camera', 'eye', 'trash-2'):
             self.assertIn(f'id="lucide-{icon}"', icons)
         self.assertNotIn('unpkg.com/lucide', template)
-        self.assertIn('Download ${mode ===', script)
+        self.assertIn("scope === 'filtered' ? currentTableFilters() : null", script)
         self.assertIn('id="exportResultsBtn"', template)
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
         self.assertIn("delivery: 'signed_url'", script)
@@ -2069,10 +2072,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (
             '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Data Overview</span>',
-            'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
+            'Record a New Complaint',
             'Complaint Type', 'Choose the option that best matches the main issue.', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take Photos', 'Upload Files',
-            'Not Saved', 'Submit Complaint',
+            'Not saved', 'Submit Complaint',
         ):
             self.assertIn(wording, template)
         for jargon in ('Officer Intake', 'Shared queue', 'Choose the primary complaint.', 'Branch not set'):
@@ -2084,7 +2087,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("case-age ${resolved ? 'resolved'", script)
         self.assertIn('.case-age.resolved{color:var(--success)}', styles)
         for wording in (
-            'Management Report', 'Read-only organization-wide complaint data', 'Download Complaints',
+            'Management Report', 'Read-only organization-wide complaint data', 'Download Excel',
             'Any Status', 'Any Category', 'Dates', 'Start Date', 'End Date',
             'Show Results', 'Reset', 'Needs More Information',
             'Why are you reopening this complaint?', 'Attachments', 'Complaint History',
@@ -2156,7 +2159,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("json('categories/suggest/'", script)
         self.assertIn('function showConflict(error)', script)
         self.assertIn("telegram?.BackButton?.onClick", script)
-        for retired in ('priorityFilter', 'assignmentFilter', 'slaFilter', 'claimBtn', 'Settings', 'In Progress'):
+        for retired in ('priorityFilter', 'assignmentFilter', 'slaFilter', 'claimBtn', 'In Progress'):
             self.assertNotIn(retired, template)
 
 

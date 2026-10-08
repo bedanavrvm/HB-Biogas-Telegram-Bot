@@ -319,11 +319,12 @@ def _apply_report_filters(queryset, filters: dict[str, Any], *, timing=True):
     metric = str(filters.get('metric') or '')
     if basis not in {'reported', 'resolved', 'response', 'closures', 'reopened'}:
         raise ComplaintCaseError('Select Reported or Resolved dates.')
-    if metric not in {'', 'received', 'closures', 'open_age', 'resolution', 'on_time', 'late', 'hb_response', 'reopened'}:
+    if metric not in {'', 'received', 'reported_closed', 'reported_open', 'closures', 'open_age', 'resolution', 'on_time', 'late', 'hb_response', 'reopened'}:
         raise ComplaintCaseError('This chart selection is unavailable.')
     if metric == 'open_age' and filters.get('metric_value') not in {'under_3', '3_7', '8_14', 'over_14'}:
         raise ComplaintCaseError('This age selection is unavailable.')
     expected_basis = {'received': 'reported', 'closures': 'closures', 'open_age': 'reported',
+                      'reported_closed': 'reported', 'reported_open': 'reported',
                       'resolution': 'resolved', 'on_time': 'resolved', 'late': 'resolved',
                       'hb_response': 'response', 'reopened': 'reopened'}
     if metric and expected_basis[metric] != basis:
@@ -435,7 +436,7 @@ def _timing_summary(queryset, filters, granularity):
         date_to=_parse_filter_date(filters.get('date_to'), 'End date', end=True),
         granularity=granularity, now=now,
     )
-    for key in ('activity', 'resolution_trend', 'response_trend', 'reopenings'):
+    for key in ('activity', 'reported_outcomes', 'resolution_trend', 'response_trend', 'reopenings'):
         if len(result[key]) > REPORT_MAX_TIME_BUCKETS:
             raise ComplaintCaseError('Narrow the date range or choose a broader time grouping.')
     return result
@@ -450,6 +451,11 @@ def complaint_report_summary(
         raise ComplaintCaseError('Time grouping must be Day, Week, Month or Year.')
     base_queryset = _base_queryset() if base_queryset is None else base_queryset
     queryset = _apply_report_filters(base_queryset, filters or {})
+    # Date type defines the cards/table cohort only. Category and reported
+    # history graphs always use reporting dates; timing graphs own their bases.
+    graph_queryset = queryset if (filters or {}).get('metric') else _apply_report_filters(base_queryset, {
+        **(filters or {}), 'date_basis': 'reported', 'metric': '',
+    })
     metrics = queryset.aggregate(
         total=Count('pk'),
         pending=Count('pk', filter=~Q(complaint_status='Closed')),
@@ -457,7 +463,7 @@ def complaint_report_summary(
         needs_details=Count('pk', filter=Q(complaint_status='Review Needed')),
     )
     truncation, label_format = REPORT_TIME_GROUPS[granularity]
-    time_rows = list(queryset.annotate(
+    time_rows = list(graph_queryset.annotate(
         report_time_bucket=truncation('report_date', tzinfo=timezone.get_current_timezone()),
     ).values('report_time_bucket').annotate(count=Count('pk')).order_by(
         'report_time_bucket',
@@ -474,14 +480,18 @@ def complaint_report_summary(
         }
         for row in time_rows if row['report_time_bucket']
     ]
+    from core.services.complaint_timing import timed_cases, timing_summary
+    now = timezone.now()
+    card_timing = timing_summary(timed_cases(queryset, now=now), now=now)['timing']
     return {
         **metrics,
+        'card_timing': card_timing,
         **_timing_summary(base_queryset, filters or {}, granularity),
         'by_branch': _source_breakdown(
-            queryset, canonical='complaint_control__branch_ref__name', legacy='branch_region',
+            graph_queryset, canonical='complaint_control__branch_ref__name', legacy='branch_region',
         ),
         'by_category': _source_breakdown(
-            queryset, canonical='complaint_control__category__label', legacy='complaint_category',
+            graph_queryset, canonical='complaint_control__category__label', legacy='complaint_category',
         ),
         'by_time': by_time,
         'time_granularity': granularity,

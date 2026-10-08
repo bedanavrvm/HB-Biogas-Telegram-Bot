@@ -1,5 +1,21 @@
 # Changelog
 
+## 8 October 2026 - Compact Complaints report controls and clear date cohorts
+
+- Retained Date Type for cards/table and added Specific Quarter with Q1–Q4/year.
+  Graphs keep their intrinsic date bases rather than changing with that control.
+- Reported vs resolved now has two current-status series: Closed (+ve) and
+  Open & Reopened (−ve), counting each reported complaint once.
+- Replaced oversized chart-type text with aligned compact icons, removed Show
+  cases, and moved immediate chart-selection feedback above search.
+- Combined Total, Open, Closed, Resolution and On time into one compact KPI row.
+  Help no longer repeats titles; duration tooltips show hours and equivalent days.
+- Standardized graph date labels to dd-mm-yy across Complaints, TAT and Portal.
+  Table dates and ISO filter keys are unchanged. New outcome/card timing fields
+  are additive; legacy chart API fields remain available for older clients.
+- Updated scheduled/one-off Complaint email labels to Complaints reported.
+  No schema, dependency, access-policy or external-integration changes.
+
 ## 8 October 2026 - Shared form actions, media gestures and TAT chart selection
 
 - Right-aligned TAT correction Cancel and Complaint draft status/retry controls.

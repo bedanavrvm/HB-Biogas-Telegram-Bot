@@ -1424,16 +1424,21 @@
   }
 
   function renderMetrics(metrics) {
-    const labels = [['total', 'Total'], ['pending', 'Open'], ['resolved', 'Closed']];
-    const icons = { total: 'list', pending: 'clock', resolved: 'circle-check' };
+    const timing = metrics.card_timing || metrics.timing || {};
+    const labels = [
+      ['total', 'Total', metrics.total || 0], ['pending', 'Open', metrics.pending || 0],
+      ['resolved', 'Closed', metrics.resolved || 0],
+      ['resolution', 'Resolution', window.ComplaintReportCharts.hours(timing.median_resolution_hours)],
+      ['on-time', 'On time', timing.on_time_percent == null ? '—' : timing.on_time_percent + '%'],
+    ];
     const node = $('globalMetrics'); node.replaceChildren();
-    labels.forEach(([key, label]) => {
-      const card = document.createElement('div'); card.className = 'metric-card';
-      card.append(iconNode(icons[key], 'metric-icon'), textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
+    labels.forEach(([key, label, value]) => {
+      const card = document.createElement('div'); card.className = 'metric-card metric-' + key;
+      card.title = key === 'resolution' ? `Median resolution: ${window.ComplaintReportCharts.readableHours(timing.median_resolution_hours)}`
+        : key === 'on-time' ? `Resolved within target: ${value}` : `${label}: ${value}`;
+      card.setAttribute('aria-label', card.title);
+      card.append(textNode('strong', value), textNode('span', label)); node.appendChild(card);
     });
-    const timing = metrics.timing || {};
-    const line = textNode('p', `Resolution ${window.ComplaintReportCharts.hours(timing.median_resolution_hours)} · ${timing.on_time_percent == null ? 'On-time rate unavailable' : timing.on_time_percent + '% on time'}`);
-    line.className = 'complaint-timing-summary'; node.appendChild(line);
   }
   function refreshComplaintTheme() {
     syncComplaintGridTheme();
@@ -1441,12 +1446,7 @@
     state.reportGridApi?.refreshCells?.({ force: true });
   }
   function formatChartPeriodDate(value, granularity) {
-    const raw = String(value || '').trim();
-    let match;
-    if (granularity === 'year' && (match = raw.match(/^(\d{4})$/))) return match[1];
-    if (granularity === 'month' && (match = raw.match(/^(\d{4})-(\d{2})$/))) return `${formatReportDate(raw + '-01').slice(3,6)} ${match[1]}`;
-    if (raw.match(/^(\d{4})-(\d{2})-(\d{2})/)) return formatReportDate(raw);
-    return raw;
+    return window.MiniAppReportControls.formatChartDate(value);
   }
   function setChartState(_name, message) { window.ComplaintReportCharts?.state(message); }
   function selectComplaintChart(filters, label) {
@@ -1545,6 +1545,14 @@
   function updateReportDateControls() {
     const formNode = $('globalFilters'); const mode = formNode.elements.date_mode.value;
     $('reportMonthField').hidden = mode !== 'month'; $('reportCustomDates').hidden = mode !== 'custom';
+    $('reportQuarterField').hidden = $('reportYearField').hidden = mode !== 'quarter';
+    const local = new Intl.DateTimeFormat('en-CA', {timeZone:'Africa/Nairobi',year:'numeric',month:'numeric'}).formatToParts(new Date());
+    const parts = Object.fromEntries(local.map(part => [part.type, part.value]));
+    if (!formNode.elements.report_year.value) {
+      formNode.elements.report_year.value = parts.year;
+      formNode.elements.report_quarter.value = String(Math.ceil(Number(parts.month) / 3));
+    }
+    formNode.elements.report_quarter.disabled = formNode.elements.report_year.disabled = mode !== 'quarter';
     formNode.elements.report_month.disabled = mode !== 'month';
     formNode.elements.date_from.disabled = mode !== 'custom'; formNode.elements.date_to.disabled = mode !== 'custom';
   }
@@ -1604,6 +1612,13 @@
     for (const name of ['search', 'status', 'branch', 'category', 'date_basis']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
     const mode = formNode.elements.date_mode.value;
     if (mode === 'month') [values.date_from, values.date_to] = monthBoundaries(formNode.elements.report_month.value);
+    if (mode === 'quarter') {
+      if (!formNode.elements.report_year.value) throw new Error('Select a year.');
+      const range = window.MiniAppReportControls.periodDates('quarter', {
+        year: formNode.elements.report_year.value, quarter: formNode.elements.report_quarter.value,
+      });
+      values.date_from = range.from; values.date_to = range.to;
+    }
     if (mode === 'custom') {
       values.date_from = formNode.elements.date_from.value; values.date_to = formNode.elements.date_to.value;
       if (!values.date_from && !values.date_to) throw new Error('Select a start date, an end date, or both.');
@@ -1613,9 +1628,11 @@
   }
   function reportPeriodText(filters) {
     const formNode = $('globalFilters'); const mode = formNode.elements.date_mode.value;
+    const basis = filters.date_basis === 'resolved' ? 'Resolved' : 'Reported';
+    if (mode === 'quarter') return `${basis} · Q${formNode.elements.report_quarter.value} ${formNode.elements.report_year.value}`;
     if (mode === 'month' && formNode.elements.report_month.value) {
       const [year, month] = formNode.elements.report_month.value.split('-').map(Number);
-      return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)));
+      return `${basis} · ${new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))}`;
     }
     if (mode === 'custom') {
       const format = value => value ? new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)) : '';
@@ -1623,7 +1640,7 @@
       if (filters.date_from && filters.date_to) return `${basis} ${format(filters.date_from)} – ${format(filters.date_to)}`;
       return filters.date_from ? `${basis} from ${format(filters.date_from)}` : `${basis} through ${format(filters.date_to)}`;
     }
-    return 'All reporting dates';
+    return `All ${basis.toLowerCase()} dates`;
   }
   function currentReportFilters() {
     const filters = globalFilterPayload(); syncComplaintFilterSummary(filters); return filters;
@@ -1918,7 +1935,7 @@
     try { globalFilterPayload(); } catch (error) {
       notify(error.message, true);
       const formNode = $('globalFilters');
-      (formNode.elements.date_mode.value === 'month' ? formNode.elements.report_month : formNode.elements.date_from).focus();
+      (formNode.elements.date_mode.value === 'month' ? formNode.elements.report_month : formNode.elements.date_mode.value === 'quarter' ? formNode.elements.report_year : formNode.elements.date_from).focus();
       return;
     }
     clearTimeout(state.reportSearchTimer); state.reportSearchTimer = null; state.globalPage = 1;

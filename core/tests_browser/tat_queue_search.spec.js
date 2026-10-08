@@ -100,6 +100,7 @@ test('real TAT chart click narrows the grid, survives paging and clears with bas
     });
     await page.mouse.click(point.x,point.y);
   };
+  expect(await page.evaluate(()=>Chart.getChart(document.getElementById('tatTrendChart')).data.labels)).toEqual(['01-10-26','02-10-26']);
   await clickPoint();
   await expect.poll(() => page.evaluate(() => __calls.filter(c=>c.url.includes('/reports/cases/')).at(-1).body)).toMatchObject({drill_chart:'trend',drill_series:'completed_actions',drill_bucket:'2026-10-01',page:1});
   await expect(page.locator('#tatHeatmapSelection')).toBeVisible();

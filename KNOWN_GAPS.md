@@ -1,5 +1,33 @@
 # Known Gaps and Verified Workarounds
 
+## Complaints report controls and date cohorts - 8 October 2026
+
+Implemented the Specific Quarter filter, compact chart-type icons, automatic
+chart selection, selection feedback above search, and a five-card KPI row.
+Date Type affects cards/table only; graphs retain their intrinsic date bases.
+Reported vs resolved counts each reported complaint once under its current
+Closed or Open & Reopened status, rather than counting repeat closures.
+Complaint duration labels include hours/days; graph dates use dd-mm-yy across
+Complaints, TAT and Portal without changing table dates or ISO filter keys.
+
+Verification used synthetic local fixtures and mocked integrations:
+
+- 75 focused Playwright checks pass, including real graph clicks, dropdowns,
+  quarter selection, grouping/type alignment, keyboard paths and export parity.
+- 186 focused Django tests completed: 185 passed and one PostgreSQL-specific
+  test skipped on isolated SQLite. Coverage includes timing, register access,
+  complaints and report delivery. A fresh migrated test database resolved the
+  missing seed rows caused by reusing a previously flushed test database.
+- All nine Node suites and syntax checks for 118 first-party JavaScript files pass.
+- Screenshot coverage includes 320, 360, 390, 430, 768 and 1280px in both themes.
+  Final 320px chart controls/quarter filters and mobile/tablet/desktop report
+  screenshots were visually inspected. Artifacts remain under the ignored
+  `test-results/playwright/` directory and are replaced by later browser runs.
+
+PostgreSQL parity, physical Telegram devices, assistive technology and the full
+repository suite remain unverified. No production deployment or real external
+integration writes were performed. No migrations, settings or dependencies changed.
+
 ## Shared controls, media and TAT chart selection - 8 October 2026
 
 Implemented shared native primary-action ownership, compact draft recovery,

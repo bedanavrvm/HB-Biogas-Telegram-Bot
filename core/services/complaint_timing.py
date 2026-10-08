@@ -114,6 +114,10 @@ def matches_timing(case, filters, date_from, date_to):
     facts = case.complaint_timing
     metric = filters.get('metric') or ''
     basis = filters.get('date_basis') or 'reported'
+    if metric == 'reported_closed' and case.complaint_status != 'Closed':
+        return False
+    if metric == 'reported_open' and case.complaint_status == 'Closed':
+        return False
     if metric == 'open_age':
         if case.complaint_status == 'Closed' or facts['age_bucket'] != filters.get('metric_value'):
             return False
@@ -137,6 +141,7 @@ def timing_summary(cases, *, date_from=None, date_to=None, granularity='month', 
     def within(stamp):
         return stamp is not None and stamp <= now and (date_from is None or stamp >= date_from) and (date_to is None or stamp <= date_to)
     activity, resolutions, responses, reopenings = defaultdict(lambda: {'received': 0, 'resolved': 0}), defaultdict(list), defaultdict(list), defaultdict(set)
+    reported_outcomes = defaultdict(lambda: {'closed': 0, 'open': 0})
     categories, ages = defaultdict(list), {key: 0 for key, *_ in AGE_BUCKETS}
     on_time = late = resolution_excluded = response_excluded = age_excluded = 0
     resolution_values, response_values = [], []
@@ -144,6 +149,8 @@ def timing_summary(cases, *, date_from=None, date_to=None, granularity='month', 
         facts = case.complaint_timing
         if within(facts['reported_at']):
             activity[period_bucket(facts['reported_at'], granularity)]['received'] += 1
+            outcome = 'closed' if case.complaint_status == 'Closed' else 'open'
+            reported_outcomes[period_bucket(facts['reported_at'], granularity)][outcome] += 1
             if case.complaint_status != 'Closed':
                 if facts['age_bucket']:
                     ages[facts['age_bucket']] += 1
@@ -188,6 +195,7 @@ def timing_summary(cases, *, date_from=None, date_to=None, granularity='month', 
             'target_unavailable': len(resolution_values) - on_time - late, 'age_unavailable': age_excluded,
         },
         'activity': [{'label': label, **counts} for label, counts in sorted(activity.items())],
+        'reported_outcomes': [{'label': label, **counts} for label, counts in sorted(reported_outcomes.items())],
         'open_age': [{'key': key, 'label': label, 'count': ages[key]} for key, label, *_ in AGE_BUCKETS],
         'resolution_trend': trend(resolutions), 'response_trend': trend(responses),
         'resolution_by_category': [{'label': label, 'hours': median_hours(values), 'count': len(values)}

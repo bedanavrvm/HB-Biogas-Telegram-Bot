@@ -144,9 +144,9 @@ def capture_export(delivery):
             workbook, count = export_register_xlsx(actor=actor, request_id=request_id, filters=filters)
             overview = complaint_report_summary(filters=filters, granularity=filters.get('granularity') or 'month')
             summary = {label: overview.get(key, 0) for key, label in
-                       [('total', 'Complaints received'), ('pending', 'Open'), ('resolved', 'Resolved'),
+                       [('total', 'Complaints reported'), ('pending', 'Open'), ('resolved', 'Resolved'),
                         ('needs_details', 'Needs details')]}
-            timing = overview.get('timing', {})
+            timing = overview.get('card_timing', overview.get('timing', {}))
             summary.update({label: timing.get(key) for key, label in
                             [('median_resolution_hours', 'Median resolution (hours)'),
                              ('median_response_hours', 'Median HB response (hours)'),

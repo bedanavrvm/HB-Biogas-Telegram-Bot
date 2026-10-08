@@ -3558,7 +3558,7 @@
     if (!series || bucket == null || series.values?.[pointIndex] == null) return;
     state.report.heatSelection = null;
     state.report.chartSelection = {filters:{drill_chart:key, drill_series:series.key, drill_bucket:String(bucket)},
-      label:`${series.label} · ${['trend','sla_compliance','tat_percentiles'].includes(key) ? formatReportDate(bucket) : bucket}`};
+      label:`${series.label} · ${['trend','sla_compliance','tat_percentiles'].includes(key) ? window.MiniAppReportControls.formatChartDate(bucket) : bucket}`};
     state.report.page = 1; renderHeatmapSelection();
     refreshTatReport({summary:false}).then(() => $('tatReportGrid').scrollIntoView({block:'start',behavior:'smooth'}));
   }
@@ -3805,7 +3805,7 @@
       const verticalGridlineLimit = 18;
       const usesDateLabels = ['trend', 'sla_compliance', 'tat_percentiles'].includes(key);
       const chartLabels = usesDateLabels
-        ? (payload.labels || []).map(formatReportDate)
+        ? (payload.labels || []).map(window.MiniAppReportControls.formatChartDate)
         : (payload.labels || []).map(compactTatReportLabel);
       const options = {
         responsive: true, maintainAspectRatio: false,

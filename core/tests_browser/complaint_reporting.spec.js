@@ -28,10 +28,11 @@ async function openReport(page) {
       filter_options: { branches:[{label:'Training branch',count:12}], categories:[{label:'A long synthetic complaint category used to check wrapping',count:12}] },
       by_category:[{label:'A long synthetic complaint category used to check wrapping',count:12}],
       activity:[{label:'2026-09',received:12,resolved:4}],
+      reported_outcomes:[{label:'2026-09',closed:4,open:8}],
       open_age:[{key:'under_3',label:'Under 3 days',count:8}],
       timing:{median_resolution_hours:30,on_time_percent:75,resolution_count:4,on_time:3,late:1,response_count:3,response_unavailable:9},
       resolution_trend:[{label:'2026-09',hours:30,count:4}],
-      response_trend:[{label:'2026-09',hours:5,count:3}],
+      response_trend:[{label:'2026-09',hours:184.53,count:3}],
       resolution_by_category:[{label:'A long synthetic complaint category used to check wrapping',hours:30,count:4}],
       reopenings:[{label:'2026-09',count:2}] };
     window.ComplaintCasesMiniAppApi = {
@@ -83,13 +84,15 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     const activity=page.locator('[data-complaint-chart="activity"]');
     await activity.locator('select[aria-label="Activity type"]').selectOption('1');
     await activity.locator('select').last().selectOption('0');
-    await activity.getByRole('button',{name:'Show cases'}).click();
-    await expect(page.locator('#complaintChartSelection')).toContainText('Resolved');
+    await expect(activity.getByRole('button',{name:'Show cases'})).toHaveCount(0);
+    await expect(page.locator('#complaintChartSelection')).toContainText('Open & Reopened');
+    const pill=await page.locator('#complaintChartSelection').boundingBox(), search=await page.locator('.report-search').boundingBox();
+    expect(pill.y+pill.height).toBeLessThanOrEqual(search.y);
     await expect(page.locator('#globalResultCount')).toHaveText('4 complaints found');
-    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'closures',metric:'closures',date_from:'2026-09-01',date_to:'2026-09-30'});
+    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'reported',metric:'reported_open',date_from:'2026-09-01',date_to:'2026-09-30'});
     await page.locator('#exportResultsBtn').click();
     await expect(page.locator('#miniapp-excel-dialog')).toBeVisible();
-    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params.metric)).toBe('closures');
+    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params.metric)).toBe('reported_open');
     await page.getByRole('button', { name: 'Close download options' }).click();
     await expect(page.locator('#exportResultsBtn')).toBeFocused();
     await page.locator('#complaintChartSelection').click();
@@ -101,7 +104,6 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     });
     await expect(page.locator('#globalResultCount')).toHaveText('12 complaints found');
     await activity.locator('select').last().selectOption('0');
-    await activity.getByRole('button',{name:'Show cases'}).click();
     await expect(page.locator('#globalResultCount')).toHaveText('4 complaints found');
     expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_from:'2026-09-10',date_to:'2026-09-20'});
     await page.locator('#complaintChartNext').click();
@@ -127,6 +129,32 @@ test('empty timing charts remain honest and keyboard-friendly', async ({page})=>
   await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 8');
 });
 
+test('complaint report controls use compact icons, a Quarter filter and one KPI row', async ({page}, info) => {
+  await page.setViewportSize({width:320,height:850}); await openReport(page);
+  const activity=page.locator('[data-complaint-chart="activity"]');
+  await activity.getByLabel('Chart options',{exact:true}).click();
+  const line=activity.getByRole('button',{name:'Line chart',exact:true});
+  await expect(line.locator('svg')).toHaveCount(1);
+  const box=await line.boundingBox(); expect(box.width).toBeLessThanOrEqual(44); expect(box.height).toBeLessThanOrEqual(44);
+  const grouping=await activity.locator('#reportGranularity').boundingBox();
+  expect(Math.abs(box.y-grouping.y)).toBeLessThan(2);
+  await page.screenshot({path:info.outputPath('compact-chart-controls-320.png'),fullPage:true});
+  await activity.getByLabel('Chart options',{exact:true}).click();
+  await activity.getByLabel('About this chart',{exact:true}).click();
+  await expect(activity.locator('.miniapp-chart-help-content')).not.toContainText('Reported vs resolved');
+  const kpis=await page.locator('#globalMetrics .metric-card').evaluateAll(nodes=>nodes.map(node=>({text:node.textContent,y:node.getBoundingClientRect().top})));
+  expect(kpis).toHaveLength(5); expect(new Set(kpis.map(item=>item.y)).size).toBe(1);
+  expect(kpis.map(item=>item.text).join(' ')).toMatch(/Resolution.*On time/);
+  await page.locator('#openComplaintReportFilters').click();
+  await page.locator('[name=date_mode]').selectOption('quarter');
+  await page.locator('[name=report_year]').fill('2026'); await page.locator('[name=report_quarter]').selectOption('3');
+  await page.screenshot({path:info.outputPath('quarter-filters-320.png'),fullPage:true});
+  await page.locator('#globalApplyFiltersBtn').click();
+  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params)).toMatchObject({date_from:'2026-07-01',date_to:'2026-09-30'});
+  await expect(page.locator('#complaintReportCharts')).not.toContainText('Received');
+  expect(await page.evaluate(()=>{const c=Chart.getChart(document.getElementById('timeChart'));return c.data.labels;})).toEqual(['01-09-26']);
+});
+
 test('complaint charts show their units on the value axis and in tooltips', async ({page}) => {
   await openReport(page);
   const units = await page.evaluate(() => [...document.querySelectorAll('[data-complaint-chart] canvas')].map(canvas => {
@@ -137,9 +165,26 @@ test('complaint charts show their units on the value axis and in tooltips', asyn
   }));
   for (const item of units) {
     const duration = ['resolution','category_time','response'].includes(item.key);
-    expect(item.axis).toBe(duration ? 'Hours' : 'Complaints');
-    expect(item.tooltip).toMatch(duration ? /hours/ : /complaints/);
+    expect(item.axis).toBe(duration ? 'Hours' : 'Complaint(s)');
+    expect(item.tooltip).toMatch(duration ? /hrs \([\d.]+ days\)/ : /Complaint\(s\)/);
   }
+  expect(units.find(item=>item.key==='response').tooltip).toBe('184.53 hrs (7.7 days)');
+});
+
+test('actual chart points and series changes immediately select the correct cohort', async ({page}) => {
+  await openReport(page);
+  const point = await page.evaluate(() => {
+    const chart=Chart.getChart(document.getElementById('timeChart'));
+    const point=chart.getDatasetMeta(1).data[0], rect=chart.canvas.getBoundingClientRect();
+    return {x:rect.x+point.x,y:rect.y+point.y};
+  });
+  await page.mouse.click(point.x,point.y);
+  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('reported_open');
+  await page.locator('select[aria-label="Activity type"]').selectOption('0');
+  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('reported_closed');
+  await page.locator('#complaintChartSelection').click();
+  await expect(page.locator('#complaintChartSelection')).toBeHidden();
+  expect(await page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBeUndefined();
 });
 
 test('Real Complaints envelope sends current result filters without leaving the report',async({page},info)=>{

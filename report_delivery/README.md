@@ -68,7 +68,7 @@ submission. The recurring scheduler remains a separate operator setup below.
 
 Each app now owns its email report schedules and recipient approvals. Portal
 offers Pipeline, Outcomes and Finance; TAT offers completed-period TAT outcomes;
-Complaints offers complaints received in the selected period with their current
+Complaints offers complaints reported in the selected period with their current
 resolution status. No cross-workflow customer joins are made.
 
 IT opens **Settings → Email reports → Manage reports** in Portal/TAT. In

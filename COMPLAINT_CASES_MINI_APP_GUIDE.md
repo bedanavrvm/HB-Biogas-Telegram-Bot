@@ -512,19 +512,20 @@ It is read-only and covers complaints across authorized complaint groups.
 
 ### Summary metrics
 
-The summary shows Total, Open, Closed, median resolution time, and the
-percentage resolved on time. These counts follow the selected table dates.
+One compact row shows Total, Open, Closed, median Resolution time, and On time.
+All five cards follow the selected Date Type and table filters.
 
 ### Charts
 
 Swipe through the charts, or choose **List** to see them together:
 
-- **Received vs resolved**: reports and closures in each period. A complaint
-  closed again after reopening contributes another closure.
+- **Reported vs resolved**: complaints grouped by reporting date, split into
+  **Closed (+ve)** and **Open & Reopened (−ve)** by their current status.
+  Each complaint counts once, even if it was closed more than once.
 - **Open complaint age**: how long unresolved complaints have been open.
 - **Resolution time**: median time from the original report to final closure.
 - **Resolved on time**: closed complaints within or beyond their saved target.
-- **Complaint types**: complaint counts; choose Bar or Pie.
+- **Complaint types**: reported complaint counts; choose a compatible chart type.
 - **Time by complaint type**: median resolution time, with sample counts.
 - **HB response time**: time to the first recorded HB comment or closure.
 - **Reopened complaints**: each complaint counts once per chart period.
@@ -539,16 +540,23 @@ Time charts can be grouped by:
 Choose a wider grouping or a narrower date range when a chart contains too
 many periods.
 
-Tap a chart point/bar, or choose an entry and tap **Show cases**, to narrow the
-table. Tap the selection above the charts to remove it. **Export results**
-includes the same matching complaints, not just the current table page.
+Use the compact chart-options icon to change grouping or chart type. Graph
+dates use **dd-mm-yy**. Duration tooltips show hours and their equivalent in
+days, for example **184.53 hrs (7.7 days)**. The **?** explains the calculation.
+
+Tap a chart point/bar or choose an entry to narrow the table immediately.
+The selection pill appears above the search box; remove it to clear that
+selection. **Download filtered** includes the same matching complaints,
+not just the current table page.
 
 Timing uses calendar hours and Nairobi dates. Closed timers freeze at closure;
 comments do not stop them. Reopening retains the original start. Missing or
 invalid dates and unknown historical HB attribution are shown as unavailable,
-not guessed or counted as zero. Graphs use their own event dates: for example,
-September closures may include complaints reported in August. Received totals
-and the table's Reported-date count therefore need not equal closure totals.
+not guessed or counted as zero. **Date Type affects cards and the table only.**
+Graphs keep their own date basis: reporting dates for complaint counts,
+closure dates for resolution time, response dates for HB response, and
+reopening dates for reopened complaints. September resolution measurements
+can therefore include complaints reported in August.
 
 ### Report filters
 
@@ -558,7 +566,9 @@ The report can be narrowed using:
 - status;
 - branch;
 - complaint category; and
-- Reported or Resolved dates, using any time, a selected month, or a custom date range.
+- Date Type: Reported or Resolved, for cards and the table;
+- Dates: any time, a selected month, **Specific Quarter** (Q1–Q4 and year),
+  or a custom date range.
 
 Tap **Show Results** after changing filters. Tap **Reset Filters** to return to
 the unfiltered report.

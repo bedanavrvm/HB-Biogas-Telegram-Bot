@@ -411,6 +411,27 @@
     });
   });
   const chartOptionsIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/><circle cx="15" cy="17" r="2" fill="var(--bg-surface, var(--tat-surface, var(--surface, #fff)))"/></svg>';
+  function chartTypeIcon(type) {
+    const paths = {
+      line: '<path d="M3 3v18h18M6 15l5-5 4 3 6-7"/>',
+      bar: '<path d="M3 3v18h18M7 16v-5M12 16V7M17 16v-8"/>',
+      stacked_bar: '<path d="M3 3v18h18M7 16V7M12 16V5M17 16V9M5 11h4M10 9h4M15 12h4"/>',
+      pie: '<path d="M21 12A9 9 0 1 1 12 3v9zM15 3.5V9h5.5A9 9 0 0 0 15 3.5Z"/>',
+      doughnut: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v5M16 12h5"/>',
+    };
+    return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[type] || paths.bar}</svg>`;
+  }
+  // Bucket keys already represent local reporting dates. Avoid parsing them as
+  // UTC instants (and shifting days in the viewer's timezone).
+  function formatChartDate(value) {
+    const text = String(value ?? '');
+    const match = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(text);
+    if (!match) return text;
+    const [, year, month = '01', day = '01'] = match;
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() + 1 !== Number(month) || date.getUTCDate() !== Number(day)) return text;
+    return `${day}-${month}-${year.slice(-2)}`;
+  }
   function periodDates(mode, values = {}) {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
     const p = Object.fromEntries(parts.map(part => [part.type, part.value]));
@@ -428,5 +449,5 @@
     if (from <= today && today <= to) to = today;
     return { from, to };
   }
-  window.MiniAppReportControls = Object.freeze({ chooseExcelExport, closeExcelExport, setChartHelp, chartPresentation, chartOptionsIcon, periodDates, chartMeasurement, applyChartMeasurement, prepareChartMenu, closeChartMenus });
+  window.MiniAppReportControls = Object.freeze({ chooseExcelExport, closeExcelExport, setChartHelp, chartPresentation, chartOptionsIcon, chartTypeIcon, formatChartDate, periodDates, chartMeasurement, applyChartMeasurement, prepareChartMenu, closeChartMenus });
 })();

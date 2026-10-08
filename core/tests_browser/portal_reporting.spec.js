@@ -59,6 +59,20 @@ for(const width of [320,360,390,430,768,1280])for(const preset of ['pipeline','o
   });
 }
 
+test('temporal Portal labels and tooltips use the shared date format', async ({page}) => {
+  await open(page);
+  await page.evaluate(() => {
+    const result=window.__result;
+    window.__result=body=>{const value=result(body);const trend=value.charts.find(c=>c.id==='received');
+      trend.labels=['Sep 2026','Oct 2026'];trend.bucket_keys=['2026-09','2026-10'];return value;};
+    return PortalMiniAppReports.load();
+  });
+  await expect.poll(()=>page.evaluate(()=>Chart.getChart(document.querySelector('[data-chart="received"] canvas'))?.data.labels)).toEqual(['01-09-26','01-10-26']);
+  expect(await page.evaluate(()=>Chart.getChart(document.querySelector('[data-chart="received"] canvas')).options.plugins.tooltip.callbacks.title([{dataIndex:0}]))).toBe('01-09-26');
+  await page.locator('[data-chart="received"] .portal-chart-cases summary').click();
+  await expect(page.locator('[data-chart="received"] [data-bucket] option').nth(1)).toHaveText('01-09-26');
+});
+
 test('draft filters cancel cleanly; drill, paging and export share applied filters',async({page})=>{
   await open(page);await page.locator('[data-action="filters"]').click();
   await page.locator('[name="branch"]').selectOption('Training branch');await page.keyboard.press('Escape');

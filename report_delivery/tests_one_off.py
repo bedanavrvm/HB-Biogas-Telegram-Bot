@@ -19,7 +19,7 @@ from .views import report_export_response
 
 class EmailPresentationTests(SimpleTestCase):
     def snapshot(self, **changes):
-        return {'preset': 'complaints', 'summary': {'Complaints received': 12, 'Open': 6, 'Resolved': 6, 'Needs details': 0},
+        return {'preset': 'complaints', 'summary': {'Complaints reported': 12, 'Open': 6, 'Resolved': 6, 'Needs details': 0},
                 'charts': [], 'rows': [], 'exported_rows': 12, 'total_rows': 12,
                 'xlsx_content': base64.b64encode(b'synthetic-workbook').decode(),
                 'applied_filters': {}, 'period': {'from': '2026-10-01', 'to': '2026-10-05'},

@@ -81,6 +81,49 @@ class ComplaintTimingTests(TestCase):
         hydrate_timing([case], now=self.now)
         self.assertIsNone(case.complaint_timing['hb_response_hours'])
 
+    def test_reported_outcomes_are_distinct_current_states_not_repeat_closures(self):
+        closed = self.make_case(hours=100, closed=True, duration=90)
+        self.update(closed, 20, 'Open', 'Closed')
+        self.update(closed, 30, 'Closed', 'Reopened')
+        self.update(closed, 90, 'Reopened', 'Closed')
+        opened = self.make_case(hours=100)
+        reopened = self.make_case(hours=100)
+        reopened.complaint_status = 'Reopened'; reopened.save(update_fields=['complaint_status'])
+        hydrate_timing([closed, opened, reopened], now=self.now)
+        result = timing_summary([closed, opened, reopened], now=self.now)
+        self.assertEqual(result['reported_outcomes'], [{'label':'2026-09','closed':1,'open':2}])
+        for metric, expected in [('reported_closed',1),('reported_open',2)]:
+            filters={'date_basis':'reported','metric':metric,'date_from':'2026-09-01','date_to':'2026-09-30'}
+            self.assertEqual(complaint_report_page(filters=filters)['count'], expected)
+            validate_report_filters(filters)
+        actor = get_user_model().objects.create_user(username='outcome-export')
+        workbook, count = export_register_xlsx(actor=actor, request_id='outcome-export', filters=filters)
+        self.assertEqual(count, 2)
+        self.assertEqual(load_workbook(BytesIO(workbook)).active.max_row, 3)
+
+    def test_quarter_range_includes_last_local_second_not_next_quarter(self):
+        for stamp in [datetime(2026,9,30,23,59,59,tzinfo=ZoneInfo('Africa/Nairobi')),
+                      datetime(2026,10,1,0,0,tzinfo=ZoneInfo('Africa/Nairobi'))]:
+            case = self.make_case()
+            case.timestamp = stamp
+            case.save(update_fields=['timestamp'])
+        q3={'date_basis':'reported','date_from':'2026-07-01','date_to':'2026-09-30'}
+        q4={'date_basis':'reported','date_from':'2026-10-01','date_to':'2026-12-31'}
+        self.assertEqual(complaint_report_page(filters=q3)['count'],1)
+        self.assertEqual(complaint_report_page(filters=q4)['count'],1)
+
+    def test_date_type_changes_cards_and_table_not_graph_populations(self):
+        self.make_case(hours=48, closed=True, duration=36)
+        self.make_case(hours=12)
+        filters={'date_from':'2026-10-02','date_to':'2026-10-02'}
+        reported=complaint_report_summary(filters={**filters,'date_basis':'reported'})
+        resolved=complaint_report_summary(filters={**filters,'date_basis':'resolved'})
+        self.assertEqual((reported['total'],resolved['total']),(1,1))
+        self.assertIsNone(reported['card_timing']['median_resolution_hours'])
+        self.assertEqual(resolved['card_timing']['median_resolution_hours'],36)
+        for key in ['reported_outcomes','by_category','by_time','open_age','resolution_trend','response_trend','resolution_by_category','reopenings']:
+            self.assertEqual(reported[key],resolved[key],key)
+
     def test_history_queries_are_batched_and_missing_closure_never_grows(self):
         cases = [self.make_case(closed=True) for _ in range(10)]
         self.update(cases[0], 24, 'Open', 'Closed')
