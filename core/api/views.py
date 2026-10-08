@@ -296,7 +296,7 @@ def _miniapp_draft_user(init_data: str):
     return user, ''
 
 
-def _miniapp_draft_context(workflow: str, context_key: str, payload: dict):
+def _miniapp_draft_context(workflow: str, context_key: str, payload: dict, request=None):
     """Authorize a recovery draft against the same scoped link/action as its form.
 
     FCA and FarmUp review links use signed, batch-specific tokens.  Those
@@ -313,6 +313,23 @@ def _miniapp_draft_context(workflow: str, context_key: str, payload: dict):
         return None, error
 
     token = str(payload.get('token') or payload.get('form_token') or '').strip()
+    if workflow == 'tat_create':
+        _, group_config, _, actor, response = _tat_context({
+            'group_id': context_key, 'init_data': init_data, 'token': token,
+        })
+        if response or actor.get('_canonical_user') != user:
+            return None, 'Your TAT access does not cover this group.'
+        if not _tat_has_capability(actor, 'tat.case.create', group_config):
+            return None, 'Your assigned TAT role cannot create cases.'
+        return user, ''
+    if workflow == 'complaint_create' and request is not None:
+        from core.api.complaint_case_views import _context, _capability_error
+        group_config, actor, response = _context(request, {'group_id': context_key, 'init_data': init_data})
+        if response or actor.user != user:
+            return None, 'Your complaint access does not cover this group.'
+        if _capability_error(actor, 'complaint.case.create', group_config):
+            return None, 'Your assigned complaint role cannot create cases.'
+        return user, ''
     if workflow == 'spin_request':
         group_id, group_config, auth_payload, response = _spin_webapp_context(
             {'group_id': context_key, 'init_data': init_data},
@@ -347,7 +364,7 @@ def miniapp_draft(request, workflow: str, context_key: str):
     payload['_header_init_data'] = request.headers.get('X-Telegram-Init-Data', '')
     if not payload.get('token'):
         payload['token'] = request.headers.get('X-MiniApp-Context-Token', '')
-    user, error = _miniapp_draft_context(str(workflow), str(context_key), payload)
+    user, error = _miniapp_draft_context(str(workflow), str(context_key), payload, request=request)
     if not user:
         return JsonResponse({'ok': False, 'error': error}, status=403)
 
@@ -373,6 +390,15 @@ def miniapp_draft(request, workflow: str, context_key: str):
     if request.method == 'DELETE':
         delete_draft(user=user, workflow=workflow, context_key=context_key)
         return JsonResponse({'ok': True})
+
+    if workflow in {'complaint_create', 'tat_create'}:
+        allowed = {
+            'complaint_create': {'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'branch_region', 'county', 'sub_county', 'village', 'complaint_description', 'complaint_category'},
+            'tat_create': {'client_name', 'national_id', 'primary_phone', 'product_key', 'branch', 'bro_user_id', 'amount', 'product_configuration'},
+        }[workflow]
+        fields = payload.get('payload')
+        if not isinstance(fields, dict) or set(fields) - allowed or any(not isinstance(value, str) or len(value) > 5000 for value in fields.values()):
+            return JsonResponse({'ok': False, 'error': 'Only supported form fields can be saved in this draft.'}, status=400)
 
     try:
         expected_revision = payload.get('revision')
@@ -1163,6 +1189,7 @@ def tat_tracker_create(request):
             status=exc.status,
             developer_message=f'{type(exc).__name__}:{exc.code}',
             exception=exc,
+            extra={'field_errors': exc.field_errors},
         )
     except ValueError as exc:
         return miniapp_error_response(

@@ -63,6 +63,7 @@
   }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
   function normalizeKenyanMobile(value) {
+    if (window.MiniAppUtils?.normalizeKenyanPhone) return window.MiniAppUtils.normalizeKenyanPhone(value);
     let text = String(value || '').trim();
     if (!text || !/^[0-9+\s()\-]+$/.test(text) || (text.match(/\+/g) || []).length > 1 || (text.includes('+') && !text.startsWith('+'))) return '';
     text = text.replace(/[\s()\-]/g, '');
@@ -878,6 +879,7 @@
     const footerEl = el('sheet-footer');
     formEl.oninput = null;
     formEl.onchange = null;
+    window.MiniAppUtils?.bindAccessibleForm?.(formEl)?.dispose();
     formEl.innerHTML = '';
     footerEl.innerHTML = '';
     el('sheet-gate-warning').style.display = 'none';
@@ -950,6 +952,11 @@
       formEl.innerHTML = buildRequisitionBatchNotice();
     }
     sheetOverlay?.classList.add('open');
+    window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'), {
+      validate: portalFormErrors,
+      resolveField: field => [...document.querySelectorAll('[data-jbl-field]')]
+        .find(node => node.dataset.jblField === field)?.querySelector('input:not([type="hidden"]),select,textarea,button'),
+    })?.clear();
     const lat = parseFloat(farmer.latitude);
     const lng = parseFloat(farmer.longitude);
     // Leaflet measures its container when it is created. The sheet is hidden
@@ -2082,6 +2089,7 @@
   const JBL_FORWARD_VISIT_STATUSES = new Set(['Visited, Awaiting Credit Analysis']);
 
   function clearJblFieldErrors() {
+    window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'))?.clear();
     document.querySelectorAll('[data-jbl-field]').forEach(node => {
       node.classList.remove('invalid');
       node.querySelectorAll('[aria-invalid="true"]').forEach(control => control.removeAttribute('aria-invalid'));
@@ -2093,6 +2101,9 @@
 
   function showJblFieldErrors(errors) {
     clearJblFieldErrors();
+    const controller = window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'), {resolveField: field =>
+      document.querySelector(`[data-jbl-field="${field}"]`)?.querySelector('input:not([type="hidden"]),select,textarea,button')});
+    if (controller) return controller.show(errors);
     const entries = Object.entries(errors || {}).filter(([, message]) => Boolean(message));
     if (!entries.length) return false;
     const summary = el('jbl-form-errors');
@@ -2560,6 +2571,35 @@
     return reason.value;
   }
 
+  function decisionFieldErrors(prefix, decisionValue) {
+    if (!decisionNeedsReason(decisionValue)) return {};
+    const reason = el(`${prefix}-reason-code`);
+    const comment = el(`${prefix}-decision-comment`) || el(prefix === 'final' ? 'final-comment' : 'jbl-comment');
+    if (!reason?.value) return {[`${prefix}-reason-code`]: 'Choose a reason for this decision.'};
+    return ['r07', 'd12'].includes(reason.value) && !String(comment?.value || '').trim()
+      ? {[comment.id]: 'Explain the decision when reason is Other.'} : {};
+  }
+
+  function portalFormErrors() {
+    const mode = state().activeMode;
+    if (mode === 'jbl_visit') return {...validateJblVisitFields(), ...decisionFieldErrors('jbl', el('jbl-status')?.value)};
+    if (mode === 'credit') {
+      const decision = el('credit-decision')?.value || '';
+      const errors = {...decisionFieldErrors('credit', decision)};
+      if (!decision) errors['credit-decision'] = 'Choose the credit decision.';
+      if (decision === 'Approved') {
+        if (el('credit-imab')?.value !== 'Yes') errors['credit-imab'] = 'Create the customer in IMAB before sending for review.';
+        if (!(el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '')) errors['credit-customer-no'] = 'Enter the IMAB Customer No.';
+      }
+      return errors;
+    }
+    if (mode === 'final_review') {
+      const decision = el('final-decision')?.value || '';
+      return {...decisionFieldErrors('final', decision), ...(!decision ? {'final-decision': 'Choose the final decision.'} : {})};
+    }
+    return {};
+  }
+
   function wireCreditImabFields() {
     const decision = el('credit-decision');
     const imab = el('credit-imab');
@@ -2929,13 +2969,11 @@
     }
     if (!isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
+    const fields = portalFormErrors();
+    if (!commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
+    if (showJblFieldErrors(fields)) return;
     const visitReason = validateDecisionReason('jbl', visitStatus);
-    if (visitReason === null) return deps.showToast('Choose the visit reason.', 'error');
-    if (!commitJblDisplayDate({ showError: false })) {
-      showJblFieldErrors({ visit_date: 'Enter a valid visit date in dd-mm-yy format.' });
-      return;
-    }
-    if (showJblFieldErrors(validateJblVisitFields())) return;
+    if (visitReason === null) return;
 
     stopJblLiveCamera();
     if (!selectedJblFilesAreValid()) return;
@@ -3078,6 +3116,7 @@
   async function submitCreditDecision() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    if (window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'))?.validate() === false) return;
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
@@ -3114,6 +3153,7 @@
   async function submitFinalDecision() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    if (window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'))?.validate() === false) return;
     const finalDecision = el('final-decision')?.value || '';
     const decisionComment = el('final-comment')?.value || '';
     const reasonCode = validateDecisionReason('final', finalDecision, decisionComment);
@@ -3244,6 +3284,7 @@
 
   function init(initialDeps) {
     deps = initialDeps;
+    window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'));
     bindEvents();
     deps.tg?.onEvent?.('deactivated', () => {
       if (state().activeMode === 'jbl_visit') {

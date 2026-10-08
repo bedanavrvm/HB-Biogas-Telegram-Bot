@@ -35,6 +35,22 @@ primitives bring its feedback and resilience in line with TAT.
 
 ## Consequences
 
+### 8 October 2026 extension
+
+Complaint and TAT creation reuse this same seven-day private draft store. Each
+load, save and clear rechecks verified identity and the workflow's existing
+group-scoped create capability. The API accepts only bounded field allowlists;
+attachments, tokens, OTPs and signatures are excluded. Reopening offers an
+explicit Restore / Discard choice, never an automatic overwrite of current
+input. Product-specific TAT values are field-only recovery data, not authority
+to bypass current product rules. Existing Origination encrypted recovery and
+Portal workflow drafts retain their own authorization and revision contracts.
+
+The shared accessible-form controller owns presentation validation, field/error
+associations and summary focus. Owning services still validate all business
+rules and state changes. No schema migration, access grant or signing-policy
+change is required for this extension.
+
 - Sensitive drafts are no longer stored in browser `localStorage` for the
   covered forms.
 - A second device cannot silently overwrite a newer saved draft.

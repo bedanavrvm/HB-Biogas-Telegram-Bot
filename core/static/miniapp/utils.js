@@ -407,6 +407,7 @@
     error.requestId = data.request_id || '';
     error.supportReference = data.support_reference || '';
     error.payload = data;
+    error.fieldErrors = data.field_errors || data.errors || {};
     return error;
   }
 
@@ -782,6 +783,279 @@
     return { load: load, save: save, schedule: schedule, clear: clear };
   }
 
+  // Shared presentation only: callers retain their workflow validators and writes.
+  const formControllers = new WeakMap();
+  let formControlSequence = 0;
+  function bindAccessibleForm(form, options) {
+    if (!form) return null;
+    if (formControllers.has(form)) {
+      formControllers.get(form).configure(options);
+      return formControllers.get(form);
+    }
+    let settings = options || {};
+    let errors = {};
+    let summary = null;
+    const outputs = new Map();
+    const controls = () => Array.from(form.querySelectorAll('input,select,textarea'));
+    const keyFor = control => control.name || control.dataset.field || control.dataset.documentField || control.id;
+    const enabled = control => !control.disabled && !control.readOnly && control.type !== 'hidden'
+      && !control.closest('[hidden],.hidden') && control.getClientRects().length > 0;
+    function labelFor(control) {
+      const label = control.labels?.[0] || control.closest('label');
+      const source = label?.querySelector(':scope > span:not(.miniapp-required-mark)') || label;
+      if (source) {
+        const copy = source.cloneNode(true);
+        copy.querySelectorAll('input,select,textarea,button,small,.miniapp-required-mark,.miniapp-field-error').forEach(node => node.remove());
+        const text = copy.textContent.replace(/\*/g, '').trim();
+        if (text) return text;
+      }
+      return control.getAttribute('aria-label') || control.placeholder || 'This field';
+    }
+    function prepare() {
+      form.classList.add('miniapp-form');
+      if (form.tagName === 'FORM') form.noValidate = true;
+      controls().forEach(control => {
+        if (control.type === 'hidden') return;
+        control.id ||= `miniapp-field-${++formControlSequence}`;
+        let label = control.labels?.[0] || control.closest('label');
+        const wrapper = control.closest('.form-row,.laf-field') || control.parentElement;
+        if (!label && wrapper?.querySelectorAll('input:not([type="hidden"]),select,textarea').length === 1) {
+          label = wrapper.querySelector('label:not([for])');
+          if (label) label.htmlFor = control.id;
+        }
+        if (label && label.querySelectorAll('input,select,textarea').length === 1) label.htmlFor = control.id;
+        if (control.required && label && !label.querySelector('.miniapp-required-mark,.required-mark,.required-marker')) {
+          const mark = document.createElement('span');
+          mark.className = 'miniapp-required-mark'; mark.textContent = ' *'; mark.setAttribute('aria-hidden', 'true');
+          let title = label.querySelector(':scope > span');
+          if (!title) {
+            title = document.createElement('span');
+            for (const node of [...label.childNodes]) {
+              if (node === control) break;
+              if (node.nodeType === Node.TEXT_NODE) title.append(node);
+            }
+            label.insertBefore(title, control.parentNode === label ? control : label.firstChild);
+          }
+          title.append(mark);
+        }
+        if (control.required) control.setAttribute('aria-required', 'true');
+        else { control.removeAttribute('aria-required'); label?.querySelector('.miniapp-required-mark')?.remove(); }
+        if (/(^|_)phone$/.test(control.name) && control.type === 'text') {
+          control.type = 'tel'; control.inputMode = 'tel'; control.autocomplete ||= 'tel';
+        }
+        if (control.type === 'file' && !control.labels?.length && !control.hasAttribute('aria-label')) control.setAttribute('aria-label', 'Choose supporting files');
+      });
+    }
+    function messageFor(control) {
+      const custom = settings.validators?.[keyFor(control)]?.(control.value, control, form);
+      if (custom) return custom;
+      const label = labelFor(control);
+      if (control.required && ((['checkbox', 'radio'].includes(control.type) && !control.checked)
+        || (!['checkbox', 'radio'].includes(control.type) && !String(control.value || '').trim()))) {
+        if (control.type === 'radio' && controls().some(other => other.name === control.name && other.checked)) return '';
+        return ['SELECT', 'INPUT'].includes(control.tagName) && (control.tagName === 'SELECT' || control.type === 'checkbox')
+          ? `Choose ${label.toLowerCase()}.` : `Enter ${label.toLowerCase()}.`;
+      }
+      if (control.validity && !control.validity.valid) return control.validity.customError
+        ? control.validationMessage : `Check ${label.toLowerCase()}: ${control.validationMessage}`;
+      return '';
+    }
+    function collect() {
+      prepare();
+      const result = {};
+      controls().filter(enabled).forEach(control => {
+        const message = messageFor(control);
+        if (message) result[keyFor(control)] = message;
+      });
+      return Object.assign(result, settings.validate?.(form) || {});
+    }
+    function findControl(key) {
+      return settings.resolveField?.(key) || controls().find(control => [keyFor(control), control.id].includes(key))
+        || form.querySelector(`[data-error-target="${String(key).replace(/[^a-z0-9_-]/gi, '')}"]`);
+    }
+    function associate(control, output, add) {
+      const ids = new Set((control.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+      if (add) ids.add(output.id); else ids.delete(output.id);
+      if (ids.size) control.setAttribute('aria-describedby', Array.from(ids).join(' '));
+      else control.removeAttribute('aria-describedby');
+    }
+    function show(nextErrors, focus = true) {
+      prepare(); errors = Object.fromEntries(Object.entries(nextErrors || {}).filter(([, message]) => Boolean(message)));
+      outputs.forEach((output, control) => {
+        output.hidden = true; output.textContent = ''; associate(control, output, false);
+        control.removeAttribute('aria-invalid');
+      });
+      const entries = Object.entries(errors);
+      entries.forEach(([key, message]) => {
+        const control = findControl(key);
+        if (!control) return;
+        let output = outputs.get(control);
+        if (!output) {
+          output = document.createElement('small'); output.className = 'miniapp-field-error';
+          output.id = `${control.id}-error`; control.insertAdjacentElement('afterend', output); outputs.set(control, output);
+        }
+        output.textContent = String(message); output.hidden = false;
+        control.setAttribute('aria-invalid', 'true'); associate(control, output, true);
+      });
+      if (!entries.length) { summary?.remove(); summary = null; return false; }
+      if (!summary) {
+        summary = document.createElement('aside'); summary.className = 'miniapp-form-errors';
+        summary.tabIndex = -1; summary.setAttribute('aria-label', 'Please check these fields');
+        form.prepend(summary);
+      }
+      summary.replaceChildren();
+      const title = document.createElement('strong'); title.textContent = 'Please check'; summary.append(title);
+      const list = document.createElement('ul'); summary.append(list);
+      entries.forEach(([key, message]) => {
+        const item = document.createElement('li'); const control = findControl(key);
+        const link = document.createElement(control ? 'a' : settings.focusField ? 'button' : 'span'); link.textContent = String(message);
+        if (control) {
+          link.href = `#${control.id}`;
+          link.onclick = event => { event.preventDefault(); control.focus(); control.scrollIntoView?.({block: 'center'}); };
+        }
+        else if (settings.focusField) { link.type = 'button'; link.onclick = () => settings.focusField(key); }
+        item.append(link); list.append(item);
+      });
+      if (focus) summary.focus();
+      return true;
+    }
+    function validate() { return !show(collect()); }
+    function corrected(event) {
+      prepare();
+      const control = event.target;
+      const key = keyFor(control);
+      if (!(key in errors) && !Object.keys(errors).some(name => findControl(name) === control)) return;
+      const next = collect();
+      // Do not flag untouched fields while somebody corrects a prior submission.
+      const remaining = Object.fromEntries(Object.keys(errors).filter(name => next[name]).map(name => [name, next[name]]));
+      show(remaining, false);
+    }
+    const submit = event => {
+      if (!validate()) { event.preventDefault(); event.stopImmediatePropagation(); }
+    };
+    const reset = () => show({}, false);
+    const phoneBlur = event => {
+      const control = event.target;
+      if (!/(^|_)phone$/.test(control.name || '') || control.readOnly || control.disabled) return;
+      const normalized = normalizeKenyanPhone(control.value);
+      if (!normalized || control.value === normalized) return;
+      control.value = normalized;
+      control.dispatchEvent(new Event('input', {bubbles: true}));
+    };
+    form.addEventListener('submit', submit, true);
+    form.addEventListener('input', corrected);
+    form.addEventListener('change', corrected);
+    form.addEventListener('reset', reset);
+    form.addEventListener('focusout', phoneBlur);
+    const controller = {
+      collect, show, validate, clear: reset,
+      configure(next) { settings = {...settings, ...next}; prepare(); },
+      dispose() {
+        form.removeEventListener('submit', submit, true); form.removeEventListener('input', corrected);
+        form.removeEventListener('change', corrected); form.removeEventListener('reset', reset);
+        form.removeEventListener('focusout', phoneBlur);
+        reset(); outputs.forEach(output => output.remove()); formControllers.delete(form);
+      },
+    };
+    formControllers.set(form, controller); prepare(); return controller;
+  }
+
+  function normalizeKenyanPhone(value) {
+    const raw = String(value || '').trim();
+    if (!raw || !/^[+\d\s()\-]+$/.test(raw) || (raw.includes('+') && (!raw.startsWith('+') || (raw.match(/\+/g) || []).length > 1))) return '';
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('00254')) digits = digits.slice(2);
+    else if (digits.startsWith('005')) digits = `254${digits.slice(3)}`;
+    if (/^2540[17]\d{8}$/.test(digits)) digits = `254${digits.slice(4)}`;
+    else if (/^0[17]\d{8}$/.test(digits)) digits = `254${digits.slice(1)}`;
+    else if (/^[17]\d{8}$/.test(digits)) digits = `254${digits}`;
+    return /^254[17]\d{8}$/.test(digits) && !digits.startsWith('254199') ? digits : '';
+  }
+
+  function installAccessibleForms(root) {
+    const scope = root || document;
+    const mount = () => scope.querySelectorAll('form:not([method="dialog"])').forEach(form => bindAccessibleForm(form));
+    mount();
+    const observer = new MutationObserver(mount);
+    observer.observe(scope === document ? document.body : scope, {childList: true, subtree: true});
+    return () => observer.disconnect();
+  }
+
+  function bindCreationDraft(form, options) {
+    const settings = options || {};
+    if (!form || !settings.contextKey) return null;
+    let ready = false, prompt = null, loading = null, generation = 0, retry = null;
+    const status = () => settings.status || form.querySelector('[data-draft-status]');
+    const text = message => { if (status()) status().textContent = message; };
+    const collect = () => ({...Object.fromEntries(Array.from(form.elements).filter(control =>
+      control.name && !['file', 'password', 'submit', 'button', 'hidden'].includes(control.type)
+      && !/(token|init_data|signature|otp|request_id)/i.test(control.name)
+    ).map(control => [control.name, control.type === 'checkbox' ? control.checked : control.value])), ...settings.collect?.()});
+    const draft = createServerDraft({...settings,
+      onSaved: () => { retry?.remove(); retry = null; text('Draft saved'); setCloseProtection(`creation-draft:${settings.workflow}`, false); },
+      onError: error => {
+        ready = !error.conflict;
+        text(error.conflict ? 'Draft changed on another device. Reopen this form to review it.' : 'Draft not saved. Your entered values remain here.');
+        if (!retry && status()) {
+          retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry draft';
+          retry.onclick = async () => {
+            retry.remove(); retry = null;
+            if (error.conflict) await load(); else draft.schedule(collect(), 0);
+          };
+          status().insertAdjacentElement('afterend', retry);
+        }
+      },
+    });
+    const restore = async payload => {
+      for (const control of Array.from(form.elements)) {
+        if (!control.name || !(control.name in payload) || ['file', 'password', 'hidden'].includes(control.type)) continue;
+        if (control.type === 'checkbox') control.checked = Boolean(payload[control.name]);
+        else control.value = String(payload[control.name] ?? '');
+      }
+      const warning = await settings.restore?.(payload);
+      formControllers.get(form)?.clear();
+      text(warning || 'Draft restored. Reselect any files before submitting.');
+      setCloseProtection(`creation-draft:${settings.workflow}`, false);
+    };
+    async function load() {
+      if (ready || loading || prompt) return loading;
+      const started = generation;
+      loading = (async () => {
+        try {
+          const existing = await draft.load();
+          if (!existing) { ready = true; if (generation !== started) draft.schedule(collect()); return; }
+          prompt = document.createElement('aside'); prompt.className = 'miniapp-draft-prompt';
+          const title = document.createElement('strong'); title.textContent = 'Unfinished form found'; prompt.append(title);
+          for (const [label, action] of [['Restore', async () => restore(existing.payload)], ['Discard', async () => { await draft.clear(); text('Draft discarded'); }]]) {
+            const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+            button.onclick = async () => {
+              button.disabled = true;
+              try { await action(); prompt.remove(); prompt = null; ready = true; }
+              catch (_) { button.disabled = false; text('Could not recover the draft. Try again.'); }
+            };
+            prompt.append(button);
+          }
+          form.prepend(prompt);
+        } catch (_) { text('Draft recovery unavailable. Your entered values remain here.'); }
+        finally { loading = null; }
+      })();
+      return loading;
+    }
+    function changed() {
+      generation += 1;
+      setCloseProtection(`creation-draft:${settings.workflow}`, true);
+      if (ready) draft.schedule(collect());
+    }
+    form.addEventListener('input', changed); form.addEventListener('change', changed);
+    return {load, async clear() {
+      ready = false; prompt?.remove(); prompt = null;
+      retry?.remove(); retry = null;
+      try { await draft.clear(); ready = true; }
+      catch (_) { text('Submitted. The recovery draft could not be cleared; discard it if it reappears.'); }
+      setCloseProtection(`creation-draft:${settings.workflow}`, false);
+    }};
+  }
+
   function createUiContext(key) {
     const storageKey = `miniapp-ui:${String(key || '')}`;
     function read() {
@@ -864,6 +1138,10 @@
     impactWithFallback: impactWithFallback,
     skeletonCards: skeletonCards,
     createServerDraft: createServerDraft,
+    bindAccessibleForm: bindAccessibleForm,
+    normalizeKenyanPhone: normalizeKenyanPhone,
+    installAccessibleForms: installAccessibleForms,
+    bindCreationDraft: bindCreationDraft,
     createUiContext: createUiContext,
     renderSettingsAccount: renderSettingsAccount,
     createRequestId: createRequestId,

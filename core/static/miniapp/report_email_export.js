@@ -31,6 +31,7 @@
     const scope = Object.entries(filters).filter(([k,v]) => v !== '' && v != null && !['page','page_size','sort','group'].includes(k));
     dialog.querySelector('.report-email-scope').textContent = scope.map(([k,v]) => `${names[k] || k[0].toUpperCase()+k.slice(1).replace(/_/g,' ')}: ${readable(v)}`).join(' · ') || 'All matching cases in your report access';
     const form = dialog.querySelector('form'), status = dialog.querySelector('[role="status"]'), send = dialog.querySelector('[type="submit"]');
+    window.MiniAppUtils?.bindAccessibleForm?.(form);
     let busy = false;
     dialog.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => dialog.close()));
     const back = options.telegram?.BackButton;

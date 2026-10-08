@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from core.models import MiniAppDraft
 from core.services.miniapp_drafts import MiniAppDraftConflict, MiniAppDraftError, get_draft, save_draft
@@ -135,3 +136,52 @@ class MiniAppDraftApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(MiniAppDraft.objects.exists())
+
+    @patch('core.api.views._miniapp_draft_context')
+    def test_creation_drafts_are_field_only_private_and_expire_after_seven_days(self, context):
+        context.return_value = self.user, ''
+        for workflow in ('complaint_create', 'tat_create'):
+            url = reverse('miniapp_draft', args=[workflow, 'group-1'])
+            response = self.client.post(url, data={'payload': {'client_name': 'Synthetic customer'}}, content_type='application/json')
+            self.assertEqual(response.status_code, 200)
+            draft = MiniAppDraft.objects.get(user=self.user, workflow=workflow)
+            self.assertAlmostEqual((draft.expires_at - draft.updated_at).total_seconds(), 7 * 86400, delta=2)
+            for secret in ('files', 'otp_code', 'token', 'signature'):
+                rejected = self.client.post(url, data={'payload': {secret: 'not allowed'}}, content_type='application/json')
+                self.assertEqual(rejected.status_code, 400)
+            context.return_value = get_user_model().objects.create_user(f'other-{workflow}'), ''
+            self.assertIsNone(self.client.get(url).json()['draft'])
+            context.return_value = self.user, ''
+            self.assertIsNone(self.client.get(reverse('miniapp_draft', args=[workflow, 'group-2'])).json()['draft'])
+
+    @patch('core.api.views._tat_has_capability', return_value=False)
+    @patch('core.api.views._tat_context')
+    @patch('core.api.views._miniapp_draft_user')
+    def test_tat_creation_draft_requires_current_create_capability(self, identity, context, capability):
+        from core.api.views import _miniapp_draft_context
+        identity.return_value = self.user, ''
+        context.return_value = ('group-1', SimpleNamespace(), {}, {'_canonical_user': self.user}, None)
+        actor, error = _miniapp_draft_context('tat_create', 'group-1', {'init_data': 'synthetic'})
+        self.assertIsNone(actor)
+        self.assertIn('cannot create', error)
+        capability.assert_called_once()
+
+    @patch('core.api.complaint_case_views._capability_error', return_value=True)
+    @patch('core.api.complaint_case_views._context')
+    @patch('core.api.views._miniapp_draft_user')
+    def test_complaint_creation_draft_requires_current_create_capability(self, identity, context, capability):
+        from core.api.views import _miniapp_draft_context
+        identity.return_value = self.user, ''
+        context.return_value = (SimpleNamespace(), SimpleNamespace(user=self.user), None)
+        actor, error = _miniapp_draft_context('complaint_create', 'group-1', {'init_data': 'synthetic'}, request=SimpleNamespace())
+        self.assertIsNone(actor)
+        self.assertIn('cannot create', error)
+
+    def test_complaint_validation_returns_all_missing_basic_fields(self):
+        from core.services.complaint_cases import ComplaintCaseError, validate_new_case_fields
+        with self.assertRaises(ComplaintCaseError) as caught:
+            validate_new_case_fields(group_config=None, actor=None, request_id='synthetic', fields={})
+        self.assertEqual(set(caught.exception.field_errors), {
+            'client_name', 'customer_phone', 'customer_id', 'branch_region', 'county',
+            'sub_county', 'village', 'complaint_description', 'complaint_category',
+        })

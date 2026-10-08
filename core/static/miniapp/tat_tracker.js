@@ -6,6 +6,17 @@
   const tatFormatters = window.TatMiniAppFormatters || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
+  utils.installAccessibleForms?.();
+  let creationDraft = null;
+  utils.bindAccessibleForm?.(document.getElementById('newCaseForm'), {validators: {
+    national_id: value => /^\d{1,9}$/.test(String(value).trim()) ? '' : 'Enter a National ID using 1 to 9 digits.',
+    primary_phone: value => utils.normalizeKenyanPhone?.(value) ? '' : 'Enter a valid Kenyan mobile number.',
+    amount: (value, input) => {
+      input.setCustomValidity('');
+      validateNewCaseAmount(false);
+      return input.validationMessage || '';
+    },
+  }});
   const state = {
     groupId: body.dataset.groupId || '',
     token: body.dataset.token || '',
@@ -291,6 +302,9 @@
   }
   function presentTatError(error, suffix) {
     if (!error || error.name === 'AbortError') return;
+    const fields = error.fieldErrors || error.payload?.field_errors || error.payload?.errors;
+    const form = document.querySelector('.view.active form');
+    if (form && fields && Object.keys(fields).length) utils.bindAccessibleForm?.(form)?.show(fields);
     const message = `${error.message || 'We could not complete that action.'}${suffix || ''}`;
     showNotice(message, 'error');
     utils.haptic?.('error');
@@ -331,6 +345,7 @@
     $('recognitionWorkspaceBtn').setAttribute('aria-pressed', String(recognition));
     const target = $(view + 'View');
     if (target) target.classList.add('active');
+    if (view === 'new') void creationDraft?.load();
     if (recognition && state.recognition.lastPayload) renderTatRecognition(state.recognition.lastPayload);
     if (tg && tg.BackButton) {
       if (view === 'detail' || (recognition && state.recognition.view === 'personal')) tg.BackButton.show();
@@ -1761,6 +1776,23 @@
     $('loadingBrand').classList.add('hidden');
     const user = data.user || {};
     const capabilities = new Set(user.capabilities || []);
+    if (!creationDraft && capabilities.has('tat.case.create')) creationDraft = utils.bindCreationDraft?.($('newCaseForm'), {
+      workflow: 'tat_create', contextKey: state.groupId, initData: () => state.initData, token: () => state.token,
+      status: $('newCaseDraftStatus'),
+      collect: () => ({product_configuration: JSON.stringify(collectProductConfiguration($('newCaseProductConfiguration')))}),
+      restore: payload => {
+        refreshNewCaseProductControls();
+        let saved = {};
+        try { saved = JSON.parse(payload.product_configuration || '{}'); } catch (error) {}
+        $('newCaseProductConfiguration')?.querySelectorAll('[data-product-requirement],[data-product-custom],[data-product-fee]').forEach(input => {
+          const value = input.dataset.productRequirement ? saved.requirementEvidence?.[input.dataset.productRequirement]
+            : input.dataset.productCustom ? saved.customValues?.[input.dataset.productCustom]
+            : (saved.selectedFeeKeys || []).includes(input.dataset.productFee);
+          if (value === undefined) return;
+          if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = String(value);
+        });
+      },
+    });
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
       node.hidden = !capabilities.has(node.dataset.requiredCapability);
     });
@@ -1853,7 +1885,7 @@
     }
     const requirementRows = requirements.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}${productConfigurationControl(item, '', 'data-product-requirement')}</label>`).join('');
     const attributeRows = attributes.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.help_text ? `<small>${escapeHtml(item.help_text)}</small>` : ''}${productConfigurationControl(item, item.default, 'data-product-custom')}</label>`).join('');
-    const feeRows = fees.map(item => `<label>${escapeHtml(item.label)}<label class="checkbox-row"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"><span>Include optional ${escapeHtml(item.collection_mode)} fee</span></label></label>`).join('');
+    const feeRows = fees.map(item => `<div>${escapeHtml(item.label)}<label class="checkbox-row"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"><span>Include optional ${escapeHtml(item.collection_mode)} fee</span></label></div>`).join('');
     const controls = `${requirementRows}${attributeRows}${feeRows}`;
     container.innerHTML = controls ? `<h3>${escapeHtml(product.label)} details</h3>${controls}` : '';
     container.hidden = !controls;
@@ -4434,6 +4466,7 @@
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
       newCaseProtection?.markClean();
+      void creationDraft?.clear();
       refreshNewCaseProductControls();
       renderExistingLoanContext(null);
       const broInput = formElement?.elements.bro_user_id;

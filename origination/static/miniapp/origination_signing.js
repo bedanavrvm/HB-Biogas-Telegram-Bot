@@ -16,6 +16,17 @@
   const base = sessionUrl.replace(/session\/?$/, '').replace(/\/$/, '');
   const status = document.getElementById('sign-status');
   const content = document.getElementById('sign-content');
+  const signatureForm = window.MiniAppUtils?.bindAccessibleForm?.(content.querySelectorAll('.card')[1], {
+    resolveField: key => key === 'signature-pad' ? document.getElementById(key) : null,
+    validate: () => mode === 'drawn' && !strokes.some(stroke => stroke.length >= 2) ? {'signature-pad': 'Draw your signature, or choose Type to enter your name.'} : {},
+    validators: {
+    'typed-name': value => mode === 'typed' && !String(value).trim() ? 'Enter your full legal name.' : '',
+    'packet-consent': (value, input) => input.checked ? '' : 'Confirm that you reviewed and agree to the packet.',
+    'assisted-consent': (value, input) => session?.access_mode !== 'assisted' || input.checked ? '' : 'Confirm that you are personally signing on this device.',
+  }});
+  const verificationForm = window.MiniAppUtils?.bindAccessibleForm?.(document.getElementById('otp-panel'), {validators: {
+    'otp-code': value => /^\d{6}$/.test(String(value).trim()) ? '' : 'Enter the six-digit verification code.',
+  }});
   const pad = document.getElementById('signature-pad');
   const ctx = pad.getContext('2d');
   let session = null;
@@ -152,7 +163,7 @@
   }
   pad.addEventListener('pointerdown', event => { pad.setPointerCapture(event.pointerId); activeStroke = [point(event)]; strokes.push(activeStroke); captureSaved = false; syncSignatureProtection(); });
   pad.addEventListener('pointermove', event => { if (!activeStroke) return; activeStroke.push(point(event)); redraw(); });
-  ['pointerup', 'pointercancel'].forEach(name => pad.addEventListener(name, () => { activeStroke = null; }));
+  ['pointerup', 'pointercancel'].forEach(name => pad.addEventListener(name, () => { activeStroke = null; pad.dispatchEvent(new Event('input', {bubbles:true})); }));
   document.getElementById('signature-clear').onclick = () => { strokes = []; redraw(); syncSignatureProtection(); };
   document.getElementById('typed-name').addEventListener('input', () => { captureSaved = false; syncSignatureProtection(); });
   function setMode(next) {
@@ -161,6 +172,7 @@
     document.getElementById('mode-typed').classList.toggle('active', next === 'typed');
     document.getElementById('draw-panel').hidden = next !== 'drawn';
     document.getElementById('type-panel').hidden = next !== 'typed';
+    pad.dispatchEvent(new Event('input', {bubbles:true}));
   }
   document.getElementById('mode-drawn').onclick = () => setMode('drawn');
   document.getElementById('mode-typed').onclick = () => setMode('typed');
@@ -168,6 +180,7 @@
   document.getElementById('page-next').onclick = async () => { if (page < pages) { page += 1; await loadPage(); } };
 
   document.getElementById('save-signature').onclick = async event => {
+    if (signatureForm && !signatureForm.validate()) return;
     const button = event.currentTarget;
     try {
       await window.MiniAppUtils.runButtonAction(button, async () => {
@@ -205,6 +218,7 @@
   };
 
   document.getElementById('verify-otp').onclick = async event => {
+    if (verificationForm && !verificationForm.validate()) return;
     const button = event.currentTarget;
     try {
       await window.MiniAppUtils.runButtonAction(button, async () => {

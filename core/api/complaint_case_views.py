@@ -62,6 +62,7 @@ def _complaint_error(request, exc: Exception, *, status: int = 400, code: str = 
     return miniapp_error_response(
         request, stable_code, workflow='complaints', status=status,
         user_message=str(exc), developer_message=type(exc).__name__,
+        extra={'field_errors': getattr(exc, 'field_errors', {})},
     )
 
 

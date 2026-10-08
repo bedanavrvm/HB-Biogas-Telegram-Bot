@@ -3100,6 +3100,7 @@
   // optional Portal bootstrap calls (metadata, settings, and workspace). Those
   // calls each have their own network timeout and used to leave this server-
   // rendered spinner visible while they ran sequentially.
+  window.MiniAppUtils?.installAccessibleForms?.();
   init();
 
 })();

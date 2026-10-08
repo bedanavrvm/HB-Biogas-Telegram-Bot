@@ -129,6 +129,16 @@ class TatCreateValidationError(ValueError):
     def __init__(self, code: str, message: str, *, status: int = 400):
         self.code = str(code)
         self.status = int(status)
+        field = {
+            'tat_create_client_name_required': 'client_name',
+            'tat_create_invalid_product': 'product_key',
+            'tat_create_invalid_branch': 'branch',
+            'tat_create_invalid_bro': 'bro_user_id',
+            'tat_create_invalid_national_id': 'national_id',
+            'tat_create_invalid_phone': 'primary_phone',
+            'tat_create_invalid_amount': 'amount',
+        }.get(self.code)
+        self.field_errors = {field: message} if field else {}
         super().__init__(message)
 
 

@@ -108,6 +108,12 @@
         const values=Object.fromEntries(new FormData(form));values.active=form.elements.active.checked;values.skip_empty=form.elements.skip_empty.checked;values.recipients=values.recipients.split(/[\n,;]+/).map(v=>v.trim()).filter(Boolean);
         const result=await call({...values,action:'save',id:editing.id,revision:editing.revision});if(result){data=result;editing=null;render();status.textContent='Report settings saved.';}
       }); content.append(form);
+      window.MiniAppUtils?.bindAccessibleForm?.(form, {validators: {
+        recipients: value => {
+          const emails = String(value).split(/[\n,;]+/).map(item => item.trim()).filter(Boolean);
+          return emails.length && emails.every(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? '' : 'Enter a valid email address for each recipient.';
+        },
+      }});
     }
   }
   window.MiniAppReportEmailSettings={mount};

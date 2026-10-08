@@ -76,8 +76,9 @@ for (const width of [320, 430, 768, 1280]) {
     await expect(dialog.getByRole('heading', {name:'Request corrected invoice'})).toBeVisible();
     const close = await dialog.getByRole('button', {name:'Close', exact:true}).boundingBox();
     const header = await dialog.locator('.sheet-header').boundingBox();
-    expect(close.width).toBe(44);
-    expect(close.height).toBe(44);
+    // Chromium can return 43.99998px while a transform settles.
+    expect(close.width).toBeCloseTo(44, 1);
+    expect(close.height).toBeCloseTo(44, 1);
     expect(header.x + header.width - close.x - close.width).toBeLessThan(20);
     const panel = await dialog.locator('.sheet-panel').boundingBox();
     expect(panel.height).toBeLessThan(760);

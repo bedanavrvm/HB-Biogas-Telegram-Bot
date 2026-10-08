@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Shared Mini App forms verification — 8 October 2026
+
+The shared submission-time validation, accessible error summaries and field-only
+Complaint/TAT creation recovery were verified with synthetic local fixtures.
+44 focused Playwright checks pass, including the actual Origination signing
+template and Portal decision forms. Mobile screenshots were inspected; required
+marker placement, field alignment and readable error text were corrected.
+76 focused Complaint/draft backend tests pass on isolated SQLite. JavaScript
+syntax and the existing Node suite pass.
+
+The full browser run is not green: 399 passed and 9 failed. Eight failures were
+reproduced against unchanged HEAD: obsolete camera text, complaint chart fixture
+visibility, invoice iframe expectations and the superseded Prepare-order button
+contract. The ninth was a fractional-pixel assertion; its corrected check passes
+in the focused run. A broader backend selection also has an existing Complaint
+asset assertion expecting the retired “Received vs resolved” label.
+
+PostgreSQL transaction parity, physical Telegram WebViews, real screen-reader
+sessions and real autofill/voice services remain unverified. No production data,
+external integrations, schema or workflow permission changes were made.
+
 ## Portal agreement and preview verification — 6 October 2026
 
 85 focused SQLite backend tests pass for agreement acceptance/retry, changed

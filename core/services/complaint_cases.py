@@ -87,6 +87,10 @@ def _accept_complaint_voice(
 class ComplaintCaseError(ValueError):
     """Staff-safe complaint Mini App validation error."""
 
+    def __init__(self, message: str, *, field_errors=None):
+        super().__init__(message)
+        self.field_errors = field_errors or {}
+
 
 class ComplaintCaseConflict(ComplaintCaseError):
     """The client edited a stale complaint revision."""
@@ -815,6 +819,38 @@ def create_request_id(value: Any) -> str:
 def validate_new_case_fields(
     group_config, actor: ComplaintCaseActor, request_id: str, fields: dict[str, Any],
 ) -> dict[str, Any]:
+    errors = {}
+    checks = {
+        'client_name': normalize_customer_name,
+        'branch_region': lambda value: required_case_text(value, 'Branch'),
+        'complaint_category': lambda value: required_case_text(value, 'Complaint category'),
+        'complaint_description': required_description,
+        'customer_id': numeric_customer_id,
+        'county': lambda value: required_case_text(value, 'County'),
+        'sub_county': lambda value: required_case_text(value, 'Constituency'),
+        'village': lambda value: required_case_text(value, 'Village'),
+    }
+    for key, check in checks.items():
+        try:
+            result = check(fields.get(key))
+            if key == 'customer_id' and not result:
+                errors[key] = 'Enter the Customer National ID.'
+        except ComplaintCaseError as exc:
+            errors[key] = str(exc)
+    phone = normalize_kenyan_phone(fields.get('customer_phone'))
+    secondary = normalize_kenyan_phone(fields.get('secondary_phone'))
+    if not phone:
+        errors['customer_phone'] = 'Enter a valid Kenyan phone number.' if fields.get('customer_phone') else 'Enter the primary phone number.'
+    if str(fields.get('secondary_phone') or '').strip() and not secondary:
+        errors['secondary_phone'] = 'Enter a valid secondary Kenyan phone number.'
+    elif secondary and phone == secondary:
+        errors['secondary_phone'] = 'Primary and secondary phone numbers must be different.'
+    if errors:
+        first = next(errors[key] for key in (
+            'client_name', 'branch_region', 'complaint_category', 'complaint_description',
+            'customer_id', 'customer_phone', 'secondary_phone', 'county', 'sub_county', 'village',
+        ) if key in errors)
+        raise ComplaintCaseError(first, field_errors=errors)
     client_name = normalize_customer_name(fields.get('client_name'))
     branch_region = required_case_text(fields.get('branch_region'), 'Branch')
     category_text = required_case_text(fields.get('complaint_category'), 'Complaint category')

@@ -2,6 +2,7 @@
   'use strict';
 
   const tg = window.MiniAppUtils?.initTelegram?.() || window.Telegram?.WebApp;
+  window.MiniAppUtils?.installAccessibleForms?.();
   let originationGroupId = new URLSearchParams(window.location.search).get('group_id') || '';
   let originationGroups = [];
   const LEGACY_SECTIONS = [
@@ -1301,7 +1302,7 @@
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
       return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable || current?.status === 'correction_required')}</label>`;
     }).join('');
-    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-error" aria-live="polite"></small><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label></label>`).join('');
+    const feeRows = optionalFees.map(item => `<div class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-error" aria-live="polite"></small><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label></div>`).join('');
     const quote = current?.product_quote || {};
     const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.installment_amount))} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.total_repayment))}${Number(quote.upfront_fees || 0) ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.upfront_fees))}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
@@ -1619,67 +1620,53 @@
     return errors;
   }
 
-  function showErrors(errors) {
-    root()?.querySelector('.field-validation-summary')?.remove();
-    const entries = Object.entries(errors || {}).filter(([, message]) => Boolean(message));
-    const messageFor = key => errors[key] || Object.entries(errors).find(([candidate]) => candidate.startsWith(`${key}.`))?.[1] || '';
-    root()?.querySelectorAll('[data-field-wrap]').forEach(wrapper => {
-      const message = messageFor(wrapper.dataset.fieldWrap);
-      wrapper.classList.toggle('invalid', Boolean(message));
-      const output = wrapper.querySelector('.field-error');
-      if (output) {
-        output.textContent = message;
-        output.id ||= `field-error-${String(wrapper.dataset.fieldWrap).replace(/[^a-z0-9_-]/gi, '-')}`;
-        const control = wrapper.querySelector('input, select, textarea');
-        if (control) {
-          if (message) control.setAttribute('aria-describedby', output.id);
-          else if (control.getAttribute('aria-describedby') === output.id) control.removeAttribute('aria-describedby');
-          control.setAttribute('aria-invalid', message ? 'true' : 'false');
-        }
-      }
+  function originationErrorControl(key) {
+    const wrappers = [...(root()?.querySelectorAll('[data-field-wrap], [data-product-wrap]') || [])];
+    const wrapper = wrappers.find(item => item.dataset.fieldWrap === key || item.dataset.productWrap === key
+      || key.startsWith(`${item.dataset.fieldWrap}.`));
+    if (!wrapper) return null;
+    const rowIndex = key.match(/\.(\d+)\./);
+    const row = rowIndex ? wrapper.querySelectorAll('[data-repeat-row]')[Number(rowIndex[1])] : null;
+    const column = key.split('.').at(-1);
+    return (row && [...row.querySelectorAll('[data-repeat-column]')].find(input => input.dataset.repeatColumn === column))
+      || (row || wrapper).querySelector('input,select,textarea,button');
+  }
+
+  function showErrors(errors, focus = true) {
+    const controller = window.MiniAppUtils?.bindAccessibleForm?.(root(), {
+      resolveField: originationErrorControl,
+      validate: () => sectionErrors(wizardSections()[step]?.key || ''),
+      focusField: key => {
+        const index = originationErrorSection(key);
+        if (index < 0) return;
+        current.form_payload = collectPayload();
+        const configuration = collectProductConfiguration();
+        current.product_requirements = configuration.requirements;
+        current.product_custom_values = configuration.customValues;
+        if (root().querySelector('[data-product-fee]')) current.product_selected_fee_keys = configuration.selectedFeeKeys;
+        const activeDocument = wizardSections()[step]?.document;
+        if (activeDocument) activeDocument.field_payload = collectSupportingDocumentPayload(activeDocument);
+        renderEditor(current, index);
+        showErrors(errors, false);
+        originationErrorControl(key)?.focus();
+      },
     });
-    root()?.querySelectorAll('[data-product-wrap]').forEach(wrapper => {
-      const message = errors[wrapper.dataset.productWrap] || '';
-      wrapper.classList.toggle('invalid', Boolean(message));
-      const output = wrapper.querySelector('.field-error');
-      if (output) {
-        output.textContent = message;
-        output.id ||= `product-error-${String(wrapper.dataset.productWrap).replace(/[^a-z0-9_-]/gi, '-')}`;
-        const control = wrapper.querySelector('input, select, textarea');
-        if (control) {
-          if (message) control.setAttribute('aria-describedby', output.id);
-          else if (control.getAttribute('aria-describedby') === output.id) control.removeAttribute('aria-describedby');
-          control.setAttribute('aria-invalid', message ? 'true' : 'false');
-        }
-      }
+    if (!controller) return;
+    const readable = Object.fromEntries(Object.entries(errors || {}).map(([key, message]) => {
+      const control = originationErrorControl(key);
+      const wrapper = control?.closest('[data-field-wrap], [data-product-wrap]');
+      const label = wrapper?.firstElementChild?.textContent?.replace(/\*/g, '').trim() || 'this field';
+      return [key, message === 'Required' ? `Complete ${label.toLowerCase()}.` : message];
+    }));
+    controller.show(readable, focus);
+  }
+
+  function originationErrorSection(key) {
+    return wizardSections().findIndex(section => {
+      if (key.startsWith('requirement:') || key.startsWith('custom:')) return section.key === 'product_requirements';
+      const fields = section.document?.schema?.fields || fieldsFor(section.key);
+      return fields.some(field => key === field.key || key.startsWith(`${field.key}.`));
     });
-    if (!entries.length) return;
-    const summary = document.createElement('aside');
-    summary.className = 'field-validation-summary';
-    summary.setAttribute('role', 'alert');
-    const heading = document.createElement('strong');
-    heading.textContent = entries.length === 1 ? 'Fix this field before continuing' : `Fix ${entries.length} fields before continuing`;
-    summary.append(heading);
-    entries.slice(0, 1).forEach(([key, message]) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      const wrapper = [...(root()?.querySelectorAll('[data-field-wrap], [data-product-wrap]') || [])].find(item => (
-        item.dataset.fieldWrap === key || key.startsWith(`${item.dataset.fieldWrap}.`) || item.dataset.productWrap === key
-      ));
-      const label = wrapper?.firstElementChild?.textContent?.trim() || key.replaceAll('_', ' ');
-      button.textContent = `${label}: ${message}`;
-      button.onclick = () => {
-        wrapper?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-        window.setTimeout(() => wrapper?.querySelector('input, select, textarea, button')?.focus?.(), 250);
-      };
-      summary.append(button);
-    });
-    if (entries.length > 1) {
-      const remaining = document.createElement('small');
-      remaining.textContent = `${entries.length - 1} more field${entries.length === 2 ? '' : 's'} highlighted below.`;
-      summary.append(remaining);
-    }
-    root()?.querySelector('.wizard-card')?.before(summary);
   }
 
   function showServerErrors(errors) {
@@ -1688,13 +1675,12 @@
     if (!firstKey) return;
     serverValidationErrorsVisible = true;
     const sections = wizardSections();
-    let targetStep = sections.findIndex(section => fieldsFor(section.key).some(field => field.key === firstKey));
+    let targetStep = originationErrorSection(firstKey);
     if (firstKey.startsWith('requirement:') || firstKey.startsWith('custom:')) {
       targetStep = sections.findIndex(section => section.key === 'product_requirements');
     }
     if (targetStep >= 0 && targetStep !== step) renderEditor(current, targetStep);
     showErrors(errors);
-    window.setTimeout(() => root()?.querySelector('.invalid input, .invalid select, .invalid textarea')?.focus(), 0);
   }
 
   async function saveDraft(showError) {
@@ -2105,6 +2091,7 @@
   }
 
   function renderEditor(application, requestedStep) {
+    window.MiniAppUtils?.bindAccessibleForm?.(root())?.dispose();
     document.body.classList.add('origination-editor-open');
     current = application;
     step = Number.isInteger(requestedStep) ? requestedStep : step;
@@ -2148,6 +2135,7 @@
     root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small>${contextStatus}</div>${contextChip}${restartAction}</div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    window.MiniAppUtils?.bindAccessibleForm?.(root());
     document.getElementById('origination-restart-laf')?.addEventListener('click', event => openRestartSheet(event.currentTarget));
     syncTelegramControls();
     scheduleSigningRefresh();
@@ -2646,8 +2634,7 @@
     return true;
   }
 
-  async function saveSupportingDocument(documentKey) {
-    const document = (current?.document_packet?.documents || []).find(item => item.key === documentKey);
+  function collectSupportingDocumentPayload(document) {
     const payload = { ...(document?.field_payload || {}) };
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       payload[container.dataset.repeatableField] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
@@ -2661,6 +2648,12 @@
       if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.documentField] = input.value === 'true';
       else payload[input.dataset.documentField] = input.value;
     });
+    return payload;
+  }
+
+  async function saveSupportingDocument(documentKey) {
+    const document = (current?.document_packet?.documents || []).find(item => item.key === documentKey);
+    const payload = collectSupportingDocumentPayload(document);
     const result = await postJson(`/applications/${current.id}/documents/${encodeURIComponent(documentKey)}/fields/`, {
       revision: current.revision,
       payload,

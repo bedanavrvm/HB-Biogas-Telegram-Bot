@@ -300,14 +300,27 @@
     if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
     return '';
   }
-  function dateDifferenceDays(later, earlier) { return Math.round((Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / 86400000); }
+    function dateDifferenceDays(later, earlier) { return Math.round((Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / 86400000); }
+    function formErrors() {
+      if (!detail) return {};
+      const payload = payloadFromForm(), error = validate(payload);
+      const key = payload.workstream === 'commissioning' ? 'hb-commissioning-date'
+        : payload.installation_status === 'open' ? 'hb-installation-note' : 'hb-installation-date';
+      return error ? {[key]: error} : {};
+    }
   function confirmEarly(message) {
     return new Promise(resolve => { if (deps.tg?.showConfirm) deps.tg.showConfirm(message, resolve); else resolve(window.confirm(message)); });
   }
   async function save(event) {
     event.preventDefault();
     const payload = payloadFromForm(); const error = validate(payload);
-    if (error) { deps.showToast(error, 'error'); return; }
+    if (error) {
+      const fieldName = payload.workstream === 'commissioning' ? 'hb-commissioning-date'
+        : payload.installation_status === 'open' ? 'hb-installation-note' : 'hb-installation-date';
+      const controller = window.MiniAppUtils?.bindAccessibleForm?.(byId('hb-action-form'));
+      if (controller) controller.show({[fieldName]: error}); else deps.showToast(error, 'error');
+      return;
+    }
     if (payload.workstream === 'commissioning' && detail.commissioning_ready_on && payload.commissioning_date < detail.commissioning_ready_on) {
       const days = dateDifferenceDays(detail.commissioning_ready_on, payload.commissioning_date);
       const confirmed = await confirmEarly(`This commissioning date is ${days} day${days === 1 ? '' : 's'} before the standard 21-day readiness date. Continue?`);
@@ -411,6 +424,7 @@
     const root = byId('portal-screen'); if (root?.dataset.screen !== 'hb_actions') return;
     const farmerId = root.dataset.hbActionFarmerId || '';
     if (farmerId) {
+      window.MiniAppUtils?.bindAccessibleForm?.(byId('hb-action-form'), {validate: formErrors});
       byId('hb-action-form')?.addEventListener('submit', save);
       byId('hb-save-commissioning-notes')?.addEventListener('click', saveCommissioningNotes);
       byId('hb-mark-installed')?.addEventListener('click', () => {

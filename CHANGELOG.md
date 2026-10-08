@@ -1,5 +1,18 @@
 # Changelog
 
+## 8 October 2026 - Shared Mini App form behaviour
+
+- Centralized submission-time validation, linked field errors, summary focus,
+  visible required markers and readable editable controls across Complaints,
+  TAT, Portal and Origination, including dynamic forms and email settings.
+- Added private seven-day field-only Complaint/TAT creation recovery using the
+  existing draft store and current create permissions; no schema changes.
+- Preserved complaint evidence for retry after canonical creation and prevented
+  a delayed retry from clearing files selected for another complaint.
+- Added synthetic browser viewport/error/recovery checks and draft scope,
+  privacy, expiry and capability tests. Business rules and signing gates remain
+  server-owned and unchanged.
+
 ## 7 October 2026 - Legacy Origination LAF catalogue compatibility
 
 - Published legacy Main LAFs use their original product's immutable form and

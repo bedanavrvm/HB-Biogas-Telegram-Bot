@@ -8,13 +8,13 @@
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=6">
   <script src="{% static 'miniapp/components.js' %}?v=6"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=22"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=23"></script>
   <script src="{% static 'miniapp/activity_changes.js' %}?v=4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/activity_changes.css' %}?v=3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=10">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -89,7 +89,7 @@
       <form id="createCaseForm" class="panel create-complaint-panel" novalidate>
         <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
         <div class="form-grid">
-          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" autocapitalize="words" placeholder="Enter customer full name" required></label>
+          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="off" autocapitalize="words" placeholder="Enter customer full name" required></label>
           <label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required></label>
           <label>Secondary Mobile Number<input name="secondary_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="Optional"></label>
           <label class="full">National ID / Maisha Namba<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required></label>
@@ -97,7 +97,7 @@
           <label>County<select name="county" required><option value="">Select county</option></select></label>
           <label>Constituency<select name="sub_county" required disabled><option value="">Select county first</option></select></label>
           <label class="full">Village<input name="village" maxlength="255" autocomplete="address-level3" placeholder="Enter village" required></label>
-          <label class="full voice-enabled-field"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea id="complaintDescription" name="complaint_description" rows="4" maxlength="5000" placeholder="Describe the complaint in detail..." required></textarea><div class="voice-input-slot" data-voice-field="complaint_description" data-input-id="complaintDescription" hidden></div></label>
+          <div class="full voice-enabled-field"><div class="label-line"><label for="complaintDescription"><span>What happened? <span class="miniapp-required-mark" aria-hidden="true">*</span></span></label><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></div><textarea id="complaintDescription" name="complaint_description" rows="4" maxlength="5000" placeholder="Describe the complaint in detail..." required></textarea><div class="voice-input-slot" data-voice-field="complaint_description" data-input-id="complaintDescription" hidden></div></div>
           <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">Choose the option that best matches the main issue.</small></label>
         </div>
         <section class="optional-row location-field" aria-labelledby="locationFieldLabel"><div class="optional-heading"><span id="locationFieldLabel" class="field-label">Location</span><span class="muted">Optional</span></div><button id="captureLocationBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-map-pin"></use></svg><span>Use My Current Location</span></button><span id="captureState" class="muted" role="status" aria-live="polite">Location not added</span></section>
@@ -146,9 +146,9 @@
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=8"></script>
   <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=3">
-  <script src="{% static 'miniapp/report_email_settings.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/report_email_settings.js' %}?v=6"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
-  <script src="{% static 'miniapp/report_email_export.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=63"></script>
+  <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=64"></script>
 </body>
 </html>

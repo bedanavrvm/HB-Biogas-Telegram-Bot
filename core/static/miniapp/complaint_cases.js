@@ -50,6 +50,22 @@
   const VOICE_LANGUAGE_KEY = 'portal:voice-language';
   const VOICE_LANGUAGE_ORDER = ['auto', 'en', 'sw'];
   const VOICE_LANGUAGE_LABELS = { auto: 'Auto', en: 'ENG', sw: 'KIS' };
+  utils.installAccessibleForms?.();
+  let creationDraft = null;
+  const contactValidators = {
+    customer_id: value => /^\d{1,9}$/.test(String(value).trim()) ? '' : 'Enter a National ID using 1 to 9 digits.',
+    customer_phone: value => normalizedKenyanPhone(value) ? '' : 'Enter a valid Kenyan mobile number.',
+    secondary_phone: (value, input, formNode) => !String(value).trim() ? '' : !normalizedKenyanPhone(value)
+      ? 'Enter a valid secondary mobile number.' : normalizedKenyanPhone(value) === normalizedKenyanPhone(formNode.elements.customer_phone?.value)
+        ? 'Use a different number for the secondary mobile.' : '',
+  };
+  utils.bindAccessibleForm?.($('createCaseForm'), {validators: contactValidators, validate: formNode => {
+    const constituency = formNode.elements.sub_county;
+    return state.locationOptionsLoading ? {sub_county: 'Wait for the location choices to finish loading.'}
+      : constituency.disabled || ![...constituency.options].some(option => option.value && option.value === constituency.value)
+        ? {sub_county: 'Choose a constituency within the selected county.'} : {};
+  }});
+  utils.bindAccessibleForm?.($('completeDetailsForm'), {validators: contactValidators});
 
   function requestId(prefix) {
     return utils.createRequestId
@@ -88,9 +104,14 @@
     state.errorRetryTimer = null;
   }
   function focusErrorField(error) {
+    const fieldErrors = error.fieldErrors || error.payload?.field_errors || error.payload?.errors;
+    if (fieldErrors && Object.keys(fieldErrors).length) {
+      const formNode = [$('createCaseForm'), $('completeDetailsForm'), $('commentForm'), $('resolveForm'), $('reopenForm')]
+        .find(node => node?.getClientRects().length && !node.closest('[hidden]'));
+      if (formNode) { utils.bindAccessibleForm?.(formNode)?.show(fieldErrors); return; }
+    }
     const fields = Array.isArray(error?.details?.fields)
       ? error.details.fields : (error?.details?.field ? [error.details.field] : []);
-    document.querySelectorAll('[aria-invalid="true"]').forEach(node => node.removeAttribute('aria-invalid'));
     let first = null;
     fields.forEach(name => {
       const node = document.getElementsByName(String(name))[0];
@@ -575,6 +596,16 @@
       selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
       selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
       state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
+      if (!creationDraft && can('complaint.case.create')) creationDraft = utils.bindCreationDraft?.($('createCaseForm'), {
+        workflow: 'complaint_create', contextKey: state.groupId, initData: () => state.initData, status: $('createSaveState'),
+        restore: async payload => {
+          await refreshLocationOptions();
+          const control = $('createCaseForm').elements.sub_county;
+          control.value = payload.sub_county || '';
+          updateCategoryGuidance();
+          if (payload.sub_county && !control.value) return 'Draft restored. Choose the constituency again; its availability changed. Reselect any files.';
+        },
+      });
       initializeVoiceInput();
       updateEvidenceHints();
       setView('queueView');
@@ -1028,8 +1059,6 @@
     const formNode = event.currentTarget;
     normalizeCustomerNameInput(formNode.elements.client_name);
     const data = new FormData(formNode);
-    const idError = validateCustomerId(formNode.elements.customer_id);
-    if (idError) return notify(idError, true);
     if (!validateContactPair(formNode) || !validateCreateFields(formNode)) return;
     const writeKey = 'create';
     const creationRequestId = pendingWriteId(writeKey, 'complaint-create');
@@ -1044,12 +1073,13 @@
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
     try {
       const response = await form('cases/create/', data); settleWrite(writeKey);
+      void creationDraft?.clear();
       resetVoiceField('complaint_description', false); formNode.reset();
       locationSelectOptions(formNode.elements.sub_county, [], 'Select county first');
       formNode.elements.sub_county.disabled = true;
       state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
       utils.setCloseProtection?.('complaint-create-draft', false); $('createSaveState').textContent = 'Saved';
-      notify(response.message); void refreshCounts(); state.returnWorkspace = 'queue';
+      notify(`${response.message || 'Complaint saved.'} ${response.case.reference_number || ''}`.trim()); void refreshCounts(); state.returnWorkspace = 'queue';
       response.case.group_id = state.groupId; response.case.global_read = false;
       renderDetail(response.case); setView('detailView');
       if (pendingEvidence.length || response.publication_deferred) {
@@ -1072,26 +1102,32 @@
         renderDetail(response.case);
       }
       if ((files || []).length) notify('Complaint saved and evidence uploaded.');
+      state.evidence.create = state.evidence.create.filter(item => {
+        if (!(files || []).includes(item.file)) return true;
+        if (item.preview) URL.revokeObjectURL(item.preview);
+        return false;
+      });
+      renderSelectedEvidence('create');
+      utils.setCloseProtection?.('complaint-create-evidence', Boolean(state.evidence.create.length));
     } catch (error) {
-      notify('Complaint saved, but evidence or Sheet publication still needs attention.', true);
+      presentError(new Error('Complaint saved, but evidence or Sheet publication still needs attention. Your selected files are retained for retry.'),
+        () => finishCreatedCase(caseItem, creationRequestId, files));
     } finally {
-      clearEvidence('create');
       utils.setCloseProtection?.('complaint-create-publication', false);
     }
   }
   function validateCustomerId(input) {
     const value = String(input?.value || '').trim();
     if (!value) {
-      input?.setCustomValidity?.('National ID / Maisha Namba is required.'); input?.reportValidity?.();
       return 'National ID / Maisha Namba is required.';
     }
     if (!/^\d{1,9}$/.test(value)) {
-      input?.setCustomValidity?.('National ID / Maisha Namba must contain 1 to 9 digits only.'); input?.reportValidity?.();
       return 'National ID / Maisha Namba must contain 1 to 9 digits only.';
     }
     input?.setCustomValidity?.(''); return '';
   }
   function normalizedKenyanPhone(value) {
+    if (utils.normalizeKenyanPhone) return utils.normalizeKenyanPhone(value);
     const raw = String(value || '').trim();
     if (!raw || !/^[0-9+\s()-]+$/.test(raw) || (raw.match(/\+/g) || []).length > 1 || (raw.includes('+') && !raw.startsWith('+'))) return '';
     let digits = raw.replace(/[\s()\-+]/g, '');
@@ -1116,6 +1152,7 @@
     return false;
   }
   function validateRequiredForm(formNode) {
+    if (utils.bindAccessibleForm) return utils.bindAccessibleForm(formNode).validate();
     for (const input of formNode.querySelectorAll('[required]')) {
       setFieldError(
         input,
@@ -1127,6 +1164,7 @@
     return formNode.checkValidity() || showFirstFormError(formNode);
   }
   function validateContactPair(formNode) {
+    if (utils.bindAccessibleForm) return utils.bindAccessibleForm(formNode).validate();
     const primary = formNode.elements.customer_phone;
     const secondary = formNode.elements.secondary_phone;
     const primaryValue = String(primary?.value || '').trim();
@@ -2001,7 +2039,7 @@
   $('complaintChartSelection').addEventListener('click', clearComplaintChartSelection);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
-  $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); });
+  $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); void creationDraft?.load(); });
   document.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', returnPrevious));
   function closeComplaintSettings() {
     $('complaintSettingsOverlay').hidden = true;
@@ -2060,7 +2098,6 @@
   document.querySelectorAll('#createCaseForm input, #createCaseForm textarea, #createCaseForm select, #completeDetailsForm input, #completeDetailsForm select, #resolveForm textarea, #commentForm textarea, #reopenForm textarea').forEach(input => input.addEventListener('input', () => {
     input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
   }));
-  document.querySelectorAll('input[name="customer_id"]').forEach(input => input.addEventListener('input', () => validateCustomerId(input)));
   $('categorySuggestion').addEventListener('click', () => {
     if (!state.suggestedCategory) return;
     $('createCaseForm').elements.complaint_category.value = state.suggestedCategory.label;
