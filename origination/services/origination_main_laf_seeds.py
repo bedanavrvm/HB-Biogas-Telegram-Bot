@@ -441,6 +441,8 @@ class MainLafDefinition:
     signers: tuple[dict[str, Any], ...]
     evidence: tuple[dict[str, Any], ...] = ()
     review_notes: tuple[str, ...] = ()
+    document_role: str = 'primary'
+    required_signer_roles: tuple[str, ...] = ()
 
 
 DEFINITIONS = (
@@ -611,13 +613,25 @@ DEFINITIONS = (
 )
 
 DEFINITIONS_BY_KEY = {item.key: item for item in DEFINITIONS}
+SOURCE_ALIASES = {
+    'generic': 'MAIN LAF- Generic LAF.pdf',
+    'invoice_finance': 'MAIN LAF- INVOICE FINANCE.pdf',
+    'sme_logbook': 'MAIN LAF- SME-LOGBOOK LAF.pdf',
+    'micro_asset': 'MAIN LAF-Micro Asset Loan.pdf',
+    'lipa_mdogo_mdogo': 'SUPPORT LAF- BIOGAS FORM.pdf',
+}
 
 
 def source_path(definition: MainLafDefinition, laf_root: str | Path) -> Path:
     root = Path(laf_root)
     direct = root / definition.filename
     nested = root / 'MAIN' / definition.filename
-    return direct if direct.is_file() else nested
+    if direct.is_file():
+        return direct
+    if nested.is_file():
+        return nested
+    # Alternate reviewed names still pass the same exact hash/size/page checks.
+    return root / SOURCE_ALIASES.get(definition.key, definition.filename)
 
 
 def _source_plan(definition: MainLafDefinition, laf_root: str | Path) -> dict[str, Any]:
@@ -734,13 +748,15 @@ def _ensure_fields(definition: MainLafDefinition, *, actor) -> dict[str, Origina
                     metadata={'laf': definition.key, 'changed_fields': changed},
                 )
         resolved[field.key] = field
-    from origination.services.origination_commercial_terms import ensure_commercial_catalogue
-    resolved.update(ensure_commercial_catalogue(actor=actor))
+    if definition.document_role == 'primary':
+        from origination.services.origination_commercial_terms import ensure_commercial_catalogue
+        resolved.update(ensure_commercial_catalogue(actor=actor))
     return resolved
 
 
 def build_form_schema(
     definition: MainLafDefinition, fields: dict[str, OriginationDataField],
+    *, shared_values: bool = False,
 ) -> dict[str, Any]:
     schema = {
         '_revision': 1,
@@ -753,20 +769,37 @@ def build_form_schema(
         'evidence_requirements': json.loads(json.dumps(definition.evidence)),
         'seed_review_notes': list(definition.review_notes),
     }
+    if definition.required_signer_roles:
+        schema['required_signer_roles'] = list(definition.required_signer_roles)
     for spec in definition.fields:
-        if spec.get('source') == OriginationDataField.SOURCE_SYSTEM:
+        if spec.get('source') == OriginationDataField.SOURCE_SYSTEM and not shared_values:
             continue
         item = _field_schema_item(fields[spec['key']], {
             'section_key': spec['section'], 'required': spec.get('required', False),
             'width': spec.get('width') or 'half', 'help_text': spec.get('help_text') or '',
             'validation': spec.get('validation') or {}, 'options': spec.get('options') or [],
             'structure': spec.get('structure') or {},
+            **({'value_contract': spec['value_contract']} if shared_values and spec.get('value_contract') else {}),
         })
         if spec['type'] == 'repeating_group':
             item['repeatable_layout'] = {'column_widths': [50, 50]}
         schema['fields'].append(item)
-    from origination.services.origination_commercial_terms import merge_commercial_contract
-    return merge_commercial_contract(schema, fields=fields)
+    if definition.document_role == 'primary':
+        from origination.services.origination_commercial_terms import merge_commercial_contract
+        schema = merge_commercial_contract(schema, fields=fields)
+    if shared_values:
+        from origination.services.origination_value_contracts import upgrade_schema
+        schema['system_fields'] = [{
+            'key': spec['key'], 'label': spec['label'], 'type': spec['type'],
+            'source_type': 'system', 'required': False,
+            'help_text': spec.get('help_text') or '',
+        } for spec in definition.fields if spec.get('source') == 'system']
+        schema = upgrade_schema(schema)
+        for item in [*schema['fields'], *schema.get('system_fields', [])]:
+            spec = next((spec for spec in definition.fields if spec['key'] == item['key']), {})
+            if spec.get('value_contract') is not None:
+                item['value_contract'] = json.loads(json.dumps(spec['value_contract']))
+    return schema
 
 
 def _contract_matches(
@@ -777,8 +810,8 @@ def _contract_matches(
     expected_products = {product.pk} if product else set()
     return (
         template.product_definition_id is None
-        and template.document_role == template.ROLE_PRIMARY
-        and template.document_key == 'primary'
+        and template.document_role == definition.document_role
+        and template.document_key == ('primary' if definition.document_role == 'primary' else definition.key)
         and template.form_schema == schema
         and template.signer_rules == list(definition.signers)
         and actual_products == expected_products
@@ -801,10 +834,10 @@ def _template_for(
     config = initial_template_configuration(None, form_schema=schema)
     config.update({'document_type': definition.document_type, 'version': version})
     template = OriginationDocumentTemplate(
-        product_definition=None, document_key='primary',
-        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-        inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-        officer_selectable=False, default_selected=False, display_order=0,
+        product_definition=None, document_key='primary' if definition.document_role == 'primary' else definition.key,
+        document_role=definition.document_role,
+        inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED if definition.document_role == 'primary' else OriginationDocumentTemplate.INCLUDE_OPTIONAL,
+        officer_selectable=definition.document_role == 'supporting', default_selected=False, display_order=0,
         document_type=definition.document_type, name=definition.name, version=version,
         source_filename=definition.filename, source_sha256=definition.sha256,
         source_byte_size=definition.byte_size, page_count=definition.page_count,
@@ -828,15 +861,15 @@ def _template_for(
     return template, True
 
 
-def apply_seed(definition: MainLafDefinition, *, laf_root: str | Path, actor) -> dict[str, Any]:
+def apply_seed(definition: MainLafDefinition, *, laf_root: str | Path, actor, shared_values: bool = False) -> dict[str, Any]:
     if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
         raise MainLafSeedError('The seed actor must be an active Django Superuser.')
     plan = preflight_seed(definition, laf_root=laf_root)
     with transaction.atomic():
         fields = _ensure_fields(definition, actor=actor)
-        schema = build_form_schema(definition, fields)
+        schema = build_form_schema(definition, fields, shared_values=shared_values)
         from origination.services.loan_origination import validate_product_form_contract
-        validate_product_form_contract(schema, list(definition.signers))
+        validate_product_form_contract(schema, list(definition.signers), require_signers=definition.document_role == 'primary')
         template, created = _template_for(plan, schema=schema, actor=actor)
     if created or template.status == template.STATUS_UPLOAD_FAILED or not template.drive_file_id:
         template = upload_template_record(template, pdf_data=plan['pdf_data'], actor=actor)

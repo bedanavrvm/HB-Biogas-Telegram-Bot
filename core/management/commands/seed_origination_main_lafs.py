@@ -22,6 +22,8 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
+        parser.add_argument('--shared-values', action='store_true',
+            help='Prepare new draft documents with reviewed shared-value contracts. Existing documents stay unchanged.')
         parser.add_argument(
             '--laf-root', required=True,
             help='Directory containing the reviewed PDFs, or its parent containing MAIN/.',
@@ -70,6 +72,8 @@ class Command(BaseCommand):
                 )
                 for note in definition.review_notes:
                     self.stdout.write(f'  Review note: {note}')
+                if options['shared_values']:
+                    self.stdout.write('  Shared values: new drafts only; unresolved meanings must be reviewed in the Document editor.')
             self.stdout.write('No database records or Drive files were changed.')
             return
 
@@ -78,7 +82,7 @@ class Command(BaseCommand):
         results = []
         try:
             for definition in definitions:
-                results.append(apply_seed(definition, laf_root=laf_root, actor=actor))
+                results.append(apply_seed(definition, laf_root=laf_root, actor=actor, shared_values=options['shared_values']))
         except MainLafSeedError as exc:
             raise CommandError(str(exc)) from exc
         for result in results:

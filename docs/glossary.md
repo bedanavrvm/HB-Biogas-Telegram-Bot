@@ -127,6 +127,9 @@ request can be approved.
 | Origination Customer | The canonical global customer identity optionally matched to an Origination Applicant; it is not a generic form-role synonym. |
 | Origination Borrower | Contractual obligor or signer named in legal documents. The role may refer to the same person as the Applicant but has a distinct legal meaning. |
 | Origination Party | Collective term for the Applicant, guarantors, spouse, and other document participants. |
+| Origination value contract | Versioned meaning of a canonical field: its subject, ownership, units, reporting period and allowlisted value source. Legacy applications retain their original meanings. |
+| Origination shared value | One application-owned value reused by selected documents; distinct document-instance inputs never overwrite it. |
+| Origination person-role binding | Explicit confirmation that a spouse, next of kin or referee occupies a document-defined guarantor slot. It is not automatic identity matching or signing authority. |
 | Data-quality issue | An active warning about a canonical Jawabu value or controlled reference value. It is resolved through an append-only staff resolution record. |
 | Field provenance | The append-only source, timestamp, actor, and before/after values for a cross-system customer field update. |
 | Sheet register contract | An Admin-managed, publication-only description of a configured Sheet tab: expected headers, row key, and backend/formula/derived/immutable ownership. It is never an inbound import permission. |

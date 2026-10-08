@@ -1,5 +1,47 @@
 # Known Gaps and Verified Workarounds
 
+## Canonical Origination values - 8 October 2026
+
+Implemented explicit version-2 shared/document field meanings, scoped inputs,
+allowlisted calculations, exact frozen document contexts, person-role reuse,
+compatible selection and non-truncating rendering. Legacy applications are not
+backfilled. Six supporting-LAF seeds remain unpublished and unassigned drafts.
+Migration `origination.0006_originationdatafield_value_contract` is additive and
+has only been exercised in isolated test databases, not a deployed database.
+
+Verification used synthetic local fixtures and mocked external integrations:
+
+- All 45 focused value-contract and supporting-seed tests pass, including a real
+  signing-package freeze, rollback, identity separation, actor-bound retries,
+  document deselection, retained financial-input exclusion and row-capacity checks.
+- The broader 199-test regression run had 197 passes, one PostgreSQL-only skip
+  and one existing Admin-label assertion failure. The unchanged published-document
+  template says "Published document"; the assertion still expects "Published
+  reusable document". That unrelated label/test was not changed.
+- All nine Node suites and syntax for 118 first-party JavaScript files pass.
+- The real Admin custom-PDF browser journey passes: upload, signer pack/edit,
+  field meanings, placement, preview, publication and explicit Product attachment.
+  Screenshot coverage includes 320, 390, 430 and 1280px; 320px field meanings,
+  390px dark mode and desktop preview were visually inspected.
+- All 10 Origination Mini App browser checks pass, covering queue widths,
+  navigation, native validation and shared/local inputs. Final supporting-document
+  screenshots at 320px were visually inspected in light and dark mode.
+- Text evidence is retained in ignored
+  `test-results/origination-value-contract-acceptance.txt`,
+  `test-results/origination-value-contract-regression.txt`,
+  `test-results/origination-value-contract-browser.txt` and
+  `test-results/origination-value-contract-migrations.txt`. Synthetic Admin
+  artifacts are under `test-results/origination-authoring/`.
+
+The complete occurrence-by-occurrence register across the eleven paper PDFs is
+not visually certified. Ambiguous paper fields and native legal signer roles
+still need business/compliance review and real PDF placement checks; passing
+seed hashes does not certify a document for legal use. Actual disbursement,
+receipt collection, company applicants and arbitrary guarantor counts are not
+introduced by this change. PostgreSQL parity, physical Telegram devices,
+screen-reader verification and the full repository suite remain unverified.
+No production deployment, live seed application or real external writes occurred.
+
 ## Complaints report controls and date cohorts - 8 October 2026
 
 Implemented the Specific Quarter filter, compact chart-type icons, automatic

@@ -114,6 +114,22 @@ def readiness(document):
         task('fields', 'Add a field', 'fields')
     if document.document_role == 'primary' and not signers:
         task('signers', 'Add a signer', 'signers')
+    for role in schema.get('required_signer_roles', []):
+        if not any(rule.get('role') == role and rule.get('required', True) for rule in signers):
+            task('required-signer:' + role, 'Review signer: ' + role.replace('_', ' '), 'signers')
+    from origination.services.origination_value_contracts import enabled, field_contract, ValueContractError
+    if enabled(schema):
+        for field in schema.get('fields', []):
+            try:
+                meaning = field_contract(field)
+                if not meaning:
+                    raise ValueContractError('Review the meaning of ' + (field.get('label') or field['key']))
+                if meaning['scope'] == 'document' and document.document_role == 'primary':
+                    raise ValueContractError('Share ' + (field.get('label') or field['key']) + ' with the application')
+                if field.get('required') and meaning['source'] == 'workflow':
+                    raise ValueContractError((field.get('label') or field['key']) + ' is unavailable before its workflow event')
+            except ValueContractError as exc:
+                task('meaning:' + field['key'], str(exc), 'fields', {'kind': 'field', 'item_key': field['key']})
     mapped = {spec.get('context_key') for spec in fields.values() if isinstance(spec, dict)}
     for field in schema.get('fields', []):
         if field.get('required') and field.get('key') not in mapped:
@@ -188,6 +204,8 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
         from core.models import Product
         if not isinstance(details, dict) or not str(details.get('name','')).strip() or len(str(details['name'])) > 180:
             raise ValidationError('Enter a document name of up to 180 characters.')
+        if not isinstance(details.get('shared_values', False), bool):
+            raise ValidationError('Choose whether this document shares application values.')
         product_ids = details.get('products')
         if not isinstance(product_ids, list):
             raise ValidationError('Choose the products that use this document.')
@@ -261,6 +279,9 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
     if field_pack == 'lending':
         from origination.services.origination_commercial_terms import ensure_commercial_catalogue, merge_commercial_contract
         schema = merge_commercial_contract(schema, fields=ensure_commercial_catalogue(actor=actor))
+    from origination.services.origination_value_contracts import upgrade_schema, enabled
+    if (details or {}).get('shared_values') or enabled(schema):
+        schema = upgrade_schema(schema)
     schema['_revision'] = schema_revision + 1
     document.form_schema, document.signer_rules = schema, normalized
     document.save(update_fields=['name','form_schema','signer_rules','updated_at'])

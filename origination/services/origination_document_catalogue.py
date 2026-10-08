@@ -97,6 +97,17 @@ def main_laf_contract(
             schema = None
     else:
         schema = document_schema
+    if schema and document_schema.get('value_contract_version') == 2:
+        from origination.services.origination_value_contracts import upgrade_schema
+        # Commercial merging refreshes validation/presentation from its governed
+        # catalogue. The chosen document still owns its reviewed value meanings.
+        original_fields = {field['key']: field for field in document_schema.get('fields', [])
+                           if isinstance(field, dict) and field.get('key')}
+        for field in schema.get('fields', []):
+            original = original_fields.get(field.get('key'), {})
+            if original.get('value_contract'):
+                field['value_contract'] = deepcopy(original['value_contract'])
+        schema = upgrade_schema(schema)
 
     # The chosen Main LAF owns its signer contract. Product-level mirrors must
     # not reintroduce retired roles; the independently governed approval policy
@@ -115,6 +126,28 @@ def main_laf_contract(
 def validate_catalogue_publication(template: OriginationDocumentTemplate) -> None:
     """Fail publication when an allowlisted product would receive an invalid document."""
     from origination.services.loan_origination import OriginationError, validate_product_form_contract
+    from origination.services.origination_value_contracts import enabled
+    from origination.services.origination_value_contracts import build_packet_contract, schema_with_mapped_values, ValueContractError
+
+    missing_roles = set(template.form_schema.get('required_signer_roles', [])) - {
+        rule.get('role') for rule in template.signer_rules if rule.get('required', True)}
+    if missing_roles:
+        raise OriginationError('Review the required signers: ' + ', '.join(sorted(role.replace('_', ' ') for role in missing_roles)) + '.')
+    if enabled(template.form_schema):
+        configuration = (template.published_configuration_revision.configuration if template.published_configuration_revision_id
+                         else template.placement_config or {})
+        try:
+            reviewed_schema = schema_with_mapped_values(template.form_schema, configuration)
+            build_packet_contract(reviewed_schema, []) if template.document_role == 'primary' else build_packet_contract(
+                {'value_contract_version': 2, 'fields': []}, [{'key':template.document_key, 'schema':reviewed_schema}])
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
+        if any(field.get('required') and (field.get('value_contract') or {}).get('source') == 'workflow'
+               for field in reviewed_schema.get('fields', [])):
+            raise OriginationError('A required field cannot depend on a later workflow event.')
+
+    def same_value_setup(other):
+        return enabled(template.form_schema) == enabled(other.form_schema)
 
     product_ids = list(template.product_eligibilities.values_list('product_id', flat=True))
     other_templates = OriginationDocumentTemplate.objects.filter(
@@ -140,10 +173,13 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate) -> Non
                 'Another published supporting document uses this key for an allowed product.',
             )
         for primary in other_templates.filter(document_role=template.ROLE_PRIMARY):
-            validate_document_combination(primary, [template])
+            if same_value_setup(primary):
+                validate_document_combination(primary, [template])
         for supporting in other_templates.filter(document_role=template.ROLE_SUPPORTING):
             # Either supporting template may be selected alongside the other.
-            validate_snapshot_combination({}, [supporting.form_schema, template.form_schema])
+            if same_value_setup(supporting):
+                primary_schema = {'value_contract_version': 2, 'fields': []} if enabled(template.form_schema) else {}
+                validate_snapshot_combination(primary_schema, [supporting.form_schema, template.form_schema])
         return
     definitions = OriginationProductDefinition.objects.filter(
         is_active=True, product_version__product_id__in=product_ids,
@@ -156,7 +192,8 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate) -> Non
     if failures:
         raise OriginationError(' '.join(failures))
     for supporting in other_templates.filter(document_role=template.ROLE_SUPPORTING):
-        validate_document_combination(template, [supporting])
+        if same_value_setup(supporting):
+            validate_document_combination(template, [supporting])
 
 
 def catalogue_for_product(
@@ -195,6 +232,15 @@ def catalogue_for_product(
                 mains.append(item)
         else:
             supporting.append(item)
+    by_id = {str(template.pk): template for template in templates}
+    for item in supporting:
+        item['compatible_main_ids'] = []
+        for main in mains:
+            try:
+                validate_document_combination(by_id[main['id']], [by_id[item['id']]])
+            except ValueError:
+                continue
+            item['compatible_main_ids'].append(main['id'])
     reasons = []
     if not mains:
         reasons.append('No published compatible Main LAF is available for this product.')
@@ -259,11 +305,30 @@ def validate_document_combination(
     from origination.services.loan_origination import OriginationError
 
     from origination.services.origination_fields import template_form_contract
+    supporting = list(supporting)
     primary_schema, _signers = template_form_contract(primary)
+    from origination.services.origination_value_contracts import build_packet_contract, enabled, schema_with_mapped_values, ValueContractError
+    try:
+        def mapped_schema(template, raw_schema):
+            if not enabled(raw_schema):
+                return raw_schema
+            configuration = (template.published_configuration_revision.configuration if template.published_configuration_revision_id
+                             else template.placement_config or {})
+            return schema_with_mapped_values(raw_schema, configuration,
+                captured_system=primary_schema.get('system_fields', []))
+
+        primary_schema = mapped_schema(primary, primary_schema)
+        supporting_schemas = [mapped_schema(template, template_form_contract(template)[0]) for template in supporting]
+        build_packet_contract(primary_schema, [
+            {'key': str(template.pk), 'schema': schema}
+            for template, schema in zip(supporting, supporting_schemas)
+        ])
+    except ValueContractError as exc:
+        raise OriginationError(str(exc), errors=exc.errors) from exc
     known = _field_types(primary_schema)
     conflicts = []
-    for template in supporting:
-        for key, data_type in _field_types(template.form_schema).items():
+    for schema in supporting_schemas:
+        for key, data_type in _field_types(schema).items():
             if key in known and known[key] != data_type:
                 conflicts.append(f'{key} ({known[key]} vs {data_type})')
             known.setdefault(key, data_type)
@@ -277,6 +342,14 @@ def validate_document_combination(
 def validate_snapshot_combination(primary_schema: Any, supporting_schemas: Iterable[Any]) -> None:
     """Apply the same type-safety rule to an application's frozen candidates."""
     from origination.services.loan_origination import OriginationError
+    supporting_schemas = list(supporting_schemas)
+    from origination.services.origination_value_contracts import build_packet_contract, ValueContractError
+    try:
+        build_packet_contract(primary_schema, [
+            {'key': str(index), 'schema': schema} for index, schema in enumerate(supporting_schemas)
+        ])
+    except ValueContractError as exc:
+        raise OriginationError(str(exc), errors=exc.errors) from exc
 
     known = _field_types(primary_schema)
     conflicts = []

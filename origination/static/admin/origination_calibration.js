@@ -343,6 +343,10 @@
       documentDetails=state.details || {};
       $('document-name').value=documentDetails.name || '';
       $('document-name').disabled=published;
+      if ($('document-shared-values')) {
+        $('document-shared-values').checked=Boolean(documentDetails.shared_values);
+        $('document-shared-values').disabled=published || Boolean(documentDetails.shared_values);
+      }
       $('document-product-choices').innerHTML=(state.product_choices || []).map(item => `<label><input type="checkbox" value="${escapeHtml(item.id)}" ${documentDetails.products?.includes(String(item.id)) ? 'checked' : ''} ${published ? 'disabled' : ''}>${escapeHtml(item.name)}</label>`).join('');
       normalizeChoiceSamples();
       zoomMode = mobileLayout() ? 'fit-width' : 'manual';
@@ -976,6 +980,7 @@
     app.classList.toggle('is-write-locked', locked);
     app.querySelectorAll('.document-signer-controls input, .document-signer-controls select, .document-signer-controls button, #document-name, #document-product-choices input, #document-lending-fields, .tool-row button, #calibration-inspector input, #calibration-inspector select, #calibration-inspector button, .global-formatting input, .global-formatting select, .global-formatting button').forEach(control => {control.disabled = locked;});
     $('calibration-save').disabled = saving || locked;
+    if ($('document-shared-values')) $('document-shared-values').disabled = locked || Boolean(documentDetails.shared_values);
     if (locked) $('calibration-publish').disabled = true;
     updateReadiness(); updateHistoryControls();
   }
@@ -1062,7 +1067,7 @@
       const haystack = [item.label, item.key, item.category, ...(item.aliases || [])].join(' ').toLowerCase();
       return !normalized || haystack.includes(normalized);
     });
-    $('cal-field-catalogue').innerHTML = matches.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.category || 'Application')} · ${escapeHtml(item.label)} · ${escapeHtml(item.key)}${item.attached ? ' · on form' : ''}</option>`).join('');
+    $('cal-field-catalogue').innerHTML = matches.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.category || 'Application')} · ${escapeHtml(item.label)}${item.attached ? ' · on form' : ''}</option>`).join('');
     if (!$('cal-field-catalogue').value && matches.length) $('cal-field-catalogue').value = matches[0].id;
     populateFieldDefaults();
   }
@@ -1077,11 +1082,38 @@
     $('cal-field-presentation').hidden = item.source_type === 'system';
     $('cal-field-options-wrap').hidden = item.type !== 'choice';
     $('cal-field-options').value = fieldOptionLines(item);
+    const meaning = Object.keys(item.value_contract || {}).length ? item.value_contract : item.suggested_value_contract || {};
+    $('cal-meaning-definition').value = meaning.definition || item.help_text || item.label || '';
+    $('cal-meaning-subject').value = meaning.subject || 'application';
+    $('cal-meaning-scope').value = meaning.scope || 'application';
+    $('cal-meaning-unit').value = meaning.unit || '';
+    $('cal-meaning-period').value = meaning.period || '';
+    const sources = {
+      'quote.contract_currency': 'Contract currency', 'quote.contract_interest_rate_percent': 'Contract interest rate',
+      'quote.contract_repayment_frequency': 'Repayment frequency', 'quote.installment_count': 'Number of installments',
+      'quote.installment_amount': 'Installment amount', 'quote.total_repayment_amount': 'Total repayable',
+      'quote.financed_principal_amount': 'Contract principal', 'quote.total_interest_amount': 'Total interest',
+      'system.reference_number': 'Application reference', 'system.borrower_full_name': 'Applicant full name',
+      'system.application_date': 'Application date', 'system.loan_officer_name': 'Assigned officer',
+      'workflow.approved_amount': 'Recorded approval amount', 'workflow.disbursed_amount': 'Recorded disbursement amount',
+      'workflow.received_amount': 'Recorded receipt amount', 'workflow.visit_date': 'Recorded visit date',
+      'total.business_total_income': 'Business income total', 'total.business_total_expenses': 'Business expense total',
+      'total.business_net_surplus': 'Business surplus', 'total.household_total_income': 'Household income total',
+      'total.household_total_expenses': 'Household expense total', 'total.household_net_surplus': 'Household surplus',
+      'total.secured_assets_total': 'Pledged asset value total',
+    };
+    if (meaning.binding && !sources[meaning.binding]) sources[meaning.binding] = item.label || 'Reviewed automatic value';
+    $('cal-meaning-binding').innerHTML = '<option value="">Entered by the officer</option>' + Object.entries(sources).map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join('');
+    $('cal-meaning-binding').value = meaning.binding || '';
+    // An immutable catalogue source is not silently converted to entered data.
+    $('cal-meaning-binding').querySelector('option[value=""]').disabled = item.source_type === 'system';
+    $('cal-meaning-source').textContent = meaning.source === 'workflow' ? 'Available after its recorded workflow event.' : meaning.source === 'calculated' || item.source_type === 'system' ? 'Calculated automatically.' : 'Entered once; reused wherever this field is placed.';
   }
 
   function openFieldDialog(preselectedKey = '', editing = false) {
     editingFieldKey = editing ? preselectedKey : '';
     const dialog = $('calibration-field-dialog');
+    $('cal-field-meaning').hidden = !documentDetails.shared_values;
     $('cal-field-error').hidden = true;
     $('cal-field-custom').checked = false;
     $('cal-field-create').hidden = true;
@@ -1142,6 +1174,15 @@
         options: type === 'choice' ? parseProductOptions($('cal-field-options').value) : [],
       },
     };
+    if (documentDetails.shared_values) {
+      body.presentation.value_contract = {
+        version: 2, definition: $('cal-meaning-definition').value || (custom ? $('cal-new-label').value : selected?.label),
+        subject: $('cal-meaning-subject').value, scope: $('cal-meaning-scope').value,
+        unit: $('cal-meaning-unit').value, period: $('cal-meaning-period').value,
+        source: custom ? 'entered' : $('cal-meaning-binding').value.startsWith('workflow.') ? 'workflow' : $('cal-meaning-binding').value ? 'calculated' : 'entered',
+        binding: custom ? '' : $('cal-meaning-binding').value,
+      };
+    }
     if (editingFieldKey) {
       body.action = 'update'; body.field_key = editingFieldKey;
       body.client_request_id = requestKey('field-update', JSON.stringify(body));
@@ -1158,6 +1199,7 @@
           ? $('cal-new-options').value.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
           : [],
       };
+      if (body.presentation.value_contract) body.create_field.value_contract = body.presentation.value_contract;
     }
     const error = $('cal-field-error');
     try {
@@ -1295,12 +1337,20 @@
   $('cal-field-custom').onchange = event => {
     $('cal-field-create').hidden = !event.target.checked;
     if (event.target.checked) {
+      $('cal-meaning-definition').value = '';
+      $('cal-meaning-subject').value = 'application';
+      $('cal-meaning-scope').value = 'application';
+      $('cal-meaning-unit').value = '';
+      $('cal-meaning-period').value = '';
+      $('cal-meaning-binding').value = '';
+      $('cal-meaning-binding').disabled = true;
       $('cal-field-presentation').hidden = false;
       $('cal-new-label').focus();
       $('cal-field-label').value = '';
       $('cal-field-help').value = '';
       $('cal-field-options-wrap').hidden = true;
     } else {
+      $('cal-meaning-binding').disabled = false;
       populateFieldDefaults();
     }
   };
@@ -1516,7 +1566,8 @@
     signerRules.push({role,label,required:true,slots:[{key:'signature',type:'signature',label:`${label} signature`,required:true}]});
   }
   function signerChanged() {signersDirty=true;autosaveFailed=false;serverReadinessIssue='';refreshDirtyState();}
-  function detailsChanged() {documentDetails={name:$('document-name').value,products:[...$('document-product-choices').querySelectorAll('input:checked')].map(i => i.value)};detailsDirty=true;autosaveFailed=false;refreshDirtyState();}
+  function detailsChanged() {documentDetails={name:$('document-name').value,products:[...$('document-product-choices').querySelectorAll('input:checked')].map(i => i.value),shared_values:Boolean($('document-shared-values')?.checked)};detailsDirty=true;autosaveFailed=false;refreshDirtyState();}
+  $('document-shared-values')?.addEventListener('change',detailsChanged);
   $('document-name')?.addEventListener('input',detailsChanged);
   $('document-product-choices')?.addEventListener('change',detailsChanged);
   $('document-signer-add')?.addEventListener('click',() => {addSigner($('document-signer-role').value);renderSigners();signerChanged();});
@@ -1550,6 +1601,7 @@
   $('calibration-readiness-items').onclick = event => {
     const button=event.target.closest('[data-document-task]');if(!button) return;
     const task=serverReadiness.tasks[Number(button.dataset.documentTask)];
+    if (task.key.startsWith('meaning:')) {openFieldDialog(task.item_key, true); $('cal-field-meaning').open=true; $('cal-meaning-definition').focus(); return;}
     if(task.item_key) {armPlacement(task);return;}
     const section=$(task.section === 'signers' ? 'document-signers' : task.section === 'pdf' ? 'document-pdf' : 'calibration-field-browser');
     openMobileSheet('fields',$('cal-mobile-fields'));section.open=true;section.scrollIntoView({block:'nearest'});
@@ -1578,6 +1630,10 @@
           signatureCatalog=data.signature_slots;contextKeys=data.context_keys;formSections=data.form_sections;
           serverReadiness=data.readiness;sharedReview=data.shared_review;signersDirty=false;detailsDirty=false;pendingFieldPack='';
           documentDetails=data.details;$('document-name').value=data.details.name;
+          if ($('document-shared-values')) {
+            $('document-shared-values').checked=Boolean(data.details.shared_values);
+            $('document-shared-values').disabled=Boolean(data.details.shared_values);
+          }
           document.querySelector('.calibration-heading h1').textContent=data.details.name;
           if(configurationHash(configuration) === snapshotHash) configuration=data.configuration;
           else {

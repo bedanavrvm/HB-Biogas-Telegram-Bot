@@ -913,6 +913,15 @@
     const mainLaf = document.querySelector('input[name="primary_template_id"]:checked');
     const submit = document.getElementById('origination-create-submit');
     if (!submit) return;
+    const catalogue = products.find(item => item.product_key === product?.value)?.document_catalogue;
+    document.querySelectorAll('#origination-create-documents input[name="supporting_template_ids"]').forEach(input => {
+      const item = catalogue?.supporting_documents?.find(document => document.id === input.value);
+      const compatible = !item?.compatible_main_ids || (mainLaf && item.compatible_main_ids.includes(mainLaf.value));
+      input.disabled = !compatible;
+      if (!compatible) input.checked = false;
+      const hint = input.closest('label')?.querySelector('small');
+      if (hint) hint.textContent = compatible ? 'Optional supporting document' : mainLaf ? 'Choose a compatible Main LAF' : 'Choose a Main LAF first';
+    });
     submit.disabled = createInFlight || !branch?.value || !product?.value || !mainLaf;
     syncPrimaryAction();
   }
@@ -1159,6 +1168,12 @@
 
   function collectPayload() {
     const payload = { ...(current?.form_payload || {}) };
+    if (current?.value_contract_version === 2) {
+      const keys = new Set((current.form_schema?.fields || []).map(field => field.key));
+      for (const key of Object.keys(payload)) {
+        if (key !== '_person_role_bindings' && !keys.has(key)) delete payload[key];
+      }
+    }
     root()?.querySelectorAll('[data-main-repeatable]').forEach(container => {
       const field = (current?.form_schema?.fields || []).find(item => item.key === container.dataset.mainRepeatable);
       const columnTypes = new Map((field?.structure?.columns || []).map(column => [column.key, column.type]));
@@ -1179,6 +1194,17 @@
       else if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.field] = input.value === 'true';
       else payload[input.dataset.field] = input.value;
     });
+    if (current?.value_contract_version === 2) {
+      const links = {...(payload._person_role_bindings || {})};
+      root()?.querySelectorAll('[data-person-link]').forEach(input => {
+        if (input.value) links[input.dataset.personLink] = input.value;
+        else delete links[input.dataset.personLink];
+      });
+      if (Object.keys(links).length || payload._person_role_bindings) payload._person_role_bindings = links;
+      for (const role of Object.keys(links)) {
+        for (const key of Object.values(current.person_role_fields?.[role] || {})) delete payload[key];
+      }
+    }
     return payload;
   }
 
@@ -1284,10 +1310,12 @@
 
   function sectionFieldsMarkup(sectionKey, values, editable) {
     const fields = fieldsFor(sectionKey);
+    const linked = current?.form_payload?._person_role_bindings || {};
+    const linkedKeys = new Set(Object.keys(linked).flatMap(role => Object.values(current?.person_role_fields?.[role] || {})));
     const rendered = field => fieldInput(
       field,
       values[field.key],
-      !editable || field.editable === false || !correctionAllows('field', field.key),
+      !editable || linkedKeys.has(field.key) || field.editable === false || !correctionAllows('field', field.key),
     );
     const first = fields.filter(field => String(field.key || '').startsWith('guarantor_1_'));
     const second = fields.filter(field => String(field.key || '').startsWith('guarantor_2_'));
@@ -1296,7 +1324,12 @@
     const card = (title, hint, items, optional) => items.length
       ? `<fieldset class="guarantor-card${optional ? ' is-optional' : ''}"${optional ? ' data-guarantor-two-card' : ''}><legend><span><strong>${title}</strong><small>${hint}</small></span>${optional && editable ? '<button type="button" class="btn btn-secondary" data-clear-guarantor-two>Clear Guarantor 2</button>' : ''}</legend><div class="laf-grid">${items.map(rendered).join('')}</div></fieldset>`
       : '';
-    return `<div class="guarantor-groups">${card('Guarantor 1', 'Required guarantor', first, false)}${card('Guarantor 2', 'Optional unless any details are entered', second, true)}${other.length ? `<div class="laf-grid">${other.map(rendered).join('')}</div>` : ''}</div>`;
+    const linkControl = role => {
+      if (current?.value_contract_version !== 2 || !editable || current.status !== 'draft' || !current.person_role_fields?.[role]) return '';
+      const sources = ['spouse', 'next_of_kin', 'referee'].filter(source => Object.keys(current.person_role_fields?.[source] || {}).length === 3);
+      return sources.length ? `<label class="laf-field"><span>${role === 'guarantor_1' ? 'Guarantor 1' : 'Guarantor 2'} is</span><select data-person-link="${role}"><option value="">A separate person</option>${sources.map(source => `<option value="${source}"${linked[role] === source ? ' selected' : ''}>${escapeHtml(source.replaceAll('_', ' '))}</option>`).join('')}</select></label>` : '';
+    };
+    return `<div class="guarantor-groups">${linkControl('guarantor_1')}${card('Guarantor 1', 'Required guarantor', first, false)}${linkControl('guarantor_2')}${card('Guarantor 2', 'Optional unless any details are entered', second, true)}${other.length ? `<div class="laf-grid">${other.map(rendered).join('')}</div>` : ''}</div>`;
   }
 
   function updateCommercialQuoteDisplay() {
@@ -2198,6 +2231,12 @@
   }
 
   function supportingDocumentMarkup(document, editable) {
+    if (current?.value_contract_version === 2) {
+      const local = (document?.schema?.fields || []).filter(field => field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered');
+      const generated = (document?.schema?.fields || []).filter(field => field.value_contract?.source !== 'entered');
+      const values = generated.map(field => {const value = document.resolved_values?.[field.key]; return `<div class="laf-field"><span>${escapeHtml(field.label || field.key)}</span><strong>${escapeHtml(value === '' || value == null ? 'Not yet available' : value)}</strong></div>`;}).join('');
+      return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div><div class="laf-grid">${local.map(field => supportingDocumentField(field, document, editable)).join('') || '<div class="empty-state">Uses the application details above.</div>'}${values}</div>`;
+    }
     const fields = (document?.schema?.fields || []).map(field => supportingDocumentField(field, document, editable)).join('');
     return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3><p>Shared LAF values are locked. Complete the remaining fields, save, then preview this document.</p></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div><div class="laf-grid">${fields || '<div class="empty-state">This document uses only values already collected in the main LAF.</div>'}</div>`;
   }
@@ -2757,6 +2796,7 @@
       if (wizardSections()[step]?.key === facilitySectionKey()) scheduleCommercialQuotePreview();
     }));
     root().querySelector('[data-clear-guarantor-two]')?.addEventListener('click', () => {
+      if (current?.form_payload?._person_role_bindings?.guarantor_2) return showToast('Choose a separate person before clearing Guarantor 2.', true);
       const card = root().querySelector('[data-guarantor-two-card]');
       card?.querySelectorAll('input, select, textarea').forEach(input => {
         if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
@@ -2769,6 +2809,12 @@
       showToast('Guarantor 2 cleared. Save this section to omit the second guarantor.');
     });
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
+    root().querySelectorAll('[data-person-link]').forEach(input => input.addEventListener('change', () => runPrimaryAction('Saving...', async () => {
+      const previous = current?.form_payload?._person_role_bindings?.[input.dataset.personLink] || '';
+      if (input.value && !window.confirm('Use this person’s name, ID and phone for this guarantor? They will stay linked.')) {input.value=previous; return;}
+      scheduleSave();
+      if (await saveDraft(true)) renderEditor(current, step);
+    })));
     document.getElementById('wizard-previous')?.addEventListener('click', async () => {
       if (current.status === 'draft' && !editable) return renderEditor(current, step - 1);
       if (await saveDraft(true)) renderEditor(current, step - 1);

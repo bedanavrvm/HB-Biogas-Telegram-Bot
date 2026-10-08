@@ -319,6 +319,14 @@ def _document_fields(document: OriginationApplicationDocument) -> list[dict[str,
 
 def document_context(application: LoanOriginationApplication, document: OriginationApplicationDocument) -> dict[str, Any]:
     from origination.services.loan_origination import apply_choice_display_values, preview_context
+    from origination.services.origination_value_contracts import enabled
+    if enabled(application.schema_snapshot):
+        context = preview_context(application)
+        context.update(context.get('_document_values', {}).get(document.document_key, {}))
+        context['_date_fields'] = sorted(set(context.get('_date_fields', [])) | {
+            field['key'] for field in _document_fields(document) if field.get('type') == 'date'
+        })
+        return apply_choice_display_values(context, document.schema_snapshot)
     context = {**preview_context(application), **(document.field_payload or {})}
     apply_choice_display_values(context, document.schema_snapshot)
     context['home_visit_completed_date'] = timezone.localdate(
@@ -334,9 +342,10 @@ def document_context(application: LoanOriginationApplication, document: Originat
 def serialize_document(document: OriginationApplicationDocument) -> dict[str, Any]:
     application = document.application
     fields = _document_fields(document)
+    context = document_context(application, document) if document.selected else {}
     missing = [
         str(item.get('key')) for item in fields
-        if item.get('required') and document_context(application, document).get(str(item.get('key'))) in (None, '', [])
+        if item.get('required') and context.get(str(item.get('key'))) in (None, '', [])
     ]
     packet_previewed = application.events.filter(
         action='document_packet_previewed', revision=application.revision,
@@ -361,6 +370,7 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
         'officer_selectable': document.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL,
         'schema': document.schema_snapshot,
         'field_payload': document.field_payload,
+        'resolved_values': {field['key']: context.get(field['key'], '') for field in fields} if (application.schema_snapshot or {}).get('value_contract_version') == 2 else {},
         'missing_fields': missing,
         'complete': not missing,
         'previewed': previewed,
@@ -384,7 +394,16 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
     from origination.services.loan_origination import OriginationConflict, OriginationError, _record_event, _require_request_id
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    from origination.services.origination_value_contracts import enabled, packet_contract, person_fields, PERSON_LINKS_KEY, request_fingerprint, ValueContractError
+    shared_values = enabled(application.schema_snapshot)
+    if shared_values and (not isinstance(selected_keys, list) or any(not isinstance(key, str) for key in selected_keys)):
+        raise OriginationError('Choose the supporting documents from the list.')
+    fingerprint = request_fingerprint(sorted(selected_keys)) if shared_values else ''
     if application.events.filter(request_id=request_id).exists():
+        if shared_values:
+            replay = application.events.get(request_id=request_id)
+            if application.officer_id != actor.pk or replay.metadata.get('value_request_sha256') != fingerprint:
+                raise OriginationConflict('This retry contains different document choices.')
         return application
     if application.officer_id != actor.pk:
         raise OriginationError('Only the assigned officer may select supporting documents.')
@@ -428,16 +447,31 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         primary.schema_snapshot if primary else application.schema_snapshot,
         selected_supporting,
     )
+    detached_roles = []
+    if shared_values:
+        try:
+            roles = person_fields(packet_contract(application))
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
+        links = application.form_payload.get(PERSON_LINKS_KEY, {})
+        detached_roles = [target for target, source in links.items()
+                          if len(roles.get(target, {})) != 3 or len(roles.get(source, {})) != 3]
+        if detached_roles:
+            application.form_payload = {**application.form_payload, PERSON_LINKS_KEY: {
+                target: source for target, source in links.items() if target not in detached_roles}}
+            changed = True
+    metadata = {'value_request_sha256': fingerprint} if shared_values else {}
     if not changed:
-        _record_event(application, 'document_selection_unchanged', actor=actor, request_id=request_id)
+        _record_event(application, 'document_selection_unchanged', actor=actor, request_id=request_id, metadata=metadata)
         return application
     application.revision += 1
     application.primary_previewed_revision = None
-    application.save(update_fields=['revision', 'primary_previewed_revision', 'updated_at'])
+    application.save(update_fields=['revision', 'primary_previewed_revision', 'updated_at', *(['form_payload'] if detached_roles else [])])
     application.packet_documents.filter(selected=True).update(
         previewed_application_revision=None, updated_at=timezone.now(),
     )
-    _record_event(application, 'document_selection_updated', actor=actor, request_id=request_id, after={'selected_keys': sorted(requested)})
+    _record_event(application, 'document_selection_updated', actor=actor, request_id=request_id,
+        after={'selected_keys': sorted(requested), **({'detached_person_roles': detached_roles} if detached_roles else {})}, metadata=metadata)
     return application
 
 
@@ -445,12 +479,18 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
 def save_document_fields(*, application_id, document_key: str, actor, payload: Any, expected_revision: int, request_id: str):
     from origination.services.loan_origination import (
         OriginationConflict, OriginationError, _record_event, _require_request_id,
-        _changed_keys, correction_targets, normalize_form_payload,
+        _changed_keys, correction_targets, normalize_form_payload, _slot_request_id,
         synchronize_legacy_security_values, validate_form_payload,
     )
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    from origination.services.origination_value_contracts import enabled, request_fingerprint
+    value_fingerprint = request_fingerprint([document_key, payload]) if enabled(application.schema_snapshot) else ''
     if application.events.filter(request_id=request_id).exists():
+        if value_fingerprint:
+            replay = application.events.get(request_id=request_id)
+            if application.officer_id != actor.pk or replay.metadata.get('value_request_sha256') != value_fingerprint:
+                raise OriginationConflict('This retry contains different document changes.')
         return application
     if application.officer_id != actor.pk:
         raise OriginationError('Only the assigned officer may edit supporting documents.')
@@ -465,6 +505,52 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     if not document or document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY or not document.selected:
         raise OriginationError('This supporting document is not selected for the application.')
     schema = document.schema_snapshot or {'fields': []}
+    from origination.services.origination_value_contracts import enabled, packet_contract, normalize_changes, ValueContractError
+    if enabled(application.schema_snapshot):
+        changed_shared = False
+        try:
+            contract = packet_contract(application)
+            shared, local_changes = normalize_changes(contract, payload, application.form_payload or {}, document_key=document.document_key)
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
+        if shared != (application.form_payload or {}):
+            changed_shared = True
+            from origination.services.loan_origination import save_application_fields
+            # Reuse the same identity, quote, correction, revision and location
+            # rules. One transaction and one public request key own the change.
+            changed_inputs = {key: value for key, value in shared.items() if value != (application.form_payload or {}).get(key)}
+            from origination.services.origination_value_contracts import person_fields, PERSON_LINKS_KEY
+            roles = person_fields(contract)
+            linked_keys = {key for role in shared.get(PERSON_LINKS_KEY, {}) for key in roles.get(role, {}).values()}
+            changed_inputs = {key: value for key, value in changed_inputs.items() if key not in linked_keys}
+            application = save_application_fields(application_id=application.pk, actor=actor,
+                payload=changed_inputs, expected_revision=expected_revision, request_id=_slot_request_id(request_id, 'shared'))
+        local_schema = {'fields': list(contract['documents'][document.document_key].values())}
+        values = normalize_form_payload(local_schema, {**(document.field_payload or {}), **local_changes})
+        result = validate_form_payload(local_schema, values, require_complete=False)
+        if not result.valid:
+            raise OriginationError('Correct the document fields before saving.', errors=result.errors)
+        if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
+            targets = correction_targets(application)['document_field']
+            changed = _changed_keys(document.field_payload, values)
+            if any(f'{document.document_key}.{key}' not in targets for key in changed):
+                raise OriginationError('Only requested document fields may be changed.')
+        changed_local = values != document.field_payload
+        if changed_local:
+            document.field_payload = values
+            document.previewed_application_revision = None
+            document.completed_at = None
+            document.save(update_fields=['field_payload', 'previewed_application_revision', 'completed_at', 'updated_at'])
+            if application.revision == int(expected_revision):
+                application.revision += 1
+            application.primary_previewed_revision = None
+            application.save(update_fields=['revision', 'primary_previewed_revision', 'updated_at'])
+        if changed_shared or changed_local:
+            application.packet_documents.filter(selected=True).update(previewed_application_revision=None, updated_at=timezone.now())
+        _record_event(application, 'supporting_document_saved' if changed_shared or changed_local else 'supporting_document_unchanged', actor=actor, request_id=request_id,
+            after={'document_key': document_key, 'affected_documents': list(application.packet_documents.filter(selected=True).values_list('document_key', flat=True))},
+            metadata={'value_request_sha256': value_fingerprint})
+        return application
     if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED and isinstance(payload, dict):
         # Correction UIs submit only unlocked controls. Merge them over the
         # frozen document values before validation/comparison so locked fields
@@ -532,6 +618,12 @@ def _frozen_document_context(
     from origination.services.loan_origination import apply_choice_display_values
 
     context = dict(context_snapshot or {})
+    if context.get('_value_contract_version') == 2:
+        frozen = context.get('_document_contexts', {}).get(str(document.pk))
+        if not isinstance(frozen, dict):
+            from origination.services.loan_origination import OriginationError
+            raise OriginationError('This packet is missing its frozen document values.')
+        return deepcopy(frozen)
     apply_choice_display_values(context, document.schema_snapshot)
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or document.application.submitted_at or document.application.created_at,
@@ -564,7 +656,11 @@ def render_document(
         _frozen_document_context(document, context_snapshot)
         if context_snapshot is not None else document_context(application, document)
     )
-    return render_template(load_template_source(document.template), configuration, context)
+    from core.services.partnership_laf_preview import PartnershipLafPreviewError
+    try:
+        return render_template(load_template_source(document.template), configuration, context)
+    except PartnershipLafPreviewError as exc:
+        raise OriginationError(str(exc)) from exc
 
 
 def mark_document_previewed(application: LoanOriginationApplication, document_key: str) -> None:
@@ -671,6 +767,13 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             bindings = raw.get('identity_fields') if isinstance(raw.get('identity_fields'), dict) else {}
             context = document_context(application, document)
             identity = dict(existing.get('identity') or {}) if existing else {}
+            from origination.services.origination_value_contracts import enabled
+            if enabled(application.schema_snapshot):
+                for kind, field_key in bindings.items():
+                    previous_value, value = identity.get(kind), context.get(field_key)
+                    if previous_value not in (None, '') and value not in (None, '') and str(previous_value).strip().casefold() != str(value).strip().casefold():
+                        from origination.services.loan_origination import OriginationError
+                        raise OriginationError('The selected documents name different people for ' + role.replace('_', ' ') + '. Review their signer fields.')
             identity.update({
                 key: context.get(field_key, '')
                 for key, field_key in bindings.items()

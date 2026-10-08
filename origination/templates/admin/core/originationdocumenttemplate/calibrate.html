@@ -22,7 +22,7 @@
  <button type="button" id="calibration-mobile-backdrop" class="calibration-mobile-backdrop" aria-label="Close controls" hidden></button>
  <div class="calibration-workspace"><aside class="calibration-sidebar" id="calibration-sidebar" aria-labelledby="calibration-sheet-title">
  <header class="calibration-sheet-header"><h2 id="calibration-sheet-title">Document</h2><button type="button" class="cal-button cal-button-icon" id="calibration-sheet-close" aria-label="Close controls">×</button></header>
- <details id="document-pdf"><summary>PDF</summary><p>{{ template_record.page_count }} page{{ template_record.page_count|pluralize }}</p><label for="document-name">Document name</label><input id="document-name" maxlength="180"><details><summary>Used by products</summary><div id="document-product-choices"></div></details><a href="{% url 'admin:origination_document_new' %}?source={{ template_record.pk }}">Copy or upload a new PDF</a></details>
+ <details id="document-pdf"><summary>PDF</summary><p>{{ template_record.page_count }} page{{ template_record.page_count|pluralize }}</p><label for="document-name">Document name</label><input id="document-name" maxlength="180"><details><summary>Used by products</summary><div id="document-product-choices"></div></details><label class="cal-field-check"><input type="checkbox" id="document-shared-values"> Share application values across documents</label><a href="{% url 'admin:origination_document_new' %}?source={{ template_record.pk }}">Copy or upload a new PDF</a></details>
  <details id="document-signers" open><summary>Signers</summary><div class="document-signer-controls"><label for="document-signer-pack">Start with</label><select id="document-signer-pack"><option value="">Choose a signer pack</option><option value="borrower,officer,credit_analyst,branch_manager">Borrower + Officer + CA + BM</option><option value="borrower,guarantor_1,officer,credit_analyst,branch_manager">Add Guarantor</option></select><div id="document-signer-list"></div><label for="document-signer-role">Add signer</label><select id="document-signer-role"></select><button type="button" class="cal-button" id="document-signer-add">Add signer</button></div></details>
       <details id="calibration-readiness" class="calibration-readiness" open>
         <summary><span><span id="calibration-readiness-heading" class="calibration-readiness-title">To do</span><strong id="calibration-readiness-count">Checking…</strong></span></summary>
@@ -130,13 +130,24 @@
       </section>
       <section id="cal-field-presentation">
         <div class="coordinate-grid"><label>Form section<select id="cal-field-section"></select></label><label>Display label<input id="cal-field-label" maxlength="160"></label></div>
-        <div class="coordinate-grid"><label>Form width<select id="cal-field-width"><option value="half">Half</option><option value="full">Full</option></select></label><label class="cal-field-check"><input type="checkbox" id="cal-field-required"> Required on this product</label></div>
+        <div class="coordinate-grid"><label>Form width<select id="cal-field-width"><option value="half">Half</option><option value="full">Full</option></select></label><label class="cal-field-check"><input type="checkbox" id="cal-field-required"> Required</label></div>
         <label>Help text<input id="cal-field-help" maxlength="500"></label>
         <label id="cal-field-options-wrap" hidden>Product choices<textarea id="cal-field-options" placeholder="canonical_code | Display label"></textarea></label>
       </section>
+      <details id="cal-field-meaning">
+        <summary>Field meaning</summary>
+        <label>What this represents<input id="cal-meaning-definition" maxlength="500"></label>
+        <div class="coordinate-grid">
+          <label>About<select id="cal-meaning-subject"><option value="application">Application</option><option value="applicant">Applicant</option><option value="spouse">Spouse</option><option value="next_of_kin">Next of kin</option><option value="referee">Referee</option><option value="guarantor_1">Guarantor 1</option><option value="guarantor_2">Guarantor 2</option><option value="supplier">Supplier</option><option value="asset_owner">Asset owner</option><option value="grantor">Grantor</option><option value="grantor_spouse">Grantor's spouse</option><option value="payer">Invoice payer</option><option value="seller">Seller</option><option value="proposed_owner">Proposed owner</option><option value="vehicle">Vehicle</option><option value="business">Business</option><option value="household">Household</option><option value="employment">Employment</option><option value="loan">Loan</option><option value="document">Document</option></select></label>
+          <label>Used in<select id="cal-meaning-scope"><option value="application">Shared</option><option value="document">Document only</option></select></label>
+        </div>
+        <div class="coordinate-grid"><label>Unit<input id="cal-meaning-unit" maxlength="80" placeholder="e.g. KES, months"></label><label>Reporting period<input id="cal-meaning-period" maxlength="80" placeholder="e.g. monthly"></label></div>
+        <label>Value comes from<select id="cal-meaning-binding"><option value="">Entered by the officer</option></select></label>
+        <p id="cal-meaning-source" class="help"></p>
+      </details>
       <footer><button type="button" class="cal-button" id="cal-field-up" hidden>Move up</button><button type="button" class="cal-button" id="cal-field-down" hidden>Move down</button><button type="button" class="cal-button cal-button-danger" id="cal-field-remove" hidden>Remove field</button><button type="button" class="cal-button" id="cal-field-dismiss">Cancel</button><button type="submit" class="cal-button cal-button-primary" id="cal-field-confirm">Add to form and PDF</button></footer>
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=22"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=23"></script>
 {% endblock %}

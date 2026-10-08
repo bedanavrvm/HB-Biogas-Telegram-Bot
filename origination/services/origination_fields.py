@@ -260,6 +260,7 @@ def normalize_choice_options(options: Any) -> list[dict[str, Any]]:
 
 
 def serialize_data_field(data_field: OriginationDataField, *, attached: bool = False) -> dict[str, Any]:
+    from origination.services.origination_value_contracts import reviewed_contract
     return {
         'id': str(data_field.pk),
         'key': data_field.key,
@@ -275,6 +276,9 @@ def serialize_data_field(data_field: OriginationDataField, *, attached: bool = F
         'help_text': data_field.help_text,
         'choice_options': list(data_field.choice_options or []),
         'structure_schema': dict(data_field.structure_schema or {}),
+        'value_contract': deepcopy(data_field.value_contract or {}),
+        'suggested_value_contract': reviewed_contract({'key': data_field.key, 'label': data_field.label,
+            'type': data_field.data_type, 'source_type': data_field.source_type, 'help_text': data_field.help_text}),
         'active': data_field.active,
         'preferred_field_id': str(data_field.preferred_field_id or ''),
         'attached': attached,
@@ -289,7 +293,7 @@ def _semantic_signatures_for_field(data_field: OriginationDataField) -> set[str]
 
 def semantic_field_conflict(
     *, key: str, label: str, aliases: list[str] | None = None,
-    exclude_id=None,
+    exclude_id=None, value_contract: dict | None = None,
 ) -> OriginationDataField | None:
     """Find an active field represented by the same approved terminology."""
 
@@ -302,6 +306,10 @@ def semantic_field_conflict(
     if exclude_id:
         candidates = candidates.exclude(pk=exclude_id)
     for candidate in candidates:
+        if value_contract and candidate.value_contract:
+            semantic_keys = ('subject', 'scope', 'source', 'binding', 'unit', 'period')
+            if any(value_contract.get(k, '') != candidate.value_contract.get(k, '') for k in semantic_keys):
+                continue
         if requested & _semantic_signatures_for_field(candidate):
             return candidate
     return None
@@ -490,9 +498,11 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
             raise OriginationFieldConflict(
                 f'{key} already exists with type {existing.get_data_type_display()}.',
             )
+        if payload.get('value_contract') and payload['value_contract'] != existing.value_contract:
+            raise OriginationFieldConflict('This field already represents different information. Reuse it or choose a distinct field.')
         return existing, True
     aliases = [str(item).strip() for item in (payload.get('aliases') or []) if str(item).strip()]
-    equivalent = semantic_field_conflict(key=key, label=label, aliases=aliases)
+    equivalent = semantic_field_conflict(key=key, label=label, aliases=aliases, value_contract=payload.get('value_contract'))
     if equivalent:
         if equivalent.data_type != data_type:
             raise OriginationFieldConflict(
@@ -532,7 +542,8 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
         aliases=aliases,
         category=str(payload.get('category') or 'Application').strip()[:80],
         data_type=data_type,
-        source_type=OriginationDataField.SOURCE_USER_INPUT,
+        source_type=str(payload.get('source_type') or OriginationDataField.SOURCE_USER_INPUT),
+        value_contract=payload.get('value_contract') or {},
         sensitivity=sensitivity,
         masking_policy=masking,
         reporting_use=str(
@@ -584,6 +595,16 @@ def _product_choice_options(data_field: OriginationDataField, requested: Any) ->
 
 
 def _field_schema_item(data_field: OriginationDataField, presentation: dict[str, Any]) -> dict[str, Any]:
+    from origination.services.origination_value_contracts import validate_contract, ValueContractError
+    try:
+        supplied = presentation.get('value_contract', data_field.value_contract)
+        source_type = ('system' if isinstance(supplied, dict) and supplied.get('source') in {'calculated', 'workflow'}
+                       else data_field.source_type)
+        meaning = validate_contract(supplied, source_type=source_type)
+    except ValueContractError as exc:
+        raise OriginationFieldError(str(exc)) from exc
+    if data_field.value_contract and meaning != data_field.value_contract:
+        raise OriginationFieldConflict('Reuse this field meaning, or choose a distinct field.')
     validation = presentation.get('validation') or {}
     if not isinstance(validation, dict):
         raise OriginationFieldError('Product field validation must be an object.')
@@ -605,8 +626,9 @@ def _field_schema_item(data_field: OriginationDataField, presentation: dict[str,
         'masking_policy': data_field.masking_policy,
         'reporting_use': data_field.reporting_use,
         'export_allowed': data_field.export_allowed,
-        'source_type': data_field.source_type,
+        'source_type': source_type,
         'validation': allowed_validation,
+        'value_contract': meaning,
     }
     if data_field.data_type == OriginationDataField.TYPE_REPEATING_GROUP:
         item['structure'] = json.loads(json.dumps(data_field.structure_schema or {}))
@@ -785,7 +807,9 @@ def edit_template_field(*, template, key, action, presentation, actor, expected_
         save_calibration_draft(template=template, configuration=config, actor=actor,
             expected_revision=expected_revision, client_request_id=request_id)
     OriginationDocumentTemplateEvent.objects.create(template=template, action='schema_field_edited', actor=actor,
-        metadata={'field_key':key, 'operation':action, 'schema_revision':schema['_revision'], 'request_id':request_id, 'request_digest':request_digest})
+        metadata={'field_key':key, 'operation':action, 'schema_revision':schema['_revision'], 'request_id':request_id, 'request_digest':request_digest,
+                  'previous_meaning': original.get('value_contract') or {},
+                  'current_meaning': (fields[index].get('value_contract') or {}) if action == 'update' else original.get('value_contract') or {}})
     return template
 
 
@@ -937,15 +961,25 @@ def snapshot_form_schema(schema: dict[str, Any]) -> dict[str, Any]:
             'export_allowed': data_field.export_allowed,
             'source_type': data_field.source_type,
         })
+        if not item.get('value_contract') and data_field.value_contract:
+            item['value_contract'] = deepcopy(data_field.value_contract)
+        if snapshot.get('value_contract_version') == 2 and item.get('value_contract'):
+            item['source_type'] = ('user_input' if item['value_contract']['source'] == 'entered' else 'system')
         if data_field.data_type == OriginationDataField.TYPE_CHOICE:
             item['canonical_choice_options'] = list(data_field.choice_options or [])
     snapshot['fields'] = fields
+    declared_system = {field['key']: field for field in snapshot.get('system_fields', []) if field.get('key')}
     snapshot['system_fields'] = [
         serialize_data_field(item)
         for item in OriginationDataField.objects.filter(
             active=True, source_type=OriginationDataField.SOURCE_SYSTEM,
         ).order_by('key')
     ]
+    if snapshot.get('value_contract_version') == 2:
+        for field in snapshot['system_fields']:
+            if field['key'] in declared_system:
+                field.update(deepcopy(declared_system.pop(field['key'])))
+        snapshot['system_fields'].extend(deepcopy(list(declared_system.values())))
     return snapshot
 
 

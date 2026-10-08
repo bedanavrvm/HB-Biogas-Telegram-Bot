@@ -973,6 +973,8 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
                 'product-specific labels, rules, and application snapshots are preserved.'
             ),
         }),
+        ('Field meaning (advanced)', {'fields': ('value_contract',), 'classes': ('collapse',),
+            'description': 'Subject, ownership and reviewed value source. Existing application and published document meanings are locked.'}),
         ('Audit', {'fields': (('created_by', 'created_at'), 'updated_at'), 'classes': ('collapse',)}),
     )
 
@@ -2972,6 +2974,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             item['label'] = presentation.get('label') or item['label']
             item['width'] = presentation.get('width', 'half')
             item['help_text'] = presentation.get('help_text', '')
+            for metadata_key in ('value_contract', 'source_type'):
+                if metadata_key in presentation:
+                    item[metadata_key] = presentation[metadata_key]
             if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
                 item['choice_options'] = list(presentation['options'])
         from origination.services.origination_templates import _expected_signature_slots
@@ -2987,7 +2992,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'product_published': obj.status == obj.STATUS_ACTIVE or bool(obj.product_definition_id and product and product.is_active),
             'shared_review': shared_review(obj),
             'readiness': readiness(obj),
-            'details':{'name':obj.name,'products':[str(pk) for pk in obj.eligible_products.values_list('pk',flat=True)]},
+            'details':{'name':obj.name,'products':[str(pk) for pk in obj.eligible_products.values_list('pk',flat=True)],
+                       'shared_values':fields.get('value_contract_version') == 2},
             'product_choices':list(authoring_products().order_by('name').values('id','name')),
             'signers': template_form_contract(obj)[1],
             'configuration': config,
@@ -3132,6 +3138,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             item['section_key'] = str(presentation.get('section_key') or '')
             if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
                 item['choice_options'] = list(presentation['options'])
+            for metadata_key in ('value_contract', 'source_type'):
+                if metadata_key in presentation:
+                    item[metadata_key] = presentation[metadata_key]
         return JsonResponse({
             'ok': True, 'field': next(
                 item for item in context_keys if item['key'] == data_field.key
@@ -3153,6 +3162,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                          section_key=presentation.get('section_key', ''),
                          label=presentation.get('label') or field['label'],
                          help_text=presentation.get('help_text', ''), width=presentation.get('width', 'half'))
+            for metadata_key in ('value_contract', 'source_type'):
+                if metadata_key in presentation:
+                    field[metadata_key] = presentation[metadata_key]
             if presentation.get('options'):
                 field['choice_options'] = presentation['options']
         # Preserve document order while leaving unattached global choices searchable.

@@ -95,6 +95,11 @@ class OriginationDataField(models.Model):
         default=dict, blank=True,
         help_text='Immutable child-column contract for repeatable-group fields.',
     db_comment='Immutable child-column contract for repeatable-group fields.')
+    value_contract = models.JSONField(
+        default=dict, blank=True,
+        help_text='Reviewed subject, ownership, units and non-executable value source; frozen with new documents.',
+        db_comment='Versioned field meaning and allowlisted value source. Historical application snapshots remain authoritative.',
+    )
     active = models.BooleanField(default=True, db_index=True, db_comment='Active (BooleanField).')
     preferred_field = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.PROTECT,
@@ -139,6 +144,18 @@ class OriginationDataField(models.Model):
 
     def clean(self):
         super().clean()
+        from origination.services.origination_value_contracts import validate_contract, ValueContractError
+        try:
+            self.value_contract = validate_contract(self.value_contract, source_type=self.source_type)
+        except ValueContractError as exc:
+            raise ValidationError({'value_contract': str(exc)}) from exc
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values('value_contract').first()
+            if original and original['value_contract'] != (self.value_contract or {}):
+                from origination.services.origination_fields import data_field_type_change_blockers
+                if data_field_type_change_blockers(self):
+                    raise ValidationError({'value_contract':
+                        'Published field meanings are immutable; create a distinct field or document contract.'})
         if self.preferred_field_id:
             if self.preferred_field_id == self.pk:
                 raise ValidationError({'preferred_field': 'A field cannot replace itself.'})
@@ -221,7 +238,7 @@ class OriginationDataField(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             original = type(self).objects.filter(pk=self.pk).values(
-                'key', 'data_type', 'choice_options', 'structure_schema',
+                'key', 'data_type', 'choice_options', 'structure_schema', 'value_contract',
             ).first()
             if original and (original['key'] != self.key or original['data_type'] != self.data_type):
                 raise ValidationError('Canonical field keys and data types are immutable.')

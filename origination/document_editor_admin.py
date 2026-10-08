@@ -22,13 +22,17 @@ def editor_data(document):
         presentation = presentations.get(field['key'], {})
         field.update(attached=bool(presentation), required=bool(presentation.get('required')),
             label=presentation.get('label') or field['label'], section_key=presentation.get('section_key',''))
+        for key in ('value_contract', 'source_type', 'help_text', 'width'):
+            if key in presentation:
+                field[key] = presentation[key]
     latest = document.configuration_revisions.order_by('-revision').first()
     return {'ok':True, 'readiness':data, 'schema_revision':data['schema_revision'], 'revision':data['revision'],
         'signers':data['signers'], 'context_keys':catalogue,
         'signature_slots':list(_expected_signature_slots(document.product_definition, document).values()),
         'form_sections':data['form_schema'].get('sections', []), 'shared_review':shared_review(document),
         'configuration':latest.configuration if latest else document.placement_config,
-        'details':{'name':document.name,'products':[str(pk) for pk in document.eligible_products.values_list('pk',flat=True)]}}
+        'details':{'name':document.name,'products':[str(pk) for pk in document.eligible_products.values_list('pk',flat=True)],
+                   'shared_values':data['form_schema'].get('value_contract_version') == 2}}
 
 
 def write_view(admin, request, object_id):

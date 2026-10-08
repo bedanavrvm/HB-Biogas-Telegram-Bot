@@ -67,6 +67,8 @@ def _draw_cell(pdf, value: Any, box: dict[str, float], spec: dict[str, Any], def
     width_available = max(float(box['width']), 1)
     while font_size > min_size and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
         font_size -= .25
+    if defaults.get('_strict_values') and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
+        raise PartnershipLafPreviewError('A table value does not fit. Shorten it or enlarge its document field.')
     while text and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
         text = text[:-1]
     if not text:
@@ -108,6 +110,8 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, Any, Any
         if spec.get('render_as') == 'repeating_table':
             rows = max(int(spec.get('rows') or 1), 1)
             items = raw_value if isinstance(raw_value, list) else []
+            if defaults.get('_strict_values') and len(items) > rows:
+                raise PartnershipLafPreviewError(f'This document has room for {rows} rows, but {len(items)} were entered. Review the document layout; no rows were dropped.')
             x = float(box.get('x', 0)) * unit_scale
             y = float(box.get('y', 0)) * unit_scale
             table_width = float(box.get('width', 0)) * unit_scale
@@ -158,7 +162,9 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, Any, Any
         fit = spec.get('fit', defaults.get('fit', 'shrink'))
         while fit == 'shrink' and font_size > min_size and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
             font_size -= 0.25
-        if fit != 'overflow' and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
+        if (fit != 'overflow' or defaults.get('_strict_values')) and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
+            if defaults.get('_strict_values'):
+                raise PartnershipLafPreviewError('A value does not fit. Shorten it or enlarge its document field.')
             while value and pdfmetrics.stringWidth(f'{value}...', font_name, font_size) > width_available:
                 value = value[:-1]
             value = f'{value}...' if value else ''
@@ -268,6 +274,8 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
     overlay_manifest = config.get('field_overlay_manifest') or {}
     manifest = overlay_manifest.get('fields') or {}
     defaults = overlay_manifest.get('defaults') or {}
+    if context.get('_value_contract_version') == 2:
+        defaults = {**defaults, '_strict_values': True}
     canonical_values = context.get('_canonical_values') if isinstance(context.get('_canonical_values'), dict) else {}
     date_fields = set(context.get('_date_fields') or [])
     for spec in manifest.values():

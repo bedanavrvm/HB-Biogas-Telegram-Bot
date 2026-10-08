@@ -1049,6 +1049,24 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         str(field.get('key') or '') for field in _schema_fields(application.schema_snapshot)
         if str(field.get('type') or '') == 'date'
     ] + ['application_date']
+    from origination.services.origination_value_contracts import enabled, resolve_packet_values, ValueContractError
+    if enabled(application.schema_snapshot):
+        try:
+            resolved = resolve_packet_values(application, system=context)
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
+        # Generated values are never rescued by request-based legacy defaults.
+        for key in ('approval_amount', 'amount_advanced', 'acknowledgement_amount', 'home_visit_completed_date'):
+            context[key] = ''
+        # Only declared fields and reviewed system projections are available.
+        # Do not carry legacy receipt/approval/owner aliases into v2 rendering.
+        from origination.services.origination_value_contracts import SYSTEM_KEYS
+        context = {key: value for key, value in context.items()
+                   if key in SYSTEM_KEYS or key.startswith('_')}
+        context.update(resolved['values'])
+        context['_value_availability'] = resolved['availability']
+        context['_document_values'] = resolved['documents']
+        context['_value_contract_version'] = 2
     return apply_choice_display_values(context, application.schema_snapshot)
 
 
@@ -1429,7 +1447,13 @@ def save_application_fields(
 ) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
+    from origination.services.origination_value_contracts import enabled, request_fingerprint
+    value_fingerprint = request_fingerprint([payload, requirement_evidence, custom_values, selected_fee_keys]) if enabled(application.schema_snapshot) else ''
     if request_id and application.events.filter(request_id=request_id).exists():
+        if value_fingerprint:
+            replay = application.events.get(request_id=request_id)
+            if application.officer_id != actor.pk or replay.metadata.get('value_request_sha256') != value_fingerprint:
+                raise OriginationConflict('This retry contains different field changes.')
         return application
     if application.officer_id != actor.pk:
         raise OriginationError('Only the assigned officer may edit this application.')
@@ -1440,19 +1464,32 @@ def save_application_fields(
         raise OriginationError('This application is no longer editable.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before saving again.')
+    from origination.services.origination_value_contracts import enabled, packet_contract, normalize_changes, application_input_schema, ValueContractError
+    input_schema = application.schema_snapshot
+    if enabled(application.schema_snapshot):
+        try:
+            contract = packet_contract(application)
+            input_schema = application_input_schema(application)
+            payload, _ = normalize_changes(contract, payload, application.form_payload or {})
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
     correcting = application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
     targets = correction_targets(application) if correcting else None
     if correcting and not any(targets.values()):
         raise OriginationError('This correction request has no editable targets. Ask the checker to replace it.')
-    payload = normalize_form_payload(application.schema_snapshot, payload)
-    schema_keys = {str(item.get('key') or '') for item in _schema_fields(application.schema_snapshot)}
-    if isinstance(payload, dict) and (
+    payload = normalize_form_payload(input_schema, payload)
+    schema_keys = {str(item.get('key') or '') for item in _schema_fields(input_schema)}
+    if isinstance(payload, dict) and (not enabled(application.schema_snapshot) or 'secured_assets' in schema_keys) and (
         'secured_assets' in payload
         or ({'security_1_description', 'security_1_current_value'} & set(payload) and 'secured_assets' in schema_keys)
     ):
         synchronized = synchronize_legacy_security_values(payload, application.form_payload)
-        payload = {key: value for key, value in synchronized.items() if key in schema_keys}
-    result = validate_form_payload(application.schema_snapshot, payload, require_complete=False)
+        if enabled(application.schema_snapshot):
+            payload = {**payload, **{key: value for key, value in synchronized.items() if key in schema_keys}}
+        else:
+            payload = {key: value for key, value in synchronized.items() if key in schema_keys}
+    from origination.services.origination_value_contracts import entered_payload
+    result = validate_form_payload(input_schema, entered_payload(payload, schema=input_schema) if enabled(application.schema_snapshot) else payload, require_complete=False)
     if not result.valid:
         raise OriginationError(next(iter(result.errors.values())), errors=result.errors)
     if correcting:
@@ -1548,7 +1585,7 @@ def save_application_fields(
     from core.services.location_catalog import location_snapshot, validate_location_selection
     location_keys = {
         str(field.get('type') or ''): str(field.get('key') or '')
-        for field in _schema_fields(application.schema_snapshot)
+        for field in _schema_fields(input_schema)
         if str(field.get('type') or '') in {'branch', 'county', 'sub_county'}
     }
     county_key = location_keys.get('county') or next((
@@ -1612,7 +1649,7 @@ def save_application_fields(
     refresh_document_applicability(application)
     _record_event(
         application, 'fields_saved', actor=actor, request_id=request_id, before=before,
-        metadata=(
+        metadata={**(
             {
                 'commercial_terms': commercial_validation['entered_terms'],
                 'commercial_terms_sha256': commercial_validation['entered_terms_sha256'],
@@ -1621,7 +1658,7 @@ def save_application_fields(
                 'commercial_findings': commercial_validation['findings'],
             }
             if commercial_validation else {}
-        ),
+        ), **({'value_request_sha256': value_fingerprint} if value_fingerprint else {})},
     )
     return application
 
@@ -1701,7 +1738,13 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationError('This application cannot be submitted from its current state.')
     if not _payload_has_value(application.form_payload):
         raise OriginationError('Enter the Applicant details before submitting this application.')
-    result = validate_form_payload(application.schema_snapshot, application.form_payload, require_complete=True)
+    from origination.services.origination_value_contracts import application_input_schema, ValueContractError
+    try:
+        input_schema = application_input_schema(application)
+    except ValueContractError as exc:
+        raise OriginationError(str(exc), errors=exc.errors) from exc
+    from origination.services.origination_value_contracts import enabled, entered_payload
+    result = validate_form_payload(input_schema, entered_payload(application.form_payload, schema=input_schema) if enabled(application.schema_snapshot) else application.form_payload, require_complete=True)
     if not result.valid:
         raise OriginationError(
             'Complete all required application fields before review.', errors=result.errors,
@@ -2064,6 +2107,13 @@ def prepare_review_package(
     from origination.services.origination_signing import test_signing_enabled
     from origination.services.origination_esign import esign_enabled
     frozen_context = preview_context(application)
+    if frozen_context.get('_value_contract_version') == 2:
+        from origination.services.origination_documents import document_context
+        frozen_context['_document_contexts'] = {
+            str(document.pk): {key: value for key, value in document_context(application, document).items()
+                               if key not in {'_document_contexts', '_document_values'}}
+            for document in application.packet_documents.filter(selected=True)
+        }
     frozen_context['_review_contract'] = {
         'schema_snapshot': application.schema_snapshot,
         'product_terms_snapshot': application.product_terms_snapshot,
@@ -2639,6 +2689,19 @@ def serialize_application(
         })
         from origination.services.origination_documents import serialize_packet
         payload['document_packet'] = serialize_packet(application)
+        from origination.services.origination_value_contracts import enabled, application_input_schema, packet_contract, person_fields
+        if enabled(application.schema_snapshot):
+            payload['value_contract_version'] = 2
+            if presentation != 'masked':
+                context = preview_context(application)
+                payload['form_schema'] = application_input_schema(application)
+                payload['resolved_values'] = {key: value for key, value in context.items() if not key.startswith('_')}
+                payload['value_availability'] = context.get('_value_availability', {})
+                payload['person_role_fields'] = person_fields(packet_contract(application))
+            else:
+                for document in payload['document_packet']['documents']:
+                    document['resolved_values'] = {}
+                    document['field_payload'] = {}
         package = latest_package
         if package:
             from origination.services.origination_signing import active_test_stamps, serialize_test_signing

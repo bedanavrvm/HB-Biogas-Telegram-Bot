@@ -1,9 +1,22 @@
 # Main LAF canonical map and seed operation
 
-The reviewed source set is the six PDFs under the operator-supplied `LAFS/MAIN`
+The original reviewed source set is the six PDFs under the operator-supplied `LAFS/MAIN`
 directory. PDFs are not committed. `seed_origination_main_lafs` verifies the
 exact filename, SHA-256, byte size and page count before it reads catalogue
 state. It is a dry run unless `--apply` is supplied.
+
+The renamed root-level Generic, Invoice Finance, SME/Logbook, Micro Asset and
+Biogas sources are also accepted through exact reviewed filename aliases; the
+hash, size and page checks are unchanged. The root-level Biogas filename does
+not change its existing operational catalogue role. Water Tank remains an
+additional existing seed, not one of the current eleven source PDFs.
+
+For new shared-value drafts, add `--shared-values`. This never converts an
+existing published document or application. See [value contracts](value-contracts.md)
+for migration, repair and rollout boundaries. The six new supporting sources
+use `seed_origination_support_lafs`, with dedicated references in this directory.
+They are unassigned, unpublished drafts; visual occurrence/placement review is
+still required before legal use.
 
 ```powershell
 python manage.py seed_origination_main_lafs --laf-root "C:\path\to\LAFS" --laf all --actor admin

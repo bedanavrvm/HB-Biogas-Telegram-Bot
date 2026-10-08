@@ -1,5 +1,25 @@
 # Changelog
 
+## 8 October 2026 - Canonical Origination values across documents
+
+- Added explicit version-2 field meanings and one shared application input per
+  canonical value. Document-only inputs remain on their exact document instance.
+  Existing applications, flat keys, signature rules and signed bytes stay unchanged.
+- Added allowlisted Decimal calculations and authoritative workflow projections.
+  Requested, contractual, approved and received amounts remain distinct; missing
+  later events never become fabricated zero values or today's date.
+- Validate compatible meanings, subjects, units, choices and visible table
+  capacities before combining documents. Frozen signing packages retain exact
+  per-document values; renderers reject overflow instead of dropping content.
+- Added explicit person reuse for document-defined guarantor slots, content-bound
+  retries and transactional shared/local saves. Deselecting a document retains
+  its values without blocking the remaining active form.
+- Added six unpublished supporting-LAF seed contracts, exact source fingerprints,
+  per-LAF references and drift checks. Seeding is read-only unless explicitly
+  applied; ambiguous wording and unsupported legal signers remain review tasks.
+- Added the additive Origination field-metadata migration, ADR 0042 and the
+  operator/rollout guide. Product and Document authoring remain separate.
+
 ## 8 October 2026 - Compact Complaints report controls and clear date cohorts
 
 - Retained Date Type for cards/table and added Specific Quarter with Q1–Q4/year.

@@ -106,3 +106,59 @@ test('Origination native editor action keeps section validation and input intact
   await page.evaluate(()=>{document.getElementById('document-preview-overlay').hidden=false;});
   await expect.poll(()=>page.evaluate(()=>__native.visible)).toBe(false);
 });
+
+for (const width of [320, 430]) {
+  test(`Shared Origination values are collected once and local values stay editable at ${width}px`, async ({page}, info) => {
+    await boot(page, width);
+    const id = '00000000-0000-0000-0000-000000000001';
+    const meaning = (scope, source = 'entered') => ({version:2, scope, source, subject:'applicant'});
+    const name = {key:'applicant_name', label:'Applicant name', type:'text', section_key:'applicant', value_contract:meaning('application')};
+    const note = {key:'notes', label:'Document notes', type:'textarea', value_contract:meaning('document')};
+    const interest = {key:'interest', label:'Interest amount', type:'money', source_type:'system', value_contract:meaning('application','calculated')};
+    let app = {id, revision:1, status:'draft', reference_number:'ORG-TRAINING-1', product_name:'Training product',
+      value_contract_version:2, form_payload:{applicant_name:'Synthetic Applicant', inactive_saved_value:'Retained only on server'},
+      form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[name]},
+      document_packet:{primary_ready:true, documents:[
+        {key:'primary',role:'primary',name:'Main',selected:true,applicable:true,complete:true,previewed:true,schema:{fields:[name]}},
+        {key:'support',role:'supporting',name:'Synthetic supporting document',selected:true,applicable:true,inclusion_mode:'optional',
+          complete:true,previewed:true,schema:{fields:[name,note,interest]},field_payload:{notes:'Saved local note'},
+          resolved_values:{applicant_name:'Synthetic Applicant',interest:0}}]},
+    };
+    const writes = [];
+    await page.route(`**/applications/${id}/`, route => {
+      if(route.request().method() === 'PATCH') {
+        const payload = route.request().postDataJSON();
+        writes.push(payload.form_payload);
+        app = {...app, revision:app.revision+1, form_payload:{...app.form_payload,...payload.form_payload}};
+      }
+      return route.fulfill({json:{ok:true,application:app}});
+    });
+    await page.route(`**/applications/${id}/documents/selection/`, route => route.fulfill({json:{ok:true,application:app}}));
+    await page.locator('.application-card').click();
+    await expect(page.locator('[data-field="applicant_name"]')).toHaveCount(1);
+    await page.locator('[data-field="applicant_name"]').fill('Updated Synthetic Applicant');
+    await page.locator('#wizard-next').click();
+    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes.at(-1).inactive_saved_value).toBeUndefined();
+    await page.locator('#wizard-next').click();
+    await expect(page.locator('[data-document-field="notes"]')).toBeEditable();
+    await expect(page.locator('[data-document-field="applicant_name"]')).toHaveCount(0);
+    await expect(page.locator('[data-document-field="interest"]')).toHaveCount(0);
+    await expect(page.locator('.laf-field').filter({hasText:'Interest amount'})).toContainText('0');
+    await expect(page.locator('[data-document-field="notes"]')).toHaveValue('Saved local note');
+    for(const dark of [false,true]) {
+      await page.evaluate(value => {
+        const root = document.documentElement;
+        root.dataset.miniappColorScheme = root.dataset.telegramTheme = value ? 'dark' : 'light';
+        const colors = value
+          ? {bg_color:'#17171e',secondary_bg_color:'#20202c',text_color:'#ffffff',hint_color:'#a8a8b3',section_separator_color:'#3c4542',button_color:'#6ab2f2',button_text_color:'#172d25'}
+          : {bg_color:'#ffffff',secondary_bg_color:'#f3f6f5',text_color:'#172d25',hint_color:'#65756f',section_separator_color:'#d8e2de',button_color:'#126448',button_text_color:'#ffffff'};
+        for(const [key,color] of Object.entries(colors)) root.style.setProperty('--tg-theme-' + key.replaceAll('_','-'), color);
+      }, dark);
+      await expect(page.locator('[data-document-field="notes"]')).toHaveCSS('color', dark ? 'rgb(255, 255, 255)' : 'rgb(23, 45, 37)');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({path:info.outputPath(`shared-document-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+    }
+  });
+}

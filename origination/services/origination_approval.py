@@ -98,5 +98,8 @@ def approve_completed_packet(package):
                   request_id=f'approval:{package.pk}', after={
                       'package_id': str(package.pk), 'signed_document_hash': package.signed_document_hash,
                       'approval_roles': roles, 'status': application.STATUS_APPROVED,
+                      **({'approved_facility_amount': (package.context_snapshot or {}).get('loan_amount'),
+                          'approved_package_revision': package.application_revision}
+                         if (package.context_snapshot or {}).get('_value_contract_version') == 2 else {}),
                   })
     return True

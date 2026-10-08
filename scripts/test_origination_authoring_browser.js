@@ -40,6 +40,30 @@ const path = require('node:path');
       await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
       await page.locator('#document-lending-fields').click();
       await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
+      if(mode === 'value-contract') {
+        await page.locator('#document-pdf').evaluate(element => {element.open=true;});
+        await page.locator('#document-shared-values').check();
+        await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
+        await expect(page.locator('#document-shared-values')).toBeDisabled();
+        await page.locator('#calibration-add').click();
+        await expect(page.locator('#cal-field-meaning')).toBeVisible();
+        await page.locator('#cal-field-meaning').evaluate(element => {element.open=true;});
+        for(const width of [320,390,430,1280]) {
+          await page.setViewportSize({width,height:900});
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await page.screenshot({path:path.join(output,`shared-values-field-${width}.png`),fullPage:true});
+          await page.emulateMedia({colorScheme:'dark'});
+          await page.evaluate(() => {document.documentElement.classList.add('dark');});
+          await page.screenshot({path:path.join(output,`shared-values-field-${width}-dark.png`),fullPage:true});
+          await page.emulateMedia({colorScheme:'light'});
+          await page.evaluate(() => {document.documentElement.classList.remove('dark');});
+        }
+        await page.locator('#cal-field-confirm').scrollIntoViewIfNeeded();
+        await expect(page.locator('#cal-field-confirm')).toBeVisible();
+        await page.locator('#cal-field-dismiss').click();
+        await page.setViewportSize({width:1280,height:900});
+        await page.locator('#document-pdf').evaluate(element => {element.open=false;});
+      }
       await page.locator('#document-signers').evaluate(element => {element.open=false;});
       let placements=0;
       while(await page.locator('[data-document-task]').filter({hasText:/^Place:/}).count()) {
