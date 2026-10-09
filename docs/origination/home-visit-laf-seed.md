@@ -1,5 +1,9 @@
 # Home visit: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- HOME VISIT FORM.pdf`, 1 pages, 408129 bytes.
 SHA-256: `767b5bfc09f3789aa6b53b7817be0f489fedc95835e7b2a161efea9d00f4cd0c`.
 Catalogue identity: `jawabu_home_visit`; document key: `home_visit`.

@@ -45,6 +45,7 @@ credentials.json
 !scripts/coverage_baseline.json
 !package.json
 !package-lock.json
+!origination/reference_data/countries.json
 *.pem
 *.key
 *.p12

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase
+from origination.services.origination_country_choices import country_options
 
 from origination.services.generic_jawabu_laf_seed import (
     EVIDENCE_REQUIREMENTS,
@@ -44,6 +45,10 @@ class LafSeedDocumentationContractTests(SimpleTestCase):
             self._assert_token(document, field['key'], contract=f'{contract} field')
             self._assert_token(document, field['type'], contract=f'{contract} field type')
             for option in field.get('options') or []:
+                if field['key'].endswith('_nationality_country'):
+                    self._assert_token(document, 'origination/reference_data/countries.json', contract='Country reference')
+                    self.assertEqual(field['options'], country_options())
+                    break
                 self._assert_token(
                     document,
                     option['code'],

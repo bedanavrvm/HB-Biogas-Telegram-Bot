@@ -75,6 +75,11 @@ class MainLafRegistryDocumentationTests(SimpleTestCase):
                 self.assertIn(f'`{token}`', document, f'{definition.key} does not document {token}')
             for field in definition.fields:
                 for option in field.get('options') or []:
+                    if field['key'].endswith('_nationality_country'):
+                        from origination.services.origination_country_choices import country_options
+                        self.assertIn('`origination/reference_data/countries.json`', document)
+                        self.assertEqual(field['options'], country_options())
+                        break
                     self.assertIn(f"`{option['code']}`", document)
                 for column in (field.get('structure') or {}).get('columns', []):
                     self.assertIn(f"`{column['key']}`", document)

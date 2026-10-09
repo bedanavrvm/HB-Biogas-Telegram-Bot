@@ -1,5 +1,9 @@
 # Vehicle security agreement: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- Logbook CHATTEL MORTGAGE.pdf`, 5 pages, 707552 bytes.
 SHA-256: `f72923199e9ce5060c8872ab82955cafcd4410eec22beba8192e8bdc12109d95`.
 Catalogue identity: `jawabu_chattel_security`; document key: `chattel_security`.
@@ -44,7 +48,7 @@ are not migrated. A field reference is not a certified placement coordinate.
 | `advocate_postal_address` | `text` | document / document | p5: Advocate postal address |
 | `affidavit_sworn_at` | `text` | document / document | p5: Sworn at |
 | `grantor_residence_address` | `text` | grantor / application | p5: Beneficial owner residence |
-| `grantor_nationality` | `text` | grantor / application | p5: Beneficial owner nationality |
+| `grantor_nationality_country` | `choice` | grantor / application | p5: Beneficial owner nationality; `origination/reference_data/countries.json`, initially `ke` only |
 
 ## Signers and unresolved decisions
 
@@ -85,7 +89,7 @@ signing inputs, not printed blanks.
 | `advocate_postal_address` | entered | Not applicable |
 | `affidavit_sworn_at` | entered | Not applicable |
 | `grantor_residence_address` | entered | Not applicable |
-| `grantor_nationality` | entered | Not applicable |
+| `grantor_nationality_country` | entered | Not applicable |
 
 
 ## Compatibility and validation

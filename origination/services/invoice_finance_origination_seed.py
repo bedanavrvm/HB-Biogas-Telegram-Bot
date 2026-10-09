@@ -61,14 +61,15 @@ def _field(
     options: tuple[tuple[str, str], ...] = (), validation: dict[str, Any] | None = None,
     width: str = 'half', help_text: str = '',
 ) -> dict[str, Any]:
-    return {
+    from origination.services.origination_country_choices import reviewed_spec
+    return reviewed_spec({
         'key': key, 'label': label, 'type': data_type, 'section': section,
         'required': required, 'create': create, 'category': category,
         'aliases': list(aliases), 'sensitivity': sensitivity, 'masking': masking,
         'reporting': reporting, 'source': source,
         'options': [{'code': code, 'label': option_label} for code, option_label in options],
         'validation': validation or {}, 'width': width, 'help_text': help_text,
-    }
+    })
 
 
 FIELD_SPECS = (
@@ -262,6 +263,9 @@ def _upsert_fields(*, actor) -> dict[str, OriginationDataField]:
                 item for item in desired_options
                 if item['code'] not in {str(old.get('code') or '') for old in (field.choice_options or []) if isinstance(old, dict)}
             ]
+            if field.key.endswith('_nationality_country'):
+                previous = {item['code']: item for item in field.choice_options or []}
+                desired_options = [previous.get(item['code'], item) for item in desired_options]
         before = {
             'label': field.label, 'aliases': field.aliases, 'category': field.category,
             'source_type': field.source_type, 'sensitivity': field.sensitivity,
@@ -294,6 +298,7 @@ def _upsert_fields(*, actor) -> dict[str, OriginationDataField]:
 def _form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
     schema = {
         '_revision': 1,
+        'input_rules_version': 1,
         'sections': [
             {'key': key, 'label': label, 'help_text': help_text}
             for key, label, help_text in SECTIONS
@@ -306,7 +311,8 @@ def _form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
         schema['fields'].append(_field_schema_item(fields[spec['key']], {
             'section_key': spec['section'], 'required': spec['required'],
             'width': spec['width'], 'help_text': spec['help_text'],
-            'validation': spec['validation'], 'options': spec['options'],
+            'validation': spec['validation'],
+            'options': None if spec['key'].endswith('_nationality_country') else spec['options'],
         }))
     from origination.services.origination_commercial_terms import merge_commercial_contract
     return merge_commercial_contract(schema, fields=fields)

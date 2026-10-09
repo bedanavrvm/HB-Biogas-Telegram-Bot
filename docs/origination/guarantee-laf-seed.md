@@ -1,5 +1,9 @@
 # Guarantee and undertaking: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- GUARANTOR FORM.pdf`, 1 pages, 622484 bytes.
 SHA-256: `463ae42ecc15e866f7c7edbd9052362817ed5b0e01bdf584fe8691c2c67c5901`.
 Catalogue identity: `jawabu_guarantee`; document key: `guarantee`.

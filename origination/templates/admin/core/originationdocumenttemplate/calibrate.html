@@ -132,6 +132,22 @@
         <div class="coordinate-grid"><label>Form section<select id="cal-field-section"></select></label><label>Display label<input id="cal-field-label" maxlength="160"></label></div>
         <div class="coordinate-grid"><label>Form width<select id="cal-field-width"><option value="half">Half</option><option value="full">Full</option></select></label><label class="cal-field-check"><input type="checkbox" id="cal-field-required"> Required</label></div>
         <label>Help text<input id="cal-field-help" maxlength="500"></label>
+        <details id="cal-field-rules"><summary>Input rules</summary>
+          <div id="cal-rules-number" hidden>
+            <div class="coordinate-grid"><label>Minimum<input id="cal-rule-min" inputmode="decimal"></label><label>Maximum<input id="cal-rule-max" inputmode="decimal"></label></div>
+            <div class="coordinate-grid"><label class="cal-field-check"><input type="checkbox" id="cal-rule-integer"> Whole numbers only</label><label>Decimal places<select id="cal-rule-places"><option value="">Default</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>
+          </div>
+          <div id="cal-rules-text" hidden>
+            <label>Format<select id="cal-rule-format"><option value="">Text</option><option value="email">Email</option></select></label>
+            <div class="coordinate-grid"><label>Minimum length<input id="cal-rule-min-length" type="number" min="0" step="1"></label><label>Maximum length<input id="cal-rule-max-length" type="number" min="0" step="1"></label></div>
+            <details><summary>Advanced</summary><label>Format pattern<input id="cal-rule-pattern" maxlength="200"></label></details>
+          </div>
+          <div id="cal-rules-date" hidden>
+            <div class="coordinate-grid"><label>Earliest date<input id="cal-rule-min-date" type="date"></label><label>Latest date<input id="cal-rule-max-date" type="date"></label></div>
+            <label class="cal-field-check"><input type="checkbox" id="cal-rule-no-future"> Today or earlier</label>
+          </div>
+          <label id="cal-rules-parent" hidden>County field<select id="cal-rule-parent"></select></label>
+        </details>
         <label id="cal-field-options-wrap" hidden>Product choices<textarea id="cal-field-options" placeholder="canonical_code | Display label"></textarea></label>
       </section>
       <details id="cal-field-meaning">
@@ -149,5 +165,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=23"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=24"></script>
 {% endblock %}

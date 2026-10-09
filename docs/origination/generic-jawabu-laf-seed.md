@@ -1,5 +1,9 @@
 # Generic Jawabu LAF seed reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 This document is the field-by-field reference for the reusable two-page Jawabu
 loan application form governed by
 `core/services/origination_main_laf_seeds.py`. The Python seed contract remains the

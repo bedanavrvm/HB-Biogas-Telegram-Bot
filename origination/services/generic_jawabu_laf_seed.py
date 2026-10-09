@@ -52,14 +52,15 @@ def _field(
     structure: dict[str, Any] | None = None, width: str = 'half',
     reporting: str = OriginationDataField.REPORT_UNAVAILABLE,
 ) -> dict[str, Any]:
-    return {
+    from origination.services.origination_country_choices import reviewed_spec
+    return reviewed_spec({
         'key': key, 'label': label, 'type': data_type, 'section': section,
         'required': required, 'category': category, 'source': source,
         'sensitivity': sensitivity, 'aliases': list(aliases),
         'options': [{'code': code, 'label': option_label} for code, option_label in options],
         'validation': validation or {}, 'structure': structure or {},
         'width': width, 'reporting': reporting,
-    }
+    })
 
 
 EXTERNAL_LOANS_STRUCTURE = {
@@ -298,6 +299,7 @@ def ensure_catalogue(*, actor) -> dict[str, OriginationDataField]:
 def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
     schema = {
         '_revision': 1,
+        'input_rules_version': 1,
         'identity_contract': 'applicant_v1',
         'sections': [{'key': key, 'label': label, 'help_text': help_text} for key, label, help_text in SECTIONS],
         'fields': [],
@@ -312,6 +314,8 @@ def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]
             'options': spec['options'], 'structure': spec['structure'],
         })
         if spec['type'] == 'repeating_group':
+            from origination.services.origination_country_choices import reviewed_structure
+            item['structure'] = reviewed_structure(item['structure'])
             item['repeatable_layout'] = {'column_widths': [50, 50]}
         schema['fields'].append(item)
     from origination.services.origination_commercial_terms import merge_commercial_contract

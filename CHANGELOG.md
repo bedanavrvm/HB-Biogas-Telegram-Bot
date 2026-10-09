@@ -1,5 +1,20 @@
 # Changelog
 
+## 9 October 2026 - Origination field controls and input validation
+
+- Added snapshot-owned email, integer, precision, date and dependent-location
+  rules to the document field editor and main/supporting Mini App forms.
+  Clearing a rule now removes it; shared fields intersect document limits.
+- Validate supplied draft values and repeating cells on the server as well as
+  inline in the form. Preserve existing font/spacing, incomplete drafts and
+  entered values; no redundant top error list.
+- Reviewed seed email/count/date controls and added replacement nationality
+  choices from an offline 249-country reference, initially Kenya active.
+  Re-seeding preserves activation decisions and existing application snapshots.
+- PDF choice labels now include repeating cells; preview readiness checks use
+  canonical codes rather than rendered labels. Fixed PostgreSQL row locking in
+  draft canonical-field correction.
+
 ## 9 October 2026 - Selected testing deletion across Mini Apps
 
 - Added one opt-in, active-Superuser Admin action for reviewed Origination,

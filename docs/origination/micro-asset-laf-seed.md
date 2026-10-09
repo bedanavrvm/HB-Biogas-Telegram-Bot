@@ -1,5 +1,9 @@
 # Micro Asset Main LAF seed
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Source: `Jawabu LAF-Micro Asset Loan.pdf`, two pages, SHA-256
 `da128ee33a9052531976f2cb15756dd161dc44f747daa111527184a58bc756eb`.
 Run `seed_origination_main_lafs --laf micro_asset`. Eligibility is exactly

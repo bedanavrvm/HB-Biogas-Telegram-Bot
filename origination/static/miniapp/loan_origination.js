@@ -247,7 +247,7 @@
   function escapeHtml(value) {
     const node = document.createElement('div');
     node.textContent = String(value ?? '');
-    return node.innerHTML;
+    return node.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   }
 
   function root() { return document.getElementById('origination-root'); }
@@ -1184,6 +1184,7 @@
           if (['money', 'number'].includes(columnTypes.get(input.dataset.repeatColumn))) {
             value = normalizeNumericText(value);
           }
+          if (columnTypes.get(input.dataset.repeatColumn) === 'boolean' && value !== '') value = value === 'true';
           item[input.dataset.repeatColumn] = value;
         });
         return item;
@@ -1405,19 +1406,26 @@
     return (items || []).map(item => `<option value="${escapeHtml(item.code)}"${selected?.code === item.code ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
   }
 
-  function syncOriginationSubCountySelect() {
-    const countySelect = root()?.querySelector('[data-location-type="county"]');
-    const subCountySelect = root()?.querySelector('[data-location-type="sub_county"]');
-    if (!countySelect || !subCountySelect) return;
-    const county = locationMatch(originationCounties(), countySelect.value);
-    let items = county?.sub_counties || [];
-    const branch = locationMatch(locationCatalog.branches, current?.branch);
-    const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
-    if (areas.length && !areas.includes(county?.code)) items = items.filter(item => areas.includes(item.code));
-    subCountySelect.innerHTML = `<option value="">Choose sub-county</option>${locationSelectOptions(items, '')}`;
+  function syncOriginationSubCountySelect(event) {
+    root()?.querySelectorAll('[data-location-type="sub_county"]').forEach(subCountySelect => {
+      const parentKey = JSON.parse(subCountySelect.dataset.ruleField || '{}').validation?.parent_field;
+      const countySelect = parentKey ? root()?.querySelector(`[data-field="${CSS.escape(parentKey)}"], [data-document-field="${CSS.escape(parentKey)}"]`)
+        : root()?.querySelector('[data-location-type="county"]');
+      if (!countySelect || event?.target && event.target !== countySelect) return;
+      const county = locationMatch(originationCounties(), countySelect.value);
+      let items = county?.sub_counties || [];
+      const branch = locationMatch(locationCatalog.branches, current?.branch);
+      const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+      if (areas.length && !areas.includes(county?.code)) items = items.filter(item => areas.includes(item.code));
+      subCountySelect.innerHTML = `<option value="">Choose sub-county</option>${locationSelectOptions(items, '')}`;
+    });
   }
 
-  function fieldInput(field, value, disabled) {
+  function ruleAttributes(field) {
+    return ` data-rule-field="${escapeHtml(JSON.stringify({type: field.type, validation: field.validation || {}, options: field.options || []}))}"`;
+  }
+
+  function fieldInput(field, value, disabled, documentContext = null) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(normalizeLabel(field));
     const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
@@ -1438,15 +1446,19 @@
       const counties = originationCounties();
       control = `<select data-field="${key}" data-location-type="county"${disabled ? ' disabled' : ''}><option value="">Choose county</option>${locationSelectOptions(counties, value)}</select>`;
     } else if (field.type === 'sub_county') {
-      const countyField = (current?.form_schema?.fields || []).find(item => item.type === 'county');
-      const county = locationMatch(originationCounties(), current?.form_payload?.[countyField?.key]);
+      const schemaFields = documentContext?.schema?.fields || current?.form_schema?.fields || [];
+      const parentKey = field.validation?.parent_field;
+      const countyField = schemaFields.find(item => item.type === 'county' && (!parentKey || item.key === parentKey));
+      const countyValue = root()?.querySelector(`[data-field="${CSS.escape(countyField?.key || '')}"], [data-document-field="${CSS.escape(countyField?.key || '')}"]`)?.value
+        ?? documentContext?.field_payload?.[countyField?.key] ?? current?.form_payload?.[countyField?.key];
+      const county = locationMatch(originationCounties(), countyValue);
       let items = county?.sub_counties || [];
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
       if (areas.length && !areas.includes(county?.code)) items = items.filter(item => areas.includes(item.code));
       control = `<select data-field="${key}" data-location-type="sub_county"${disabled ? ' disabled' : ''}><option value="">Choose sub-county</option>${locationSelectOptions(items, value)}</select>`;
     } else if (field.type === 'choice') {
-      const options = (field.options || []).map(option => {
+      const options = (field.options || []).filter(option => option?.active !== false).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
         const label = option && typeof option === 'object' ? (option.label || option.code) : option;
         return `<option value="${escapeHtml(code)}"${value === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
@@ -1458,31 +1470,50 @@
       const validation = field.validation || {};
       control = `<textarea data-field="${key}"${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
     } else {
-      const type = field.type === 'phone' ? 'tel' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
+      const type = field.type === 'phone' ? 'tel' : field.validation?.format === 'email' ? 'email' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
       const validation = field.validation || {};
-      const numeric = field.type === 'money' ? ` inputmode="numeric" data-numeric-input${field.source_type === 'system' ? '' : ' data-money-input'} data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+      const numeric = field.type === 'money' ? ` inputmode="numeric" data-numeric-input${field.source_type === 'system' ? '' : ' data-money-input'} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="${validation.integer ? 'numeric' : 'decimal'}" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
       const identifierRules = field.type === 'national_id'
         ? ' maxlength="9" pattern="[0-9]{1,9}" inputmode="numeric"'
         : field.type === 'phone' ? ' inputmode="tel"' : '';
       const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null && field.type !== 'national_id' ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern && field.type !== 'national_id' ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${identifierRules}` : '';
       const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
-      const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
+      const dobMax = field.key === 'applicant_dob' || validation.no_future ? (window.OriginationFieldRules?.today() || isoDate(new Date())) : '';
       const dateRules = field.type === 'date' ? `${validation.min_date || dobMin ? ` min="${escapeHtml(validation.min_date || dobMin)}"` : ''}${validation.max_date || dobMax ? ` max="${escapeHtml(validation.max_date || dobMax)}"` : ''}` : '';
       const input = field.type === 'date'
         ? nativeDateControl(`data-field="${key}"${field.required ? ' required' : ''}`, value, disabled, dateRules)
         : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${disabled ? ' disabled' : ''}>`;
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
+    if (field.type !== 'repeating_group') {
+      control = control.replace(/<(input|select|textarea)\b/g, match => match + ruleAttributes(field) + (field.required ? ' aria-required="true"' : ''));
+    }
     const identifierHelp = field.type === 'national_id' ? '' : '';
-    const helpText = [field.help_text, identifierHelp].filter(Boolean).join(' ');
+    const otherRequired = (field.required_by || []).includes('primary') ? [] : (field.required_by || []);
+    const requiredDocuments = (current.document_packet?.documents || [])
+      .filter(document => otherRequired.includes(document.key)).map(document => document.name).filter(Boolean);
+    const requirementHelp = otherRequired.length
+      ? requiredDocuments.length === 1 && requiredDocuments[0].length <= 50
+        ? `Required for ${requiredDocuments[0]}` : 'Required by a supporting document'
+      : '';
+    const helpText = [field.help_text, identifierHelp, requirementHelp].filter(Boolean).join(' ');
     const help = helpText ? `<small class="field-help">${escapeHtml(helpText)}</small>` : '';
-    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
+    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
+      ? documentContext ? correctionToggle('document_field', `${documentContext.key}.${field.key}`, `${documentContext.name}: ${field.label || field.key}`)
+        : correctionToggle('field', field.key, normalizeLabel(field)) : '';
     const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
     return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
   }
 
   function numericInputError(input) {
+    if (input?.dataset?.ruleField && input.value !== '') {
+      const field = JSON.parse(input.dataset.ruleField);
+      const value = field.type === 'boolean' ? input.value === 'true'
+        : ['money', 'number'].includes(field.type) ? normalizeNumericText(input.value) : input.value;
+      const message = window.OriginationFieldRules?.validate(field, value) || '';
+      if (message) return message;
+    }
     if (!input?.matches?.('[data-numeric-input]') || input.value === '') return '';
     const normalized = normalizeNumericText(input.value);
     if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalized)) return 'Enter a valid number.';
@@ -1497,7 +1528,7 @@
 
   function visibleDraftNumericErrors() {
     const errors = {};
-    root()?.querySelectorAll('[data-numeric-input]').forEach(input => {
+    root()?.querySelectorAll('[data-numeric-input], [data-rule-field]').forEach(input => {
       const message = numericInputError(input);
       if (!message) return;
       const wrapper = input.closest('[data-field-wrap], [data-product-wrap]');
@@ -1535,6 +1566,7 @@
         const input = root()?.querySelector(`[data-document-field="${CSS.escape(field.key)}"]`);
         const value = input?.value ?? document.field_payload?.[field.key] ?? current.form_payload?.[field.key];
         if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
+        if (!errors[field.key] && numericInputError(input)) errors[field.key] = numericInputError(input);
         if (!errors[field.key] && input && !input.checkValidity()) errors[field.key] = input.validationMessage || 'Enter a valid value.';
       });
       return errors;
@@ -1581,6 +1613,8 @@
         if (maximum && rows.length > maximum) errors[field.key] = `Add no more than ${maximum} items`;
         rows.forEach((row, index) => (structure.columns || []).forEach(column => {
           if (!errors[field.key] && column.required && !String(row?.[column.key] ?? '').trim()) errors[field.key] = `Complete ${column.label || column.key} in row ${index + 1}`;
+          const message = window.OriginationFieldRules?.validate(column, row?.[column.key]);
+          if (!errors[field.key] && message) errors[field.key] = `${message} Row ${index + 1}.`;
         }));
         const container = root()?.querySelector(`[data-main-repeatable="${CSS.escape(field.key)}"]`);
         [...(container?.querySelectorAll('[data-repeat-column]') || [])].forEach((input, index) => {
@@ -2148,20 +2182,26 @@
       const columnValue = row?.[column.key] ?? '';
       const numeric = column.type === 'money' || column.type === 'number';
       const columnDisabled = disabled || column.editable === false;
+      if (column.type === 'boolean') {
+        return `<label><span>${escapeHtml(column.label || column.key)}</span><select${ruleAttributes(column)} data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${columnValue === true ? ' selected' : ''}>Yes</option><option value="false"${columnValue === false ? ' selected' : ''}>No</option></select></label>`;
+      }
       if (column.type === 'choice') {
-        const options = (column.options || []).map(option => {
+        const options = (column.options || []).filter(option => option?.active !== false).map(option => {
           const code = option && typeof option === 'object' ? option.code : option;
           const label = option && typeof option === 'object' ? (option.label || option.code) : option;
           return `<option value="${escapeHtml(code)}"${columnValue === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
         }).join('');
-        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
+        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><select${ruleAttributes(column)} data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
       }
       if (column.type === 'date') {
-        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span>${nativeDateControl(`data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled)}</label>`;
+        const rules = column.validation || {};
+        const maximum = rules.max_date || (rules.no_future ? window.OriginationFieldRules?.today() : '');
+        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span>${nativeDateControl(`${ruleAttributes(column)} data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled, `${rules.min_date ? ` min="${escapeHtml(rules.min_date)}"` : ''}${maximum ? ` max="${escapeHtml(maximum)}"` : ''}`)}</label>`;
       }
       const validation = column.validation || {};
-      const numericRules = numeric ? ` inputmode="${column.type === 'money' ? 'numeric' : 'decimal'}" data-numeric-input${column.type === 'money' && !lockRow ? ' data-money-input' : ''} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
-      return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numericRules}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
+      const numericRules = numeric ? ` inputmode="${column.type === 'money' || validation.integer ? 'numeric' : 'decimal'}" data-numeric-input${column.type === 'money' && !lockRow ? ' data-money-input' : ''} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+      const inputType = validation.format === 'email' ? 'email' : column.type === 'phone' ? 'tel' : 'text';
+      return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><input${ruleAttributes(column)} data-repeat-column="${escapeHtml(column.key)}" type="${inputType}" value="${escapeHtml(columnValue)}"${numericRules}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
     }).join('')}</div></fieldset>`;
   }
 
@@ -2197,6 +2237,10 @@
     );
     const correctionKey = `${document.key}.${field.key}`;
     const disabled = !editable || locked || !correctionAllows('document_field', correctionKey);
+    if (field.type !== 'repeating_group') {
+      return fieldInput({...field, help_text: locked ? 'Filled from the main LAF' : field.help_text}, value, disabled, document)
+        .replaceAll('data-field="', 'data-document-field="');
+    }
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control;
     if (field.type === 'repeating_group') {
@@ -2628,7 +2672,10 @@
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       payload[container.dataset.repeatableField] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
         const item = { row_id: row.dataset.rowId || newRowId() };
-        row.querySelectorAll('[data-repeat-column]').forEach(input => { item[input.dataset.repeatColumn] = input.value.trim(); });
+        row.querySelectorAll('[data-repeat-column]').forEach(input => {
+          const column = (document?.schema?.fields || []).find(field => field.key === container.dataset.repeatableField)?.structure?.columns?.find(field => field.key === input.dataset.repeatColumn);
+          item[input.dataset.repeatColumn] = column?.type === 'boolean' && input.value !== '' ? input.value === 'true' : input.value.trim();
+        });
         return item;
       });
     });
@@ -2808,7 +2855,7 @@
       scheduleSave();
       showToast('Guarantor 2 cleared. Save this section to omit the second guarantor.');
     });
-    root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
+    root().querySelectorAll('[data-location-type="county"]').forEach(input => input.addEventListener('change', syncOriginationSubCountySelect));
     root().querySelectorAll('[data-person-link]').forEach(input => input.addEventListener('change', () => runPrimaryAction('Saving...', async () => {
       const previous = current?.form_payload?._person_role_bindings?.[input.dataset.personLink] || '';
       if (input.value && !window.confirm('Use this person’s name, ID and phone for this guarantor? They will stay linked.')) {input.value=previous; return;}

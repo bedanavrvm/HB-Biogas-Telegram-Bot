@@ -1,5 +1,9 @@
 # Invoice Finance LAF seed reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 This document is the field-by-field reference for the reviewed Invoice Finance
 application form governed by
 `core/services/origination_main_laf_seeds.py`. The Python seed contract is
@@ -100,10 +104,10 @@ must not be printed on this LAF.
 | Applicant full names | `applicant_full_name` | Applicant Details | `text` | Yes | User input; PII, partial masking; aliases: Full Names, Applicant Name, Borrower Name | None | `text` |
 | Application date | `application_date` | Applicant Details | `date` (not an input) | Yes | System-derived, internal; **Existing shared field** | ISO date | `text` |
 | Applicant ID / National ID | `applicant_id_number` | Applicant Details | `national_id` | Yes | User input; PII, partial masking; **Existing shared field** | Shared Kenyan national-ID validation | `text` |
-| Nationality | `applicant_nationality` | Applicant Details | `text` | Yes | User input; PII, partial masking | None | `text` |
+| Nationality | `applicant_nationality_country` | Applicant Details | `choice` | Yes | User input; PII, partial masking | `origination/reference_data/countries.json`; initially `ke` only | Label (Kenya), not code |
 | Gender: Male / Female | `applicant_gender` | Applicant Details | `choice` | Yes | User input; PII, reporting dimension | `male` = Male; `female` = Female | Two `checkbox` placements with `checked_when=male` and `checked_when=female` |
 | Postal address | `applicant_postal_address` | Applicant Details | `text` | No | User input; PII, partial masking; **Existing shared field** | None | `text` |
-| Email | `applicant_email` | Applicant Details | `text` | No | User input; PII, partial masking; **Existing shared field** | None | `text` |
+| Email | `applicant_email` | Applicant Details | `text` (email input) | No | User input; PII, partial masking; **Existing shared field** | Email format, maximum 254 characters | `text` |
 | Applicant telephone | `applicant_phone` | Applicant Details | `phone` | Yes | User input; PII, partial masking; **Existing shared field** | Shared Kenyan-phone normalization | `text` |
 | Residence location | `applicant_residence_address` | Applicant Details | `text` | Yes | User input; PII, partial masking; **Existing shared field** | None | `text` |
 | Housing: Rented / Owned | `applicant_housing_tenure` | Applicant Details | `choice` | Yes | User input; PII, reporting dimension | `rented` = Rented; `owned` = Owned | Two `checkbox` placements using the matching canonical code |

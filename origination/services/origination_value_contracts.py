@@ -219,7 +219,17 @@ def build_packet_contract(primary_schema: dict, documents: list[dict]) -> dict:
                             raise ValueContractError('These documents need incompatible numbers of rows.')
                         previous['structure'] = {**previous_structure, 'min_items': minimum, 'max_items': maximum}
                     previous['required'] = bool(previous.get('required') or item.get('required'))
+                    from origination.services.origination_field_rules import merge_rules
+                    try:
+                        if primary_schema.get('input_rules_version') == 1:
+                            previous['validation'] = merge_rules(previous.get('validation') or {}, item.get('validation') or {})
+                    except ValueError as exc:
+                        raise ValueContractError(str(exc)) from exc
+                    previous.setdefault('required_by', [])
+                    if item.get('required') and document_key not in previous['required_by']:
+                        previous['required_by'].append(document_key)
                 else:
+                    item['required_by'] = [document_key] if item.get('required') else []
                     destination[key] = item
             except ValueContractError as exc:
                 errors[f'{document_key}.{key}'] = str(exc)

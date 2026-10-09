@@ -64,7 +64,8 @@ def _field(
     reporting: str = OriginationDataField.REPORT_UNAVAILABLE,
     help_text: str = '',
 ) -> dict[str, Any]:
-    return {
+    from origination.services.origination_country_choices import reviewed_spec
+    return reviewed_spec({
         'key': key,
         'label': label,
         'type': data_type,
@@ -80,7 +81,7 @@ def _field(
         'width': width,
         'reporting': reporting,
         'help_text': help_text,
-    }
+    })
 
 
 def _clone(spec: dict[str, Any], section: str, *, required: bool | None = None) -> dict[str, Any]:
@@ -760,6 +761,7 @@ def build_form_schema(
 ) -> dict[str, Any]:
     schema = {
         '_revision': 1,
+        'input_rules_version': 1,
         'identity_contract': 'applicant_v1',
         'sections': [
             {'key': key, 'label': label, 'help_text': help_text}
@@ -777,11 +779,14 @@ def build_form_schema(
         item = _field_schema_item(fields[spec['key']], {
             'section_key': spec['section'], 'required': spec.get('required', False),
             'width': spec.get('width') or 'half', 'help_text': spec.get('help_text') or '',
-            'validation': spec.get('validation') or {}, 'options': spec.get('options') or [],
+            'validation': spec.get('validation') or {},
+            'options': None if spec['key'].endswith('_nationality_country') else spec.get('options') or [],
             'structure': spec.get('structure') or {},
             **({'value_contract': spec['value_contract']} if shared_values and spec.get('value_contract') else {}),
         })
         if spec['type'] == 'repeating_group':
+            from origination.services.origination_country_choices import reviewed_structure
+            item['structure'] = reviewed_structure(item['structure'])
             item['repeatable_layout'] = {'column_widths': [50, 50]}
         schema['fields'].append(item)
     if definition.document_role == 'primary':

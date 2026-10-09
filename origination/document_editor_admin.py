@@ -22,9 +22,11 @@ def editor_data(document):
         presentation = presentations.get(field['key'], {})
         field.update(attached=bool(presentation), required=bool(presentation.get('required')),
             label=presentation.get('label') or field['label'], section_key=presentation.get('section_key',''))
-        for key in ('value_contract', 'source_type', 'help_text', 'width'):
+        for key in ('value_contract', 'source_type', 'help_text', 'width', 'validation'):
             if key in presentation:
                 field[key] = presentation[key]
+        if 'options' in presentation:
+            field['choice_options'] = presentation['options']
     latest = document.configuration_revisions.order_by('-revision').first()
     return {'ok':True, 'readiness':data, 'schema_revision':data['schema_revision'], 'revision':data['revision'],
         'signers':data['signers'], 'context_keys':catalogue,

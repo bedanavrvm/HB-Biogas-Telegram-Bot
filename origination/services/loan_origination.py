@@ -154,8 +154,19 @@ def validate_product_form_contract(
             raise OriginationError(f'Unknown origination sections: {", ".join(unknown_sections)}.')
     for field in fields:
         field_type = str(field.get('type') or 'text').strip()
+        from origination.services.origination_field_rules import validate_rules
+        try:
+            validate_rules(field)
+            if field_type == 'repeating_group':
+                for column in (field.get('structure') or {}).get('columns', []):
+                    validate_rules(column)
+        except ValueError as exc:
+            raise OriginationError(f'{field.get("label") or field.get("key")}: {exc}') from exc
         if field_type not in SUPPORTED_FIELD_TYPES:
             raise OriginationError(f'Field {field.get("key")} has an unsupported control type.')
+        parent_key = (field.get('validation') or {}).get('parent_field')
+        if parent_key and not any(item.get('key') == parent_key and item.get('type') == 'county' for item in fields):
+            raise OriginationError('Choose a county field in this form for the sub-county.')
         if field_type == 'choice':
             options = field.get('options')
             if not isinstance(options, list) or not options:
@@ -479,6 +490,7 @@ def _changed_keys(before: dict[str, Any] | None, after: dict[str, Any] | None) -
 
 
 def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_complete: bool) -> ValidationResult:
+    from origination.services.origination_field_rules import value_error
     if not isinstance(payload, dict):
         return ValidationResult(False, {'form': 'Application data must be an object.'})
     errors: dict[str, str] = {}
@@ -489,13 +501,18 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         errors['form'] = f'Unknown application fields: {", ".join(unknown)}.'
     for key, field in known.items():
         value = payload.get(key)
-        if require_complete and field.get('required') and value in (None, '', []):
+        if require_complete and field.get('required') and (value in (None, '', []) or isinstance(value, str) and not value.strip()):
             errors[key] = 'This field is required.'
             continue
         if value in (None, ''):
             continue
         field_type = str(field.get('type') or 'text')
         validation = field.get('validation') if isinstance(field.get('validation'), dict) else {}
+        typed_value = _normalized_numeric_text(value) if field_type in {'money', 'number'} and not isinstance(value, bool) else value
+        typed_error = value_error(field, typed_value)
+        if typed_error:
+            errors[key] = typed_error
+            continue
         if field_type == 'repeating_group':
             if not isinstance(value, list):
                 errors[key] = 'Enter a valid list of items.'
@@ -529,11 +546,20 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                     column_key = str(column.get('key') or '')
                     cell = row.get(column_key)
                     blank_cell = cell in (None, '', [], {})
-                    if require_complete and column.get('required') and blank_cell:
+                    if require_complete and column.get('required') and (blank_cell or isinstance(cell, str) and not cell.strip()):
                         errors[key] = f'Complete {column.get("label") or column_key} in row {index + 1}.'
                         break
                     if blank_cell:
                         continue
+                    # Child cells use exactly the same scalar validation as the
+                    # main form, including choices, dates, lengths and formats.
+                    scalar = {**column, 'key': column_key}
+                    if key == 'loan_fees' and scalar.get('type') == 'money':
+                        scalar['source_type'] = 'system'
+                    child = validate_form_payload({'fields': [scalar]}, {column_key: cell}, require_complete=False)
+                    if not child.valid:
+                        errors[key] = f'{child.errors.get(column_key) or "Enter a valid value."} Row {index + 1}.'
+                        break
                     column_type = str(column.get('type') or '')
                     if column_type == 'national_id':
                         from core.services.identifiers import validate_kenyan_national_id
@@ -596,7 +622,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             errors[key] = 'Choose yes or no.'
         elif field_type in {'money', 'number'}:
             try:
-                decimal_value = Decimal(str(value))
+                decimal_value = Decimal(_normalized_numeric_text(value))
             except (InvalidOperation, TypeError, ValueError):
                 errors[key] = 'Enter a valid amount.'
             else:
@@ -695,6 +721,23 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                 suffix = key.removeprefix('guarantor_2_')
                 if suffix in required_identity_suffixes and payload.get(key) in (None, '', []):
                     errors.setdefault(key, 'Complete Guarantor 2 identity details or clear the optional guarantor.')
+    # New explicitly bound geography uses the same catalogue on UI and server.
+    # No new interpretation is imposed on legacy unbound location snapshots.
+    for field in fields:
+        parent_key = (field.get('validation') or {}).get('parent_field')
+        if not parent_key:
+            continue
+        key = field['key']
+        if payload.get(key) and not payload.get(parent_key):
+            errors[key] = 'Choose the county first.'
+            continue
+        from core.services.location_catalog import resolve_location
+        county = resolve_location(payload.get(parent_key), location_type='county')
+        sub_county = resolve_location(payload.get(key), location_type='sub_county', parent=county)
+        if payload.get(parent_key) and not county:
+            errors[parent_key] = 'Choose an available county.'
+        elif payload.get(key) and (not sub_county or sub_county.parent_id != county.pk):
+            errors[key] = 'Choose a sub-county within the selected county.'
     return ValidationResult(not errors, errors)
 
 
@@ -882,10 +925,39 @@ def _record_event(
     )
 
 
-def apply_choice_display_values(context: dict[str, Any], schema: dict[str, Any] | None) -> dict[str, Any]:
+def _location_field_keys(schema: dict[str, Any]) -> dict[str, str]:
+    """Keep explicit person locations separate; preserve unbound legacy selection."""
+    fields = _schema_fields(schema)
+    keys = {field['type']: field['key'] for field in fields
+            if field.get('type') in {'branch', 'county', 'sub_county'}}
+    bound = [field for field in fields if field.get('type') == 'sub_county'
+             and (field.get('validation') or {}).get('parent_field')]
+    if bound:
+        applicant = next((field for field in bound
+                          if (field.get('value_contract') or {}).get('subject') == 'applicant'
+                          or field.get('key', '').startswith('applicant_')), bound[0])
+        keys.update(county=applicant['validation']['parent_field'], sub_county=applicant['key'])
+    return keys
+
+
+def apply_choice_display_values(
+    context: dict[str, Any], schema: dict[str, Any] | None, *, include_repeating: bool = True,
+) -> dict[str, Any]:
     """Keep canonical choice values for conditions while exposing labels to text overlays."""
     canonical_values = dict(context.get('_canonical_values') or {})
     for field in _schema_fields(schema or {}):
+        if field.get('type') == 'repeating_group':
+            if not include_repeating:
+                continue
+            key = str(field.get('key') or '')
+            rows = context.get(key)
+            if isinstance(rows, list):
+                # Keep repeated preview calls idempotent, including child choices.
+                canonical_values.setdefault(key, json.loads(json.dumps(rows)))
+                child_schema = {'fields': (field.get('structure') or {}).get('columns', [])}
+                context[key] = [apply_choice_display_values(dict(row), child_schema)
+                                if isinstance(row, dict) else row for row in rows]
+            continue
         if str(field.get('type') or '') != 'choice':
             continue
         key = str(field.get('key') or '')
@@ -1583,11 +1655,7 @@ def save_application_fields(
                 raise OriginationError(str(exc)) from exc
     before = {'status': application.status, 'revision': application.revision}
     from core.services.location_catalog import location_snapshot, validate_location_selection
-    location_keys = {
-        str(field.get('type') or ''): str(field.get('key') or '')
-        for field in _schema_fields(input_schema)
-        if str(field.get('type') or '') in {'branch', 'county', 'sub_county'}
-    }
+    location_keys = _location_field_keys(input_schema)
     county_key = location_keys.get('county') or next((
         key for key in ('county', 'applicant_county', 'business_county')
         if str(payload.get(key) or '').strip()

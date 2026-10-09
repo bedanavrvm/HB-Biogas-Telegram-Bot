@@ -328,7 +328,7 @@ def document_context(application: LoanOriginationApplication, document: Originat
         })
         return apply_choice_display_values(context, document.schema_snapshot)
     context = {**preview_context(application), **(document.field_payload or {})}
-    apply_choice_display_values(context, document.schema_snapshot)
+    apply_choice_display_values(context, document.schema_snapshot, include_repeating=False)
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or timezone.now(),
     ).isoformat()
@@ -624,7 +624,7 @@ def _frozen_document_context(
             from origination.services.loan_origination import OriginationError
             raise OriginationError('This packet is missing its frozen document values.')
         return deepcopy(frozen)
-    apply_choice_display_values(context, document.schema_snapshot)
+    apply_choice_display_values(context, document.schema_snapshot, include_repeating=False)
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or document.application.submitted_at or document.application.created_at,
     ).isoformat()
@@ -671,7 +671,8 @@ def mark_document_previewed(application: LoanOriginationApplication, document_ke
         context = document_context(application, document)
         result = validate_form_payload(
             document.schema_snapshot or {'fields': []},
-            {str(item.get('key')): context.get(str(item.get('key'))) for item in fields},
+            {str(item.get('key')): (context.get('_canonical_values') or {}).get(
+                str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
             require_complete=True,
         )
         if not result.valid:
@@ -695,7 +696,8 @@ def mark_packet_previewed(application: LoanOriginationApplication) -> None:
         context = document_context(application, document)
         result = validate_form_payload(
             document.schema_snapshot or {'fields': []},
-            {str(item.get('key')): context.get(str(item.get('key'))) for item in fields},
+            {str(item.get('key')): (context.get('_canonical_values') or {}).get(
+                str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
             require_complete=True,
         )
         errors.update({f'{document.document_key}.{key}': value for key, value in result.errors.items()})

@@ -1,5 +1,43 @@
 # Known Gaps and Verified Workarounds
 
+## Origination field rules and country choices - 9 October 2026
+
+Main and supporting documents now share typed controls and server validation,
+including repeating cells. New reviewed schemas use active country choices,
+integer counts/years, email/date rules and explicit county/sub-county bindings.
+The document editor can remove rules and make ordinary fields optional. Shared
+fields remain required when another selected document needs them; the form
+explains this. Existing font/spacing and inline-only errors are retained.
+
+No migration or new persistent model is needed. Published canonical keys/types,
+application snapshots and frozen signed values are not rewritten. Review changes
+in an editable document version, publish it, and use that version for new
+applications. Nationality adopts replacement choice keys; old text keys survive.
+PDF placements are human-reviewed, not automatically guessed or published.
+
+Verification used synthetic fixtures and a separate local PostgreSQL 18 cluster:
+112 focused tests passed, with no skips. The additional existing template/Generic
+seed suite ran 65 tests: 60 passed, three failed and two errored. All five failures
+reproduce on unchanged HEAD `f7bb59b7`; they concern older product-owned Admin
+upload expectations and an empty supporting-document publication fixture.
+No new regression was found. All 42 focused browser checks passed, including
+320-430px forms, desktop controls, both Mini App themes, inline errors, drafts,
+supporting fields and independent person/location dropdowns. Screenshots and a
+rendered synthetic PDF were visually inspected. JavaScript syntax and the Node
+suite passed; Django checks and migration checks passed.
+
+The tracked-artifact audit still reports 19 existing logo/screenshot hash
+mismatches. The findings are identical in the unchanged HEAD archive; this
+change does not alter those assets or relax their allowlist.
+
+Evidence is under `test-results/`: `origination-field-validation-focused-final.txt`,
+`origination-field-validation-browser-final.txt`,
+`origination-field-validation-regression.txt`,
+`origination-field-validation-baseline.txt`,
+`origination-field-artifact-baseline.txt`, `origination-fields-final/` and
+`origination-field-validation/`. Full-suite, live Telegram device verification
+and deployment remain unverified. No production records or integrations changed.
+
 ## Selected testing deletion across Mini Apps - 9 October 2026
 
 Completed the shared selected-deletion action for reviewed Origination, Portal,

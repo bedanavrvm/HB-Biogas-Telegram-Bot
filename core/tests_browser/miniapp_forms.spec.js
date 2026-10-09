@@ -207,7 +207,7 @@ test('Multi-section editors open and focus the first invalid field without a sum
 
 for (const width of [320,1280]) test(`Origination editor fields retain their original scale at ${width}px`, async ({page}, info) => {
   const source=fs.readFileSync(path.join(root,'origination/static/miniapp/loan_origination.js'),'utf8');
-  const start=source.indexOf('  function fieldInput(');
+  const start=source.indexOf('  function ruleAttributes(');
   const renderer=source.slice(start,source.indexOf('  function numericInputError(',start));
   await mount(page,'<main id="origination-root"><div class="laf-grid"></div></main>');
   await page.setViewportSize({width,height:820});

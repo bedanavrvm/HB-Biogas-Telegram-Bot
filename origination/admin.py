@@ -2974,7 +2974,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             item['label'] = presentation.get('label') or item['label']
             item['width'] = presentation.get('width', 'half')
             item['help_text'] = presentation.get('help_text', '')
-            for metadata_key in ('value_contract', 'source_type'):
+            for metadata_key in ('value_contract', 'source_type', 'validation'):
                 if metadata_key in presentation:
                     item[metadata_key] = presentation[metadata_key]
             if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):

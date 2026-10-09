@@ -70,3 +70,51 @@ then activate the catalogue version. The SME template must white-out the fixed
 Each LAF has a dedicated reference containing its complete field, signer,
 evidence, validation, and render contract. `LafSeedDocumentationContractTests`
 detects drift between those references and the Python registry.
+
+## Reviewed input rules
+
+The register now contains six Main LAFs and six supporting documents (the
+original eleven plus Water Tank). Each occurrence, subject, source page and
+requiredness remains in its dedicated LAF reference above; the following rules
+supplement those mappings, rather than creating a second naming dictionary.
+
+| Meaning / examples | Mini App control and validation | PDF value |
+|---|---|---|
+| Applicant / referee email | Email keyboard; optional blank allowed; valid email and at most 254 characters | Entered address |
+| Children, dependants, cows and employee counts | Numeric keyboard; non-negative whole numbers | Whole number, including zero |
+| Asset purchase / manufacture year | Whole number; retain the reviewed 1900–2200 limits where configured | Year, not a date |
+| Years resident / years known / operating duration | Decimal number, not a forced integer | Entered duration |
+| Applicant birth date | Date picker, today or earlier; existing supported age-range guard remains | Day/month/year |
+| Application / agreement / repayment dates | Separate date fields; configured bounds only, no universal past-date rule | Day/month/year; signed dates remain signer events |
+| Nationality | `applicant_nationality_country` / `grantor_nationality_country`: active country dropdown | Country label, not ISO code |
+| National IDs, phones, account, chassis and registration numbers | Identity text or phone controls; preserve leading zeroes and existing Kenyan ID/phone checks | Stored identifier |
+| Money, fees, rates and totals | Decimal server arithmetic, bounded amounts/rates; entered KES amounts retain the existing whole-KES rule | Governed money formatting; zero and negative calculated surplus remain visible |
+| Repeating people, obligations and assets | Each child receives its scalar format/limits; bounded rows and independent row IDs | Child labels / values in calibrated rows |
+| County / sub-county | Existing active location catalogue; `parent_field` binds the correct county when there are several | Human-readable location name |
+| Yes / No | Choice control; false is a value, not missing | Yes / No, not True / False |
+| Calculated amounts / later workflow outcomes | Read-only; no new editable approval/disbursement facts | Generated only when the existing source provides them |
+
+Countries are an offline reviewed ISO 3166 reference from
+[RIPE NCC](https://www.ripe.net/community/internet-governance/internet-technical-community/the-rir-system/list-of-country-codes-and-rirs/),
+in `origination/reference_data/countries.json`. All 249 entries are seeded;
+only Kenya (`ke`) starts active. Re-seeding preserves Admin activation choices.
+New document drafts capture the currently active codes and labels. Existing
+published documents retain their captured choices until explicitly updated.
+
+The original `applicant_nationality` and `grantor_nationality` text keys remain
+valid for historical documents; they are not changed in place. Adopt the new
+choice fields in an editable document version and review its placements before
+publishing. Ambiguous paper labels, optional signatures and legal terms remain
+human-owned decisions. No new lending eligibility or age policy is inferred.
+
+Input rules are stored in the published schema: `format`, `integer`,
+`decimal_places`, `min`, `max`, `min_length`, `max_length`, `pattern`,
+`min_date`, `max_date`, `no_future`, and `parent_field`. The same rules drive
+the main and supporting forms and the server, including repeating cells.
+Clearing a rule in the editor removes it. Incomplete drafts are allowed, but
+supplied invalid values cannot be committed. Errors are inline; input remains.
+For shared fields, requiredness is OR and limits intersect across selected
+documents in newly reviewed `input_rules_version: 1` schemas. Legacy applications
+keep their previous shared-rule resolution. Incompatible bounds/formats stop
+publication or packet selection. Reviewed repeat-cell rules supplement new
+document schemas without modifying the canonical row definition.

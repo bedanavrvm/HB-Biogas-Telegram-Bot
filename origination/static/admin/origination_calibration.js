@@ -1082,6 +1082,7 @@
     $('cal-field-presentation').hidden = item.source_type === 'system';
     $('cal-field-options-wrap').hidden = item.type !== 'choice';
     $('cal-field-options').value = fieldOptionLines(item);
+    populateInputRules(item);
     const meaning = Object.keys(item.value_contract || {}).length ? item.value_contract : item.suggested_value_contract || {};
     $('cal-meaning-definition').value = meaning.definition || item.help_text || item.label || '';
     $('cal-meaning-subject').value = meaning.subject || 'application';
@@ -1149,6 +1150,41 @@
 
   function closeFieldDialog() { $('calibration-field-dialog').close(); }
 
+  const inputRuleIds = {min:'min', max:'max', min_length:'min-length', max_length:'max-length',
+    pattern:'pattern', format:'format', decimal_places:'places', min_date:'min-date', max_date:'max-date', parent_field:'parent'};
+  function populateInputRules(item) {
+    if (!$('cal-field-rules')) return;
+    const rules = item.validation || {};
+    const numeric = ['number', 'money'].includes(item.type);
+    const text = ['text', 'textarea'].includes(item.type);
+    $('cal-rules-number').hidden = !numeric;
+    $('cal-rules-text').hidden = !text;
+    $('cal-rules-date').hidden = item.type !== 'date';
+    $('cal-rules-parent').hidden = item.type !== 'sub_county';
+    $('cal-rule-format').disabled = item.type !== 'text';
+    $('cal-field-rules').hidden = !numeric && !text && !['date', 'sub_county'].includes(item.type);
+    $('cal-rule-parent').innerHTML = '<option value="">Default county</option>' + contextKeys.filter(field => field.attached && field.type === 'county')
+      .map(field => `<option value="${escapeHtml(field.key)}">${escapeHtml(field.label)}</option>`).join('');
+    Object.entries(inputRuleIds).forEach(([key, id]) => { $('cal-rule-' + id).value = rules[key] ?? ''; });
+    $('cal-rule-integer').checked = rules.integer === true;
+    $('cal-rule-no-future').checked = rules.no_future === true;
+  }
+
+  function collectInputRules(type, existing) {
+    const rules = {...(existing || {})};
+    if (!$('cal-field-rules')) return rules;
+    const allowed = ['number', 'money'].includes(type) ? ['min','max','decimal_places','integer']
+      : type === 'date' ? ['min_date','max_date','no_future']
+      : type === 'sub_county' ? ['parent_field'] : ['text','textarea'].includes(type) ? ['min_length','max_length','pattern','format'] : [];
+    allowed.forEach(key => {
+      const control = $('cal-rule-' + (inputRuleIds[key] || (key === 'no_future' ? 'no-future' : key)));
+      delete rules[key];
+      if (control.type === 'checkbox') { if (control.checked) rules[key] = true; }
+      else if (control.value !== '') rules[key] = ['decimal_places','min_length','max_length'].includes(key) ? Number(control.value) : control.value;
+    });
+    return rules;
+  }
+
   function parseProductOptions(value) {
     return String(value || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean).map(item => {
       const [code, ...label] = item.split('|');
@@ -1171,6 +1207,7 @@
         required: $('cal-field-required').checked,
         width: $('cal-field-width').value,
         help_text: $('cal-field-help').value,
+        validation: collectInputRules(type, selected?.validation),
         options: type === 'choice' ? parseProductOptions($('cal-field-options').value) : [],
       },
     };
@@ -1337,6 +1374,7 @@
   $('cal-field-custom').onchange = event => {
     $('cal-field-create').hidden = !event.target.checked;
     if (event.target.checked) {
+      populateInputRules({type:$('cal-new-type').value});
       $('cal-meaning-definition').value = '';
       $('cal-meaning-subject').value = 'application';
       $('cal-meaning-scope').value = 'application';
@@ -1362,6 +1400,7 @@
   };
   $('cal-new-key').oninput = () => { $('cal-new-key').dataset.touched = '1'; };
   $('cal-new-type').onchange = event => {
+    populateInputRules({type:event.target.value});
     const choice = event.target.value === 'choice';
     $('cal-new-options-wrap').hidden = !choice;
     $('cal-field-options-wrap').hidden = !choice;

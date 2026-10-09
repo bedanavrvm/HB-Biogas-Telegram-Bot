@@ -785,6 +785,29 @@ and safe rollback conditions are in [ADR 0044](adr/0044-selected-miniapp-testing
 The older Products-only permanent-delete action keeps its independent
 `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` gate and narrower policy.
 
+## Change a published field or make it optional
+
+1. Open the document in **Documents**, then **Edit** to create an editable
+   version. Choose a shared update or a copy for one product when asked.
+2. Open **Fields**, select the field and clear **Required** if it is genuinely
+   optional. Use **Input rules** for email format, lengths, numeric limits,
+   whole numbers, date bounds or the sub-county's county field. Clear a rule
+   to remove it, then **Save field**.
+3. Preview realistic values and publish the document. Confirm the product's
+   document choices use this version before creating a new application.
+
+Existing applications, including drafts, keep their captured field rules and
+signing evidence. Applicant identity and contractual requirements remain
+protected. A shared field stays required if another selected document requires
+it. A published field's canonical key/type cannot be changed in place; add the
+reviewed replacement to the editable document and update its placements.
+
+For nationality, choose `applicant_nationality_country` or
+`grantor_nationality_country`. The Data fields Admin contains all countries in
+**Choice options**, initially only Kenya active. Activate another option there,
+then include it in the new document draft's choices and publish. Re-seeding
+does not reset these activation decisions.
+
 ## Production acceptance checklist
 
 - Create a new test application rather than reusing one created before the final

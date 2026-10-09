@@ -1,5 +1,9 @@
 # Vehicle transfer: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- Logbook TRANSFER FORM.pdf`, 2 pages, 110836 bytes.
 SHA-256: `6ac34912b4220bbc17f134509af90dbff6cd1bdeaac0220356001295328779cd`.
 Catalogue identity: `jawabu_vehicle_transfer`; document key: `vehicle_transfer`.

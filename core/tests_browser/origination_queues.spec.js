@@ -8,13 +8,13 @@ const html = fs.readFileSync(path.join(root, 'origination/templates/loan_origina
 const options = [{value:'draft',label:'Draft'}, {value:'correction_required',label:'Changes requested'},
   {value:'signing_pending',label:'Awaiting signatures'}, {value:'approved',label:'Approved'}];
 
-async function boot(page, width, empty = false, native = false) {
+async function boot(page, width, empty = false, native = false, locationCatalog = {}) {
   await page.setViewportSize({width,height:850});
   await page.route('http://127.0.0.1:8123/**', route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/') return route.fulfill({contentType:'text/html',body:html});
     if (url.pathname === '/static/miniapp/jawabu-logo.png') return route.fulfill({contentType:'image/png',body:fs.readFileSync(path.join(root,'core/static/miniapp/jawabu-logo.png'))});
-    if (url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],capabilities:{can_create:true,user_id:1}}});
+    if (url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],location_catalog:locationCatalog,capabilities:{can_create:true,user_id:1}}});
     if (url.pathname.endsWith('/applications/')) {
       const filtered = url.searchParams.has('status') || url.searchParams.has('q');
       const app = {id:'00000000-0000-0000-0000-000000000001',applicant_summary:{name:'Synthetic applicant with a long name'},
@@ -37,6 +37,7 @@ async function boot(page, width, empty = false, native = false) {
   }
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/utils.js')});
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/secure_media_viewer.js')});
+  await page.addScriptTag({path:path.join(root,'origination/static/miniapp/origination_field_rules.js')});
   await page.addScriptTag({path:path.join(root,'origination/static/miniapp/loan_origination.js')});
   await expect(page.locator('.queue-tab')).toHaveCount(2);
 }
@@ -108,6 +109,55 @@ test('Origination native editor action keeps section validation and input intact
 });
 
 for (const width of [320, 430]) {
+  test(`Typed field validation preserves input and mobile layout at ${width}px`, async ({page}, info) => {
+    await boot(page, width);
+    const id = '00000000-0000-0000-0000-000000000001';
+    let writes = 0;
+    let app = {id, revision:1, status:'draft', product_name:'Training product', reference_number:'ORG-TRAINING-1',
+      form_payload:{nationality:'ke', consent:false, children:0, people:[{row_id:'00000000-0000-0000-0000-000000000002',active:false}]},
+      form_schema:{sections:[{key:'applicant',label:'Applicant'}], fields:[
+        {key:'email',label:'Email',type:'text',validation:{format:'email'},section_key:'applicant'},
+        {key:'children',label:'Children',type:'number',validation:{integer:true,min:0},section_key:'applicant'},
+        {key:'nationality',label:'Nationality',type:'choice',required:true,required_by:['support'],section_key:'applicant',options:[{code:'ke',label:'Kenya'},{code:'ug',label:'Uganda',active:false}]},
+        {key:'birth_date',label:'Date of birth',type:'date',validation:{no_future:true},section_key:'applicant'},
+        {key:'consent',label:'Consent',type:'boolean',section_key:'applicant'},
+        {key:'people',label:'Related people',type:'repeating_group',section_key:'applicant',structure:{max_items:2,columns:[{key:'active',label:'Active',type:'boolean'}]}},
+      ]}};
+    await page.route(`**/applications/${id}/`, route => {
+      if (route.request().method() === 'PATCH') {writes++; app = {...app,revision:app.revision+1,form_payload:route.request().postDataJSON().form_payload};}
+      return route.fulfill({json:{ok:true,application:app}});
+    });
+    await page.locator('.application-card').click();
+    const email = page.locator('[data-field=email]'), children = page.locator('[data-field=children]');
+    await expect(email).toHaveAttribute('type','email');
+    await expect(children).toHaveAttribute('inputmode','numeric');
+    await expect(page.locator('[data-field=nationality] option')).toHaveCount(2);
+    await expect(page.getByText('Required by a supporting document',{exact:true})).toBeVisible();
+    await expect(page.locator('[data-field=consent]')).toHaveValue('false');
+    await expect(page.locator('[data-repeat-column=active]')).toHaveValue('false');
+    await expect(page.locator('[data-field=birth_date]')).toHaveAttribute('max', /\d{4}-\d{2}-\d{2}/);
+    await expect(page.locator('[aria-invalid=true]')).toHaveCount(0);
+    await email.fill('bad');
+    await children.fill('1.5');
+    await page.locator('#wizard-next').click();
+    await expect(email).toHaveAttribute('aria-invalid','true');
+    await expect(children).toHaveAttribute('aria-invalid','true');
+    expect(writes).toBe(0);
+    await expect(email).toHaveValue('bad');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`field-rules-${width}.png`),fullPage:true});
+    await email.fill('synthetic@example.test');
+    await children.fill('0');
+    await page.locator('[data-field=birth_date]').fill('2000-01-01');
+    await expect(email).not.toHaveAttribute('aria-invalid','true');
+    await expect(children).not.toHaveAttribute('aria-invalid','true');
+    await page.locator('#wizard-next').click();
+    await expect.poll(() => writes).toBeGreaterThan(0);
+    expect(app.form_payload.people[0].active).toBe(false);
+    expect(app.form_payload.nationality).toBe('ke');
+    expect(app.form_payload.birth_date).toBe('2000-01-01');
+    await expect(page.locator('.miniapp-form-errors')).toHaveCount(0);
+  });
   test(`Shared Origination values are collected once and local values stay editable at ${width}px`, async ({page}, info) => {
     await boot(page, width);
     const id = '00000000-0000-0000-0000-000000000001';
@@ -162,3 +212,27 @@ for (const width of [320, 430]) {
     }
   });
 }
+
+test('Each sub-county uses its own county and preserves the other person', async ({page}) => {
+  const catalogue = {counties:[{code:'COUNTY-A',name:'Synthetic A',sub_counties:[{code:'AREA-A',name:'Area A'}]},
+    {code:'COUNTY-B',name:'Synthetic B',sub_counties:[{code:'AREA-B',name:'Area B'}]}]};
+  await boot(page,320,false,false,catalogue);
+  const id = '00000000-0000-0000-0000-000000000001';
+  const app = {id,revision:1,status:'draft',form_payload:{applicant_county:'COUNTY-A',applicant_area:'AREA-A',
+    guarantor_county:'COUNTY-B',guarantor_area:'AREA-B'},form_schema:{sections:[{key:'people',label:'People'}],fields:[
+      {key:'applicant_county',label:'Applicant county',type:'county',section_key:'people'},
+      {key:'applicant_area',label:'Applicant area',type:'sub_county',section_key:'people',validation:{parent_field:'applicant_county'}},
+      {key:'guarantor_county',label:'Guarantor county',type:'county',section_key:'people'},
+      {key:'guarantor_area',label:'Guarantor area',type:'sub_county',section_key:'people',validation:{parent_field:'guarantor_county'}},
+    ]}};
+  await page.route(`**/applications/${id}/`,route => route.fulfill({json:{ok:true,application:app}}));
+  await page.locator('.application-card').click();
+  const applicantArea = page.locator('[data-field=applicant_area]');
+  const guarantorArea = page.locator('[data-field=guarantor_area]');
+  await expect(applicantArea).toHaveValue('AREA-A');
+  await expect(guarantorArea).toHaveValue('AREA-B');
+  await page.locator('[data-field=applicant_county]').selectOption('COUNTY-B');
+  await expect(applicantArea).toHaveValue('');
+  await expect(applicantArea.locator('option')).toHaveText(['Choose sub-county','Area B']);
+  await expect(guarantorArea).toHaveValue('AREA-B');
+});

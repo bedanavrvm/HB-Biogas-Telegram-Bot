@@ -197,7 +197,9 @@ def correct_draft_data_field_type(
         product_count += 1
 
     template_count = 0
-    for template in OriginationDocumentTemplate.objects.select_for_update().filter(
+    # Default document ordering joins the nullable product. Lock only the
+    # document row; PostgreSQL cannot lock the nullable side of that join.
+    for template in OriginationDocumentTemplate.objects.select_for_update(of=('self',)).filter(
         status__in=[
             OriginationDocumentTemplate.STATUS_READY,
             OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
@@ -584,6 +586,8 @@ def _product_choice_options(data_field: OriginationDataField, requested: Any) ->
         code = str(raw.get('code') if isinstance(raw, dict) else raw).strip()
         if code not in canonical:
             raise OriginationFieldError(f'Unknown canonical choice code: {code}.')
+        if not canonical[code].get('active', True):
+            raise OriginationFieldError('Choose an active option for this document.')
         if code in seen:
             raise OriginationFieldError(f'Duplicate product choice code: {code}.')
         seen.add(code)
@@ -608,9 +612,10 @@ def _field_schema_item(data_field: OriginationDataField, presentation: dict[str,
     validation = presentation.get('validation') or {}
     if not isinstance(validation, dict):
         raise OriginationFieldError('Product field validation must be an object.')
+    from origination.services.origination_field_rules import RULE_KEYS, validate_rules
     allowed_validation = {
         key: value for key, value in validation.items()
-        if key in {'min', 'max', 'min_length', 'max_length', 'pattern', 'min_date', 'max_date'}
+        if key in RULE_KEYS
         and value not in (None, '')
     }
     item = {
@@ -638,6 +643,10 @@ def _field_schema_item(data_field: OriginationDataField, presentation: dict[str,
         item['options'] = _product_choice_options(data_field, presentation.get('options'))
     else:
         item['options'] = []
+    try:
+        validate_rules(item)
+    except ValueError as exc:
+        raise OriginationFieldError(str(exc)) from exc
     return item
 
 
@@ -677,6 +686,7 @@ def attach_data_field(
         raise OriginationFieldError('Choose an existing product-form section.')
     presentation = {**presentation, 'section_key': section_key}
     schema['fields'].append(_field_schema_item(data_field, presentation))
+    schema['input_rules_version'] = 1
     schema['_revision'] = actual_revision + 1
     product.form_schema = schema
     product.save(update_fields=['form_schema', 'updated_at'])
@@ -730,6 +740,7 @@ def attach_data_field_to_template(
     schema['sections'] = sections
     presentation = {**presentation, 'section_key': str(presentation.get('section_key') or sections[0]['key'])}
     schema['fields'].append(_field_schema_item(data_field, presentation))
+    schema['input_rules_version'] = 1
     schema['_revision'] = actual_revision + 1
     template.form_schema = schema
     template.save(update_fields=['form_schema', 'updated_at'])
@@ -774,7 +785,10 @@ def edit_template_field(*, template, key, action, presentation, actor, expected_
         if not canonical:
             raise OriginationFieldError('Resolve this field in the canonical catalogue before editing it.')
         replacement = _field_schema_item(canonical, {**original, **presentation})
-        replacement['validation'] = {**original.get('validation', {}), **replacement.get('validation', {})}
+        # A supplied rules object is a replacement, including an empty object.
+        # Merging would bring back limits the editor deliberately removed.
+        if 'validation' not in presentation:
+            replacement['validation'] = deepcopy(original.get('validation', {}))
         fields[index] = {**original, **replacement}
     elif action == 'remove':
         for field in fields:
@@ -792,6 +806,7 @@ def edit_template_field(*, template, key, action, presentation, actor, expected_
     else:
         raise OriginationFieldError('Choose a supported field action.')
     schema['_revision'] = revision + 1
+    schema['input_rules_version'] = 1
     template.form_schema = schema
     template.save(update_fields=['form_schema', 'updated_at'])
     if action == 'remove':

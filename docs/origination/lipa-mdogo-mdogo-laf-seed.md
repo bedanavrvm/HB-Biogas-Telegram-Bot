@@ -1,5 +1,9 @@
 # Lipa Mdogo Mdogo Biogas Main LAF seed
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Source: `Jawabu LAF-Lipa Mdogo Mdogo NEW (2).pdf`, two pages, reviewed SHA-256
 `5e5ca308bd9e5f3d44f15af1a200e28bd3cf0b688312a24390835dcfd26f9b13`.
 Run `seed_origination_main_lafs --laf lipa_mdogo_mdogo`; eligibility is exactly

@@ -223,6 +223,7 @@ Key modules:
 - `origination_setup.py` — derived guided-product-setup readiness, dependency hashes, optimistic-concurrency contracts, signed calibration returns, and append-only step evidence
 - `origination_document_catalogue.py` — product allowlists, contract-equivalent Main LAF resolution, catalogue readiness, selection digests, and cross-document canonical-field compatibility
 - `origination/services/origination_value_contracts.py` — version-2 shared/local value compilation, allowlisted projections, explicit person reuse, visible row capacities and pure frozen-value boundaries; read ADR 0042 before changing it.
+- `origination/services/origination_field_rules.py` and `origination_country_choices.py` — snapshot-owned input rules and offline active-country seed choices; read `docs/origination/main-laf-canonical-map.md` before changing field types, rule merging or country activation. Existing application snapshots remain unchanged.
 - `origination/services/origination_support_laf_seeds.py` — exact blank supporting-PDF references and unpublished seed contracts; native legal roles and ambiguous paper fields require explicit review, never inferred authority.
 - `origination/services/origination_laf_bootstrap.py` — optional one-time release bootstrap; private reviewed assets, durable lease/completion marker, no assignment or publication
 - `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates

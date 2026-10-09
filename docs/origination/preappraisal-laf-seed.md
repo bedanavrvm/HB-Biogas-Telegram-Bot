@@ -1,5 +1,9 @@
 # Pre-appraisal: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- PRE-APPRAISAL FORM.pdf`, 1 pages, 291667 bytes.
 SHA-256: `e8652cabd9bde1e5bb995d48c38c04460164fd928f51e8630ac1e742082c117e`.
 Catalogue identity: `jawabu_preappraisal`; document key: `preappraisal`.

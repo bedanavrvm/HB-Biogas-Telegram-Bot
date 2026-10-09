@@ -1,5 +1,9 @@
 # Logbook offer: supporting-document reference
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Reviewed blank source: `SUPPORT LAF- Logbook Offer Letter .pdf`, 4 pages, 622272 bytes.
 SHA-256: `a95635785bfd8b253c6b4196c399626d1dff82a20c0b6bba48d46bd72b8a82bf`.
 Catalogue identity: `jawabu_logbook_offer`; document key: `logbook_offer`.

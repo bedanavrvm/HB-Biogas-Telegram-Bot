@@ -1,5 +1,9 @@
 # Water Tank Main LAF seed
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Source: `Jawabu LAF-Water Tank.pdf`, two pages, SHA-256
 `0ed3bb9de5f0635b99f62356e23bed704913424c5b4c44c80cc79ff37283bae8`.
 Run `seed_origination_main_lafs --laf water_tank`. Eligibility is exactly

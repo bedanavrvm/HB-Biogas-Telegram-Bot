@@ -1,5 +1,9 @@
 # SME-LOGBOOK Main LAF seed
 
+The [reviewed input rules](main-laf-canonical-map.md#reviewed-input-rules)
+apply when preparing new drafts: email format, whole-number counts and asset
+years, and birth-date limits. Existing application snapshots stay unchanged.
+
 Source: `SME-LOGBOOK LAF.pdf`, four pages, SHA-256
 `4e4a95c814e1ac64058e39510658f86f3bbad770b5ab5961a0f782167a697416`.
 Run `seed_origination_main_lafs --laf sme_logbook`. Eligibility is strictly
