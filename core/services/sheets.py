@@ -46,6 +46,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from django.conf import settings
 from core.services.sheet_schema import SheetSchema
+from core.services.miniapp_deletion_sheets import guarded_publication
 
 logger = logging.getLogger(__name__)
 
@@ -1372,6 +1373,7 @@ def get_sheets_service(
     )
 
 
+@guarded_publication
 def append_parsed_message_to_sheet(
     parsed_message,
     sheet_id: str = None,
@@ -1438,6 +1440,7 @@ def append_parsed_message_to_sheet(
     return success
 
 
+@guarded_publication
 def batch_append_messages(
     parsed_messages: list,
     sheet_id: str = None,

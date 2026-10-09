@@ -18,8 +18,10 @@ Open a product to see three cards with **Not started**, **Needs attention**, or
 - **Details:** name, available branches and optional descriptive information.
 - **Lending terms:** amount limits, tenor, interest and repayment. Fees and
   additional requirements stay collapsed until needed.
-- **Documents:** select eligible published Main LAFs and optional supporting
-  documents. Open a document to author it in the separate editor.
+- **Documents:** choose published Main LAFs and optional supporting documents
+  from the independent catalogue, including documents not yet assigned to a
+  product. Selecting one explicitly connects it to this product after the
+  server checks compatibility. Open a document to author it separately.
 
 Changes autosave after a short pause. **Saved** means the server confirmed the
 save. If saving fails, entered values remain; fix the inline error or tap the
@@ -34,6 +36,13 @@ The sticky footer shows how many tasks remain and one **Publish** button.
 - Existing consent and final-approver checks remain mandatory.
 - Incomplete drafts can be saved and reopened.
 - Publishing a product never publishes an unfinished PDF.
+
+A published document keeps its PDF, signers and alignment when attached; no
+copy, recalibration or second document publication is needed. The selected
+document cards update as soon as autosave succeeds. **No products assigned**
+in the catalogue means the published document has not been connected to any
+product yet; it does not mean its publication failed. An empty product list
+never makes the document available to every product automatically.
 
 ## Document: PDF → Signers → Fields → Placement → Preview
 
@@ -133,11 +142,15 @@ The local synthetic browser journey exercises:
 - required field/signature placement through the server to-do list;
 - successful filled-PDF rendering and document publication;
 - selecting that document and publishing a draft Product;
+- attaching an already published, unassigned LAF without copying or republishing
+  it, including immediate autosave feedback and refresh;
 - shared-document editing and explicit last-Main-LAF withdrawal;
 - 320, 390, 430 and 1280px layouts, including light/dark Product screens.
 
 Evidence is under `test-results/origination-authoring/` and
-`test-results/origination-maintenance-live/`, including Playwright traces.
+`test-results/origination-maintenance-live/`, including Playwright traces. The
+published-document attachment screenshots are in
+`test-results/origination-attachment-live/`.
 The baseline recording began at a synthetic **post-upload editor checkpoint**:
 zero signers and one add-signature dead end. It was not a complete recording of
 the former upload flow. The replacement run starts with the actual upload form

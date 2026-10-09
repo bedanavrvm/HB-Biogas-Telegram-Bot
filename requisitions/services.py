@@ -56,7 +56,7 @@ def order_for_farmer(farmer, *, lock=False):
 
 
 def proposed_number(sequence, *, excluding_batch=None):
-    released = sequence.number_claims.filter(batch__isnull=True).order_by('number').first()
+    released = sequence.number_claims.filter(batch__isnull=True, retired=False).order_by('number').first()
     if released:
         return released.number
     # An IT sequence adjustment may place the counter on an occupied slot.
@@ -84,7 +84,7 @@ def claim_number(sequence, batch, *, actor=None, request_id=''):
     if batch.order_number != order_number_for_partner(sequence.partner, number):
         raise ValueError('The proposed order number changed. Preview again.')
     claim, _ = OrderNumberClaim.objects.get_or_create(sequence=sequence, number=number)
-    if claim.batch_id:
+    if claim.batch_id or claim.retired:
         raise ValueError('This order number is already in use. Preview again.')
     claim.batch = batch
     claim.save(update_fields=['batch'])

@@ -4,7 +4,7 @@ from django.apps import apps
 from django.contrib import admin
 from django.contrib.admin.sites import AlreadyRegistered
 from django.db import models
-from unfold.admin import ModelAdmin
+from core.admin_deletion import TestingModelAdmin as ModelAdmin
 
 
 HEAVY_LIST_DISPLAY_FIELDS = (

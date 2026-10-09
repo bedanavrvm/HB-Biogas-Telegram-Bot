@@ -1,5 +1,35 @@
 # Changelog
 
+## 9 October 2026 - Selected testing deletion across Mini Apps
+
+- Added one opt-in, active-Superuser Admin action for reviewed Origination,
+  Portal, Complaints, TAT and SPIN records. A signed impact confirmation lists
+  linked deletion and preserved history; no manual audit note is required.
+- Configuration can retain operational history or explicitly remove its listed
+  consumers. Selected evidence includes its owning workspace; unknown links
+  block deletion. Stale confirmations roll back and duplicate requests replay.
+- Preserved shared identities, access grants, raw ingestion, independent audit
+  evidence and Drive files. Pending publication is cancelled by exact source;
+  stale loaded cases cannot restore removed Sheet rows.
+- Sheet cleanup starts after commit in a bounded background task, with durable
+  status and Superuser retry in Integration operations. No cron was added.
+- Added retired finance-number claims and two migrations so permanent deletion
+  cannot recycle order/payment numbers, including after a counter adjustment.
+  Documented the deletion and rollback boundaries in ADR 0044.
+
+## 9 October 2026 - Published LAF attachment in guided product setup
+
+- Published independent LAFs now appear in the product's document chooser even
+  before product assignment. Explicit attachment validates compatibility and
+  retains the exact published PDF/alignment instead of creating an unpublished
+  copy. Existing applications and signatures remain unchanged.
+- Catalogue rows now say "No products assigned" when that is the missing step.
+  Selected-document cards update immediately after confirmed autosave, using the
+  same server-rendered layout as the initial page.
+- Added rollback, permission, stale-selection, retry and concurrent-attachment
+  regression tests plus a synthetic real-browser Admin journey and mobile
+  screenshot checks. No schema or environment change is required for this fix.
+
 ## 9 October 2026 - Origination testing, one-time LAF bootstrap and product deletion
 
 - Release checks retain setup warnings without blocking safe deployment. Verified

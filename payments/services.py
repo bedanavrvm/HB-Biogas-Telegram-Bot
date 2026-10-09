@@ -196,12 +196,13 @@ def _allocate_payment_number_for_generation(batch: PaymentBatch, *, actor=None, 
         group_configuration=batch.group_configuration,
         defaults={'next_number': 1, 'updated_by': actor},
     )
-    released = sequence.number_claims.filter(batch__isnull=True).order_by('number').first()
+    released = sequence.number_claims.filter(batch__isnull=True, retired=False).order_by('number').first()
     number = released.number if released else sequence.next_number
-    while not released and PaymentBatch.objects.filter(group_configuration=batch.group_configuration, payment_number=number).exists():
+    while not released and (sequence.number_claims.filter(number=number).exists() or
+                           PaymentBatch.objects.filter(group_configuration=batch.group_configuration, payment_number=number).exists()):
         number += 1
     claim, _ = PaymentNumberClaim.objects.get_or_create(sequence=sequence, number=number)
-    if claim.batch_id:
+    if claim.batch_id or claim.retired:
         raise PaymentBatchError('This payment number is already in use. Refresh and retry.')
     claim.batch = batch
     claim.save(update_fields=['batch'])

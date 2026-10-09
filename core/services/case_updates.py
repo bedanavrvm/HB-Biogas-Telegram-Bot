@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import CaseUpdate, ParsedMessage
+from core.services.miniapp_deletion_sheets import guarded_publication
 from core.services.group_config import GroupRegistry
 from core.services.sheets import get_sheets_service
 
@@ -360,6 +361,7 @@ def record_command_case_update(update_record: CaseUpdate, parsed_message: Parsed
     )
 
 
+@guarded_publication
 def _update_sheet(
     parsed_message: ParsedMessage,
     parsed_update: ParsedCaseUpdate,

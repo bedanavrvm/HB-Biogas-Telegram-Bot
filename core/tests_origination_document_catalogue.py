@@ -1,8 +1,14 @@
 import json
+from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.core.exceptions import ValidationError
+from django.db import close_old_connections, connection
+from django.test import RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -96,6 +102,113 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertFalse(result['ready'])
         self.assertEqual(result['main_lafs'], [])
         self.assertIn('No published compatible Main LAF', result['reasons'][0])
+
+    def test_guided_choices_include_published_documents_before_product_assignment(self):
+        from origination.origination_setup_forms import SetupCatalogueSelectionForm
+        standalone = self._template(family='standalone', name='Standalone LAF', eligible=False)
+        shared = self._template(family='shared', name='Shared LAF', eligible=False)
+        other = Product.objects.create(code='other_catalogue', name='Other product')
+        OriginationDocumentProductEligibility.objects.create(template=shared, product=other)
+        choices = SetupCatalogueSelectionForm(definition=self.definition).fields['templates'].queryset
+        self.assertIn(standalone.pk, choices.values_list('pk', flat=True))
+        self.assertIn(shared.pk, choices.values_list('pk', flat=True))
+        self.assertFalse(catalogue_for_product(self.definition)['ready'])
+        self.assertFalse(standalone.product_eligibilities.exists())
+
+    def test_guided_choices_exclude_retired_failed_and_unpublished_documents(self):
+        from origination.origination_setup_forms import SetupCatalogueSelectionForm
+        for index, status in enumerate(['retired', 'upload_failed', 'ready', 'active']):
+            with self.subTest(status=status):
+                document = self._template(family=f'hidden_{index}', name=status, eligible=False)
+                OriginationDocumentTemplate.objects.filter(pk=document.pk).update(
+                    status=status, published_configuration_revision=None,
+                )
+                choices = SetupCatalogueSelectionForm(definition=self.definition).fields['templates'].queryset
+                self.assertNotIn(document.pk, choices.values_list('pk', flat=True))
+
+    def test_attaching_published_laf_retains_document_and_existing_application_snapshots(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        original = self._template(family='original_laf', name='Original LAF')
+        catalogue = catalogue_for_product(self.definition)
+        application, _ = create_application(
+            product_key=self.definition.product_key, officer=self.officer, branch=self.branch.name,
+            client_request_id='before-attachment', primary_template_id=original.pk,
+            expected_catalogue_revision=catalogue['catalogue_revision'], supporting_template_ids=[],
+        )
+        snapshot = deepcopy(application.schema_snapshot)
+        packet = application.packet_documents.get(template=original)
+        packet_snapshot = deepcopy(packet.template_snapshot)
+        document = self._template(family='new_published', name='Published LAF', eligible=False)
+        before = {key: deepcopy(getattr(document, key)) for key in (
+            'source_sha256', 'drive_file_id', 'form_schema', 'signer_rules', 'placement_config',
+            'published_configuration_revision_id', 'status', 'version',
+        )}
+        actor = get_user_model().objects.create_superuser('attach-admin', 'qa@example.test', 'test-only')
+        count = OriginationDocumentTemplate.objects.count()
+        with patch('origination.services.origination_templates.load_template_source',
+                   side_effect=AssertionError('Attachment must not contact Drive')):
+            selected = attach(definition=self.definition, templates=[document], actor=actor, request_id='attach')
+        self.assertEqual([item.pk for item in selected], [document.pk])
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), count)
+        document.refresh_from_db()
+        for key, value in before.items():
+            self.assertEqual(getattr(document, key), value, key)
+        self.assertEqual(document.configuration_revisions.count(), 1)
+        self.assertTrue(document.product_eligibilities.filter(product=self.product_record).exists())
+        self.assertIn(str(document.pk), [item['id'] for item in catalogue_for_product(self.definition)['main_lafs']])
+        application.refresh_from_db()
+        packet.refresh_from_db()
+        self.assertEqual(application.schema_snapshot, snapshot)
+        self.assertEqual(packet.template_snapshot, packet_snapshot)
+
+    def test_attachment_retry_is_actor_and_content_bound(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        document = self._template(family='retry_laf', name='Retry LAF', eligible=False)
+        actor = get_user_model().objects.create_superuser('retry-admin', 'qa@example.test', 'test-only')
+        arguments = dict(definition=self.definition, templates=[document], actor=actor, request_id='attach-retry')
+        attach(**arguments)
+        attach(**arguments)
+        self.assertEqual(document.product_eligibilities.count(), 1)
+        self.assertEqual(document.events.filter(action='setup_product_connected').count(), 1)
+        self.assertEqual(self.definition.events.filter(action='setup_documents_selected').count(), 1)
+        with self.assertRaises(ValidationError):
+            attach(**{**arguments, 'templates': []})
+        other_actor = get_user_model().objects.create_superuser('other-admin', 'qa2@example.test', 'test-only')
+        with self.assertRaises(ValidationError):
+            attach(**{**arguments, 'actor': other_actor})
+
+    def test_incompatible_published_attachment_rolls_back_the_whole_selection(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        compatible = self._template(family='compatible', name='Compatible LAF', eligible=False)
+        incompatible = self._template(family='incompatible', name='Wrong fields', schema={'fields': []}, eligible=False)
+        actor = get_user_model().objects.create_superuser('compat-admin', 'qa@example.test', 'test-only')
+        with self.assertRaises(ValidationError):
+            attach(definition=self.definition, templates=[compatible, incompatible], actor=actor, request_id='invalid')
+        self.assertFalse(compatible.product_eligibilities.exists())
+        self.assertFalse(incompatible.product_eligibilities.exists())
+        self.assertFalse(self.definition.events.filter(action='setup_documents_selected').exists())
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 2)
+
+    def test_attachment_rechecks_retired_document_and_product_and_authority(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        document = self._template(family='stale_laf', name='Stale LAF', eligible=False)
+        actor = get_user_model().objects.create_superuser('stale-admin', 'qa@example.test', 'test-only')
+        with self.assertRaises(ValidationError):
+            attach(definition=self.definition, templates=[document], actor=self.officer, request_id='not-authorized')
+        OriginationDocumentTemplate.objects.filter(pk=document.pk).update(status='retired')
+        with self.assertRaises(ValidationError):
+            attach(definition=self.definition, templates=[document], actor=actor, request_id='stale-document')
+        OriginationProductDefinition.objects.filter(pk=self.definition.pk).update(lifecycle_status='retired')
+        with self.assertRaises(ValidationError):
+            attach(definition=self.definition, templates=[], actor=actor, request_id='stale-product')
+        self.assertFalse(document.product_eligibilities.exists())
+
+    def test_catalogue_label_explains_an_unassigned_active_document(self):
+        from django.contrib import admin
+        from origination.admin import OriginationDocumentTemplateAdmin
+        document = self._template(family='unassigned', name='Unassigned LAF', eligible=False)
+        model_admin = OriginationDocumentTemplateAdmin(OriginationDocumentTemplate, admin.site)
+        self.assertEqual(model_admin.eligible_products_summary(document), 'No products assigned')
 
     def _legacy_main_and_successor(self):
         main = self._template(family='legacy_contract', name='Legacy Main LAF')
@@ -379,3 +492,35 @@ class OriginationDocumentCatalogueTests(TestCase):
                 expected_catalogue_revision=catalogue['catalogue_revision'],
                 client_request_id='restart-again',
             )
+
+
+@skipUnless(connection.vendor == 'postgresql', 'PostgreSQL row locks are required.')
+class OriginationDocumentAttachmentConcurrencyTests(TransactionTestCase):
+    _template = OriginationDocumentCatalogueTests._template
+
+    def setUp(self):
+        OriginationDocumentCatalogueTests.setUp(self)
+        self.actor = get_user_model().objects.create_superuser('concurrent-admin', 'qa@example.test', 'test-only')
+
+    def test_concurrent_first_attachment_has_one_connection_and_receipt(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        document = self._template(family='concurrent_laf', name='Concurrent LAF', eligible=False)
+        barrier = Barrier(2)
+
+        def submit():
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                selected = attach(definition=self.definition, templates=[document], actor=self.actor, request_id='first-attach')
+                return [item.pk for item in selected]
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first, second = workers.submit(submit), workers.submit(submit)
+            self.assertEqual(first.result(timeout=30), [document.pk])
+            self.assertEqual(second.result(timeout=30), [document.pk])
+        self.assertEqual(document.product_eligibilities.count(), 1)
+        self.assertEqual(document.events.filter(action='setup_product_connected').count(), 1)
+        self.assertEqual(self.definition.events.filter(action='setup_documents_selected').count(), 1)
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)

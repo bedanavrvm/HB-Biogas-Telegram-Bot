@@ -24,6 +24,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from core.services.miniapp_deletion_sheets import guarded_publication
 import openpyxl
 
 from core.models import TatCaseSequence, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent
@@ -1606,6 +1607,7 @@ def normalize_tat_batch_product(value: str) -> str:
     return aliases.get(key, key)
 
 
+@guarded_publication
 def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> dict:
     result = {'synced': 0, 'failed': []}
     if not cases:
@@ -2157,6 +2159,7 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
     _format_tat_sheet_cells(sheet, formats, case_id=case.case_id)
 
 
+@guarded_publication
 def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
     if not bool(getattr(group_config, 'tat_sheet_projection_enabled', True)):
         if case.sync_error:
@@ -2526,6 +2529,7 @@ def should_sync_secondary_sheets(group_config) -> bool:
     return bool(getattr(settings, 'TAT_TRACKER_SYNC_SECONDARY_SHEETS', False))
 
 
+@guarded_publication
 def sync_case_index(group_config, case: TatTrackerCase) -> None:
     service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='CASE_INDEX')
     if not service.is_available():
@@ -2542,6 +2546,7 @@ def sync_case_index(group_config, case: TatTrackerCase) -> None:
     sheet.update(f'A{target}:K{target}', [[case.case_id, case.sheet_name, case.row_number or '', case.client_name, case.national_id, case.primary_phone, case.branch, case.bro_name, case.status, sheet_datetime(case.stage_values.get('created')), timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M')]], value_input_option='USER_ENTERED')
 
 
+@guarded_publication
 def sync_audit_log(group_config, case: TatTrackerCase) -> None:
     unsynced = list(case.events.filter(synced_to_sheet=False).order_by('created_at'))
     if not unsynced:

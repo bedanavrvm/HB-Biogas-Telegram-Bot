@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .testing-delete h1 {font-size:22px;font-weight:600;margin:0 0 12px;line-height:1.3}
+  .testing-delete p {margin:8px 0;line-height:1.5}
+  .testing-delete legend {font-weight:600;padding:0 4px}
+  .testing-delete fieldset {border:1px solid #94a3b8;border-radius:8px;padding:10px}
+  .testing-delete .button {padding:8px 12px;border:1px solid #94a3b8;border-radius:6px;cursor:pointer;line-height:1.3}
+  .testing-delete details {margin:8px 0}
+  .testing-delete summary {cursor:pointer;font-weight:500}
+  .testing-delete .record-ids {max-height:140px;overflow:auto;overflow-wrap:anywhere;padding:8px;font-size:13px}
+  .testing-delete button:disabled {opacity:.45;cursor:not-allowed}
+  .testing-delete :focus-visible {outline:2px solid #2563eb;outline-offset:3px}
+</style>
+<form method="post" class="testing-delete" style="max-width:800px;padding:16px">
+  {% csrf_token %}
+  <h1>{{ title }}</h1>
+  <p>{{ selected_count }} selected {{ opts.verbose_name_plural }}. This is permanent; recovery requires a database backup.</p>
+  <p>Case and evidence deletion includes the owning workspace and its required history. Shared identities, access grants and Drive files are kept.</p>
+  {% if error %}<p role="alert" style="color:#b91c1c">{{ error }}</p>{% endif %}
+  {% if plan.keep_available %}<fieldset style="margin:16px 0">
+    <legend>Linked history</legend>
+    <label style="display:block;padding:8px"><input type="radio" name="deletion_mode" value="keep" {% if plan.mode == 'keep' %}checked{% endif %}> Keep operational history (retire configuration that is in use)</label>
+    <label style="display:block;padding:8px"><input type="radio" name="deletion_mode" value="linked" {% if plan.mode == 'linked' %}checked{% endif %}> Also delete the linked records listed below</label>
+    <button type="submit" name="review_impact" value="1" class="button" style="min-height:40px">Update impact</button>
+  </fieldset>{% else %}<input type="hidden" name="deletion_mode" value="{{ plan.mode }}">{% endif %}
+  {% for group in plan.groups.deleted %}<details><summary>Delete {{ group.count }} {{ group.label }}</summary><div class="record-ids">{% for id in group.references %}{{ id }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div></details>{% empty %}<p>No records will be physically deleted.</p>{% endfor %}
+  {% for group in plan.groups.retained %}<p><strong>Keep:</strong> {{ group.count }} {{ group.label }}</p>{% endfor %}
+  {% for group in plan.groups.unlinked %}<p><strong>Keep and detach:</strong> {{ group.count }} {{ group.label }}</p>{% endfor %}
+  {% for key, fields in plan.retire.items %}<p><strong>Retire:</strong> {{ key.0 }} ({{ key.1 }})</p>{% endfor %}
+  {% if plan.sheet_targets %}<p>{{ plan.sheet_targets|length }} Sheet cleanup task(s) run after the database commit. Failures can be retried in Integration operations; they do not undo deletion.</p>{% endif %}
+  {% for blocker in plan.blockers %}<p role="alert" style="color:#b91c1c">{{ blocker }}</p>{% endfor %}
+  <input type="hidden" name="action" value="delete_testing_selection">
+  <input type="hidden" name="deletion_token" value="{{ deletion_token }}">
+  {% for id in plan.ids %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ id }}">{% endfor %}
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px">
+    <a class="button" href="." style="min-height:40px;display:inline-flex;align-items:center">Cancel</a>
+    <button type="submit" name="confirm_deletion" value="1" class="button" {% if plan.blockers %}disabled{% endif %} style="background:#b91c1c;color:white;min-height:40px">Confirm permanent deletion</button>
+  </div>
+</form>
+{% endblock %}

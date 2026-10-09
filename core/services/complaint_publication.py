@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import ComplaintCaseControl, IntegrationOperation, ParsedMessage
+from core.services.miniapp_deletion_sheets import guarded_publication
 from core.services.external_resilience import (
     execute_operation, external_call_budget, operation_lease_seconds, reserve_operation,
 )
@@ -24,6 +25,7 @@ def _claim_current(operation: IntegrationOperation) -> bool:
     ).exclude(pk=operation.pk).exists()
 
 
+@guarded_publication
 def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
     from core.services.complaint_cases import latest_resolution_text, resolution_comments_text, resolution_history_text
     for _ in range(2):

@@ -486,7 +486,17 @@ def _base_context(model_admin, request, definition, step_key):
     }
 
 
+def _document_rows(definition, templates):
+    return [{
+        'template': item,
+        'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk]),
+        'edit_url': reverse('admin:origination_document_edit', args=[item.pk])
+                    + '?product=' + str(definition.product_version.product_id),
+    } for item in templates]
+
+
 def product_workspace_data(definition):
+    from django.template.loader import render_to_string
     from origination.services.origination_setup_documents import selected_documents, maintenance_impact
     documents = list(selected_documents(definition))
     impact = maintenance_impact(definition)
@@ -513,6 +523,9 @@ def product_workspace_data(definition):
     return {'tasks':tasks,'outstanding_count':sum(not t['valid'] for t in tasks),
             'can_publish':can_publish, 'expected_tokens':step_tokens(definition),
             'selected_document_ids':[str(item.pk) for item in documents],
+            'documents_html':render_to_string('admin/origination/product_document_list.html', {
+                'documents': _document_rows(definition, documents),
+            }),
             'maintenance_token':impact['token'], 'stop_new_applications':stop_new}
 
 
@@ -750,11 +763,7 @@ def _step_documents(model_admin, request, definition, context):
     context.update({'form': selection, 'upload_form': upload, 'document_errors': errors,
                     'maintenance': impact,
                     'replacement_options': selection.fields['templates'].queryset,
-                    'documents': [{
-                        'template': item,
-                        'url': reverse('admin:origination_originationdocumenttemplate_calibrate', args=[item.pk]),
-                        'edit_url':reverse('admin:origination_document_edit', args=[item.pk])+'?product='+str(definition.product_version.product_id),
-                    } for item in templates]})
+                    'documents': _document_rows(definition, templates)})
     if request.method != 'POST':
         return None
     action = request.POST.get('action')

@@ -17,7 +17,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
 from django.utils.text import slugify
-from unfold.admin import ModelAdmin
+from core.admin_deletion import TestingModelAdmin as ModelAdmin
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 from urllib.parse import urlencode
 from origination.models import (
@@ -2708,7 +2708,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     @admin.display(description='Available for products')
     def eligible_products_summary(self, obj):
         names = list(obj.eligible_products.order_by('sort_order', 'name').values_list('name', flat=True))
-        return ', '.join(names) if names else 'Unavailable for new applications'
+        return ', '.join(names) if names else 'No products assigned'
 
     @admin.display(description='Configured fields and signers')
     def configuration_summary(self, obj):

@@ -1,4 +1,5 @@
 from django.contrib import admin
+from core.admin_deletion import TestingModelAdmin
 
 from .models import HomeBiogasAction, HomeBiogasActionEvent
 
@@ -8,7 +9,7 @@ for _model in (HomeBiogasAction, HomeBiogasActionEvent):
 
 
 @admin.register(HomeBiogasAction)
-class HomeBiogasActionAdmin(admin.ModelAdmin):
+class HomeBiogasActionAdmin(TestingModelAdmin):
     list_display = ('farmer', 'source_order_number', 'installation_status', 'commissioning_status', 'updated_at')
     list_filter = ('installation_status', 'commissioning_status', 'readiness_status')
     search_fields = ('source_order_number', 'farmer__customer_name', 'farmer__national_id')
@@ -16,7 +17,7 @@ class HomeBiogasActionAdmin(admin.ModelAdmin):
 
 
 @admin.register(HomeBiogasActionEvent)
-class HomeBiogasActionEventAdmin(admin.ModelAdmin):
+class HomeBiogasActionEventAdmin(TestingModelAdmin):
     list_display = ('action', 'event_type', 'revision', 'actor_label', 'created_at')
     list_filter = ('event_type',)
     readonly_fields = [field.name for field in HomeBiogasActionEvent._meta.fields]

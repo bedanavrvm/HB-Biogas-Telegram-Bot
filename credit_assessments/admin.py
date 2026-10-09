@@ -1,4 +1,5 @@
 from django.contrib import admin
+from core.admin_deletion import TestingModelAdmin
 
 from .models import (
     AnalysisPackage,
@@ -28,7 +29,7 @@ for _model in (
 
 
 @admin.register(CreditAssessment)
-class CreditAssessmentAdmin(admin.ModelAdmin):
+class CreditAssessmentAdmin(TestingModelAdmin):
     list_display = ('tat_case', 'state', 'revision', 'updated_at')
     list_filter = ('state',)
     search_fields = ('tat_case__case_id', 'tat_case__client_name')
@@ -36,7 +37,7 @@ class CreditAssessmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(StatementMailReceipt)
-class StatementMailReceiptAdmin(admin.ModelAdmin):
+class StatementMailReceiptAdmin(TestingModelAdmin):
     list_display = ('attachment_name', 'forwarding_sender', 'status', 'statement_full_year', 'inbox_received_at')
     list_filter = ('status', 'statement_full_year')
     search_fields = ('attachment_name', 'forwarding_sender', 'gmail_message_id')
@@ -44,7 +45,7 @@ class StatementMailReceiptAdmin(admin.ModelAdmin):
 
 
 @admin.register(AssessmentSecret)
-class AssessmentSecretAdmin(admin.ModelAdmin):
+class AssessmentSecretAdmin(TestingModelAdmin):
     fields = ('assessment', 'key_version', 'reveal_count', 'last_revealed_at', 'destroyed_at', 'updated_at')
     readonly_fields = fields
     list_display = ('assessment', 'key_version', 'reveal_count', 'destroyed_at')
@@ -61,4 +62,4 @@ for model in (
     AnalysisQuestion, QuestionResponse, QuestionValidationEvent,
     AssessmentDecision, AssessmentEvent, EngineJob,
 ):
-    admin.site.register(model)
+    admin.site.register(model, TestingModelAdmin)

@@ -755,6 +755,36 @@ files cannot be recovered automatically.
 | OTP SMS says accepted but did not arrive | Provider acceptance is not delivery or verification. Inspect **Origination OTP challenges**, the delivery receipt/status, cooldowns, and carrier behavior; reset only when operationally justified. |
 | Reset link is missing | It is intentionally visible only when `ORIGINATION_FULL_RESET_ENABLED=True` and the current user is an active Superuser. |
 
+## Selected testing deletion across Mini Apps
+
+With `MINIAPP_TEST_DELETION_ENABLED=True`, an active Superuser can select rows
+in a reviewed Origination, Portal, Complaints, TAT or SPIN model list, choose
+**Delete selected test records…**, and review the impact before confirming.
+Configuration offers **Keep operational history** (retire if used) or **Also
+delete linked records**. Change the choice, then select **Update impact**.
+Selected case/evidence entries include their owning case/workspace and required
+history; expand each Delete group to inspect exact record IDs. No note is needed.
+If related records changed, review the fresh confirmation instead of reusing it.
+
+Back up first: permanent deletion cannot be undone by a migration. Shared people,
+access grants, raw Telegram ingestion, independent compliance evidence and Drive
+files stay intact. Shared finance/post-order ownership can expand the deletion
+to additional cases, all shown in the preview. Order/payment claims remain
+retired and are not recycled; operational cancellation is the number-release path.
+
+Google cleanup starts in the background after the database commit, not in the
+browser and not from cron. In **Integration operations**, filter **Operation
+type: miniapp_sheet_delete** to see status/errors. Select failed or interrupted
+tasks and choose **Retry selected deletion Sheet cleanup**. Retry is available
+to active Superusers even after disabling new deletions. Missing immutable-ID
+headers require repair; the processor never guesses from customer names or phones.
+Already committed cleanup/tombstones must be preserved during rollback.
+
+Apply the two finance-claim migrations before enabling the flag. Full release
+and safe rollback conditions are in [ADR 0044](adr/0044-selected-miniapp-testing-deletion.md).
+The older Products-only permanent-delete action keeps its independent
+`ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` gate and narrower policy.
+
 ## Production acceptance checklist
 
 - Create a new test application rather than reusing one created before the final

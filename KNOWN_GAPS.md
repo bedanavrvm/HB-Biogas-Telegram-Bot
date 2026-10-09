@@ -1,5 +1,82 @@
 # Known Gaps and Verified Workarounds
 
+## Selected testing deletion across Mini Apps - 9 October 2026
+
+Completed the shared selected-deletion action for reviewed Origination, Portal,
+Complaints, TAT and SPIN Admin models. It is disabled by default and requires
+`MINIAPP_TEST_DELETION_ENABLED=True` plus an active Superuser. Configuration can
+keep linked operational history; deleting selected evidence includes its owning
+workspace, disclosed in the confirmation. No mandatory note is added.
+
+Exact impact fingerprints, current row locks, actor-bound retries and independent
+compliance evidence protect deletion. Unknown links and stale confirmations block
+the whole transaction. Shared identities/access grants, raw ingestion, Drive files
+and captured recognition facts survive. Deleted finance claims remain consumed.
+Sheet cleanup is DB-first, starts in a bounded server background task, and can be
+retried through Integration operations. There is no cron or browser dependency.
+
+Verification used synthetic data, a separate local PostgreSQL 18.6 cluster and
+mocked Google integrations. All 99 focused deletion, finance and real-browser
+tests passed on PostgreSQL with no skips. The affected existing workflow suite ran 394 tests:
+381 passed, seven failed and six errored. The exact same 13 test failures reproduce
+in an isolated worktree at unchanged HEAD `43974c63`; no new failure was introduced.
+An initial reuse of a flushed test database also lost migration-seeded fixtures;
+fresh database runs were used for the final comparison.
+
+The real Admin selection/confirmation journey passed at 320, 430 and 1280px in
+light/dark themes; screenshots were inspected for wrapping and overflow. JavaScript
+syntax passed for 120 files, affected Python compiled, Django checks passed and
+`makemigrations --check --dry-run` reported no missing migration.
+
+Evidence: `test-results/miniapp-deletion-focused-postgres.txt`,
+`test-results/miniapp-deletion-regression-postgres.txt`,
+`test-results/miniapp-deletion-baseline-postgres.txt`,
+`test-results/miniapp-deletion-js.txt`, and
+`test-results/miniapp-deletion-live/`.
+
+Apply payments.0008 and requisitions.0005 before enabling the setting. See
+[the operator instructions](docs/origination-admin-guide.md#selected-testing-deletion-across-mini-apps)
+and [ADR 0044](docs/adr/0044-selected-miniapp-testing-deletion.md) for ownership,
+numbering, retry and safe rollback boundaries. Missing immutable Sheet IDs require
+repair; no name/phone/row guess is made. No real customer record, production Sheet
+or Drive file was removed. Live provider cleanup, full-suite validation, deployment
+and physical Telegram devices remain unverified.
+
+## Published LAF attachment in guided setup - 9 October 2026
+
+Fixed the circular chooser rule that hid published documents until they were
+already assigned to the product. Explicit attachment now retains the original
+published document and alignment, validates compatibility transactionally and
+does not silently create an unpublished copy. An empty allowlist still grants
+no application availability; the catalogue explains it as "No products assigned".
+Selected cards update after confirmed autosave without requiring refresh.
+
+- The original missing-document reproduction failed before the fix and passed
+  afterward; its regression coverage is now checked in.
+- All 95 focused tests passed against a separate local PostgreSQL 18.6 cluster,
+  with no skipped tests. This includes simultaneous first attachments, retries,
+  permission denial, incompatible-selection rollback, immutable application
+  snapshots, guided publication and the existing document authoring/maintenance
+  browser journeys. The initial focused SQLite run also passed all 91 tests.
+- Real Admin screenshots at 320, 430 and 1280px include light/dark views. The
+  chooser, immediate selected cards, catalogue label and published Product
+  were checked; mobile light/dark screenshots were visually inspected.
+- First-party JavaScript syntax passed for 119 files; affected Python files
+  compile and `git diff --check` passes.
+
+Text evidence: `test-results/origination-attachment-postgres.txt`,
+`test-results/origination-attachment-tests.txt` and
+`test-results/origination-attachment-js.txt`. Screenshots:
+`test-results/origination-attachment-live/`.
+
+No deployment or production-data change occurred. No migration, setting or
+external dependency is required for this attachment fix. After deployment,
+open the Product's Documents task, select the published LAF, wait for Saved,
+then publish the Product when its tasks are ready. Do not recalibrate the same
+published PDF merely to attach it. The full repository suite, real provider
+delivery and physical Telegram devices were not exercised in this change.
+The separately completed cross-Mini-App deletion work is documented above.
+
 ## Origination testing, bootstrap and selected deletion - 9 October 2026
 
 Implemented non-blocking deployment setup warnings, provider-configured OTP

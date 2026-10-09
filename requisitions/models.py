@@ -81,6 +81,7 @@ class OrderNumberClaim(models.Model):
     sequence = models.ForeignKey(OrderSequenceState, on_delete=models.PROTECT, related_name='number_claims', db_comment='Locked group/partner allocator owning this number.')
     number = models.PositiveBigIntegerField(db_comment='Printed numeric component; never a document identity.')
     batch = models.OneToOneField('core.RequisitionBatch', null=True, blank=True, on_delete=models.PROTECT, related_name='number_claim', db_comment='Current owner; null only after explicit release.')
+    retired = models.BooleanField(default=False, db_comment='Permanently consumed after testing deletion; never offered for reuse.')
 
     class Meta:
         db_table = 'requisition_order_number_claim'

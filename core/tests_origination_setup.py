@@ -428,6 +428,49 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertEqual(definition.signer_rules, template.signer_rules)
         self.assertEqual(chosen.configuration_revisions.count(), 1)
 
+    def test_unassigned_published_laf_can_be_selected_and_product_published_without_republishing_pdf(self):
+        from origination.models import OriginationDocumentProductEligibility
+        from origination.services.origination_document_catalogue import catalogue_for_product
+        definition = self._ready_guided_draft()
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        OriginationDocumentProductEligibility.objects.filter(template=template).delete()
+        chooser = self.client.get(self._documents_url(definition))
+        self.assertContains(chooser, 'Guided Main LAF')
+        self.assertFalse(catalogue_for_product(definition)['ready'])
+        with patch('origination.services.origination_templates.load_template_source',
+                   side_effect=AssertionError('Choosing a published PDF must not reload it')):
+            selected = self.client.post(self._documents_url(definition), {
+                'templates': [template.pk], 'request_id': 'attach-independent-laf', 'intent': 'stay',
+                'expected_tokens': json.dumps(step_tokens(definition)),
+            }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(selected.status_code, 200, selected.content[:1000])
+        self.assertTrue(selected.json()['ok'])
+        self.assertIn('Guided Main LAF', selected.json()['data']['documents_html'])
+        self.assertNotIn('No documents selected.', selected.json()['data']['documents_html'])
+        self.assertTrue(catalogue_for_product(definition)['ready'])
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
+        template.refresh_from_db()
+        self.assertEqual(template.status, 'active')
+        self.assertEqual(template.configuration_revisions.count(), 1)
+        self.assertEqual(self._publish_guided(definition).status_code, 302)
+        definition.refresh_from_db()
+        self.assertEqual(definition.lifecycle_status, 'published')
+
+    def test_incompatible_attachment_returns_a_useful_error_without_creating_a_copy(self):
+        from origination.models import OriginationDocumentProductEligibility
+        definition = self._ready_guided_draft()
+        template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
+        OriginationDocumentProductEligibility.objects.filter(template=template).delete()
+        OriginationDocumentTemplate.objects.filter(pk=template.pk).update(form_schema={'fields': []})
+        response = self.client.post(self._documents_url(definition), {
+            'templates': [template.pk], 'request_id': 'attach-incompatible', 'intent': 'stay',
+            'expected_tokens': json.dumps(step_tokens(definition)),
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Guided Main LAF', response.json()['error'])
+        self.assertFalse(template.product_eligibilities.exists())
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
+
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_product_publish_requires_separate_document_publication(self, storage):

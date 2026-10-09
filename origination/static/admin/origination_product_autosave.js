@@ -5,6 +5,8 @@
   const notice=text => {if(feedback) feedback.textContent=text;};
   const apply=data => {
     document.querySelectorAll('input[name="expected_tokens"]').forEach(i => {i.value=JSON.stringify(data.expected_tokens);});
+    const documentList=document.querySelector('[data-selected-documents]');
+    if(documentList && !dirty && typeof data.documents_html==='string') documentList.innerHTML=data.documents_html;
     const publishForm=document.querySelector('[data-product-publish]');
     if(publishForm) {
       publishForm.dataset.stopNew=String(Boolean(data.stop_new_applications));

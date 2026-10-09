@@ -57,6 +57,7 @@ class PaymentNumberClaim(models.Model):
     sequence = models.ForeignKey(PaymentSequenceState, on_delete=models.PROTECT, related_name='number_claims', db_comment='Locked group allocator.')
     number = models.PositiveBigIntegerField(db_comment='Printed number, not the immutable payment identity.')
     batch = models.OneToOneField('PaymentBatch', null=True, blank=True, on_delete=models.PROTECT, related_name='number_claim', db_comment='Current owner, null after explicit cancellation.')
+    retired = models.BooleanField(default=False, db_comment='Permanently consumed after testing deletion; never offered for reuse.')
 
     class Meta:
         db_table = 'payment_number_claim'

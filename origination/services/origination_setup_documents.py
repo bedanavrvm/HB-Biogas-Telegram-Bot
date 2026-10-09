@@ -296,27 +296,60 @@ def cancel_changes(*, definition, actor, request_id):
 @transaction.atomic
 def select_documents(*, definition, templates, actor, request_id):
     """Connect explicit choices without modifying any published document bytes."""
-    from origination.services.origination_templates import clone_reusable_template_version
+    from origination.services.origination_document_catalogue import main_laf_contract, validate_catalogue_publication
     _require_authority(actor)
+    definition = OriginationProductDefinition.objects.select_for_update().get(pk=definition.pk)
     if definition.lifecycle_status not in {definition.STATUS_DRAFT, definition.STATUS_PUBLISHED}:
         raise ValidationError('Retired products cannot change document availability.')
-    resolved = []
-    for template in templates:
-        if not template.product_eligibilities.filter(product_id=definition.product_version.product_id).exists():
+    template_ids = list(dict.fromkeys(item.pk for item in templates))
+    locked = {
+        item.pk: item for item in OriginationDocumentTemplate.objects.order_by('pk')
+        .select_for_update(of=('self',)).filter(pk__in=template_ids)
+        .select_related('published_configuration_revision')
+    }
+    if len(locked) != len(template_ids):
+        raise ValidationError('A selected document is unavailable. Refresh the list.')
+    resolved = [locked[pk] for pk in template_ids]
+    requested_ids = [str(item.pk) for item in resolved]
+    replay = definition.events.filter(action='setup_documents_selected', metadata__request_id=request_id).first()
+    if replay:
+        if replay.actor_id != actor.pk or replay.metadata.get('template_ids') != requested_ids:
+            raise ValidationError('This request was already used for different document choices. Refresh and try again.')
+        return resolved
+    for template in resolved:
+        if template.status not in {template.STATUS_ACTIVE, template.STATUS_READY}:
+            raise ValidationError(f'{template.name}: this document changed. Refresh the list.')
+        if template.status == template.STATUS_ACTIVE and (
+            not template.published_configuration_revision_id or not template.published_configuration_revision.is_published
+        ):
+            raise ValidationError(f'{template.name}: publish its alignment in the Document editor first.')
+        _eligibility, created = OriginationDocumentProductEligibility.objects.get_or_create(
+            template=template, product_id=definition.product_version.product_id,
+            defaults={'created_by': actor},
+        )
+        if created:
+            # Product attachment changes the allowlist, never the published PDF
+            # or its alignment. Copies are reserved for explicit editing actions.
             if template.status == template.STATUS_ACTIVE:
-                template, _reused = clone_reusable_template_version(template, actor=actor)
-            OriginationDocumentProductEligibility.objects.get_or_create(
-                template=template, product_id=definition.product_version.product_id,
-                defaults={'created_by': actor},
-            )
+                try:
+                    if template.document_role == template.ROLE_PRIMARY:
+                        _schema, reasons = main_laf_contract(definition, template)
+                        if reasons:
+                            raise ValueError(' '.join(reasons))
+                    validate_catalogue_publication(template)
+                except ValueError as exc:
+                    reason = str(exc).replace('The Main LAF is missing the canonical commercial field ', 'Add the field ')
+                    for field in definition.form_schema.get('fields', []):
+                        if field.get('key') and field.get('label'):
+                            reason = reason.replace(str(field['key']), str(field['label']))
+                    raise ValidationError(f'{template.name}: {reason}') from exc
             OriginationDocumentTemplateEvent.objects.create(
                 template=template, action='setup_product_connected', actor=actor,
                 metadata={'product_id': str(definition.product_version.product_id), 'request_id': request_id},
             )
-        resolved.append(template)
     OriginationProductDefinitionEvent.objects.create(
         product_definition=definition, action='setup_documents_selected', actor=actor,
-        metadata={'template_ids': [str(item.pk) for item in resolved], 'request_id': request_id},
+        metadata={'template_ids': requested_ids, 'request_id': request_id},
     )
     return resolved
 

@@ -20,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest, SpinRequestSequence
+from core.services.miniapp_deletion_sheets import guarded_publication
 from core.services.branches import workflow_default_branch
 from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 from core.services.parser import analyze_whatsapp_export
@@ -1102,6 +1103,7 @@ def record_spin_event(
     )
 
 
+@guarded_publication
 def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest], sheet_name: str | None = None) -> dict[str, Any]:
     if not records:
         return {'success': True, 'row_numbers': []}
@@ -2372,6 +2374,7 @@ def upload_report(group_config, file_obj, file_type: str, sender_name: str, nati
     return None
 
 
+@guarded_publication
 def update_spin_request_in_sheet(group_config, record: SpinCreditRequest, updates: dict[str, Any]) -> bool:
     if not record.row_number:
         logger.warning("SPIN request %s has no row_number saved, cannot update sheet.", record.pk)

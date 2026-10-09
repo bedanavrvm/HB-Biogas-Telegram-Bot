@@ -57,6 +57,33 @@ class OriginationMaintenanceBrowserTests(StaticLiveServerTestCase):
         self.assertEqual(definition.product_version.product.versions.count(), 1)
         self.assertEqual(definition.events.filter(action='maintenance_applied').count(), 1)
 
+    def test_published_unassigned_document_attachment(self):
+        from origination.models import OriginationDocumentProductEligibility, OriginationDocumentTemplate
+        setup_tests.OriginationSetupWorkspaceTests.test_terms_can_save_without_forcing_optional_repeatable_rows(self)
+        definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
+        definition.signer_rules = [{'role': 'officer', 'required': True}]
+        definition.save(update_fields=['signer_rules'])
+        document = self._ready_document(definition)
+        OriginationDocumentProductEligibility.objects.filter(template=document).delete()
+        output = Path(settings.BASE_DIR) / 'test-results' / 'origination-attachment-live'
+        output.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run([
+            'node', str(Path(settings.BASE_DIR) / 'scripts' / 'test_origination_attachment_browser.js'),
+            self.live_server_url + self._documents_url(definition), str(output),
+        ], cwd=settings.BASE_DIR, env={
+            **os.environ, 'QA_SESSION_ID': self.client.cookies[settings.SESSION_COOKIE_NAME].value,
+            'QA_DOCUMENT_ID': str(document.pk),
+        }, capture_output=True, text=True, timeout=120)
+        print(result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        definition.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(definition.lifecycle_status, 'published')
+        self.assertEqual(document.status, 'active')
+        self.assertEqual(document.configuration_revisions.count(), 1)
+        self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
+        self.assertTrue(document.product_eligibilities.filter(product=definition.product_version.product).exists())
+
     def test_custom_pdf_authoring_journey(self):
         from origination.models import OriginationDocumentTemplate
         from origination.services.origination_templates import initial_template_configuration

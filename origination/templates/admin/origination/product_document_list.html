@@ -1,0 +1,6 @@
+{% for item in documents %}
+<article class="osw-maintenance-document">
+  <div><b>{{ item.template.name }}</b><small>{{ item.template.get_document_role_display }} &middot; {% if item.template.status == 'active' %}Published{% else %}Needs attention{% endif %}</small></div>
+  <div class="osw-inline-actions"><a class="osw-secondary" href="{{ item.url }}">Open document</a>{% if item.template.status == 'active' %}<a class="osw-secondary" href="{{ item.edit_url }}">Edit</a>{% endif %}</div>
+</article>
+{% empty %}<p>No documents selected.</p>{% endfor %}

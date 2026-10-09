@@ -27,6 +27,7 @@ from django.db import transaction
 from django.db.models import Case, CharField, F, OuterRef, Q, Subquery, Value, When
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
+from core.services.miniapp_deletion_sheets import guarded_publication
 from core.services.jawabu_comments import master_comment_history, record_case_comment
 from core.services.requisition_partners import fulfillment_partner_for_farmer
 from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
@@ -2295,6 +2296,7 @@ def _attributed_sheet_comment(comment: Any, occurred_at, actor: Any, role: str) 
     return text
 
 
+@guarded_publication
 def sync_farmer_to_master_sheet(
     farmer: JawabuFarmerMaster,
     *,
@@ -2854,6 +2856,7 @@ def _datetime_text(value) -> str:
     return value.strftime('%d-%m-%Y %H:%M') if value else ''
 
 
+@guarded_publication
 def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
     """
     Optionally sync the pipeline record to the separate internal Order Sheet.

@@ -24,7 +24,8 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
 from django.utils.text import slugify
-from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.admin import StackedInline, TabularInline
+from core.admin_deletion import TestingModelAdmin as ModelAdmin
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 from urllib.parse import urlencode
 
@@ -6970,10 +6971,28 @@ class ComplianceAuditCheckpointAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(IntegrationOperation)
 class IntegrationOperationAdmin(ReadOnlyAuditAdmin):
+    actions = ('retry_selected_sheet_cleanup',)
     list_display = ('integration', 'operation_type', 'source_model', 'source_id', 'status', 'attempts', 'next_retry_at', 'updated_at')
     list_filter = ('integration', 'operation_type', 'status')
     search_fields = ('source_model', 'source_id', 'request_id', 'deduplication_key')
     readonly_fields = [field.name for field in IntegrationOperation._meta.fields]
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not (request.user.is_active and request.user.is_superuser):
+            actions.pop('retry_selected_sheet_cleanup', None)
+        return actions
+
+    @admin.action(description='Retry selected deletion Sheet cleanup')
+    def retry_selected_sheet_cleanup(self, request, queryset):
+        from core.services.miniapp_deletion_sheets import retry_cleanup
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        selected = queryset.filter(operation_type='miniapp_sheet_delete')
+        count = selected.count()
+        for operation_id in selected.values_list('pk', flat=True):
+            retry_cleanup(operation_id=operation_id, actor=request.user)
+        self.message_user(request, f'{count} Sheet cleanup task(s) checked for retry. Other operations were untouched.')
 
 
 @admin.register(IntegrationCircuitState)
