@@ -206,9 +206,6 @@ class ProductionReadinessTests(SimpleTestCase):
             'tat-esignatures-base-url',
             'tat-esignatures-api-key',
             'tat-esignatures-webhook-secret',
-            'origination-esign-application-environment',
-            'origination-esign-environment',
-            'origination-esign-username',
             'origination-esign-api-key',
             'access-grant-governance',
         }.issubset(codes))
@@ -230,7 +227,7 @@ class ProductionReadinessTests(SimpleTestCase):
 
         self.assertFalse(any(code.startswith('origination-esign-') for code in codes))
 
-    def test_sandbox_esign_cannot_bypass_production_release_classification(self):
+    def test_provider_configuration_does_not_depend_on_release_classification(self):
         configured = self._settings(
             '/missing/service-account.json',
             ORIGINATION_ESIGN_ENABLED=True,
@@ -245,11 +242,7 @@ class ProductionReadinessTests(SimpleTestCase):
             issue.code for issue in production_security_readiness_issues(configured)
         }
 
-        self.assertTrue({
-            'origination-esign-application-environment',
-            'origination-esign-environment',
-            'origination-esign-username',
-        }.issubset(codes))
+        self.assertFalse(any(code.startswith('origination-esign-') for code in codes))
 
     def test_webhook_and_conditional_approval_dependency_are_required(self):
         configured = self._settings(

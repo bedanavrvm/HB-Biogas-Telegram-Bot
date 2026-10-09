@@ -26,7 +26,7 @@ are not migrated. A field reference is not a certified placement coordinate.
 | `applicant_phone` | `phone` | applicant / application | p1: Applicant Mobile Phone |
 | `applicant_postal_address` | `text` | applicant / application | p1: Applicant Postal Address |
 | `reference_number` | `text` | application / application | p1: Offer reference |
-| `application_date` | `text` | application / application | p2: Application date |
+| `application_date` | `date` | application / application | p2: Application date |
 | `financed_principal_amount` | `money` | application / application | p2: Contract principal; p2: Contract principal; p2: Contract principal |
 | `installment_amount` | `money` | application / application | p2: Installment amount |
 | `installment_count` | `number` | application / application | p2: Installment count |

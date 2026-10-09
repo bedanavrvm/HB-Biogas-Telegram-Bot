@@ -1,5 +1,26 @@
 # Changelog
 
+## 9 October 2026 - Origination testing, one-time LAF bootstrap and product deletion
+
+- Release checks retain setup warnings without blocking safe deployment. Verified
+  OTP availability uses the SMS provider configuration, independent of logging
+  and release labels; authentication, consent/hash integrity and approval guards
+  remain enforced. No new simulator or relaxed OTP limits.
+- Added an opt-in release-stage bootstrap for eleven reviewed blank LAF drafts.
+  It reuses shared-value seeds, never assigns products or publishes documents,
+  resumes retained uploads and records a completion fingerprint that survives
+  deletion. Explicit force is required to recreate completed seeds; no cron.
+- Added hash-pinned private blank PDF deployment assets with author/XMP metadata
+  removed and identical rendered pages. Corrected supporting-seed date/money and
+  asset-table contracts to match existing canonical fields.
+- Added testing-gated permanent selected-product deletion in Products Admin:
+  one signed confirmation, no note, physical selected Product/Origination cleanup,
+  atomic rollback and actor-bound retries. Other workflow references block the
+  whole selection; shared documents, identities, compliance and external files
+  survive. Background dispatches skip removed records.
+- Retained and clarified the separate catalogue/tombstone removal action. Added
+  ADR 0043, operator documentation and focused regression/concurrency checks.
+
 ## 8 October 2026 - Canonical Origination values across documents
 
 - Added explicit version-2 field meanings and one shared application input per

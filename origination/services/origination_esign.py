@@ -119,17 +119,8 @@ def _require_approved_package(package: OriginationSigningPackage) -> None:
 
 
 def esign_enabled() -> bool:
-    if not bool(getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)):
-        return False
-    provider_environment = str(getattr(settings, 'AFRICASTALKING_SMS_ENVIRONMENT', '') or '').strip().casefold()
-    application_environment = str(getattr(settings, 'SENTRY_ENVIRONMENT', '') or '').strip().casefold()
-    username = str(getattr(settings, 'AFRICASTALKING_USERNAME', '') or '').strip()
-    api_key = str(getattr(settings, 'AFRICASTALKING_API_KEY', '') or '')
-    if not api_key or provider_environment not in {'sandbox', 'production'}:
-        return False
-    if provider_environment == 'sandbox':
-        return username == 'sandbox' and application_environment in {'development', 'dev', 'local', 'test', 'testing', 'staging'}
-    return bool(username and username != 'sandbox' and application_environment == 'production')
+    from origination.services.origination_signing_configuration import signing_available
+    return signing_available(settings)
 
 
 def _digest(value: str) -> str:
@@ -327,7 +318,7 @@ def create_signer_session(
 ) -> tuple[OriginationSignerSession, str, bool]:
     request_id = _require_request_id(request_id)
     if not esign_enabled():
-        raise OriginationError('Verified Origination e-signing is not configured for this environment.')
+        raise OriginationError('Signing is unavailable. Ask IT to configure OTP delivery, then try again.')
     application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
     package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
@@ -451,7 +442,8 @@ def resolve_session(raw_token: str, *, for_update: bool = False) -> OriginationS
     if for_update:
         application_id = queryset.filter(token_hash=token_hash, is_active=True).values_list('package__application_id', flat=True).first()
         if application_id:
-            LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+            if not LoanOriginationApplication.objects.select_for_update().filter(pk=application_id).exists():
+                raise OriginationSigningProblem('signing_invalid_link', 'This signing link is no longer available.', status=404)
         queryset = queryset.select_for_update(of=('self',))
     session = queryset.filter(token_hash=token_hash, is_active=True).first()
     if not session or not hmac.compare_digest(session.token_hash, token_hash):

@@ -912,6 +912,7 @@ class ProductAdmin(CompactModelAdmin):
     ordering = ('sort_order', 'name')
     readonly_fields = ('created_at', 'updated_at', 'terms_link', 'availability_link')
     inlines = (ProductAliasInline,)
+    actions = ('delete_selected_products_permanently',)
     fieldsets = (
         ('Global identity', {'fields': (('name', 'code'), ('category', 'active'), 'description', 'sort_order')}),
         ('Commercial terms', {'fields': ('terms_link',)}),
@@ -932,6 +933,68 @@ class ProductAdmin(CompactModelAdmin):
                 name='core_product_availability',
             ),
         ] + super().get_urls()
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            function, name, _ = actions['delete_selected']
+            actions['delete_selected'] = (function, name, 'Remove selected products from catalogue (retain connected history)')
+        if not (getattr(settings, 'ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED', False)
+                and request.user.is_active and request.user.is_superuser):
+            actions.pop('delete_selected_products_permanently', None)
+        return actions
+
+    @admin.action(description='Delete selected products permanently', permissions=['delete'])
+    def delete_selected_products_permanently(self, request, queryset):
+        from core.services.product_permanent_deletion import (
+            delete_selected_products_permanently, preview_permanent_product_deletion,
+        )
+        from core.services.product_deletion import ProductDeletionError
+
+        if not (getattr(settings, 'ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED', False)
+                and request.user.is_active and request.user.is_superuser):
+            raise PermissionDenied
+        error = ''
+        ids = list(queryset.order_by('pk').values_list('pk', flat=True))
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        # Signed confirmation binds exactly this actor and selection, without a
+        # mandatory audit-note field or a second confirmation screen.
+        confirmation = request.POST.get('selection_token', '')
+        if request.POST.get('confirm_permanent_delete'):
+            try:
+                selected = signing.loads(confirmation, salt='product-permanent-selection', max_age=3600)
+                if selected != {'actor': request.user.pk, 'ids': ids, 'request_id': request_id}:
+                    raise signing.BadSignature
+                result = delete_selected_products_permanently(
+                    product_ids=ids, actor=request.user, request_id=request_id,
+                )
+            except signing.BadSignature:
+                error = 'The confirmation expired or changed. Review the selection again.'
+            except ProductDeletionError as exc:
+                error = str(exc)
+            except Exception:
+                logger.exception('Selected product deletion failed: actor_id=%s', request.user.pk)
+                error = 'Deletion failed. No database changes were committed.'
+            else:
+                self.message_user(request,
+                                  f"Permanently deleted {result['products_deleted']} product(s) and their Origination records. "
+                                  'This cannot be undone. Compliance history and external files were retained.',
+                                  level=messages.WARNING)
+                return HttpResponseRedirect(reverse('admin:core_product_changelist'))
+        try:
+            preview = preview_permanent_product_deletion(product_ids=ids, actor=request.user)
+        except ProductDeletionError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse('admin:core_product_changelist'))
+        return TemplateResponse(request, 'admin/core/product/permanent_delete.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Delete selected products permanently', 'preview': preview, 'error': error,
+            'request_id': request_id,
+            'selection_token': signing.dumps({'actor': request.user.pk, 'ids': ids, 'request_id': request_id},
+                                            salt='product-permanent-selection'),
+            'action_checkbox_name': helpers.ACTION_CHECKBOX_NAME,
+            'back_url': reverse('admin:core_product_changelist'),
+        }, status=400 if error else 200)
 
     def changelist_view(self, request, extra_context=None):
         context = dict(extra_context or {})

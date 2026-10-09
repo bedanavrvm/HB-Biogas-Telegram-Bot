@@ -1362,9 +1362,10 @@ def _upload_template_bytes(
     from core.services.order_approval import GoogleDriveMediaStorage
     return GoogleDriveMediaStorage(parent_folder_id=folder_id).upload(
         pdf_data, template.source_filename, 'application/pdf', template.document_type,
-        timezone.now(), workflow_key='Loan Origination/Templates',
+        template.created_at, workflow_key='Loan Origination/Templates',
         record_type=template.document_type,
         record_key=f'v{template.version}-{template.source_sha256[:12]}',
+        recover_uncertain=True,
     )
 
 

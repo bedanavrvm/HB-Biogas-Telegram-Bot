@@ -60,7 +60,7 @@ def serialize_readiness(issues) -> dict:
         {'severity': item.severity, 'code': item.code, 'message': item.message}
         for item in issues
     ]
-    return {'passed': not rows, 'issues': rows}
+    return {'passed': not any(row['severity'] == 'error' for row in rows), 'issues': rows}
 
 
 def existing_release(release_id: str):

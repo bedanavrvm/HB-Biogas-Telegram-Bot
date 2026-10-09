@@ -448,12 +448,14 @@ RELEASE_ENVIRONMENT=staging
 APP_BASE_URL=https://<staging-host>
 ```
 
-The service fails closed unless the settings agree. Sandbox readiness is
-accepted only when both `SENTRY_ENVIRONMENT` and `RELEASE_ENVIRONMENT` are
-explicitly non-production and the username is `sandbox`.
-Production requires `AFRICASTALKING_SMS_ENVIRONMENT=production`, a non-sandbox
-username, credentials, `SENTRY_ENVIRONMENT=production`, and the explicit
-enable flag.
+The service fails closed unless the provider settings agree. Sandbox requires
+the username `sandbox`; production delivery requires a non-sandbox username,
+a non-placeholder API key and the explicit enable flag. Logging and release
+labels do not enable or disable OTP. To exercise real SMS during testing, use
+your production SMS account and authorized test phones; no simulator is needed.
+Missing provider or conditional-approval setup is a deployment warning, not a
+release blocker. Signing still refuses to proceed without its actual OTP,
+consent, identity, packet-integrity and approval prerequisites.
 
 Before publishing a product, configure every required external signer in the
 main LAF builder. For each signer choose canonical fields for **Signer name**,
@@ -652,6 +654,59 @@ Old versions remain visible in version history and continue supporting existing
 applications. Do not purge production versions to reduce list clutter.
 
 ## Testing-only deletion controls
+
+### Delete selected global products permanently
+
+1. Enable `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED=True` in the testing deployment.
+2. As an active Superuser, open **Products** and select the exact products.
+3. Choose **Delete selected products permanently** and run the action.
+4. Review the products and application/signing counts, then choose **Delete permanently**.
+   There is one confirmation and no mandatory note.
+5. Disable the setting when testing cleanup is finished.
+
+This physically removes selected Products, lending versions, Origination setup,
+applications, evidence rows and signing history. It does not create tombstones.
+The entire selection is refused if SPIN, TAT, Portal or other protected records
+depend on any selected product. Shared catalogue documents, canonical fields,
+global customer identities, users, compliance evidence and Drive/Sheets remain
+untouched. Old signing links fail safely; pending jobs skip removed records.
+Already-started external requests cannot be recalled. Database deletion cannot
+be undone from the app, and retained external files are not automatically recovered.
+
+**Remove selected products from catalogue (retain connected history)** is the
+separate existing removal action, not this permanent deletion.
+
+### Prepare the eleven blank LAFs once
+
+In the deployment environment set:
+
+```text
+ORIGINATION_LAF_BOOTSTRAP_ENABLED=True
+ORIGINATION_LAF_BOOTSTRAP_ACTOR=<existing-active-superuser-username>
+```
+
+The actor defaults to `DJANGO_SUPERUSER_USERNAME` if omitted. `release_production`
+(the existing `release.sh`) runs this after migrations, Django checks and
+Superuser bootstrap. No restart hook or cron runs it. It uploads the eleven
+reviewed blank PDFs to restricted Drive and creates shared-value drafts;
+it creates no products, eligibility, published coordinates or legal authority.
+Finish signers, fields, placement and normal publication in the Document editor.
+
+The completed source/contract fingerprint is retained outside the catalogue.
+Later releases skip it even if you delete a seeded draft. An interrupted run
+retains successful drafts/uploads and can be resumed explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py bootstrap_origination_lafs --actor <superuser-username>
+.\.venv\Scripts\python.exe manage.py bootstrap_origination_lafs --apply --actor <superuser-username>
+```
+
+The first command is read-only. To deliberately recreate deleted completed
+seeds, add `--force` to the second command. Failed optional bootstrap is recorded
+as a warning in release evidence; inspect the actor, assets, canonical fields
+and Drive configuration before retrying. Water Tank is excluded because its
+reviewed source is absent. Human review of ambiguous fields/legal roles remains
+necessary; seeding does not certify signing readiness.
 
 ### Purge one Origination record
 

@@ -505,7 +505,7 @@ that approval is retained when Operations reissues the same signer session.
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Watermarked simulator outside production only; default `False`. |
 | `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified signing; default `False`. |
 | `ORIGINATION_CONDITIONAL_APPROVAL_ENABLED` | Enables conditional consent and the application's frozen approval policy only with a matching approved consent version; default `False`. |
-| `AFRICASTALKING_SMS_ENVIRONMENT` | `sandbox` or `production`; must agree with the application environment. |
+| `AFRICASTALKING_SMS_ENVIRONMENT` | `sandbox` or `production`; must agree with provider credentials, not logging/release labels. |
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY` | Server-only provider credentials. Sandbox requires username `sandbox`. |
 | `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |
 | `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Opaque signing-link lifetime, bounded to 1-168 hours; default 48. |
@@ -513,6 +513,33 @@ that approval is retained when Operations reissues the same signer session.
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Required `True` in production; local/test compatibility may be explicit. |
 | `MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS` | 1–90 day anonymous missing-key readiness lookback; default 14. |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only Admin reset; default and normal production value is `False`. |
+| `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Testing-only family purge and permanent selected-product/Origination-history deletion; default `False`. |
+| `ORIGINATION_LAF_BOOTSTRAP_ENABLED` | Opt-in, one-time release bootstrap of eleven unassigned blank document drafts; default `False`. |
+| `ORIGINATION_LAF_BOOTSTRAP_ACTOR` | Existing active Superuser username; defaults to `DJANGO_SUPERUSER_USERNAME` when omitted. |
+
+Provider availability uses `origination_signing_configuration` in runtime and
+readiness. Setup deficiencies are warnings; auth and consent-integrity defects
+remain errors. `release_production` stops on errors only; the explicit
+`check_production_readiness --strict` diagnostic still rejects warnings.
+
+The optional bootstrap runs after migration/post-check/Superuser bootstrap,
+not during build, process startup or a cron. It uses existing version-2 seeds,
+per-document commits, a fenced 30-minute lease and bounded external calls.
+The completion audit fingerprint includes source bytes and semantic contracts;
+deleting catalogue rows cannot reset it. Explicit `--apply --force` is the only
+recreation path for a completed fingerprint. No new persistent model is added.
+
+The reviewed deployment bundle lives under `origination/assets/lafs/`, not
+public static/media. `scripts/build_origination_laf_bundle.py` verifies original
+hashes and strips PDF author/XMP metadata without changing page content.
+`manifest.json` and the artifact allowlist pin the resulting bytes. Root `LAFS/`
+stays ignored. Original per-LAF reference hashes still identify the paper sources.
+
+Permanent deletion uses `core.services.product_permanent_deletion` to classify
+and lock the exact selection, preserve shared evidence and reuse the existing
+family cleanup in one transaction. Actor/selection-bound idempotency lives in
+the independent compliance ledger; unexpected application relations fail closed.
+See [ADR 0043](adr/0043-origination-bootstrap-and-selected-deletion.md).
 
 If a setting is added or renamed, update `config/settings.py`, `.env.example`,
 the repository `AGENTS.md` environment table, and this guide in the same change.

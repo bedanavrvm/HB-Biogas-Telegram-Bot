@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=9">
+{% endblock %}
+{% block content %}
+<section class="opb-shell opb-god-mode opb-permanent-delete">
+  <h1>Delete selected products?</h1>
+  <div class="opb-god-warning">
+    <b>This cannot be undone.</b>
+    <p>Deletes these products, their lending setup, and their Origination applications and signing history.</p>
+    <p>Shared documents, customer identities, compliance history, Drive files and other workflows stay intact.</p>
+  </div>
+  <ul>{% for product in preview.products %}<li><strong>{{ product.name }}</strong> · {{ product.code }}</li>{% endfor %}</ul>
+  <p>{{ preview.versions }} lending version{{ preview.versions|pluralize }} · {{ preview.definitions }} Origination configuration{{ preview.definitions|pluralize }} · {{ preview.applications }} application{{ preview.applications|pluralize }} · {{ preview.signing_packages }} signing packet{{ preview.signing_packages|pluralize }}</p>
+  {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+  {% if preview.blockers %}
+    <div class="opb-errors" role="alert"><b>These products cannot be deleted.</b><ul>{% for blocker in preview.blockers %}<li>{{ blocker }}</li>{% endfor %}</ul></div>
+  {% endif %}
+  <form method="post" data-single-submit>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="delete_selected_products_permanently">
+    <input type="hidden" name="request_id" value="{{ request_id }}">
+    <input type="hidden" name="selection_token" value="{{ selection_token }}">
+    {% for id in preview.product_ids %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ id }}">{% endfor %}
+    <div class="opb-actions">
+      <a class="button" href="{{ back_url }}">Cancel</a>
+      <button type="submit" name="confirm_permanent_delete" value="1" class="button opb-danger-button"{% if preview.blockers %} disabled{% endif %}>Delete permanently</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

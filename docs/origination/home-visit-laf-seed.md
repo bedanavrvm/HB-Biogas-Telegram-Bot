@@ -23,11 +23,11 @@ are not migrated. A field reference is not a certified placement coordinate.
 |---|---|---|---|
 | `asset_owner_name` | `text` | asset_owner / application | p1: Assets belong to / I confirm owner |
 | `asset_owner_national_id` | `national_id` | asset_owner / application | p1: Asset owner ID |
-| `application_date` | `text` | application / application | p1: Loan application date; p1: Loan application date |
-| `secured_assets_total` | `text` | application / application | p1: Estimated value total |
+| `application_date` | `date` | application / application | p1: Loan application date; p1: Loan application date |
+| `secured_assets_total` | `money` | application / application | p1: Estimated value total |
 | `secured_assets` | `repeating_group` | application / application | Visual row capacity review required |
 | `loan_officer_name` | `text` | application / application | p1: BRO name |
-| `home_visit_completed_date` | `text` | application / application | p1: Visit date |
+| `home_visit_completed_date` | `date` | application / application | p1: Visit date |
 
 ## Signers and unresolved decisions
 
@@ -49,7 +49,11 @@ signing inputs, not printed blanks.
 | `application_date` | calculated / `system.application_date` | Not applicable |
 | `secured_assets_total` | calculated / `total.secured_assets_total` | Not applicable |
 | `secured_assets` | Reviewed entered value | Not applicable |
-| Child columns | `description` (`text`), `estimated_value` (`money`) | Maximum 10; minimum 0 |
+| Child columns | `description` (`text`, up to 240 characters), `estimated_value` (`money`, nonnegative) | Maximum 11; minimum 1 |
+
+The shared asset structure matches the existing canonical field; it is not
+retyped or resized by seeding. The paper's actual visible row capacity must
+still be configured and checked during placement before publication.
 | `loan_officer_name` | calculated / `system.loan_officer_name` | Not applicable |
 | `home_visit_completed_date` | workflow / `workflow.visit_date` | Not applicable |
 

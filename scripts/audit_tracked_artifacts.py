@@ -27,6 +27,7 @@ MAX_TEXT_SCAN_BYTES = 5 * 1024 * 1024
 CLASSIFICATION_PATH_PREFIXES = {
     "public_brand_asset": "core/static/",
     "sanitized_test_fixture": "core/test_fixtures/sanitized/",
+    "blank_business_document": "origination/assets/lafs/",
 }
 
 # High-confidence credential shapes only. Customer-data controls are enforced

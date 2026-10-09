@@ -14,6 +14,9 @@ from scripts.audit_tracked_artifacts import (
 
 
 class TrackedArtifactAuditTests(TestCase):
+    def test_blank_business_documents_have_one_private_bounded_directory(self):
+        self.assertEqual(CLASSIFICATION_PATH_PREFIXES['blank_business_document'], 'origination/assets/lafs/')
+
     def test_controlled_artifact_extensions_are_case_insensitive(self):
         self.assertTrue(controlled_artifact("exports/customer-data.XLSX"))
         self.assertTrue(controlled_artifact("screenshots/review.JpG"))

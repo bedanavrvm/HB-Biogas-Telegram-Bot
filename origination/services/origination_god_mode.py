@@ -235,7 +235,8 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
 
 
 def _purge_assignment(assignment_id, counts: Counter[str]) -> None:
-    _delete(OriginationApplicationDocument.objects.filter(assignment_id=assignment_id), counts)
+    if OriginationApplicationDocument.objects.filter(assignment_id=assignment_id).exists():
+        raise OriginationGodModeError('This assignment is still used by an application outside the deletion scope.')
     _delete(OriginationProductDocumentAssignment.objects.filter(pk=assignment_id), counts)
 
 
@@ -267,7 +268,21 @@ def _purge_product_definition(product_id, counts: Counter[str]) -> None:
     for template_id in OriginationDocumentTemplate.objects.filter(
         product_definition_id=product_id,
     ).values_list('pk', flat=True):
-        _purge_template(template_id, counts)
+        template = OriginationDocumentTemplate.objects.get(pk=template_id)
+        product_version_id = OriginationProductDefinition.objects.filter(pk=product_id).values_list('product_version_id', flat=True).first()
+        global_product_id = None
+        if product_version_id:
+            from core.models import ProductVersion
+            global_product_id = ProductVersion.objects.filter(pk=product_version_id).values_list('product_id', flat=True).first()
+        shared = (
+            template.application_documents.exists()
+            or template.product_assignments.exclude(product_definition_id=product_id).exists()
+            or template.product_eligibilities.exclude(product_id=global_product_id).exists()
+        )
+        if shared:
+            OriginationDocumentTemplate.objects.filter(pk=template_id).update(product_definition=None)
+        else:
+            _purge_template(template_id, counts)
     for assignment_id in OriginationProductDocumentAssignment.objects.filter(
         product_definition_id=product_id,
     ).values_list('pk', flat=True):

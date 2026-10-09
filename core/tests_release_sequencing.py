@@ -24,11 +24,48 @@ RELEASE_SETTINGS = {
     'RELEASE_ENVIRONMENT': 'production',
     'TAT_NOTIFICATION_SCHEDULER_REQUIRED': True,
     'ORIGINATION_ESIGN_ENABLED': True,
+    'ORIGINATION_LAF_BOOTSTRAP_ENABLED': False,
 }
 
 
 @override_settings(**RELEASE_SETTINGS)
 class ProductionReleaseCommandTests(TestCase):
+    def test_laf_bootstrap_runs_after_migration_checks_and_superuser_bootstrap(self):
+        events = []
+        _, _, _, django_command, superuser = self._successful_patches()
+        django_command.side_effect = lambda name, **kwargs: events.append(name)
+        superuser.side_effect = lambda: events.append('superuser') or Mock(outcome='existing')
+        with patch('core.management.commands.release_production.bootstrap_lafs_from_environment',
+                   side_effect=lambda: events.append('lafs') or {'status': 'completed', 'documents': 11}):
+            call_command('release_production', stdout=io.StringIO())
+        self.assertEqual(events, ['migrate', 'check', 'superuser', 'lafs'])
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertEqual(audit.readiness_results['origination_laf_bootstrap']['status'], 'completed')
+
+    def test_optional_laf_failure_is_warning_and_never_records_provider_secrets(self):
+        self._successful_patches()
+        output = io.StringIO()
+        with patch('core.management.commands.release_production.bootstrap_lafs_from_environment',
+                   side_effect=ValueError('synthetic-provider-secret')):
+            call_command('release_production', stdout=output)
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertEqual(audit.status, ProductionReleaseAudit.STATUS_COMPLETED)
+        self.assertEqual(audit.readiness_results['origination_laf_bootstrap'],
+                         {'status': 'warning', 'error_code': 'ValueError'})
+        self.assertNotIn('synthetic-provider-secret', output.getvalue() + json.dumps(audit.readiness_results))
+
+    def test_warning_only_readiness_is_recorded_without_blocking_release(self):
+        self._successful_patches()
+        warning = ReadinessIssue('warning', 'origination-esign-api-key', 'Configure OTP delivery.')
+        with patch('core.management.commands.release_production.production_readiness_issues',
+                   return_value=[warning]):
+            output = io.StringIO()
+            call_command('release_production', stdout=output)
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertTrue(audit.readiness_results['general']['passed'])
+        self.assertEqual(audit.readiness_results['general']['issues'][0]['severity'], 'warning')
+        self.assertIn('[WARNING]', output.getvalue())
+
     def _successful_patches(self, *, plans=None):
         stack = self.enterContext
         stack(patch(

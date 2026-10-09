@@ -87,6 +87,8 @@ def queue_withdrawal_notices(package, actor):
 def _perform(operation):
     if operation.operation_type == 'origination_approved_archive':
         from origination.services.origination_esign import archive_signed_package
+        if not OriginationSigningPackage.objects.filter(pk=operation.source_id).exists():
+            return {'cancelled': True}
         try:
             package = archive_signed_package(package_id=operation.source_id, actor=operation.requested_by,
                                              request_id=f'background-archive:{operation.pk}')
@@ -98,7 +100,9 @@ def _perform(operation):
         return {'archive_status': package.archive_status}
     if operation.operation_type == 'origination_withdrawal_sms':
         from origination.services.origination_esign import _send_sms
-        session = OriginationSignerSession.objects.select_related('package__application').get(pk=operation.source_id)
+        session = OriginationSignerSession.objects.select_related('package__application').filter(pk=operation.source_id).first()
+        if session is None:
+            return {'cancelled': True}
         if session.package.status != 'cancelled':
             return {'cancelled': True}
         result = _send_sms('JBL: your signing request was withdrawn for changes. Your application was not rejected. '
@@ -107,7 +111,9 @@ def _perform(operation):
         if not result.get('id') or str(result.get('status', '')).casefold() not in {'success', 'accepted', 'sent', 'queued', '101'}:
             raise RuntimeError('The SMS provider did not accept the withdrawal notification.')
         return result
-    notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').get(pk=operation.source_id)
+    notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').filter(pk=operation.source_id).first()
+    if notice is None:
+        return {'cancelled': True}
     from origination.services.origination_approval import signing_progress
     from origination.services.origination_esign import STAFF_SIGNER_ACCESS_ROLES
     from core.services.workflow_access import workflow_access_decision

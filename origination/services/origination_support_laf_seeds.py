@@ -23,7 +23,9 @@ def entered(key, label, type='text', *, subject='application', local=False, requ
 
 def generated(key, label, *, pages=(1,), printed=None):
     from origination.services.origination_commercial_terms import FIELD_SPECS
-    type = next((spec[2] for spec in FIELD_SPECS if spec[0] == key), 'text')
+    system_types = {'application_date': 'date', 'home_visit_completed_date': 'date',
+                    'secured_assets_total': 'money'}
+    type = next((spec[2] for spec in FIELD_SPECS if spec[0] == key), system_types.get(key, 'text'))
     spec = _field(key, label, type, 'document_details', source='system')
     spec['value_contract'] = reviewed_contract(spec)
     spec['occurrences'] = [{'page': page, 'label': printed or label} for page in pages]
@@ -82,9 +84,11 @@ DEFINITIONS = (
          generated('application_date', 'Loan application date', pages=(1,1)),
          generated('secured_assets_total', 'Estimated value total'),
          _field('secured_assets', 'Home visit assets', 'repeating_group', 'document_details', structure={
-             'min_items': 0, 'max_items': 10, 'columns': [
-                 {'key':'description', 'label':'Item', 'type':'text', 'required':True},
-                 {'key':'estimated_value', 'label':'Estimated value', 'type':'money', 'required':True}]}, width='full'),
+             'min_items': 1, 'max_items': 11, 'columns': [
+                 {'key':'description', 'label':'Asset description', 'type':'text', 'required':True,
+                  'validation': {'max_length': 240}},
+                 {'key':'estimated_value', 'label':'Estimated value', 'type':'money', 'required':True,
+                  'validation': {'min': '0'}}]}, width='full'),
          generated('loan_officer_name', 'BRO name'), generated('home_visit_completed_date', 'Visit date')),
         (_signer('officer', 'Visit officer'),), review_notes=(
             'Owner confirmation needs its own signer; never assume the owner is the borrower.',

@@ -184,10 +184,10 @@ class OriginationVerifiedSigningTests(TestCase):
             request_id=request_id,
         )
 
-    def test_sandbox_readiness_fails_closed_outside_non_production(self):
+    def test_sandbox_readiness_uses_provider_configuration_not_logging_labels(self):
         self.assertTrue(esign_enabled())
         with override_settings(SENTRY_ENVIRONMENT='production'):
-            self.assertFalse(esign_enabled())
+            self.assertTrue(esign_enabled())
         with override_settings(AFRICASTALKING_USERNAME='not-sandbox'):
             self.assertFalse(esign_enabled())
 

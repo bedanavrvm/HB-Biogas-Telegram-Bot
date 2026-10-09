@@ -24,6 +24,7 @@ from core.services.superuser_bootstrap import (
     bootstrap_superuser_from_environment,
 )
 from core.services.tat_production import tat_production_readiness_issues
+from origination.services.origination_laf_bootstrap import bootstrap_lafs_from_environment
 
 
 class Command(BaseCommand):
@@ -37,9 +38,9 @@ class Command(BaseCommand):
 
     def _check(self, label: str, issues, readiness: dict) -> None:
         readiness[label] = serialize_readiness(issues)
-        if issues:
-            for issue in issues:
-                self.stdout.write(f'[{issue.severity.upper()}] {issue.code}: {issue.message}')
+        for issue in issues:
+            self.stdout.write(f'[{issue.severity.upper()}] {issue.code}: {issue.message}')
+        if any(issue.severity == 'error' for issue in issues):
             raise CommandError(f'{label.replace("_", " ").title()} readiness checks failed.')
         self.stdout.write(self.style.SUCCESS(f'{label.replace("_", " ").title()} readiness passed.'))
 
@@ -201,6 +202,21 @@ class Command(BaseCommand):
                 },
             )
             raise CommandError(str(exc)) from exc
+
+        self.stdout.write('Optional reviewed LAF bootstrap')
+        try:
+            laf_bootstrap = bootstrap_lafs_from_environment()
+            readiness['origination_laf_bootstrap'] = laf_bootstrap
+            self.stdout.write(f"LAF bootstrap: {laf_bootstrap['status']}.")
+        except Exception as exc:
+            # An optional catalogue draft cannot hold an otherwise safe release.
+            # Persist only the exception class, never provider payloads/secrets.
+            readiness['origination_laf_bootstrap'] = {
+                'status': 'warning', 'error_code': type(exc).__name__,
+            }
+            self.stdout.write(self.style.WARNING(
+                'LAF bootstrap did not complete. Check its actor/assets/Drive setup and retry bootstrap_origination_lafs --apply.'
+            ))
 
         self.stdout.write('9/9 Record release evidence')
         try:

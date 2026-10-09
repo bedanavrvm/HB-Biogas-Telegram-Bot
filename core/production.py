@@ -181,54 +181,15 @@ def production_security_readiness_issues(
         getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)
     )
     if origination_esign_enabled:
-        provider_environment = str(
-            getattr(settings, 'AFRICASTALKING_SMS_ENVIRONMENT', '') or ''
-        ).strip().casefold()
-        application_environment = str(
-            getattr(settings, 'SENTRY_ENVIRONMENT', '') or ''
-        ).strip().casefold()
-        release_environment = str(
-            getattr(settings, 'RELEASE_ENVIRONMENT', '') or ''
-        ).strip().casefold()
-        username = str(getattr(settings, 'AFRICASTALKING_USERNAME', '') or '').strip()
-        sandbox_readiness = bool(
-            application_environment in NON_PRODUCTION_ENVIRONMENTS
-            and release_environment in NON_PRODUCTION_ENVIRONMENTS
-            and provider_environment == 'sandbox'
-        )
-        if sandbox_readiness:
-            if username.casefold() != 'sandbox':
-                error(
-                    'origination-esign-username',
-                    'AFRICASTALKING_USERNAME must be sandbox for an explicitly non-production Sandbox release.',
-                )
-        else:
-            if application_environment != 'production':
-                error(
-                    'origination-esign-application-environment',
-                    'SENTRY_ENVIRONMENT must be production unless both application and release environments are explicitly non-production.',
-                )
-            if provider_environment != 'production':
-                error(
-                    'origination-esign-environment',
-                    'AFRICASTALKING_SMS_ENVIRONMENT must be production unless an explicitly non-production release uses Sandbox.',
-                )
-            if _blank_or_placeholder(username) or username.casefold() == 'sandbox':
-                error(
-                    'origination-esign-username',
-                    'AFRICASTALKING_USERNAME must be a production account unless an explicitly non-production release uses Sandbox.',
-                )
-        if _blank_or_placeholder(getattr(settings, 'AFRICASTALKING_API_KEY', '')):
-            error(
-                'origination-esign-api-key',
-                'AFRICASTALKING_API_KEY must be configured when Origination e-signing is enabled.',
-            )
+        from origination.services.origination_signing_configuration import provider_configuration_issues
+        for code, message in provider_configuration_issues(settings):
+            warning(code, message)
 
     conditional_enabled = bool(
         getattr(settings, 'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED', False)
     )
     if conditional_enabled and not origination_esign_enabled:
-        error(
+        warning(
             'conditional-approval-esign',
             'ORIGINATION_ESIGN_ENABLED must be enabled before conditional approval.',
         )
@@ -241,7 +202,7 @@ def production_security_readiness_issues(
                 status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
             ))
             if not policies:
-                error(
+                warning(
                     'conditional-approval-consent-policy',
                     'Publish compliance-approved Origination consent wording before enabling conditional approval.',
                 )
@@ -251,7 +212,7 @@ def production_security_readiness_issues(
                     and policy.approved_by_id
                     and policy.approved_at
                 ):
-                    error(
+                    warning(
                         'conditional-approval-consent-approval',
                         'The active Origination consent policy is missing compliance approval evidence.',
                     )
@@ -265,11 +226,11 @@ def production_security_readiness_issues(
                 is_active=True, lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
             ).values_list('approval_roles', flat=True):
                 if tuple(sequence) not in covered_sequences:
-                    error('conditional-approval-consent-sequence',
+                    warning('conditional-approval-consent-sequence',
                           'An active product has no compliance-approved consent for its approval sequence.')
                     break
         except (OperationalError, ProgrammingError):
-            error(
+            warning(
                 'conditional-approval-consent-readiness',
                 'The Origination consent-policy register could not be checked.',
             )

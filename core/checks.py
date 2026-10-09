@@ -41,9 +41,12 @@ _CHECK_IDS = {
 }
 
 
-def _django_errors(codes: set[str]) -> list[Error]:
+def _django_errors(codes: set[str]) -> list[Error | Warning]:
     return [
-        Error(issue.message, id=_CHECK_IDS[issue.code])
+        (Warning if issue.severity == 'warning' else Error)(
+            issue.message,
+            id=_CHECK_IDS[issue.code].replace('.E', '.W') if issue.severity == 'warning' else _CHECK_IDS[issue.code],
+        )
         for issue in production_security_readiness_issues(settings)
         if issue.code in codes
     ]

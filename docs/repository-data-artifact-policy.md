@@ -31,6 +31,14 @@ Sanitized binary test fixtures must live under
 `core/static/`. The scanner validates the classification-to-path relationship;
 an allowlist entry cannot approve an operational export in an arbitrary path.
 
+Reviewed blank business documents have a third, narrowly bounded classification:
+`blank_business_document`, only under `origination/assets/lafs/`. These eleven
+private deployment PDFs contain no filled customer fields. Original author/XMP
+metadata is removed by `scripts/build_origination_laf_bundle.py`; rendered pages
+remain identical to the reviewed paper forms. Exact sanitized hashes are pinned,
+not trusted by filename. They are never served as public static assets. The
+specific reviewed paths are unignored; original root `LAFS/` remains excluded.
+
 Changing an allowlisted file changes its hash and intentionally fails CI until
 the new bytes receive a fresh review. Path-based trust alone is not sufficient.
 Controlled formats are also marked as binary in `.gitattributes`, preventing a

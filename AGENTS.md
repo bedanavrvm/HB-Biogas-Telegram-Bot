@@ -64,6 +64,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Pilot cycle** | A versioned SPIN or TAT test-data scope. Rotating a cycle closes the old scope, makes it read-only and purge-eligible, and starts a new active scope that cannot be purged. |
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
 | **Product catalogue reset** | A testing-only, active-Superuser clean-slate control. It hard-deletes unused draft product families, retains connected or governed legacy products as inactive tombstones, revokes their live availability/access, and never deletes operational records or external files. |
+| **Permanent selected-product deletion** | A separate testing-gated, active-Superuser Products Admin action that physically deletes the exact selected global products and their Origination application/signing rows. Other workflows block the entire selection; shared documents, canonical fields, customer identities, compliance evidence and external files survive. One signed confirmation binds the actor and selection; no manual audit note is required. |
+| **Origination LAF bootstrap** | Opt-in release-stage preparation of eleven reviewed, metadata-sanitized blank PDFs as unpublished, unassigned shared-value document drafts. A leased operation and immutable completion fingerprint make it resumable and one-time per contract; deleted completed seeds require explicit force to recreate. Never run from startup or cron. |
 | **Global location** | The stable `OperationalLocation` identity for branches, counties, and sub-counties. Codes and hierarchy are immutable; aliases preserve legacy labels, branch service areas govern availability, and workflow records retain canonical references plus historical display values. |
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under the owning app; legacy workflows use `core`, and Loan Origination uses `origination`. |
 | **Mini App record reference** | A versioned, allowlisted workflow/entity/UUID reference for future explicit interlinkage. It contains no customer identity or access token, grants no authority, and resolves only through the owning workflow's current authorization. |
@@ -181,6 +183,7 @@ Key modules:
 - `parser.py` — complaint/message parsing
 - `product_catalog.py` — canonical product resolution, effective-dated Superuser publication, availability assignments, mapping review, requirements, and typed custom attributes
 - `product_catalog_full_reset.py` — testing-only hard deletion of unused draft product families plus inactive tombstones for connected or governed legacy references
+- `product_permanent_deletion.py` — exact-selection, testing-gated global product/Origination-history deletion; other workflows block, shared evidence survives
 - `product_quotes.py` — Decimal-only product quote calculations for interest, repayment frequency, and fixed/percentage fees
 - `origination_commercial_terms.py` — officer-entered contractual lending terms, arithmetic/policy readiness, immutable quote hashes, and exact revision-bound Superuser exceptions
 - `requisition.py` — requisition generation and files
@@ -219,6 +222,7 @@ Key modules:
 - `origination_document_catalogue.py` — product allowlists, contract-equivalent Main LAF resolution, catalogue readiness, selection digests, and cross-document canonical-field compatibility
 - `origination/services/origination_value_contracts.py` — version-2 shared/local value compilation, allowlisted projections, explicit person reuse, visible row capacities and pure frozen-value boundaries; read ADR 0042 before changing it.
 - `origination/services/origination_support_laf_seeds.py` — exact blank supporting-PDF references and unpublished seed contracts; native legal roles and ambiguous paper fields require explicit review, never inferred authority.
+- `origination/services/origination_laf_bootstrap.py` — optional one-time release bootstrap; private reviewed assets, durable lease/completion marker, no assignment or publication
 - `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates
 - `generic_jawabu_laf_seed.py` — reviewed reusable Jawabu LAF canonical-field, repeating-table, evidence, and signer contract; product assignment and PDF coordinates remain explicit Admin actions
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
@@ -399,7 +403,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `STAFF_ACTIVATION_MINI_APP_SHORT_NAME` | BotFather short name whose Mini App URL points to `/staff/activate/` for signed staff identity activation | No |
 | `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | PDF size limit for versioned Origination legal templates managed in Django Admin; templates use the existing `GOOGLE_DRIVE_MEDIA_FOLDER_ID` root | No |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only gate for the active-Superuser Django Admin action that empties Origination database models while leaving Drive files and other workflows untouched; defaults to disabled | No |
-| `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Gate for the active-Superuser purge of one Origination product family and its Origination-owned descendants; global Product records and Drive files remain untouched; defaults to disabled | No |
+| `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Testing-only gate for Origination family purge and the separate permanent selected global-product/Origination-history deletion action. Both preserve external files; only the selected-product action removes global Products. Defaults to disabled | No |
+| `ORIGINATION_LAF_BOOTSTRAP_ENABLED` / `ORIGINATION_LAF_BOOTSTRAP_ACTOR` | Optional release-stage one-time blank-LAF draft bootstrap; active Superuser actor, falling back to `DJANGO_SUPERUSER_USERNAME`; disabled by default | No |
 | `INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB` | DOCX size limit for governed invoice-name-change letter templates uploaded in Django Admin | No |
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Enables the visibly watermarked drawn/typed-signature and controlled-stamp simulator outside production only; defaults to disabled | No |

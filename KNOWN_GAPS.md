@@ -1,5 +1,55 @@
 # Known Gaps and Verified Workarounds
 
+## Origination testing, bootstrap and selected deletion - 9 October 2026
+
+Implemented non-blocking deployment setup warnings, provider-configured OTP
+availability, opt-in one-time release seeding of eleven private blank LAFs, and
+Superuser-only permanent selected-product/Origination deletion. Authentication,
+consent integrity, OTP verification/limits and independent approvals remain
+enforced. No new model, migration, scheduler or simulator was introduced.
+
+Verification used isolated SQLite, synthetic records and mocked integrations:
+
+- The focused acceptance run completed 121 tests: 119 passed and two
+  PostgreSQL-only concurrent-first-request tests were skipped.
+- The real local Admin confirmation passed at 320, 430 and 1280px in light and
+  dark themes, including Cancel, a protected selection and confirmed deletion.
+  Final 320px light and 1280px dark screenshots were visually inspected after
+  fixing the confirmation buttons' touch targets and focus states.
+- All eleven sanitized PDFs retain pixel-identical rendering across 25 pages;
+  author/XMP metadata and filled-widget checks pass. The blank bundle contains
+  no customer submissions and is not exposed through static-file URLs.
+- Seven artifact-audit unit tests and syntax checks for 118 first-party
+  JavaScript files pass. Migration inspection reports no changes.
+- An additional 43-test regression run had 39 passes, one PostgreSQL-only skip,
+  and three existing failures: two BM permission/notice fixtures and the
+  environment-template line-count assertion. They were reproduced with the
+  previous signing/dispatch functions and unchanged environment template.
+- Five older template-lifecycle/Admin tests also fail with the previous upload
+  implementation; their product-owned assumptions or missing supporting schemas
+  predate this change. These unrelated tests were not rewritten to pass.
+- The new blank assets pass privacy/hash checks. The repository-wide artifact
+  audit still reports 19 existing hash mismatches in the unchanged logo and
+  Portal screenshot fixtures; the same mismatches are present in HEAD.
+
+Text evidence is retained in ignored
+`test-results/origination-plan-acceptance.txt`,
+`test-results/origination-plan-browser.txt`,
+`test-results/origination-plan-additional-regression.txt`,
+`test-results/origination-existing-template-baseline.txt`,
+`test-results/origination-existing-additional-baseline.txt`,
+`test-results/origination-plan-privacy.txt` and
+`test-results/origination-plan-migrations.txt`.
+
+PostgreSQL locking/concurrency, real SMS delivery, physical Telegram devices and
+the full repository suite remain unverified. No deployment, live seed upload,
+external file deletion or real product deletion occurred. Enable the two gates
+deliberately; bootstrap uses the existing release command and seeds unpublished,
+unassigned drafts only. Alignment, signer/legal review and publication are still
+human-owned. Permanent deletion cannot be undone through the app. Already-started
+external requests cannot be recalled; subsequent queued dispatches skip deleted
+Origination sources, while compliance history and external files remain intact.
+
 ## Canonical Origination values - 8 October 2026
 
 Implemented explicit version-2 shared/document field meanings, scoped inputs,

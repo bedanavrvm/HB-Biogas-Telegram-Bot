@@ -111,4 +111,6 @@ spin/
 !core/templates/spin/form.html
 origination-ui-audit/
 
-LAFS/
+/LAFS/
+!origination/assets/lafs/*.pdf
+!origination/assets/lafs/manifest.json

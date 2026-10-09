@@ -692,9 +692,9 @@ def _validate_field_contract(definition: MainLafDefinition) -> None:
             raise MainLafSeedError(f'{spec["key"]} has an incompatible repeatable structure.')
 
 
-def preflight_seed(definition: MainLafDefinition, *, laf_root: str | Path) -> dict[str, Any]:
+def preflight_seed(definition: MainLafDefinition, *, laf_root: str | Path, unassigned: bool = False) -> dict[str, Any]:
     source = _source_plan(definition, laf_root)
-    product = _product(definition)
+    product = None if unassigned else _product(definition)
     _validate_field_contract(definition)
     candidates = OriginationDocumentTemplate.objects.filter(
         document_type=definition.document_type, source_sha256=definition.sha256,
@@ -855,16 +855,16 @@ def _template_for(
         metadata={
             'seed_key': definition.key, 'sha256': definition.sha256,
             'page_count': definition.page_count,
-            'eligible_product_codes': [definition.product_code] if definition.product_code else [],
+            'eligible_product_codes': [product.code] if product else [],
         },
     )
     return template, True
 
 
-def apply_seed(definition: MainLafDefinition, *, laf_root: str | Path, actor, shared_values: bool = False) -> dict[str, Any]:
+def apply_seed(definition: MainLafDefinition, *, laf_root: str | Path, actor, shared_values: bool = False, unassigned: bool = False) -> dict[str, Any]:
     if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
         raise MainLafSeedError('The seed actor must be an active Django Superuser.')
-    plan = preflight_seed(definition, laf_root=laf_root)
+    plan = preflight_seed(definition, laf_root=laf_root, unassigned=unassigned)
     with transaction.atomic():
         fields = _ensure_fields(definition, actor=actor)
         schema = build_form_schema(definition, fields, shared_values=shared_values)

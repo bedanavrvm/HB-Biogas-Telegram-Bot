@@ -1,6 +1,61 @@
 {
   "version": 1,
   "artifacts": {
+    "origination/assets/lafs/INVOICE FINANCE.pdf": {
+      "sha256": "ba398ad659c82a33abb7f92cddcef7ce19efb3ee8cb04f80784dfb413a76cac2",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/Jawabu LAF-Lipa Mdogo Mdogo NEW (2).pdf": {
+      "sha256": "66c51f298efd171de44672b54478c8909e04ebe1258cfb5396aaf8f2b74ffc7a",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/Jawabu LAF-Micro Asset Loan.pdf": {
+      "sha256": "786b83e261fc6e9232e8eb5e097e3add2ff5ca8ff56cd190e9150a56a4f1b54c",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/JBL LAF Generic.pdf": {
+      "sha256": "d0160813140ad92dabd8838ab18d8848c044c59fa0ab442f4ed836134eb72546",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SME-LOGBOOK LAF.pdf": {
+      "sha256": "4a9f1ae217b7cd1d4e255d0c9ec88c29ff906a25a39725d221456c6b6c084b03",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- GUARANTOR FORM.pdf": {
+      "sha256": "2b7998fd6cdf9d19d437834d08ee0660c36d873a3036b8d39f5438ad5aa6c44d",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- HOME VISIT FORM.pdf": {
+      "sha256": "9739fd6bfc95a3309c0e9c53726832f1e0812a4c3ea8c5b2a91a224fa8ac6bb2",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- Logbook CHATTEL MORTGAGE.pdf": {
+      "sha256": "b0ac8b62ca14e8d36984e46930207fdb723e4da2958e779e163a5f8181eb4cc8",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- Logbook Offer Letter .pdf": {
+      "sha256": "2c05cbd3ce3f3f012856309873db81625f32df10db290996c84facbd535995f4",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- Logbook TRANSFER FORM.pdf": {
+      "sha256": "a4a502a8f9711bda98312c09f5f7663d5bfdd8517c78062591d7973ea67c7b27",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
+    "origination/assets/lafs/SUPPORT LAF- PRE-APPRAISAL FORM.pdf": {
+      "sha256": "d15bc2b31dbf9d49782bd1307af79579def8d5ffc88bd4db74751c63d2254714",
+      "classification": "blank_business_document",
+      "purpose": "Reviewed blank LAF deployment asset; author metadata removed; private and unpublished"
+    },
     "core/static/miniapp/jawabu-logo.png": {
       "sha256": "06c1d7e3841f428a64f30495df10a557070f6ffb1f86f71911e0d3c126590bc7",
       "classification": "public_brand_asset",

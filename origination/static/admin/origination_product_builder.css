@@ -165,6 +165,10 @@
 .opb-god-form textarea { min-height: 90px; resize: vertical; }
 .opb-god-form code { overflow-wrap: anywhere; color: #991b1b; font-size: .8rem; user-select: all; }
 .opb-danger-button { border-color: #b91c1c !important; background: #b91c1c !important; color: #fff !important; }
+.opb-permanent-delete .opb-actions .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 7px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; font-weight: 650; cursor: pointer; }
+.opb-permanent-delete .opb-actions .button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.opb-permanent-delete .opb-actions .button:disabled { opacity: .55; cursor: not-allowed; }
+.dark .opb-permanent-delete .opb-actions .button:not(.opb-danger-button) { border-color: rgb(var(--color-base-700)); }
 .dark .opb-god-warning { border-color: #7f1d1d; background: rgb(127 29 29 / .24); color: #fecaca; }
 .dark .opb-god-warning p { color: #fca5a5; }
 .dark .opb-god-form label { color: rgb(var(--color-base-300)); }

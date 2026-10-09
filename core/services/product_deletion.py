@@ -113,15 +113,18 @@ def _shared_owned_templates(*, product: Product, definition_ids: list[object], t
     ).filter(
         Q(product_assignments__isnull=False)
         | Q(product_eligibilities__isnull=False)
+        | Q(application_documents__isnull=False)
     ).filter(
         Q(product_assignments__isnull=False)
         & ~Q(product_assignments__product_definition_id__in=definition_ids)
         | Q(product_eligibilities__isnull=False)
         & ~Q(product_eligibilities__product_id=product.pk)
+        | Q(application_documents__isnull=False)
+        & ~Q(application_documents__application__product_definition_id__in=definition_ids)
     ).distinct()
 
 
-def preview_product_deletion(product: Product) -> ProductDeletionPreview:
+def preview_product_deletion(product: Product, *, include_origination_history: bool = False) -> ProductDeletionPreview:
     """Classify every known Product relationship before a destructive write."""
     version_ids = list(product.versions.values_list('pk', flat=True))
     definition_ids = _definition_ids(product)
@@ -171,8 +174,13 @@ def preview_product_deletion(product: Product) -> ProductDeletionPreview:
             ).distinct().count()
         ),
     }
+    history_labels = {
+        'loan origination application(s)', 'commercial exception(s)',
+        'application document(s) using a product-owned template',
+    }
     blockers = tuple(
         f'{count} {label}' for label, count in blocker_counts.items() if count
+        and not (include_origination_history and label in history_labels)
     )
     reviewed_models = (
         (Product, REVIEWED_PRODUCT_RELATION_ACCESSORS),
@@ -216,6 +224,7 @@ def preview_product_deletion(product: Product) -> ProductDeletionPreview:
             product_version_id__in=version_ids,
         ).count(),
         'origination_definitions': len(definition_ids),
+        **({label: blocker_counts[label] for label in history_labels} if include_origination_history else {}),
         'product_owned_templates': max(len(owned_template_ids) - outside_template_count, 0),
     }
     detach_counts = {

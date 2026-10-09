@@ -1,0 +1,13 @@
+{
+  "invoice_finance": {"sha256": "ba398ad659c82a33abb7f92cddcef7ce19efb3ee8cb04f80784dfb413a76cac2", "byte_size": 110579},
+  "generic": {"sha256": "d0160813140ad92dabd8838ab18d8848c044c59fa0ab442f4ed836134eb72546", "byte_size": 776048},
+  "lipa_mdogo_mdogo": {"sha256": "66c51f298efd171de44672b54478c8909e04ebe1258cfb5396aaf8f2b74ffc7a", "byte_size": 733907},
+  "micro_asset": {"sha256": "786b83e261fc6e9232e8eb5e097e3add2ff5ca8ff56cd190e9150a56a4f1b54c", "byte_size": 2439964},
+  "sme_logbook": {"sha256": "4a9f1ae217b7cd1d4e255d0c9ec88c29ff906a25a39725d221456c6b6c084b03", "byte_size": 5534300},
+  "guarantee": {"sha256": "2b7998fd6cdf9d19d437834d08ee0660c36d873a3036b8d39f5438ad5aa6c44d", "byte_size": 622291},
+  "home_visit": {"sha256": "9739fd6bfc95a3309c0e9c53726832f1e0812a4c3ea8c5b2a91a224fa8ac6bb2", "byte_size": 414272},
+  "preappraisal": {"sha256": "d15bc2b31dbf9d49782bd1307af79579def8d5ffc88bd4db74751c63d2254714", "byte_size": 264565},
+  "logbook_offer": {"sha256": "2c05cbd3ce3f3f012856309873db81625f32df10db290996c84facbd535995f4", "byte_size": 570253},
+  "chattel_security": {"sha256": "b0ac8b62ca14e8d36984e46930207fdb723e4da2958e779e163a5f8181eb4cc8", "byte_size": 733184},
+  "vehicle_transfer": {"sha256": "a4a502a8f9711bda98312c09f5f7663d5bfdd8517c78062591d7973ea67c7b27", "byte_size": 110819}
+}
