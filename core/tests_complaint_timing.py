@@ -23,6 +23,10 @@ class ComplaintTimingTests(TestCase):
     now = datetime(2026, 10, 2, 12, tzinfo=ZoneInfo('Africa/Nairobi'))
 
     def setUp(self):
+        # Reused PostgreSQL databases may have been flushed by transaction tests.
+        # Keep real audit writes independent of migration-seeded fixture order.
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         # Table drill-down uses the same clock as the synthetic timing facts.
         self.enterContext(patch('django.utils.timezone.now', return_value=self.now))
 

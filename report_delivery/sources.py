@@ -2,7 +2,14 @@
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-PRESETS = {'jawabu_portal': ['pipeline', 'outcomes', 'finance'], 'tat_tracker': ['tat'], 'complaint_cases': ['complaints']}
+PRESETS = {'jawabu_portal': ['pipeline', 'outcomes', 'finance'], 'tat_tracker': ['tat'],
+           'complaint_cases': ['complaints', 'cmp_tat', 'cmp_open']}
+PRESET_DETAILS = {
+    'tat': ('TAT outcomes', 'Completed-period turnaround and outcomes.'),
+    'complaints': ('Summary', 'Period activity, previous-period comparison and current open cases.'),
+    'cmp_tat': ('Turnaround performance', 'Resolution and HB response times, targets and reopened complaints.'),
+    'cmp_open': ('Open-case follow-up', 'All currently unresolved complaints, including older cases.'),
+}
 
 
 def validate_source(schedule):
@@ -23,7 +30,7 @@ def capture_workflow_report(schedule, configuration):
     if schedule.workflow == 'tat_tracker':
         from core.services.tat_reporting import report_summary, report_cases
         filters.update(group=str(schedule.group_configuration.group_id), product=schedule.product,
-                       view='performance', granularity='day', response_mode='focused_v1', insight='trend', include_options=False)
+                       view='performance', granularity='day', insight='trend', include_options=False)
         overview = report_summary(schedule.authorized_by, filters)
         metrics = overview.get('metrics', {})
         labels = {'created': 'Cases received', 'finished': 'Completed cases', 'disbursed': 'Disbursed',
@@ -45,24 +52,31 @@ def capture_workflow_report(schedule, configuration):
                    ('product_label', 'Product'), ('status', 'Status'), ('current_stage', 'Stage'),
                    ('created_at', 'Created'), ('finished_at', 'Completed'), ('elapsed_minutes', 'TAT (minutes)'), ('sla_state', 'Target result')]
     else:
-        from core.services.complaint_register import _report_queryset, _apply_report_filters, serialize_report_case, complaint_report_summary
+        from core.services.complaint_register import _report_queryset, _apply_report_filters, serialize_report_case
+        from .complaint_reports import complaint_email_projection
+        filters['date_mode'] = {'daily': 'day', 'weekly': 'week', 'monthly': 'month', 'quarterly': 'quarter'}[schedule.frequency]
         base = _report_queryset().filter(group_id=str(schedule.group_configuration.group_id))
         # Narrow the base before all aggregate, option, timing and row queries.
         if schedule.branch:
             base = _apply_report_filters(base, {'branch': schedule.branch}, timing=False)
-        overview = complaint_report_summary(filters=filters, granularity='day', base_queryset=base)
-        summary = {label: overview.get(key, 0) for key, label in [('total', 'Complaints reported'), ('pending', 'Open'), ('resolved', 'Resolved'), ('needs_details', 'Needs details')]}
-        charts = [{'title': title, 'type': kind, 'labels': [r['label'] for r in overview.get(key, [])],
-                   'datasets': [{'label': 'Complaints', 'values': [r['count'] for r in overview.get(key, [])]}], 'context': ''}
-                  for key, title, kind in [('by_time', 'Complaints reported', 'line'), ('by_category', 'Complaint categories', 'bar')]]
-        queryset = _apply_report_filters(base, filters).order_by('-timestamp', '-pk')
+        projection = complaint_email_projection(base, filters, preset=schedule.preset)
+        summary, charts = projection['summary'], projection['charts']
+        row_filters = {'branch': schedule.branch, 'status': ''} if schedule.preset == 'cmp_open' else filters
+        queryset = _apply_report_filters(base, row_filters).order_by('-timestamp', '-pk')
+        if schedule.preset == 'cmp_open':
+            queryset = queryset.exclude(complaint_status='Closed')
+        elif schedule.preset == 'cmp_tat':
+            queryset = base.filter(pk__in=projection.pop('_activity_case_ids')).order_by('-timestamp', '-pk')
         total = queryset.count()
         rows = [serialize_report_case(case) for case in queryset[:2000]]
         columns = [('complaint_id', 'Reference'), ('date_reported', 'Reported'), ('customer_name', 'Customer'),
                    ('customer_id', 'National ID'), ('phone_number', 'Phone'), ('branch_region', 'Branch'),
                    ('complaint_category', 'Category'), ('status', 'Status'), ('resolution_details', 'Resolution'),
                    ('resolution_comments', 'HB comments'), ('date_resolved', 'Resolved')]
-    return {'preset': schedule.preset, 'period': period, 'summary': summary, 'charts': charts,
+    result = {'preset': schedule.preset, 'period': period, 'summary': summary, 'charts': charts,
             'rows': rows, 'total_rows': total, 'export_limit': 2000,
             'columns': [{'key': key, 'label': label, 'type': 'text'} for key, label in columns],
             'applied_filters': filters, 'run_at': timezone.now().isoformat()}
+    if schedule.workflow == 'complaint_cases':
+        result.update(projection)
+    return result

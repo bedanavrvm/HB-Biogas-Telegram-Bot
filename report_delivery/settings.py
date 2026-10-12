@@ -11,7 +11,7 @@ from django.utils import timezone
 from core.models import GroupSheetConfiguration
 from .models import ApprovedRecipient, ReportSchedule, ReportDelivery
 from .services import allowed_configurations, require_manage, queue_schedule, next_occurrence
-from .sources import PRESETS, validate_source
+from .sources import PRESETS, PRESET_DETAILS, validate_source
 
 
 def configuration_payload(actor, workflow):
@@ -37,6 +37,8 @@ def configuration_payload(actor, workflow):
             'pending_delivery_ids': [str(pk) for pk in pending_ids],
             'branches_by_group': branch_scopes,
             'presets': PRESETS[workflow], 'groups': [{'id': g.pk, 'label': str(g)} for g in groups],
+            'preset_options': [{'value': key, 'label': PRESET_DETAILS.get(key, (key.title(), ''))[0],
+                                'description': PRESET_DETAILS.get(key, ('', ''))[1]} for key in PRESETS[workflow]],
             'schedules': [{'id': str(s.pk), 'revision': s.revision, 'title': s.title, 'preset': s.preset,
                            'group_configuration': s.group_configuration_id, 'branch': s.branch, 'product': s.product,
                            'county': s.county, 'frequency': s.frequency, 'send_time': s.send_time.strftime('%H:%M'),

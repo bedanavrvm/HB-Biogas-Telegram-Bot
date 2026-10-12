@@ -5,6 +5,17 @@ Generated {{ generated }}
 {{ basis }}
 {% for item in metrics %}
 {{ item.label }}: {{ item.value }}{% endfor %}
+{{ comparison_label }}
+{% for item in metrics %}{% if item.comparison %}{{ item.label }}: {{ item.comparison.text }}
+{% endif %}{% if item.note %}{{ item.label }}: {{ item.note }}
+{% endif %}{% endfor %}
+{% for notice in notices %}{{ notice }}
+{% endfor %}
+{% for chart in breakdowns %}
+{{ chart.title }}
+{{ chart.context }}
+{% for row in chart.rows %}{{ row.label }}: {% for cell in row.cells %}{{ cell.label }} {{ cell.value }}{% if not forloop.last %}; {% endif %}{% endfor %}
+{% endfor %}{% endfor %}
 {% for filter in filters %}
 {{ filter.label }}: {{ filter.value }}{% endfor %}
 

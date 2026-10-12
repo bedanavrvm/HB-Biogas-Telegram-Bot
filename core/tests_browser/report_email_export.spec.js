@@ -19,6 +19,19 @@ snapshot={'preset':'complaints','period':{'from':'2026-10-01','to':'2026-10-05'}
 snapshot['xlsx_content']='c3ludGhldGlj'
 snapshot['charts'].append({'title':'Complaints by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':'Complaints','values':[90,38]}]})
 snapshot['preset']=${JSON.stringify(preset)}
+if snapshot['preset'] in {'complaints','cmp_tat','cmp_open'}:
+    snapshot['comparison']={'label':'01-10-26 to 05-10-26 vs 01-09-26 to 05-09-26 · equal elapsed time','metrics':{'Reported':{'text':'+12 vs previous','tone':'muted'},'Resolved on time (%)':{'text':'+5.5 pp vs previous','tone':'good'}}}
+    snapshot['summary']={'Reported':128,'Resolved in period':91,'Open now':37,'Resolved on time (%)':87.5,'Median resolution (hours)':18.5,'Median HB response (hours)':4.2}
+    trend={'title':'Reported vs resolved','type':'line','presentation':'chart','context':'Daily counts · * partial bucket.','labels':['01-10-26','02-10-26','03-10-26','04-10-26','05-10-26*'],'datasets':[{'label':'Reported','values':[12,20,32,40,24]},{'label':'Resolved','values':[15,12,24,20,20]}]}
+    age={'title':'Open-case age','presentation':'rows','context':'All currently unresolved complaints, including older cases.','labels':['Under 3 days','3–7 days','8–14 days','Over 14 days'],'datasets':[{'label':'Complaints','values':[10,9,8,10]}]}
+    snapshot['email_sections']=[trend,age,*snapshot['charts']]
+    if snapshot['preset']=='cmp_tat':
+        snapshot['summary']={'Median resolution (hours)':18.5,'Median HB response (hours)':4.2,'Resolved on time (%)':87.5,'Reopened in period':3}
+        snapshot['email_sections']=[{**trend,'title':title,'datasets':[{'label':'Hours','values':values}]} for title,values in [('Resolution time',[30,25,None,19,18.5]),('HB response time',[8,7,6,4.5,4.2])]]+[{'title':'Resolution targets','labels':['On time','Late','No target'],'datasets':[{'label':'Complaints','values':[70,10,11]}]},{'title':'Slowest complaint types','labels':['Installation and commissioning follow-up','Unit maintenance'],'datasets':[{'label':'Median hours','values':[26,18.5]},{'label':'Samples','values':[30,21]}]}]
+    elif snapshot['preset']=='cmp_open':
+        snapshot['summary']={'Open now':37,'Over 14 days':10,'No HB response':12,'Oldest open (hours)':184.53}
+        snapshot['comparison']={'label':'Current snapshot · includes older unresolved complaints.'}
+        snapshot['email_sections']=[age,{'title':'Open cases by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':'Open','values':[25,12]},{'label':'Over 14 days','values':[7,3]},{'label':'No HB response','values':[8,4]}]}]
 if snapshot['preset']=='tat':
     snapshot.update(summary={'Cases received':128,'Completed cases':91,'Disbursed':80,'Declined':11,'Within or near target (%)':87.5,'Median TAT (minutes)':150,'No target available':3},charts=[{'title':'Completed actions','type':'line','labels':['01 Oct','02 Oct','03 Oct'],'datasets':[{'label':'Completed','values':[21,32,38]}]}])
     snapshot['applied_filters']={'branch':'Training branch','view':'performance'}
@@ -32,7 +45,7 @@ for attachment in payload['attachments']:
     if attachment.get('content_id'):
         html=html.replace('cid:'+attachment['content_id'],'data:'+attachment['content_type']+';base64,'+attachment['content'])
 print(json.dumps(html))`;
-  const html=JSON.parse(execFileSync(fs.existsSync(python)?python:'python',['-c',code],{cwd:root,encoding:'utf8',env:{...process.env,DJANGO_SECRET_KEY:'synthetic-email-preview-only-abcdefghijklmnopqrstuvwxyz0123456789',DATABASE_URL:'sqlite:///unused-email-preview.sqlite3'}}));
+  const html=JSON.parse(execFileSync(fs.existsSync(python)?python:'python',['-c',code],{cwd:root,encoding:'utf8',env:{...process.env,DJANGO_SECRET_KEY:'synthetic-email-preview-only-abcdefghijklmnopqrstuvwxyz0123456789',DATABASE_URL:'sqlite:///:memory:'}}));
   emailPreviews.set(preset,html);
   return html;
 }
@@ -103,14 +116,15 @@ test('Real report templates load the shared email control before their controlle
   }
 });
 
-for(const width of [320,390,760])test(`Generated management email fits ${width}px`,async({page},info)=>{
+for(const width of [320,360,390,430,768,1280])test(`Generated management email fits ${width}px`,async({page},info)=>{
   await page.route(/^https?:\/\//,route=>route.abort());
   await page.setViewportSize({width,height:900});await page.setContent(renderPreview());
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await expect(page.getByRole('heading',{name:'Complaints overview',exact:true})).toBeVisible();
   expect(await page.locator('.brand-logo').evaluate(img=>img.naturalWidth)).toBeGreaterThan(0);
-  await expect(page.locator('.report-graph')).toHaveCount(2);
-  expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.naturalWidth===600))).toBe(true);
+  await expect(page.locator('.report-graph')).toHaveCount(1);
+  expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.naturalWidth===840))).toBe(true);
+  expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.getBoundingClientRect().height<=240))).toBe(true);
   expect(await page.locator('.metric-label').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('14px');
   expect(await page.locator('.breakdown-table').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('16px');
   expect(await page.locator('.email-container').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('Segoe UI');
@@ -119,6 +133,7 @@ for(const width of [320,390,760])test(`Generated management email fits ${width}p
   const metrics=await page.locator('.metric').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
   expect(Math.abs(metrics[0].y-metrics[1].y)).toBeLessThan(1);
   expect(Math.abs(metrics[0].width-metrics[1].width)).toBeLessThan(1);
+  expect(Math.max(...metrics.map(metric=>metric.height))-Math.min(...metrics.map(metric=>metric.height))).toBeLessThan(1);
   if(width<=600) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
   else expect(Math.abs(metrics[2].y-metrics[0].y)).toBeLessThan(1);
   const panels=await page.locator('.breakdown-panel').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
@@ -127,7 +142,7 @@ for(const width of [320,390,760])test(`Generated management email fits ${width}p
   await page.screenshot({path:info.outputPath(`management-email-${width}.png`),fullPage:true});
 });
 
-for(const preset of ['tat','finance','empty']) for(const width of [320,760]) {
+for(const preset of ['tat','finance','empty','cmp_tat','cmp_open']) for(const width of [320,430,1280]) {
   test(`${preset} management email fits ${width}px without invented links`,async({page},info)=>{
     await page.route(/^https?:\/\//,route=>route.abort());
     await page.setViewportSize({width,height:900});await page.setContent(renderPreview(preset));
@@ -150,8 +165,8 @@ test('Image-blocked management email retains readable breakdown values',async({p
   await page.route(/^https?:\/\//,route=>route.abort());
   await page.setViewportSize({width:320,height:900});await page.setContent(renderPreview());
   await page.locator('img').evaluateAll(images=>images.forEach(img=>img.remove()));
-  await expect(page.locator('.breakdown-table')).toHaveCount(2);
-  await expect(page.locator('.breakdown-table').first().getByText('54',{exact:true})).toBeVisible();
+  await expect(page.locator('.breakdown-table')).toHaveCount(3);
+  await expect(page.locator('.breakdown-table').nth(1).getByText('54',{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath('management-images-blocked-320.png'),fullPage:true});
 });

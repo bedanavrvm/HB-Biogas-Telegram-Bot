@@ -1644,6 +1644,7 @@
     const formNode = $('globalFilters'); const values = {};
     for (const name of ['search', 'status', 'branch', 'category', 'date_basis']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
     const mode = formNode.elements.date_mode.value;
+    values.date_mode = mode;
     if (mode === 'month') [values.date_from, values.date_to] = monthBoundaries(formNode.elements.report_month.value);
     if (mode === 'quarter') {
       if (!formNode.elements.report_year.value) throw new Error('Select a year.');

@@ -77,6 +77,8 @@ def queue_export(actor, workflow, payload):
     from .sources import PRESETS
     if configuration['preset'] not in PRESETS[workflow]:
         raise ValidationError('Choose a report belonging to this app.')
+    if workflow == 'complaint_cases' and configuration['preset'] != 'complaints':
+        raise ValidationError('Use Email settings to send a focused complaint report.')
     delivery, created = ReportDelivery.objects.get_or_create(requested_by=actor, schedule=None,
         occurrence='export:' + key, defaults={'destination': email, 'configuration': configuration})
     if not created and (delivery.destination.casefold() != email.casefold()
@@ -119,7 +121,7 @@ def capture_export(delivery):
             from core.services.tat_reporting import export_report_xlsx, report_summary
             people = has_capability(actor, workflow, 'tat.reports.people.view', access=user_access(actor, workflow))
             workbook, count = export_report_xlsx(actor, filters, include_people=people, request_id=request_id)
-            overview = report_summary(actor, {**filters, 'response_mode': 'focused_v1', 'insight': 'trend',
+            overview = report_summary(actor, {**filters, 'response_mode': 'focused_v1' if filters.get('view', 'current') == 'current' else '', 'insight': 'trend',
                                              'include_options': False}, include_people=people)
             metrics = overview.get('metrics', {})
             fields = ([('active', 'Active cases'), ('stalled', 'Stalled cases'),
@@ -140,24 +142,17 @@ def capture_export(delivery):
                                     for s in trend.get('series', [])]}] if has_capability(
                                         actor, workflow, 'tat.reports.insight.trend', access=user_access(actor, workflow)) else []
         else:
-            from core.services.complaint_register import export_register_xlsx, complaint_report_summary
+            from core.services.complaint_register import export_register_xlsx, _report_queryset
+            from .complaint_reports import complaint_email_projection
             workbook, count = export_register_xlsx(actor=actor, request_id=request_id, filters=filters)
-            overview = complaint_report_summary(filters=filters, granularity=filters.get('granularity') or 'month')
-            summary = {label: overview.get(key, 0) for key, label in
-                       [('total', 'Complaints reported'), ('pending', 'Open'), ('resolved', 'Resolved'),
-                        ('needs_details', 'Needs details')]}
-            timing = overview.get('card_timing', overview.get('timing', {}))
-            summary.update({label: timing.get(key) for key, label in
-                            [('median_resolution_hours', 'Median resolution (hours)'),
-                             ('median_response_hours', 'Median HB response (hours)'),
-                             ('on_time_percent', 'Resolved on time (%)')]})
-            charts = [{'title': title, 'labels': [r['label'] for r in overview.get(key, [])],
-                       'datasets': [{'label':'Complaints', 'values':[r['count'] for r in overview.get(key, [])]}]}
-                      for key, title in [('by_category', 'Complaint categories'), ('by_branch', 'Complaints by branch')]]
+            projection = complaint_email_projection(_report_queryset(), filters)
+            summary, charts = projection['summary'], projection['charts']
         snapshot = {'preset': config['preset'], 'summary': summary, 'charts': charts, 'rows': [],
                     'exported_rows': count, 'total_rows': count, 'export_limit': 10000 if workflow == 'tat_tracker' else None,
                     'applied_filters': filters, 'period': None, 'run_at': timezone.now().isoformat()}
         if filters.get('date_from') and filters.get('date_to'):
             snapshot['period'] = {'from': filters['date_from'], 'to': filters['date_to']}
+        if workflow == 'complaint_cases':
+            snapshot.update(projection)
     snapshot['xlsx_content'] = base64.b64encode(workbook).decode()
     return json.loads(json.dumps(snapshot, cls=DjangoJSONEncoder))

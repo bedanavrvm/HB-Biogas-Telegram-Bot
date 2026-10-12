@@ -1,5 +1,26 @@
 # Changelog
 
+## 12 October 2026 - Compact report emails and complaint comparisons
+
+- Widened the shared email to 900px, paired compact panels and capped graph
+  images at two. Category/branch rows combine labels, values and bars; successful
+  graphs no longer repeat their data as tables. Plain text retains all displayed
+  values, failed rendering falls back to tables, and Excel stays attached.
+- Added Summary, Turnaround performance and Open-case follow-up to Complaints
+  email settings. Existing schedules remain Summary; no schedules are activated
+  automatically. One-off email retains the native filtered workbook.
+- Added Nairobi previous-period and equal-elapsed comparisons, bounded history,
+  sample sizes, explicit no-target/unknown-age handling and older open backlog.
+  Captured reports and delivery payloads stay immutable across retries.
+- Migration: report_delivery 0005 changes choices only. Reverse with
+  `python manage.py migrate report_delivery 0004_reportdelivery_one_off`; pause
+  focused schedules/pending deliveries before rolling back code. No production
+  migration, deployment, real email or new external dependency was performed.
+- Verified 108 focused PostgreSQL tests, 69 browser checks, JavaScript syntax,
+  the Node suite and local migration reversal/reapplication. Inspected mobile
+  and desktop screenshots, including aligned KPI cards and bounded graph axes.
+  Real Gmail/Outlook rendering and the full repository suite remain unverified.
+
 ## 12 October 2026 - TAT and Complaints report clarity
 
 - Separated TAT workload graphs from completed-performance graphs while keeping

@@ -1,5 +1,38 @@
 # Known Gaps and Verified Workarounds
 
+## Compact report emails and complaint comparisons - 12 October 2026
+
+The shared 900px email layout and three Complaints schedule choices are
+implemented. Existing schedules remain Summary. Period activity, current open
+backlog and timing samples have separate, explicit bases; no historical open
+backlog is inferred. Previous-period comparisons use Nairobi boundaries and
+equal elapsed windows for partial periods. Native one-off Excel filters and
+immutable delivery retries remain intact.
+
+All 108 focused report-delivery/complaint-timing tests passed on isolated local
+PostgreSQL 18, including authorization, scoped older-case workbooks, target
+denominators, period boundaries, capture/retry immutability and provider failure.
+Reused-database test fixtures now explicitly create their real audit-chain/policy
+rows; no production audit check was bypassed. All 69 focused browser checks
+passed. Synthetic email and settings screenshots were inspected at mobile and
+desktop widths; checks cover 320/360/390/430/768/1280px, aligned KPI rows,
+paired/stacked sections, bounded graph height, blocked images and exact filters.
+JavaScript syntax (124 first-party files), the Node suite and migration checks
+passed. Migration 0005 was reversed to 0004 and reapplied on the synthetic
+database; it changes report choices only, not stored case data or schema columns.
+
+Evidence: `test-results/email-report-postgres-final-pass.txt`,
+`email-report-browser-final-pass.txt`, `email-report-js-verified.txt`,
+`email-report-node.txt`, `email-report-migration-reverse.txt`,
+`email-report-migration-upgrade.txt` and `test-results/playwright/` screenshots.
+
+Actual Gmail/Outlook layout, email-client dark-mode inversion and real inbox
+delivery remain unverified. No production migration/deployment, real email or
+external data change was performed. The full repository suite was not run.
+Apply `python manage.py migrate report_delivery` before deploying the new code;
+pause focused schedules/pending deliveries before rolling back to older code
+that does not understand their new preset values. See `report_delivery/README.md`.
+
 ## TAT and Complaints report/queue polish - 12 October 2026
 
 Focused service/API tests passed on an isolated local PostgreSQL 18 cluster

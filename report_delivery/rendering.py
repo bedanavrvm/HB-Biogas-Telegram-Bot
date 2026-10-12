@@ -40,6 +40,8 @@ def _email_metric(label, value):
                 if minutes:
                     parts.append(f'{minutes} min')
                 display = ' '.join(parts) or '0 min'
+                if label == 'Oldest open (hours)':
+                    display = f'{days}d {hours}h' if days else f'{hours}h {minutes}m'
             else:
                 display = f'{number:,.0f}' if number == number.to_integral_value() else f'{number:,.2f}'
                 if label.endswith(' (%)'):
@@ -51,9 +53,9 @@ def _email_metric(label, value):
     if label.endswith((' (hours)', ' (minutes)', ' (%)')):
         short_label = label.rsplit(' (', 1)[0]
     tone = 'navy'
-    if label in {'Open', 'Stalled cases', 'Declined', 'Over target'}:
+    if label in {'Open', 'Open now', 'Over 14 days', 'No HB response', 'Stalled cases', 'Declined', 'Over target'}:
         tone = 'pink'
-    elif label in {'Resolved', 'Disbursed', 'Resolved on time (%)', 'Within or near target (%)'}:
+    elif label in {'Resolved', 'Resolved in period', 'Disbursed', 'Resolved on time (%)', 'Within or near target (%)'}:
         tone = 'green'
     elif label in {'Needs details', 'No target available'}:
         tone = 'muted'
@@ -83,6 +85,8 @@ def report_basis(preset):
         'outcomes': 'Actions recorded during the selected period.',
         'tat': 'Completed-period TAT outcomes; current authorized operational data only.',
         'complaints': 'Complaints reported in this period; resolution status is current at generation.',
+        'cmp_tat': 'Resolution and first HB response events in the selected period; targets use reliable timed resolutions only.',
+        'cmp_open': 'All currently unresolved complaints in the approved scope, including older cases. Current snapshot, not period-end backlog.',
     }[preset]
 
 
@@ -172,9 +176,12 @@ def build_payload(snapshot, email, configuration):
     from .email_charts import chart_png
     chart_attachments = []
     context['email_graphs'] = []
-    for index, chart in enumerate(c for c in snapshot.get('charts', []) if c.get('labels') and c.get('datasets')):
-        if index >= 3:
-            break
+    attempted = 0
+    for index, section in enumerate(context['breakdowns']):
+        chart = section['definition']
+        if section['presentation'] != 'chart' or attempted >= 2:
+            continue
+        attempted += 1
         try:
             content = chart_png(chart)
         except (OSError, ValueError, RuntimeError):
@@ -185,8 +192,9 @@ def build_payload(snapshot, email, configuration):
         content_id = f'jawabu-report-chart-{index + 1}'
         chart_attachments.append({'filename': f'report-chart-{index + 1}.png', 'content_type': 'image/png',
                                   'content_id': content_id, 'content': base64.b64encode(content).decode()})
-        context['email_graphs'].append({'title': chart['title'], 'src': 'cid:' + content_id,
-                                        'alt': chart['title'] + '. Values are listed in the breakdown below.'})
+        section['graph'] = {'src': 'cid:' + content_id,
+                            'alt': chart['title'] + '. ' + section['accessible_summary']}
+        context['email_graphs'].append(section['graph'])
     try:
         logo = {'filename': 'jawabu-logo.png', 'content_type': 'image/png',
                 'content_id': BRAND_LOGO_ID, 'content': base64.b64encode(BRAND_LOGO_PATH.read_bytes()).decode()}
@@ -225,30 +233,53 @@ def email_context(snapshot, configuration=None):
     period_text = (f'{date_label(start)} – {date_label(end)}' if start and end else
                    f'From {date_label(start)}' if start else f'Through {date_label(end)}' if end else 'Current snapshot')
     generated = timezone.localtime(datetime.fromisoformat(snapshot['run_at'])).strftime('%d-%b-%Y · %H:%M EAT')
+    if snapshot['preset'] == 'cmp_open':
+        period_text = 'Current snapshot'
     titles = {'pipeline': 'Pipeline overview', 'finance': 'Finance overview', 'outcomes': 'Case outcomes',
-              'tat': 'TAT overview', 'complaints': 'Complaints overview'}
-    metrics = [_email_metric(label, value) for label, value in snapshot['summary'].items()]
+              'tat': 'TAT overview', 'complaints': 'Complaints overview',
+              'cmp_tat': 'Turnaround performance', 'cmp_open': 'Open-case follow-up'}
+    comparisons = snapshot.get('comparison', {})
+    metrics = [{**_email_metric(label, value), 'comparison': comparisons.get('metrics', {}).get(label),
+                'note': snapshot.get('metric_notes', {}).get(label, '')} for label, value in snapshot['summary'].items()]
+    for metric, label in zip(metrics, snapshot['summary']):
+        comparison = metric.get('comparison')
+        if comparison and comparison.get('paired_values'):
+            values = comparison['paired_values']
+            # Do not mutate the captured comparison while formatting it.
+            metric['comparison'] = {**comparison, 'text': comparison['text'] + ' (' +
+                _email_metric(label, values['current'])['value'] + ' vs ' +
+                _email_metric(label, values['previous'])['value'] + ')'}
     excluded = {'date_mode', 'month', 'quarter', 'year', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group'}
     scope = [{'label': key.replace('_', ' ').capitalize(), 'value': str(value).replace('_', ' ') if key in {'stage', 'view', 'sla_state', 'date_basis'} else str(value)}
              for key, value in filters.items() if value not in (None, '') and key not in excluded]
     breakdowns = []
-    for chart in snapshot.get('charts', []):
+    for chart in snapshot.get('email_sections', snapshot.get('charts', [])):
         labels = chart.get('labels', [])
         datasets = chart.get('datasets', [])
         if not labels or not datasets:
             continue
         headers = [d.get('label', '') for d in datasets]
         rows = []
+        raw_values = [Decimal(str(v)) for d in datasets for v in d.get('values', []) if v is not None and _finite(v)]
+        maximum = max(raw_values + [Decimal(0)])
         for i, label in enumerate(labels):
             values = [_email_metric('', d.get('values', [])[i] if i < len(d.get('values', [])) else None)['value']
                       for d in datasets]
-            rows.append({'label': label, 'values': values,
+            raw = datasets[0].get('values', [])[i] if i < len(datasets[0].get('values', [])) else None
+            percent = max(0, min(100, int(Decimal(str(raw)) * 100 / maximum))) if raw is not None and _finite(raw) and maximum > 0 else 0
+            rows.append({'label': label, 'values': values, 'bar': percent,
+                         'bar_color': '#c8247a' if label in {'Late', 'Over 14 days'} else '#8a90ab' if label == 'No target' else '#6cbe45',
                          'cells': [{'label': header, 'value': value} for header, value in zip(headers, values)]})
-        breakdowns.append({'title': chart['title'], 'headers': headers, 'rows': rows})
+        accessible_summary = '; '.join(f"{row['label']}: " + ', '.join(f"{cell['label']} {cell['value']}" for cell in row['cells']) for row in rows)
+        breakdowns.append({'title': chart['title'], 'headers': headers, 'rows': rows,
+                           'display_headers': [{'No HB response': 'No reply', 'Over 14 days': '14d+'}.get(header, header) for header in headers],
+                           'presentation': chart.get('presentation', 'chart' if chart.get('type') == 'line' else 'rows'),
+                           'definition': chart, 'context': chart.get('context', ''),
+                           'accessible_summary': accessible_summary, 'single_series': len(headers) == 1})
     # Small breakdowns share a row; multi-series financial tables need full width.
     breakdown_groups, pending = [], []
     for chart in breakdowns:
-        if len(chart['headers']) > 2:
+        if len(chart['headers']) > 3:
             if pending:
                 breakdown_groups.append(pending)
                 pending = []
@@ -262,17 +293,29 @@ def email_context(snapshot, configuration=None):
         breakdown_groups.append(pending)
     exported = snapshot.get('exported_rows', len(snapshot.get('rows', [])))
     basis = report_basis(snapshot['preset'])
+    if snapshot['preset'] == 'complaints' and snapshot.get('email_sections'):
+        basis = 'Reported and resolved activity in the selected period; open cases are current.'
     if snapshot['preset'] == 'tat' and filters.get('view', 'current') == 'current':
         basis = 'Current workload at generation time, narrowed by your selected filters.'
     if snapshot['preset'] == 'complaints' and filters.get('date_basis') not in (None, '', 'reported'):
         basis = 'Complaints matching the selected activity dates; status is current at generation.'
-    roomy_headline = any(item['long_value'] for item in metrics[:4])
+    roomy_headline = any(item['long_value'] and '(KES)' in label for item, label in zip(metrics[:4], snapshot['summary']))
+    if len(metrics) >= 4 and metrics[3]['long_value'] and not metrics[2]['long_value']:
+        metrics[2]['mobile_full'] = True
     headline_columns = min(2 if roomy_headline else 4, len(metrics)) or 1
     return {'title': titles.get(snapshot['preset'], 'Report overview'), 'period': period_text, 'generated': generated,
             'basis': basis, 'metrics': metrics, 'headline': metrics[:4],
             'remaining': metrics[4:], 'filters': scope, 'breakdowns': breakdowns,
+            'comparison_label': comparisons.get('label', '') if snapshot['preset'] != 'cmp_open' else '', 'notices': snapshot.get('notices', []),
             'headline_width': 100 // headline_columns, 'roomy_headline': roomy_headline,
             'headline_rows': [metrics[i:i + headline_columns] for i in range(0, min(4, len(metrics)), headline_columns)],
             'remaining_rows': [metrics[i:i + 3] for i in range(4, len(metrics), 3)],
             'breakdown_groups': breakdown_groups, 'logo_src': 'cid:' + BRAND_LOGO_ID,
             'total': snapshot['total_rows'], 'exported': exported, 'truncated': exported < snapshot['total_rows']}
+
+
+def _finite(value):
+    try:
+        return Decimal(str(value)).is_finite()
+    except (InvalidOperation, ValueError):
+        return False

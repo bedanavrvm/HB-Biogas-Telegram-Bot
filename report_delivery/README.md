@@ -9,7 +9,7 @@ you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
 Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
-The shared email layout uses Jawabu navy/green branding, compact coloured
+The shared 900px fluid email layout uses Jawabu navy/green branding, compact coloured
 headline figures, readable duration/percentage values and paired breakdowns.
 Segoe UI/Helvetica Neue/Arial fallbacks use 16px body/table text, 14px supporting
 labels, 18px section headings, a 26px title and 30px headline figures. Long
@@ -20,12 +20,13 @@ The existing project logo is embedded as a local base64 inline attachment using
 [Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
 remote image URL, tracking pixel or new hosting is needed. If the packaged logo
 is unavailable, text branding remains and the report can still be sent.
-The first three non-empty captured chart definitions are considered for offline
-PNG graphs using the existing Pillow dependency. Up to eight categories and
-four series fit the mobile renderer; longer/unreadable labels, unsupported
-chart types and failed rendering fall back to HTML breakdowns. No captured
-values are truncated or changed: breakdowns list every category, including
-missing values, and remain visible when images are blocked. PNGs use the same
+At most two chart panels use offline PNGs with the existing Pillow dependency.
+Graphs have a bounded height (at most 220px at their 420px desktop display width).
+Category/branch counts use compact HTML rows with integrated bars instead of
+large images. A successfully rendered graph is not repeated as a table;
+unreadable/unsupported graphs and rendering failures use a complete HTML table
+instead. Images have meaningful data alternatives and a visible latest-value
+summary; the plain-text email includes every displayed dataset. PNGs use the same
 inline Content-ID mechanism as the logo. No interactive tabs, remote assets,
 public links, browser process or additional dependency is required.
 The Excel remains the only report file; logo/graphs are additional inline images.
@@ -53,7 +54,14 @@ dispatch is best-effort and database-leased; a process restart or occupied
 worker slots retains the queued work. Status checks and the existing processor
 can resume it; this does not introduce an unattended retry scheduler.
 
-Apply `python manage.py migrate report_delivery` through `0004_reportdelivery_one_off`.
+Apply `python manage.py migrate report_delivery` through `0005_alter_reportschedule_preset`.
+Reversing only the report-choice metadata uses
+`python manage.py migrate report_delivery 0004_reportdelivery_one_off`.
+There is no data rewrite or new column in 0005. Before rolling back application
+code, pause/reconfigure focused schedules and drain or retain their pending
+deliveries: older code does not understand `cmp_tat`/`cmp_open`. Keep the additive
+schema and disclosure history; never delete evidence to roll back.
+The earlier one-off migration has its own guard:
 Rollback command: `python manage.py migrate report_delivery 0003_remove_approvedrecipient_report_recipient_scope_unique_and_more`.
 Disable sending first. Reversal is guarded if one-off evidence exists: retain
 the additive schema when rolling back application code, or restore a verified
@@ -68,8 +76,51 @@ submission. The recurring scheduler remains a separate operator setup below.
 
 Each app now owns its email report schedules and recipient approvals. Portal
 offers Pipeline, Outcomes and Finance; TAT offers completed-period TAT outcomes;
-Complaints offers complaints reported in the selected period with their current
-resolution status. No cross-workflow customer joins are made.
+Complaints offers Summary, Turnaround performance and Open-case follow-up.
+Existing `complaints` schedules remain Summary without automatically creating
+or activating additional schedules. No cross-workflow customer joins are made.
+
+### Complaints report choices and comparisons
+
+- **Summary:** Reported and distinct complaints resolved in-period, current Open,
+  on-time rate, median resolution/first HB response with sample sizes. One history
+  panel plus current age buckets; top five types and branches plus Other use
+  integrated HTML rows, not repeated graph/table pairs.
+- **Turnaround performance:** median resolution/first HB response, on-time rate
+  and distinct reopened complaints. Two history panels, explicit On time / Late /
+  No target counts and five slowest types with samples. The scheduled workbook
+  includes cases with resolution, first response or reopening events in-period,
+  including cases reported earlier.
+- **Open-case follow-up:** all currently unresolved complaints in the approved
+  group/branch, including older cases. Open, Over 14 days, No HB response, oldest
+  age; four age buckets and top five branches plus remaining branch counts. The
+  scheduled workbook contains currently unresolved cases without date limits.
+  This is a current snapshot, never reconstructed period-end backlog.
+
+Summary scheduled workbooks keep the existing reported-date cohort; the separate
+Resolved-in-period figure includes older complaints closed in-period. One-off
+Summary workbooks remain the native filtered Excel export. Open panels retain
+non-date selections (branch, type, search, status), but ignore reporting dates.
+Customer-level data stays in Excel, not the email body.
+
+Closures count a complaint once per reporting bucket; HB comments can be a first
+response, never a resolution. Resolution medians/target rates reuse current Closed
+cases with reliable timing. No-target cases are excluded from the rate, not
+counted as late. Unknown ages have a notice and are excluded from age buckets.
+
+Nairobi half-open windows compare a day/week/month/quarter/year with its previous
+period; arbitrary ranges compare the preceding equal-length range. Completed
+scheduled periods use full prior calendar periods. Ongoing periods compare equal
+elapsed time, capped by the shorter calendar period, and state the cutoff. Counts
+use absolute changes, rates percentage points, times readable durations. Volume
+changes are neutral. Zero count baselines say No previous activity; measured
+0% rates and immediate responses remain valid comparison baselines. Missing timing is
+unavailable. History uses at most eight calendar buckets; * marks a partial last
+bucket. Unbounded one-off headlines retain all-time totals, with latest-eight-day
+history and a separately labelled Today vs yesterday comparison. Unsafe chart/date
+selections disable comparisons, not broaden the cohort. No prior Open is invented.
+Capture remains in the existing repeatable-read transaction; retries reuse the
+exact frozen payload even when source data or templates subsequently change.
 
 IT opens **Settings → Email reports → Manage reports** in Portal/TAT. In
 Complaints, the header **gear icon** opens the Settings panel. Add a report,
@@ -87,8 +138,8 @@ unsaved fields. Credentials remain in deployment environment settings, never
 in the Mini App. Suppressed addresses require explicit Admin review.
 
 TAT reports use the existing Period Performance cohort and operational data-mode
-rules. Complaints reports use reported dates; their resolution values are current,
-not reconstructed historical status. Both Excel attachments are capped at 2,000
+rules. Complaints cohorts follow the selected report type above; status/backlog
+are current, not reconstructed historical status. Both Excel attachments are capped at 2,000
 rows for scheduled reports, with full-scope counts stated in the email. One-off
 sends retain the native download's limits (Portal 2,000; TAT 10,000; Complaints
 uses its existing register export). One shared runner handles all apps.
@@ -106,7 +157,7 @@ scheduler.
 
 ## Operator setup
 
-1. Apply reviewed `report_delivery` migrations through `0004` in your approved
+1. Apply reviewed `report_delivery` migrations through `0005` in your approved
    release process. These changes affect only delivery/configuration tables.
 2. In Resend, verify an organization-owned sending domain using the DNS records
    it supplies. Configure SPF/DKIM and the organization's DMARC policy. Disable

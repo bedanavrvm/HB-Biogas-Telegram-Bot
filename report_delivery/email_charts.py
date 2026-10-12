@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PALETTE = ('#2e3480', '#438323', '#c8247a', '#a36b08')
-WIDTH = 600
+WIDTH = 840
 INK = '#1f2a4d'
 MUTED = '#4a5578'
 
@@ -64,8 +64,9 @@ def chart_png(chart):
         return None
     low, high = min(numbers + [Decimal(0)]), max(numbers + [Decimal(0)])
     span = high - low or Decimal(1)
-    font = ImageFont.load_default(size=32)
-    small = ImageFont.load_default(size=28)
+    line_chart = chart.get('type') == 'line'
+    font = ImageFont.load_default(size=40 if line_chart else 26)
+    small = ImageFont.load_default(size=36 if line_chart else 23)
     measure = ImageDraw.Draw(Image.new('RGB', (WIDTH, 1)))
     wrapped = [_wrap(measure, label, font, WIDTH - 48) for label in labels]
     legends = [_wrap(measure, dataset.get('label', ''), small, WIDTH - 76) for dataset in datasets]
@@ -74,18 +75,23 @@ def chart_png(chart):
     # Extremely large formatted amounts are better read in a table, not clipped.
     if any(measure.textlength(_label(value), font=font) > WIDTH - 48 for value in numbers):
         return None
-    legend_height = sum(max(1, len(lines)) * 34 + 8 for lines in legends)
-    line_chart = chart.get('type') == 'line'
+    line_height = 44 if line_chart else 34
+    legend_height = sum(max(1, len(lines)) * line_height + 8 for lines in legends)
     if line_chart:
         # Horizontal bars accommodate long category labels; time-series ticks
         # must fit in their own slot or the complete HTML table is safer.
-        tick_width = (WIDTH - 96) / max(1, len(labels))
+        # Thin axis labels only, never points or captured values. Three evenly
+        # spaced dates avoid colliding labels in paired panels and on phones.
+        visible_ticks = set(range(len(labels))) if len(labels) <= 3 else {0, len(labels) // 2, len(labels) - 1}
+        tick_width = (WIDTH - 96) / max(1, len(visible_ticks))
         ticks = [_wrap(measure, label, small, tick_width - 4) for label in labels]
-        if any(lines is None for lines in ticks):
+        if any(ticks[i] is None for i in visible_ticks):
             return None
-        height = legend_height + 360 + max(len(lines) for lines in ticks) * 34
+        height = 440
     else:
-        height = legend_height + sum(len(lines) * 40 + len(series) * 70 + 24 for lines in wrapped) + 60
+        height = legend_height + sum(max(1, len(lines)) * 30 + len(series) * 30 + 8 for lines in wrapped) + 40
+    if height > 440 or legend_height > 110:
+        return None
     image = Image.new('RGB', (WIDTH, height), '#ffffff')
     draw = ImageDraw.Draw(image)
     y = 12
@@ -93,14 +99,16 @@ def chart_png(chart):
         draw.rounded_rectangle((24, y + 7, 42, y + 25), radius=3, fill=PALETTE[index])
         for line in lines:
             draw.text((52, y), line, font=small, fill=MUTED)
-            y += 34
+            y += line_height
         y += 8
     if line_chart:
-        top, bottom = y + 42, y + 280
-        left, right = 70, WIDTH - 26
+        top, bottom = y + 30, 330
+        left, right = 100, WIDTH - 36
         for value, position in ((high, top), (low, bottom)):
             draw.line((left, position, right, position), fill='#e1e4ee', width=1)
-            draw.text((24, position - 34), _label(value), font=small, fill=MUTED)
+            if draw.textlength(_label(value), font=small) > left - 12:
+                return None
+            draw.text((left - 12, position), _label(value), anchor='ra', font=small, fill=MUTED)
         step = Decimal(right - left) / max(1, len(labels) - 1)
         for index, values in enumerate(series):
             previous = None
@@ -115,29 +123,29 @@ def chart_png(chart):
                 previous = point
         # Equally spaced category slots below the plot preserve every tick.
         for i, lines in enumerate(ticks):
+            if i not in visible_ticks:
+                continue
             centre = left + int(i * step)
             for row, line in enumerate(lines):
                 x = max(24, min(WIDTH - 24 - draw.textlength(line, font=small),
                                 centre - draw.textlength(line, font=small) / 2))
-                draw.text((x, bottom + 22 + row * 34), line, font=small, fill=MUTED)
+                draw.text((x, bottom + 22 + row * 38), line, font=small, fill=MUTED)
     else:
-        zero = 24 + int(-low / span * (WIDTH - 48))
+        zero = 24 + int(-low / span * (WIDTH - 204))
         for i, lines in enumerate(wrapped):
             for line in lines:
                 draw.text((24, y), line, font=font, fill=INK)
-                y += 40
+                y += 30
             for index, values in enumerate(series):
                 value = values[i]
                 draw.text((WIDTH - 24, y), _label(value), anchor='ra', font=font, fill=PALETTE[index])
-                y += 38
-                draw.line((24, y + 8, WIDTH - 24, y + 8), fill='#eef0f8', width=16)
+                draw.line((24, y + 20, WIDTH - 180, y + 20), fill='#eef0f8', width=8)
                 if value is not None:
-                    end = 24 + int((value - low) / span * (WIDTH - 48))
+                    end = 24 + int((value - low) / span * (WIDTH - 204))
                     if end != zero:
-                        draw.rectangle((min(zero, end), y, max(zero, end), y + 16), fill=PALETTE[index])
-                draw.line((zero, y - 3, zero, y + 19), fill=MUTED, width=1)
-                y += 32
-            y += 24
+                        draw.rectangle((min(zero, end), y + 16, max(zero, end), y + 24), fill=PALETTE[index])
+                y += 30
+            y += 8
         draw.text((24, y), _label(low), font=small, fill=MUTED)
         draw.text((WIDTH - 24, y), _label(high), anchor='ra', font=small, fill=MUTED)
     output = BytesIO()

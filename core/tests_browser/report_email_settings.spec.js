@@ -7,6 +7,35 @@ const root=path.resolve(__dirname,'../..');
 const script=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.js'),'utf8');
 const style=fs.readFileSync(path.join(root,'core/static/miniapp/report_email_settings.css'),'utf8');
 
+test('Complaint report choices explain the cohort and save the selected preset',async({page},info)=>{
+  await page.setViewportSize({width:320,height:800});
+  await page.setContent('<section id="settings"></section>');await page.addStyleTag({content:style});await page.addScriptTag({content:script});
+  await page.evaluate(()=>{
+    window.confirm=()=>true;window.saved=[];
+    const data={enabled:true,presets:['complaints','cmp_tat','cmp_open'],groups:[{id:1,label:'Synthetic'}],
+      preset_options:[{value:'complaints',label:'Summary',description:'Period activity and current open cases.'},
+        {value:'cmp_tat',label:'Turnaround performance',description:'Resolution and HB response times.'},
+        {value:'cmp_open',label:'Open-case follow-up',description:'All currently unresolved complaints, including older cases.'}],
+      branches_by_group:{'1':[{value:'',label:'All branches'}]},schedules:[]};
+    MiniAppReportEmailSettings.mount(document.getElementById('settings'),async payload=>{
+      if(payload.action==='save')window.saved.push(payload);
+      return {data};
+    });
+  });
+  await page.getByRole('button',{name:'Manage reports'}).click();
+  for(const [preset,label,description] of [['complaints','Summary','Period activity'],['cmp_tat','Turnaround performance','Resolution and HB'],['cmp_open','Open-case follow-up','including older cases']]){
+    await page.getByRole('button',{name:'Add report'}).click();
+    await page.getByRole('combobox',{name:'Report',exact:true}).selectOption(preset);
+    await expect(page.locator('#reportPresetHelp')).toContainText(description);
+    await page.getByLabel('Report name',{exact:true}).fill(label);
+    await page.getByLabel('Recipients',{exact:true}).fill('synthetic@example.invalid');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`complaint-email-${preset}-320.png`),fullPage:true});
+    await page.getByRole('button',{name:'Save',exact:true}).click();
+  }
+  expect(await page.evaluate(()=>window.saved.map(item=>item.preset))).toEqual(['complaints','cmp_tat','cmp_open']);
+});
+
 for(const outcome of ['accepted','failed'])test(`Send report automatically checks delivery and shows ${outcome}`,async({page})=>{
   await page.setContent('<section id="settings"></section>');await page.addScriptTag({content:script});
   await page.evaluate(()=>{

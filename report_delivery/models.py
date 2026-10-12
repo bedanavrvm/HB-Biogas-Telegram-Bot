@@ -39,7 +39,10 @@ class ApprovedRecipient(ScopedConfiguration):
 
 class ReportSchedule(ScopedConfiguration):
     title = models.CharField(max_length=100, db_comment='Short operator-facing schedule name.')
-    preset = models.CharField(max_length=12, choices=[(v, v.title()) for v in ('pipeline', 'outcomes', 'finance', 'tat', 'complaints')], db_comment='Allowlisted report preset for the owning workflow.')
+    preset = models.CharField(max_length=12, choices=[('pipeline', 'Pipeline'), ('outcomes', 'Outcomes'),
+        ('finance', 'Finance'), ('tat', 'Tat'), ('complaints', 'Summary'),
+        ('cmp_tat', 'Turnaround performance'), ('cmp_open', 'Open-case follow-up')],
+        db_comment='Allowlisted report preset for the owning workflow.')
     county = models.CharField(max_length=120, blank=True, db_comment='Optional narrowing county filter.')
     recipients = models.ManyToManyField(ApprovedRecipient, related_name='schedules', through='ScheduleRecipient')
     frequency = models.CharField(max_length=12, default='daily', choices=[(v, v.title()) for v in ('daily', 'weekly', 'monthly', 'quarterly')], db_comment='Completed Nairobi calendar period cadence.')

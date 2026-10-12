@@ -78,7 +78,7 @@ class EmailPresentationTests(SimpleTestCase):
 
     def chart(self, **changes):
         return {'title': 'Complaints by branch', 'labels': ['Training branch', 'Second branch'],
-                'datasets': [{'label': 'Complaints', 'values': [5, 0]}], **changes}
+                'datasets': [{'label': 'Complaints', 'values': [5, 0]}], 'presentation': 'chart', **changes}
 
     def test_larger_typography_and_full_width_amounts(self):
         from .rendering import email_context
@@ -102,21 +102,24 @@ class EmailPresentationTests(SimpleTestCase):
         graph = payload['attachments'][2]
         self.assertEqual(graph['content_type'], 'image/png')
         self.assertIn('src="cid:' + graph['content_id'] + '"', payload['html'])
-        self.assertIn('Values are listed in the breakdown below.', payload['html'])
+        self.assertIn('Training branch: Complaints 5', payload['html'])
+        self.assertNotIn('class="breakdown-table"', payload['html'])
+        self.assertIn('Training branch: Complaints 5', payload['text'])
         with Image.open(BytesIO(base64.b64decode(graph['content']))) as image:
             self.assertEqual(image.format, 'PNG')
-            self.assertEqual(image.width, 600)
+            self.assertEqual(image.width, 840)
+            self.assertLessEqual(image.height, 440)
         self.assertEqual(payload['attachments'][0]['content'], before['xlsx_content'])
         self.assertEqual(snapshot, before)
         self.assertNotIn('https://', payload['html'])
         self.assertNotIn('<script', payload['html'])
 
-    def test_only_first_three_nonempty_charts_are_considered(self):
+    def test_only_first_two_nonempty_charts_are_considered(self):
         charts = [self.chart(labels=[])] + [self.chart(title=f'Graph {i}') for i in range(5)]
         payload = build_payload(self.snapshot(charts=charts), 'management@example.invalid', {})
         graphs = [a for a in payload['attachments'] if a.get('content_id', '').startswith('jawabu-report-chart')]
-        self.assertEqual(len(graphs), 3)
-        self.assertEqual(len({a['content_id'] for a in graphs}), 3)
+        self.assertEqual(len(graphs), 2)
+        self.assertEqual(len({a['content_id'] for a in graphs}), 2)
         self.assertIn('Graph 4', payload['html'])  # Tables remain for the remaining graphs.
 
     def test_dense_chart_retains_every_group_in_html_fallback(self):
@@ -144,7 +147,7 @@ class EmailPresentationTests(SimpleTestCase):
                       self.chart(datasets=[{'label': 'Cases', 'values': [5]}]),
                       self.chart(datasets=[{'label': 'Cases', 'values': [0, 0]}]),
                       self.chart(datasets=[{'label': 'Cases', 'values': [5, None]}]),
-                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(4)])]:
+                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(2)])]:
             with self.subTest(chart=chart):
                 self.assertTrue(chart_png(chart).startswith(b'\x89PNG'))
 
@@ -153,7 +156,8 @@ class EmailPresentationTests(SimpleTestCase):
         for chart in [self.chart(labels=['x' * 200]), self.chart(type='pie'),
                       self.chart(datasets=[{'label': 'Cases', 'values': [None, None]}]),
                       self.chart(datasets=[{'label': 'Cases', 'values': ['NaN', 0]}]),
-                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(5)])]:
+                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(5)]),
+                      self.chart(datasets=[{'label': str(i), 'values': [5, 0]} for i in range(4)])]:
             with self.subTest(chart=chart):
                 self.assertIsNone(chart_png(chart))
 
@@ -191,6 +195,16 @@ class ExportSummaryTests(SimpleTestCase):
 @override_settings(REPORT_EMAIL_DELIVERY_ENABLED=True, RESEND_API_KEY='synthetic-key', REPORT_EMAIL_FROM='reports@example.invalid')
 class OneOffTests(TestCase):
     def setUp(self):
+        # TransactionTestCase flush removes migration-seeded rows when --keepdb
+        # is reused. Each disclosure test needs its own real audit-chain lock.
+        from core.models import ComplianceAuditChainState, WorkflowRoleCapability
+        from core.services.workflow_capabilities import default_enabled_capability_keys
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
+        for key in default_enabled_capability_keys('tat_tracker', 'MANAGEMENT'):
+            WorkflowRoleCapability.objects.get_or_create(
+                workflow='tat_tracker', role='MANAGEMENT', capability_key=key,
+                defaults={'enabled': True, 'effect': 'allow'},
+            )
         self.actor = get_user_model().objects.create_user(username='synthetic-exporter', is_superuser=True)
         self.denied = get_user_model().objects.create_user(username='synthetic-denied')
         self.group = GroupSheetConfiguration.objects.create(group_id='synthetic-export-group')
@@ -272,7 +286,8 @@ class OneOffTests(TestCase):
                     'rows': [], 'xlsx_content': base64.b64encode(b'synthetic-workbook').decode(),
                     'run_at': '2026-10-05T09:00:00+03:00', 'applied_filters': {},
                     'charts': [{'title': 'Pipeline', 'labels': ['Visit'],
-                                'datasets': [{'label': 'Cases', 'values': [1]}]}]}
+                                'datasets': [{'label': 'Cases', 'values': [1]}], 'type': 'line'}]}
+        snapshot['comparison'] = {'label': 'Synthetic fixed comparison', 'metrics': {}}
         with patch('report_delivery.services.capture_report', return_value=snapshot), \
              patch('report_delivery.resend.send_email', side_effect=SubmissionError('network', retryable=True, ambiguous=True)) as provider:
             process_delivery(claim_delivery())
@@ -281,6 +296,7 @@ class OneOffTests(TestCase):
         self.assertEqual(delivery.status, 'retry')
         self.assertEqual(original['to'], [self.payload['email']])
         self.assertEqual(original['attachments'][2]['content_id'], 'jawabu-report-chart-1')
+        self.assertIn('Synthetic fixed comparison', original['html'])
         from django.utils import timezone
         ReportDelivery.objects.filter(pk=delivery.pk).update(next_attempt_at=timezone.now())
         with patch('report_delivery.services.capture_report') as capture, \
@@ -342,7 +358,7 @@ class OneOffTests(TestCase):
             ('complaint_cases', 'complaints', 'core.services.complaint_register', 'export_register_xlsx', 'complaint_report_summary')]:
             with self.subTest(workflow=workflow):
                 delivery = self.queue(workflow, {**self.payload, 'client_request_id':str(uuid.uuid4()), 'preset':preset,
-                                               'filters':{'branch':'Training', 'metric':'hb_response', 'metric_value':'late'}})
+                                               'filters':{'branch':'Training', 'metric':'hb_response', 'metric_value':'late', 'date_basis':'response'}})
                 with patch(module+'.'+exporter, return_value=(b'synthetic-native-xlsx', 4)) as export, patch(module+'.'+summary, return_value={'metrics':{'active':3,'stalled':1}}):
                     snapshot = capture_export(delivery)
                 self.assertEqual(base64.b64decode(snapshot['xlsx_content']), b'synthetic-native-xlsx')
