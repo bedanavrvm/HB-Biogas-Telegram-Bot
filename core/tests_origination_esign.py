@@ -226,6 +226,7 @@ class OriginationVerifiedSigningTests(TestCase):
             )
         on_commit.assert_called_once()
         self.assertEqual(verified.status, OriginationSignerSession.STATUS_VERIFIED)
+        self.assertEqual(serialize_public_session(verified)['verified_at'], verified.verified_at.isoformat())
         actions = OriginationSigningAction.objects.filter(package=self.package, mode='verified')
         self.assertEqual(actions.count(), 2)
         self.assertEqual(set(actions.values_list('slot_key', flat=True)), {

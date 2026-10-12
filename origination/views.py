@@ -1506,7 +1506,13 @@ def portal_origination_staff_signature(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(package.application, actor=request.origination_user)})
+    signatures = package.actions.filter(actor=request.origination_user, mode='verified', action_type='signature',
+                                        signer_role=str(body.get('signer_role') or ''), invalidation__isnull=True)
+    if body.get('participant_id'):
+        signatures = signatures.filter(participant_id=body['participant_id'])
+    signature = signatures.order_by('-created_at').first()
+    return JsonResponse({'ok': True, 'application': serialize_application(package.application, actor=request.origination_user),
+                         'signature_receipt': {'signed_at': signature.created_at.isoformat() if signature else ''}})
 
 
 @csrf_exempt

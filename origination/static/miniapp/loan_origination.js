@@ -644,6 +644,7 @@
   }
 
   function openSheet({ mode, eyebrow, title, hint = '', body = '', footer = '', trigger = null }) {
+    window.OriginationSigningCompletion?.active?.dispose();
     const overlay = document.getElementById('origination-sheet-overlay');
     const toast = document.getElementById('origination-toast');
     window.clearTimeout(showToast.timer);
@@ -666,6 +667,7 @@
   }
 
   function closeSheet({ restoreFocus = true } = {}) {
+    window.OriginationSigningCompletion?.active?.dispose();
     const overlay = document.getElementById('origination-sheet-overlay');
     if (!sheetMode && overlay.hidden) return;
     overlay.hidden = true;
@@ -745,9 +747,9 @@
     const requestId = requestKey(verified ? 'staff-signature' : 'test-signature');
     const approving = verified && (current.approval_roles || []).includes(button.dataset.signerRole);
     openSheet({
-      mode: 'test-signature', eyebrow: verified ? 'Authenticated staff signing' : 'Non-production simulator', title: verified ? 'Capture staff signature' : 'Capture TEST signature',
+      mode: 'test-signature', eyebrow: verified ? '' : 'Non-production simulator', title: verified ? 'Sign' : 'Capture TEST signature',
       hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use one synthetic mark for this signer. It will be reused at every signature placement in the TEST packet. Do not enter or draw a real signature.', trigger: button,
-      body: `${verified ? '<aside class="notice" role="note"><strong>Verified staff action</strong><span>Your Telegram identity, role and application scope will be recorded with this signature.</span></aside>' : '<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>'}
+      body: `${verified ? '' : '<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>'}
         <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-type hidden><label class="test-signature-name"><span>Typed TEST signer name</span><input type="text" maxlength="120" autocomplete="off" data-test-signature-name placeholder="Synthetic Test Signer"></label><output class="test-signature-typed-preview" data-test-signature-typed-preview>Synthetic Test Signer</output></section>
@@ -762,6 +764,7 @@
       document.querySelector('[data-test-signature-canvas]').setAttribute('aria-label', 'Draw your signature');
       document.querySelector('[data-test-signature-type] label span').textContent = 'Your full name';
       document.querySelector('[data-test-signature-name]').placeholder = 'Full name';
+      document.querySelector('[data-test-signature-name]').autocomplete = 'name';
       document.querySelector('[data-test-signature-typed-preview]').textContent = '';
       document.querySelector('[data-test-signature-confirm]').textContent = approving ? 'Approve & sign' : 'Sign packet';
     }
@@ -778,7 +781,7 @@
     canvas.addEventListener('pointerdown', event => {
       if (event.button !== undefined && event.button !== 0) return;
       if (testSignatureStrokes.length >= 40 || testSignaturePointCount() >= 2000) {
-        setStatus('The test signature pad is full. Clear it to draw again.');
+        setStatus(verified ? 'The signature pad is full. Clear it to draw again.' : 'The test signature pad is full. Clear it to draw again.');
         return;
       }
       event.preventDefault();
@@ -811,17 +814,17 @@
     };
     const typedInput = document.querySelector('[data-test-signature-name]');
     const typedPreview = document.querySelector('[data-test-signature-typed-preview]');
-    typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || 'Synthetic Test Signer'; });
+    typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || (verified ? '' : 'Synthetic Test Signer'); });
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
     document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction(verified ? 'Signing packet...' : 'Placing TEST signature...', async () => {
       const drawn = document.querySelector('[data-test-signature-mode="drawn"]').getAttribute('aria-selected') === 'true';
       const capture = drawn
         ? { method: 'drawn', strokes: testSignatureStrokes }
         : { method: 'typed', name: typedInput.value.trim() };
-      if (drawn && !testSignatureStrokes.length) return setStatus('Draw the TEST signature before confirming.');
-      if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus('Enter a test signer name using 2 to 120 characters.');
+      if (drawn && !testSignatureStrokes.length) return setStatus(verified ? 'Draw your signature before saving.' : 'Draw the TEST signature before confirming.');
+      if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus(verified ? 'Enter your full name using 2 to 120 characters.' : 'Enter a test signer name using 2 to 120 characters.');
       if (verified && current.signing_workspace && !document.querySelector('[data-staff-consent]')?.checked) return setStatus('Confirm that you reviewed and agree to sign the documents.');
-      const result = await postJson(verified ? `/applications/${current.id}/staff-signature/` : `/applications/${current.id}/test-signing/action/`, {
+      let result = await postJson(verified ? `/applications/${current.id}/staff-signature/` : `/applications/${current.id}/test-signing/action/`, {
         revision: current.revision, package_id: button.dataset.packageId,
         document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
         signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '', signature_capture: capture,
@@ -829,8 +832,35 @@
         reviewed_packet_version: approvalReview?.revision === current.revision && approvalReview?.packageId === button.dataset.packageId ? approvalReview.version : '',
         client_request_id: requestId,
       });
-      if (!result.ok) return setStatus(result.data?.error || 'Could not place this TEST signature.');
+      if (verified && !result.ok && (result.status === 0 || result.status >= 500)) {
+        const refreshed = await apiFetch(`/applications/${current.id}/`);
+        const app = refreshed.data?.application;
+        const participant = app?.signing_package?.verified_signing?.participants?.find(person =>
+          button.dataset.participantId ? person.participant_id === button.dataset.participantId : person.role === button.dataset.signerRole);
+        const signatures = participant?.slots?.filter(slot => slot.type === 'signature') || [];
+        if (refreshed.ok && signatures.length && signatures.every(slot => slot.completed)
+            && participant.signature_actor_id === capabilities.user_id) {
+          result = { ...refreshed, data: {...refreshed.data, signature_receipt: {signed_at: participant.signed_at}} };
+        }
+      }
+      if (!result.ok) return setStatus(result.data?.error || (verified ? 'Could not save your signature. Try again.' : 'Could not place this TEST signature.'));
       current = result.data.application;
+      if (verified) {
+        const receipt = result.data.signature_receipt;
+        const finish = () => {
+          closeSheet({ restoreFocus: false });
+          renderEditor(current, wizardSections().length - 1);
+          window.requestAnimationFrame(() => root()?.querySelector('h2, h1')?.focus?.());
+        };
+        document.getElementById('origination-sheet-title').textContent = 'Signing complete';
+        document.getElementById('origination-sheet-hint').textContent = '';
+        document.getElementById('origination-sheet-footer').replaceChildren();
+        window.OriginationSigningCompletion.active = window.OriginationSigningCompletion.show(document.getElementById('origination-sheet-body'), {
+          reference: current.reference_number, signedAt: receipt?.signed_at,
+          message: window.OriginationSigningCompletion.outcome(current), onClose: finish,
+        });
+        return;
+      }
       closeSheet({ restoreFocus: false });
       renderEditor(current, wizardSections().length - 1);
       showToast(verified ? 'Verified staff signature applied to every configured slot.' : 'TEST signature placed in its configured slot.');

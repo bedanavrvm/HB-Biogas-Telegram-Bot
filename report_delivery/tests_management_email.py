@@ -2,7 +2,6 @@
 import base64
 from copy import deepcopy
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 from django.test import SimpleTestCase, override_settings
 
@@ -25,12 +24,12 @@ class ManagementEmailTests(SimpleTestCase):
                 'applied_filters': filters, 'run_at': '2026-10-12T12:00:00+03:00',
                 'rows': [], 'total_rows': 3, 'exported_rows': 3, 'xlsx_content': base64.b64encode(b'synthetic').decode()}
 
-    def test_computed_verdict_previous_counts_target_and_low_volume(self):
+    def test_counts_target_and_plain_sample_wording(self):
         context = email_context(self.snapshot())
-        self.assertIn('3 complaints resolved; 0 of 3', context['verdict'])
-        self.assertIn('previously 2 of 4', context['verdict'])
-        self.assertIn('6.9 days; target 3.0 days', context['verdict'])
-        self.assertIn('n=3 · low volume', context['verdict'])
+        resolution = next(item for item in context['headline'] if item['label'] == 'Median resolution')
+        self.assertEqual(resolution['value'], '6.9 days')
+        self.assertEqual(resolution['target'], 'Target 3.0 days')
+        self.assertEqual(next(item for item in context['headline'] if item['label'] == 'Median resolution')['note'], 'Based on 3 complaints')
         self.assertEqual(context['period'], '5 Oct - 11 Oct 2026')
         self.assertEqual(context['previous_period'], '28 Sep - 4 Oct 2026')
 
@@ -46,19 +45,17 @@ class ManagementEmailTests(SimpleTestCase):
         self.assertEqual(next(item for item in context['metrics'] if item['label'] == 'Median resolution')['status'], 'Better')
         self.assertEqual(context['headline'][0]['status'], 'Change')
 
-    def test_attention_links_keep_scope_and_do_not_contain_identity_or_tokens(self):
+    def test_email_has_no_app_links_intro_or_sample_jargon(self):
         snapshot = self.snapshot()
         snapshot['applied_filters'].update(search='private customer text', init_data='private-auth', token='secret')
         context = email_context(snapshot)
-        self.assertIn('3 of 3 measured resolutions late (100%)', context['attention'][0]['text'])
-        params = parse_qs(urlsplit(context['attention'][0]['url']).query)
-        self.assertEqual(params['metric'], ['late'])
-        self.assertEqual(params['branch'], ['Training'])
-        self.assertEqual(params['date_basis'], ['resolved'])
-        self.assertNotIn('private', context['report_url'])
-        self.assertNotIn('secret', context['report_url'])
-        with override_settings(APP_BASE_URL='javascript:alert(1)'):
-            self.assertEqual(email_context(snapshot)['report_url'], '')
+        self.assertIn('3 of 3 complaints resolved late (100%)', context['attention'][0]['text'])
+        self.assertEqual(context['report_url'], '')
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        for content in (payload['html'], payload['text']):
+            for forbidden in ('Open in app', 'View in app', 'local-app.example.invalid', 'n=3', 'low volume', '3 complaints resolved;'):
+                self.assertNotIn(forbidden, content)
+        self.assertNotIn('<a ', payload['html'])
 
     def test_only_one_chart_top_five_and_no_empty_bucket_tables(self):
         snapshot = self.snapshot('cmp_tat')
@@ -67,8 +64,8 @@ class ManagementEmailTests(SimpleTestCase):
         self.assertEqual(len([a for a in payload['attachments'] if a.get('content_id', '').startswith('jawabu-report-chart')]), 1)
         self.assertNotIn('Open-case age', payload['html'])
         self.assertNotIn('Resolution targets</h2>', payload['html'])
-        self.assertIn('3 of 3 measured resolutions late (100%)', payload['html'])
-        self.assertIn('max-width:600px', payload['html'])
+        self.assertIn('3 of 3 complaints resolved late (100%)', payload['html'])
+        self.assertIn('max-width:900px', payload['html'])
         self.assertLess(payload['html'].index('Needs attention'), payload['html'].index('Resolution time</h2>'))
         self.assertLess(payload['html'].index('attached Excel'), payload['html'].index('Needs attention'))
         self.assertEqual(snapshot, before)
@@ -80,7 +77,7 @@ class ManagementEmailTests(SimpleTestCase):
         section = snapshot['email_sections'][-1]
         section['datasets'][1]['values'] = [1]
         context = email_context(snapshot)
-        self.assertEqual(context['top_table']['rows'][0]['values'][0], 'n/a (low volume)')
+        self.assertEqual(context['top_table']['rows'][0]['values'][0], 'Not enough complaints')
         self.assertIn('Targets vary: 1.0 days - 3.0 days', context['headline'][0]['target'])
         self.assertFalse(any('Longest median' in item['text'] for item in context['attention']))
 
@@ -95,9 +92,8 @@ class ManagementEmailTests(SimpleTestCase):
         snapshot['management'].update(comparison_cutoff='2026-10-10T00:00:00+03:00',
                                       comparison_on_time=0, comparison_target_count=2)
         context = email_context(snapshot)
-        self.assertIn('For equal elapsed time: 0 of 2 within target, previously 2 of 4', context['verdict'])
-        self.assertNotIn('(previously', context['verdict'])
         self.assertIn('matching elapsed window', context['headline'][0]['comparison_scope'])
+        self.assertIn('10 Oct 2026', context['notices'][-1])
 
     def test_positive_short_duration_never_rounds_to_a_false_zero(self):
         from .management_email import duration

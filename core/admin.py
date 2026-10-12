@@ -7082,6 +7082,12 @@ class WorkflowScopedSelect(forms.Select):
         workflows = self.workflow_map.get(raw_value)
         if workflows:
             option['attrs']['data-workflows'] = ','.join(sorted(workflows))
+        if name == 'role' or name.endswith('-role'):
+            from core.services.access_policies import WORKFLOW_ROLES
+            option['attrs']['data-role-labels'] = json.dumps({
+                workflow: dict(roles)[raw_value] for workflow, roles in WORKFLOW_ROLES.items()
+                if raw_value in dict(roles)
+            })
         return option
 
 
@@ -7117,12 +7123,12 @@ def _configure_access_scope_fields(form) -> None:
     form.fields['branch'].choices = branches
     form.fields['product'].choices = products
     form.fields['branch'].widget.workflow_map = {
-        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-        **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branches if value},
+        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker', 'loan_origination', 'spin_credit_analysis'},
+        **{value: {'jawabu_portal', 'tat_tracker', 'loan_origination', 'spin_credit_analysis'} for value, _ in branches if value},
     }
     form.fields['product'].widget.workflow_map = {
-        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-        **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in products if value},
+        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker', 'loan_origination', 'spin_credit_analysis'},
+        **{value: {'jawabu_portal', 'tat_tracker', 'loan_origination', 'spin_credit_analysis'} for value, _ in products if value},
     }
     form.fields['group_configuration'].queryset = GroupSheetConfiguration.objects.filter(enabled=True)
 

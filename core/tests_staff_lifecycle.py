@@ -855,9 +855,9 @@ class StaffTelegramOnboardingTests(TestCase):
             encoding='utf-8',
         )
 
-        self.assertIn("document.querySelectorAll('.inline-related, [data-scope-card]')", script)
+        self.assertIn("document.querySelectorAll('.inline-related, [data-scope-card], form')", script)
         self.assertIn(
-            "closest('.inline-related, #enroll-telegram-user, [data-scope-card]')",
+            "closest('.inline-related, #enroll-telegram-user, [data-scope-card], form')",
             script,
         )
         self.assertIn("new CustomEvent('formset:added',{bubbles:true})", template)

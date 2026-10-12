@@ -12,6 +12,13 @@ A blank branch, product, or group is a deliberate wildcard for all current and f
 
 ## Guided scope editor
 
+Role names are shown for the selected Mini App, not as a combined list of apps.
+For example, Origination's Branch Manager and TAT's Branch Manager require
+independent grants even though both retain the internal `BM` code. Changing the
+Mini App updates its role labels and compatible group/branch/product choices;
+it never copies permission from another app. Existing grants, policy auditing
+and policy-version/session refresh rules are unchanged.
+
 The Staff lifecycle workspace groups the editor by workflow and role. Within one card, selected branches, products, and Telegram groups expand to the Cartesian product of exact grants. Use another card when combinations must not cross.
 
 The review screen lists every exact tuple and shows added, retained, and removed counts. More than 12 resolved grants receives a prominent warning. One scope card may create at most 50 grants and one lifecycle plan at most 100.

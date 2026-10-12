@@ -19,6 +19,30 @@ enabling production SMS.
 
 ## What the integration does
 
+### Signing feedback and exit
+
+External signers review the documents, draw or type their signature and choose
+**Save & send code**. Capture alone is not completion: **Finish signing** verifies
+the SMS code and applies the signature. SMS failure retains the saved capture;
+**Resend code** resumes verification under the existing cooldown and attempt limits.
+
+Only server-confirmed completion shows **Signature saved**, its application
+reference and Nairobi signing time. The short outcome distinguishes remaining
+signatures/stamps, final approval and an approved application. It does not wait
+for Drive archival. There is no separate acknowledgement action.
+
+The acknowledgement closes the external signing context after ten seconds where
+Telegram/browser closure is supported. **Close now** exits sooner; **Stay here**
+cancels the timer. Ordinary tabs which cannot be closed show **You can close this
+tab**. Staff signing returns to the application instead of closing the Mini App.
+Assisted signing closes only the borrower's signing context, not the officer app.
+Errors preserve input and never start the countdown. Retried uncertain saves
+reuse their request key; a server-state check recovers a committed signature.
+
+The simulator stays separately labelled TEST. Real staff signing never uses
+synthetic-name prompts. Signer identity, consent, configured approval policies,
+required stamps and independent approval restrictions are unchanged.
+
 For each external signer, the system:
 
 1. freezes the reviewed application, main LAF, supporting documents, signer

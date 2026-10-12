@@ -9,24 +9,25 @@ you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
 Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
-The shared 600px fluid email is decision-first: title and date stamp, computed
-headline, attachment note/Open in app, three or four KPIs, Needs attention, one
-chart and one top-five table, then the footer. This replaces the earlier 900px
-paired-panel design. Segoe UI/Helvetica Neue/Arial fallbacks use 15px body,
+The shared fluid email uses up to 900px on desktop: title and date stamp,
+attachment note, three or four KPIs, Needs attention, one chart and one top-five
+table, then the footer. There is no introductory verdict paragraph or app link
+in either HTML or plain text. Segoe UI/Helvetica Neue/Arial fallbacks use 15px body,
 14px tables, 12px KPI labels and 28px values. On phones KPIs form two columns.
 Large KES figures use M/B in tiles; exact amounts remain in plain text, Excel
 and the tile's title. A navy structural accent and light dividers replace coloured
 box walls; green/red mean Better/Worse, with directional symbols and words.
 
-Complaint headlines use captured counts, the existing median (not a newly
+Complaint cards use captured counts, the existing median (not a newly
 invented average), actual SLA targets and previous-period target counts. Every
 tile shows its previous value and absolute/rate-point/time change where the
 source supplies a safe comparison. Higher/lower-is-better rules govern direction;
 reported volume is neutral. Current backlog has no invented historical baseline.
 Resolution uses rounded days throughout the email; HB response/TAT stages use
 hours. Missing targets are explicit, multiple targets show a range, and positive
-durations below 0.1 units are not rounded to zero. Sample sizes below five say
-low volume; a type with one sample shows n/a instead of a misleading median.
+durations below 0.1 units are not rounded to zero. Small-sample context uses
+plain wording such as "Based on 3 complaints"; a type with one complaint says
+"Not enough complaints" instead of a misleading median. No n= or low-volume jargon.
 Nairobi period stamps use 5 Oct - 11 Oct 2026, with comparison dates/data-as-of.
 Shorter matched comparison windows are explicitly distinguished from headline
 totals; they never silently replace the selected scope.
@@ -34,12 +35,10 @@ totals; they never silently replace the selected scope.
 Needs attention prioritizes late measured resolutions, the slowest measured
 complaint type, missing targets and current overdue/open work. Zero target rows
 and empty age tables are not repeated. Customer facts remain in the protected
-app/Excel, not the email body: attention links identify an aggregate selection,
-not a customer. APP_BASE_URL enables the Open in app button; links contain no
-credentials or bearer access. Complaints and TAT open Reports only after ordinary
-authentication and a current report-capability check; existing task links take
-priority in TAT. Portal uses its existing Reports entry. Email delivery does not
-grant recipients Mini App access. Sources without comparison/exception facts
+app/Excel, not the email body. Emails deliberately have no app links. Previously
+supported authenticated Reports entry routes remain available, but email rendering
+does not use them. Email delivery does not grant recipients Mini App access.
+Sources without comparison/exception facts
 (including Portal/TAT presets that do not capture a prior period) say unavailable;
 they are never given fabricated previous scores or targets.
 The existing project logo is embedded as a local base64 inline attachment using

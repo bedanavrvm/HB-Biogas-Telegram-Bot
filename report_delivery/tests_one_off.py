@@ -72,7 +72,7 @@ class EmailPresentationTests(SimpleTestCase):
         payload = build_payload(self.snapshot(summary={}, total_rows=0, exported_rows=0,
                                              applied_filters={'branch': '<script>Training</script>'}),
                                 'management@example.invalid', {})
-        self.assertIn('0 of 0 matching cases', payload['html'])
+        self.assertIn('No cases match this report.', payload['html'])
         self.assertIn('&lt;script&gt;Training&lt;/script&gt;', payload['html'])
         self.assertNotIn('<script>', payload['html'])
 

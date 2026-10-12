@@ -1,5 +1,24 @@
 # Known Gaps and Verified Workarounds
 
+## Signing and email presentation refinement - 12 October 2026
+
+The current email is up to 900px wide, without an introductory verdict or app
+links; this supersedes the 600px presentation recorded below. Graphs, comparison
+arrows, target interpretation and attention remain. Real Gmail/Outlook inbox
+rendering still requires verification; browser screenshots are not certification.
+
+Signing acknowledgement counts down only after a confirmed signature. Browsers
+may refuse automatic tab closure; the saved acknowledgement then tells the signer
+to close the tab. Real Telegram WebView closure and production SMS/Drive were not
+exercised against customer data. Staff return to their application, not out of
+the Mini App. Existing captured completion policies are unchanged.
+
+Focused validation: 175 PostgreSQL tests passed, 103 browser checks passed,
+and eight additional email-heading checks passed after mobile screenshot review.
+JavaScript syntax (127 first-party files), Node tests and migration drift checks
+passed. Full-repository tests were not run. Synthetic screenshots and text logs
+are under `test-results/`; no live email, SMS or Drive writes were performed.
+
 ## Decision-first email presentation - 12 October 2026
 
 The current 600px management email replaces the earlier 900px layout described

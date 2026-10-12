@@ -916,6 +916,7 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
         'phone_masked': _masked_phone(session.phone_normalized),
         'access_mode': session.access_mode,
         'status': session.status,
+        'verified_at': session.verified_at.isoformat() if session.verified_at else '',
         'expires_at': session.token_expires_at.isoformat(),
         'consented': bool(session.consented_at),
         'reviewed_pages': list(session.reviewed_pages or []),
@@ -957,11 +958,16 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         participant_id = str(raw.get('participant_id') or '')
         slots = [item for item in _slot_catalog(package) if item['role'] == role and (not participant_id or str(item['participant_id']) == participant_id)]
         session = sessions.get(participant_id or role)
+        signature_actions = [actions[(slot['document_key'], slot['key'])] for slot in slots
+                             if slot['type'] == 'signature' and (slot['document_key'], slot['key']) in actions]
+        signature = max(signature_actions, key=lambda item: item.created_at) if signature_actions else None
         participants.append({
             'role': role,
             'participant_id': participant_id,
             'name': str((raw.get('identity') or {}).get('name') or ''),
             'staff_user_id': raw.get('staff_user_id'),
+            'signature_actor_id': signature.actor_id if signature else None,
+            'signed_at': signature.created_at.isoformat() if signature else '',
             'label': str(raw.get('label') or role.replace('_', ' ').title()),
             'applicable': bool(raw.get('applicable', True)),
             'required': bool(raw.get('required')),

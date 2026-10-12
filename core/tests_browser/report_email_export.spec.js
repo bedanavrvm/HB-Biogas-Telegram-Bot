@@ -153,7 +153,7 @@ for(const width of [320,360,390,430,768,1280])test(`Generated management email f
   expect(Math.max(...metrics.map(metric=>metric.height))-Math.min(...metrics.map(metric=>metric.height))).toBeLessThan(1);
   if(width<=480) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
   else expect(Math.abs(metrics[2].y-metrics[0].y)).toBeLessThan(1);
-  expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(600);
+  expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(900);
   const attention=await page.getByRole('heading',{name:'Needs attention'}).boundingBox();
   const chart=await page.locator('.report-graph').boundingBox();
   expect(attention.y).toBeLessThan(chart.y);
@@ -175,7 +175,7 @@ for(const preset of ['tat','finance','empty','cmp_tat','cmp_open','month','year'
       const values=await page.locator('.metric-value').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().height));
       expect(Math.max(...values)).toBeLessThanOrEqual(36);
     }
-    if(preset==='empty') await expect(page.getByText(/0 of 0 matching cases\./)).toBeVisible();
+    if(preset==='empty') await expect(page.getByText('No cases match this report.',{exact:true})).toBeVisible();
     if(['month','year'].includes(preset)) {
       await expect(page.locator('.report-graph')).toHaveCount(1);
       expect(await page.locator('.report-graph').evaluate(img=>img.naturalWidth)).toBe(840);
@@ -203,14 +203,20 @@ for (const width of [320,430,600,1280]) for (const colorScheme of ['light','dark
     await page.setViewportSize({width,height:900});
     await page.setContent(renderPreview('late'));
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-    expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(600);
-    await expect(page.locator('.report-verdict')).toContainText('previously 2 of 4');
-    await expect(page.locator('.report-verdict')).toContainText('6.9 days; target 3.0 days');
+    expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(900);
+    if(width===1280) expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBe(900);
+    await expect(page.locator('.report-verdict')).toHaveCount(0);
+    await expect(page.getByText('Target 3.0 days',{exact:true})).toBeVisible();
+    await expect(page.getByText('Based on 3 complaints',{exact:true}).first()).toBeVisible();
+    await expect(page.getByText(/n=\d|low volume/)).toHaveCount(0);
     await expect(page.locator('.metric-worse').filter({hasText:'▼ 50.0 pts · Worse'})).toBeVisible();
     await expect(page.locator('.metric-value.metric-worse').filter({hasText:'0%'})).toBeVisible();
-    await expect(page.getByRole('link',{name:'Open in app',exact:true})).toHaveAttribute('href',/view=reports/);
-    const link=await page.getByRole('link',{name:'View in app →',exact:true}).first().getAttribute('href');
-    expect(link).toContain('metric=late'); expect(link).toContain('branch=Training'); expect(link).not.toContain('token');
+    await expect(page.getByRole('link')).toHaveCount(0);
+    for(const label of ['Time','Cases']) {
+      const heading=page.getByRole('columnheader',{name:label,exact:true});
+      await expect(heading).toBeVisible();
+      expect((await heading.boundingBox()).height).toBeLessThan(30);
+    }
     const bad=await page.locator('.metric-value.metric-worse').filter({hasText:'0%'}).evaluate(el=>getComputedStyle(el).color);
     expect(bad).toBe(colorScheme==='dark'?'rgb(255, 168, 157)':'rgb(180, 35, 24)');
     if(colorScheme==='dark') expect(await page.locator('.breakdown-table td').last().evaluate(el=>getComputedStyle(el).color)).toBe('rgb(198, 205, 216)');

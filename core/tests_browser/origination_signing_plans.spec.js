@@ -55,6 +55,7 @@ async function mount(page, {approved=false,dark=false}={}) {
   await page.addStyleTag({path:asset('core','base.css')});
   await page.addStyleTag({content:fs.readFileSync(asset('core','workflow_standard.css'),'utf8').replace(/@import[^;]+;/g,'')});
   await page.addStyleTag({path:asset('origination','loan_origination.css')});
+  await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
   if(dark) await page.evaluate(()=>{
     document.documentElement.dataset.telegramTheme='dark';
     document.documentElement.dataset.miniappColorScheme='dark';
@@ -62,6 +63,7 @@ async function mount(page, {approved=false,dark=false}={}) {
       document.documentElement.style.setProperty(`--tg-theme-${key}`,value);
   });
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','loan_origination.js')});
   await expect(page.locator('.signing-workspace')).toBeVisible();
   return {errors,payload:()=>payload};
@@ -101,7 +103,14 @@ test('staff action addresses the individual and approved view is read-only',asyn
   await page.locator('[data-test-signature-confirm]').click();
   await expect.poll(()=>audit.payload()?.participant_id).toBe('00000000-0000-4000-8000-000000000004');
   expect(audit.payload().signer_role).toBe('branch_manager');
+  await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
+  await expect(page.getByText('Application approved.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Stay here',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Stay here',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Back to application',exact:true})).toHaveCSS('background-color','rgb(18, 100, 72)');
   await page.screenshot({path:info.outputPath('staff-signing-390.png'),fullPage:true});
+  await page.getByRole('button',{name:'Back to application',exact:true}).click();
+  await expect(page.locator('.signing-workspace header p')).toHaveText('4 of 4 signers complete');
 });
 
 test('approved applications expose signed documents without workflow buttons',async({page},info)=>{
@@ -112,6 +121,25 @@ test('approved applications expose signed documents without workflow buttons',as
   await expect(page.locator('[data-staff-sign],#origination-recall')).toHaveCount(0);
   expect(audit.errors).toEqual([]);
   await page.screenshot({path:info.outputPath('approved-320.png'),fullPage:true});
+});
+
+test('staff countdown returns to the application without closing the Mini App',async({page})=>{
+  await mount(page);
+  await page.evaluate(()=>{
+    window.__closed=0;
+    window.Telegram={WebApp:{initData:'synthetic-init',close(){window.__closed++;}}};
+  });
+  await page.getByRole('button',{name:'Sign',exact:true}).click();
+  await page.locator('[data-test-signature-mode="typed"]').click();
+  await page.locator('[data-test-signature-name]').fill('Synthetic Manager');
+  await page.locator('[data-staff-consent]').check();
+  await page.locator('[data-test-signature-confirm]').click();
+  await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
+  await page.clock.install();
+  await page.clock.runFor(11000);
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await expect(page.locator('.signing-workspace header p')).toHaveText('4 of 4 signers complete');
+  expect(await page.evaluate(()=>window.__closed)).toBe(0);
 });
 
 function adminMarkup() {
@@ -207,10 +235,12 @@ async function mountRecipient(page,{verified=false}={}) {
   await page.goto('http://127.0.0.1/sign/#synthetic-bearer-token');
   await page.addStyleTag({path:asset('core','base.css')});
   await page.addStyleTag({path:asset('origination','origination_signing.css')});
+  await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
   if(!verified) await expect(page.locator('#packet-page')).toBeVisible();
-  else await expect(page.locator('#sign-content')).toBeVisible();
+  else await expect(page.locator('#sign-completion')).toBeVisible();
 }
 
 test('recipient keeps saved signature when SMS fails and resumes on refresh',async({page},info)=>{
@@ -221,29 +251,32 @@ test('recipient keeps saved signature when SMS fails and resumes on refresh',asy
   await page.getByRole('button',{name:'Type',exact:true}).click();
   await page.locator('#typed-name').fill('Synthetic Applicant');
   await page.locator('#packet-consent').check();
-  await page.getByRole('button',{name:'Confirm & send code',exact:true}).click();
-  await expect(page.locator('#sign-status')).toContainText('Your signature is saved.');
+  await page.getByRole('button',{name:'Save & send code',exact:true}).click();
+  await expect(page.locator('#sign-status')).toContainText('Signature saved.');
   await expect(page.locator('#signature-card')).toBeHidden();
   await expect(page.locator('#verification-card')).toBeVisible();
   await page.reload();
   await page.addStyleTag({path:asset('core','base.css')});
   await page.addStyleTag({path:asset('origination','origination_signing.css')});
+  await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
   await expect(page.locator('#sign-status')).toContainText('Your signature is saved.');
-  await page.getByRole('button',{name:'Send verification code',exact:true}).click();
+  await page.getByRole('button',{name:'Resend code',exact:true}).click();
   await page.locator('#otp-code').fill('123456');
   await page.screenshot({path:info.outputPath('recipient-verification-390.png'),fullPage:true});
-  await page.getByRole('button',{name:'Verify & sign',exact:true}).click();
-  await expect(page.locator('#sign-status')).toHaveText('Your signature is complete. The application is approved.');
+  await page.getByRole('button',{name:'Finish signing',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
+  await expect(page.getByText('Application approved.',{exact:true})).toBeVisible();
   await page.screenshot({path:info.outputPath('recipient-complete-390.png'),fullPage:true});
 });
 
 test('reopening a completed recipient link does not replace its success message',async({page},info)=>{
   await page.setViewportSize({width:320,height:844});
   await mountRecipient(page,{verified:true});
-  await expect(page.locator('#sign-status')).toHaveText('Your signature is complete. The application is approved.');
-  await expect(page.locator('#send-otp')).toBeDisabled();
+  await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
+  await expect(page.getByText('Application approved.',{exact:true})).toBeVisible();
   await expect(page.locator('#verification-card')).toBeHidden();
   await page.screenshot({path:info.outputPath('recipient-approved-320.png'),fullPage:true});
 });

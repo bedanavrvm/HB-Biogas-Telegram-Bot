@@ -1,5 +1,24 @@
 # Loan Origination Mini App: Developer Guide
 
+## Signing acknowledgement — 12 October 2026
+
+The public signing session adds `verified_at`. Staff signature responses add
+`signature_receipt.signed_at`, taken from persisted signing actions, never the
+client clock. The authorized signing projection includes each participant's
+`signature_actor_id` and `signed_at` so an uncertain staff response can be checked
+without treating another staff member's signature as the viewer's success.
+
+The shared acknowledgement component shows the actual application outcome and
+an elapsed-time ten-second countdown. It replaces external signing controls or
+the existing staff sheet body, not a new workflow state or database model. A
+verified reload skips document fetching. Capture/send/verify retries retain keys
+until a definitive response; failures keep signature input. App-specific role
+labels change presentation only; capability policies and internal codes remain.
+No migration, new environment variable, external service or cron is required.
+
+Acceptance: `origination.tests_signing_presentation`, `core.tests_origination_esign`,
+`origination.tests_signing_plans` and the browser signing-completion/signing-plan suites.
+
 ## Application signing plans — 12 October 2026
 
 ADR 0045 introduces the opt-in `all_required` policy. Product definitions and

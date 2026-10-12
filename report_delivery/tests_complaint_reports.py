@@ -175,7 +175,7 @@ class ProjectionTests(SimpleTestCase):
             self.assertNotIn('Breakdown</h2>', payload['html'])
             self.assertIn(result['email_sections'][0]['title'], payload['text'])
             self.assertNotIn('customer_name', payload['html'])
-            self.assertIn('max-width:600px', payload['html'])
+            self.assertIn('max-width:900px', payload['html'])
 
     def test_follow_up_headlines_stay_compact_without_repeated_snapshot_labels(self):
         from .rendering import email_context

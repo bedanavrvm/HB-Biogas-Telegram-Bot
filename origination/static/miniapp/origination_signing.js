@@ -16,7 +16,7 @@
   const base = sessionUrl.replace(/session\/?$/, '').replace(/\/$/, '');
   const status = document.getElementById('sign-status');
   const content = document.getElementById('sign-content');
-  const signatureForm = window.MiniAppUtils?.bindAccessibleForm?.(content.querySelectorAll('.card')[1], {
+  const signatureForm = window.MiniAppUtils?.bindAccessibleForm?.(document.getElementById('signature-card'), {
     resolveField: key => key === 'signature-pad' ? document.getElementById(key) : null,
     validate: () => mode === 'drawn' && !strokes.some(stroke => stroke.length >= 2) ? {'signature-pad': 'Draw your signature, or choose Type to enter your name.'} : {},
     validators: {
@@ -38,6 +38,8 @@
   let captureSaved = false;
   let reviewedPages = new Set();
   let pageObjectUrl = '';
+  let completion = null;
+  const pendingRequests = new Map();
 
   function syncSignatureProtection() {
     const typedName = document.getElementById('typed-name')?.value.trim() || '';
@@ -60,16 +62,30 @@
   };
 
   async function api(path, options = {}) {
-    const requestId = id();
-    const response = await fetch(`${base}/${path}`, {
+    const isWrite = options.method === 'POST';
+    const key = path + ':' + (options.body || '');
+    const requestId = isWrite ? pendingRequests.get(key) || id() : id();
+    if (isWrite) pendingRequests.set(key, requestId);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    let response, raw;
+    try {
+      response = await fetch(`${base}/${path}`, {
       credentials: 'omit', cache: 'no-store', ...options,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`,
         'Idempotency-Key': requestId, 'X-Request-ID': requestId,
         'X-MiniApp-Message-Contract': '2', ...(options.headers || {}),
       },
-    });
-    const raw = await response.json().catch(() => ({}));
+      });
+      raw = await response.json();
+    } catch (_) {
+      const error = new Error('We could not confirm the save. Check your connection and try again.');
+      error.uncertain = true;
+      throw error;
+    } finally { window.clearTimeout(timeout); }
+    if (isWrite && response.status < 500) pendingRequests.delete(key);
     const data = window.MiniAppUtils?.normalizeResponsePayload
       ? window.MiniAppUtils.normalizeResponsePayload(response, raw, 'We could not complete this signing step.') : raw;
     if (!response.ok || !data.ok) {
@@ -77,20 +93,37 @@
         ? window.MiniAppUtils.apiError(response, data)
         : new Error(data.message || 'We could not complete this signing step.');
       error.retryAfter = response.headers.get('Retry-After');
+      error.uncertain = response.status >= 500;
       throw error;
     }
     return data;
   }
 
   function render() {
+    if (session.status === 'verified') {
+      content.hidden = true;
+      status.hidden = true;
+      document.querySelector('.sign-brand h1').textContent = 'Signing complete';
+      const host = document.getElementById('sign-completion');
+      host.hidden = false;
+      if (!completion) completion = window.OriginationSigningCompletion.show(host, {
+        reference: session.reference, signedAt: session.verified_at,
+        message: window.OriginationSigningCompletion.outcome(session, session.completion_text), external: true,
+      });
+      window.MiniAppUtils?.setCloseProtection?.('signing-capture', false);
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+      try { window.sessionStorage.removeItem('jbl-origination-signing-token'); } catch (_) { /* restricted WebView */ }
+      return;
+    }
     document.getElementById('sign-reference').textContent = session.reference;
+    document.getElementById('sign-name').textContent = session.signer_name || '';
     document.getElementById('sign-role').textContent = session.signer_role.replaceAll('_', ' ');
     document.getElementById('sign-phone').textContent = session.phone_masked;
     document.getElementById('shared-phone-warning').hidden = !session.shared_phone_override;
     const assisted = session.access_mode === 'assisted';
     document.getElementById('assisted-confirmation').hidden = !assisted;
     const modeBanner = document.getElementById('signing-mode-banner');
-    modeBanner.hidden = session.status === 'verified';
+    modeBanner.hidden = !assisted;
     modeBanner.classList.toggle('assisted', assisted);
     document.getElementById('signing-mode-label').textContent = assisted ? 'Assisted signing' : 'Remote signing';
     document.getElementById('signing-mode-detail').textContent = assisted
@@ -110,15 +143,8 @@
     document.getElementById('packet-consent').disabled = !allReviewed && !session.consented;
     document.getElementById('send-otp').disabled = !session.consented || session.status === 'verified';
     document.getElementById('otp-panel').hidden = !session.otp?.expires_at || session.status === 'verified';
-    if (session.status === 'verified') {
-      show(session.signing_policy === 'all_required'
-        ? session.application_status === 'approved' ? 'Your signature is complete. The application is approved.' : 'Your signature is complete. Awaiting the remaining signers.'
-        : session.completion_text || 'Signing complete. Your verified signature has been applied to every signature box assigned to you.', 'success');
-      document.querySelectorAll('#signature-card button,#signature-card input,#verification-card button,#verification-card input')
-        .forEach(element => { element.disabled = true; });
-      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-      try { window.sessionStorage.removeItem('jbl-origination-signing-token'); } catch (_) { /* restricted WebView */ }
-    }
+    const resendAt = Date.parse(session.otp?.resend_available_at || '');
+    document.getElementById('send-otp').disabled = !session.consented || (Number.isFinite(resendAt) && resendAt > Date.now());
   }
 
   async function loadPage() {
@@ -187,8 +213,22 @@
   }
   document.getElementById('mode-drawn').onclick = () => setMode('drawn');
   document.getElementById('mode-typed').onclick = () => setMode('typed');
-  document.getElementById('page-prev').onclick = async () => { if (page > 1) { page -= 1; await loadPage(); } };
-  document.getElementById('page-next').onclick = async () => { if (page < pages) { page += 1; await loadPage(); } };
+  async function navigatePage(next) {
+    const previous = page;
+    page = next;
+    try { await loadPage(); } catch (error) { page = previous; show(error.message, 'error'); }
+  }
+  document.getElementById('page-prev').onclick = () => { if (page > 1) void navigatePage(page - 1); };
+  document.getElementById('page-next').onclick = () => { if (page < pages) void navigatePage(page + 1); };
+
+  async function recoverSession(error) {
+    if (!error.uncertain) return;
+    try {
+      const data = await api('session/');
+      session = data.session;
+      captureSaved = Boolean(session.consented);
+    } catch (_) { /* Keep the entered signature and the same request key. */ }
+  }
 
   document.getElementById('save-signature').onclick = async event => {
     if (signatureForm && !signatureForm.validate()) return;
@@ -213,11 +253,12 @@
       }, { loadingLabel: 'Saving and sending code', successLabel: 'Code sent' });
       render();
       syncSignatureProtection();
-      show(`Enter the code sent to ${session.phone_masked}.`, 'success');
+      show(`Signature saved. Enter the code sent to ${session.phone_masked} to finish signing.`, 'info');
       document.getElementById('otp-code').focus();
     } catch (error) {
+      await recoverSession(error);
       render();
-      show(captureSaved ? `Your signature is saved. ${error.message} Use Send verification code to retry.` : error.message, error.presentation?.tone || 'error');
+      if (session.status !== 'verified') show(captureSaved ? `Signature saved. ${error.message} Use Resend code to finish signing.` : error.message, error.presentation?.tone || 'error');
     }
   };
 
@@ -231,7 +272,7 @@
       render();
       show(`Your six-digit verification code is being sent to ${session.phone_masked}.`, 'success');
       document.getElementById('otp-code').focus();
-    } catch (error) { show(error.message, error.presentation?.tone || 'error'); }
+    } catch (error) { await recoverSession(error); render(); if (session.status !== 'verified') show(error.message, error.presentation?.tone || 'error'); }
   };
 
   document.getElementById('verify-otp').onclick = async event => {
@@ -245,7 +286,7 @@
         session = data.session;
       }, { loadingLabel: 'Verifying', successLabel: 'Verified' });
       render();
-    } catch (error) { show(error.message, error.presentation?.tone || 'error'); }
+    } catch (error) { await recoverSession(error); render(); if (session.status !== 'verified') show(error.message, error.presentation?.tone || 'error'); }
   };
 
   async function refreshSession() {
@@ -259,7 +300,8 @@
     } catch (_) { /* Existing signer state remains usable during a transient refresh failure. */ }
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void refreshSession(); });
-  window.addEventListener('pagehide', () => { if (pageObjectUrl) URL.revokeObjectURL(pageObjectUrl); });
+  const resendTimer = window.setInterval(() => { if (session?.consented && session.status !== 'verified') render(); }, 1000);
+  window.addEventListener('pagehide', () => { window.clearInterval(resendTimer); completion?.dispose(); if (pageObjectUrl) URL.revokeObjectURL(pageObjectUrl); });
 
   (async () => {
     try {
@@ -268,6 +310,7 @@
       reviewedPages = new Set((session.reviewed_pages || []).map(Number));
       content.hidden = false;
       render();
+      if (session.status === 'verified') return;
       if (session.status !== 'verified') show(session.consented
         ? session.otp?.expires_at ? 'Enter your verification code to finish signing.' : 'Your signature is saved. Send a verification code to finish signing.'
         : 'Review every page before signing.', 'info');

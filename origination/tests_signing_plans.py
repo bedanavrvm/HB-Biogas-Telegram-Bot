@@ -190,6 +190,36 @@ class SigningPlanTests(TestCase):
         with self.assertRaises(OriginationError):
             self.sign_staff(package,people[4],self.outsider)
 
+    def test_staff_acknowledgement_receipt_is_saved_and_retry_is_idempotent(self):
+        from django.test import RequestFactory
+        from origination.views import portal_origination_staff_signature
+        from core.services.telegram_identity import user_access
+        package = self.package()
+        participant = package.participants_snapshot[3]
+        body = {'package_id': str(package.pk), 'signer_role': participant['role'],
+                'participant_id': participant['participant_id'], 'revision': self.application.revision,
+                'signature_capture': {'method': 'typed', 'name': 'Synthetic Manager'},
+                'consent': True, 'client_request_id': 'synthetic-acknowledgement'}
+        def submit(actor):
+            request = RequestFactory().post('/signing/', data=body, content_type='application/json')
+            request.origination_user = actor
+            request.origination_access = user_access(actor, 'loan_origination')
+            return portal_origination_staff_signature(request, str(self.application.pk))
+        first = submit(self.admin)
+        self.assertEqual(first.status_code, 200, first.content)
+        import json
+        data = json.loads(first.content)
+        self.assertTrue(data['signature_receipt']['signed_at'])
+        self.assertEqual(data['application']['status'], 'partially_signed')
+        second = submit(self.admin)
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(json.loads(second.content)['signature_receipt'], data['signature_receipt'])
+        self.assertEqual(submit(self.outsider).status_code, 403)
+        projected = next(person for person in serialize_verified_signing(package)['participants']
+                         if person['participant_id'] == participant['participant_id'])
+        self.assertEqual(projected['signature_actor_id'], self.admin.pk)
+        self.assertEqual(projected['signed_at'], data['signature_receipt']['signed_at'])
+
     def test_partial_withdrawal_retires_sessions_and_preserves_history(self):
         package=self.package(); self.sign_external(package,package.participants_snapshot[0])
         original_ids=list(self.application.signing_plan['participants'])

@@ -1,5 +1,18 @@
 # Changelog
 
+## 12 October 2026 - Clear signing acknowledgement and simpler emails
+
+- Signing now ends with a dedicated server-confirmed acknowledgement and a
+  cancellable ten-second countdown. External signing closes where supported;
+  staff return to the application. SMS verification, consent, stamp and approval
+  rules remain unchanged; failed/uncertain saves preserve input and recover safely.
+- Admin role labels and compatible scope choices follow the selected Mini App.
+  Origination roles require their own grants; no role codes or permissions changed.
+- Restored the management email's 900px desktop width and removed introductory
+  paragraphs and all app links. Kept attention, graphs, targets and directional
+  comparisons; sample context now says "Based on 3 complaints" instead of n= jargon.
+- Existing frozen email deliveries keep their original payload when retried.
+
 ## 12 October 2026 - Decision-first management email
 
 - Replaced the wide dashboard-style email with a 600px computed headline,

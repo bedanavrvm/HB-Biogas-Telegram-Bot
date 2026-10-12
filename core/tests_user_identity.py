@@ -276,7 +276,8 @@ class CanonicalStaffAdminTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('product', form.errors)
         self.assertIn('group_configuration', form.errors)
-        self.assertIn(('JBL_OFFICER', 'JBL Officer — Jawabu Portal'), form.fields['role'].choices)
+        self.assertIn(('JBL_OFFICER', 'Field Officer'), form.fields['role'].choices)
+        self.assertNotIn(' — ', str(form.fields['role'].choices))
 
 @override_settings(
     TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_AUTH_MAX_AGE_SECONDS=86400,

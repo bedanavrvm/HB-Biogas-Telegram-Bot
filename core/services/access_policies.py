@@ -106,17 +106,14 @@ def canonical_access_role(workflow: str, role: str) -> str:
     return aliases.get(value.casefold(), value.upper())
 
 
-def role_choices():
+def role_choices(workflow=None):
+    if workflow:
+        return list(WORKFLOW_ROLES.get(workflow, ()))
     labels = {}
-    workflows = {}
-    for workflow, roles in WORKFLOW_ROLES.items():
+    for roles in WORKFLOW_ROLES.values():
         for role, label in roles:
             labels.setdefault(role, label)
-            workflows.setdefault(role, []).append(workflow_label(workflow))
-    return [
-        (role, f'{labels[role]} — {" / ".join(workflows[role])}')
-        for role in labels
-    ]
+    return list(labels.items())
 
 
 def workflow_label(workflow: str) -> str:
