@@ -36,6 +36,7 @@ from origination.models import (
     OriginationSigningAction,
     OriginationSigningActionInvalidation,
     OriginationSignerSession,
+    OriginationSigningParticipant,
     OriginationOtpChallenge,
     OriginationSigningRequestEvent,
     OriginationStampAsset,
@@ -62,6 +63,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationSigningActionInvalidation,
         OriginationSigningAction,
         OriginationSignerSession,
+        OriginationSigningParticipant,
         OriginationOtpChallenge,
         OriginationSigningRequestEvent,
         OriginationReportingValue,
@@ -231,6 +233,7 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
     _delete(OriginationCommercialException.objects.filter(application_id=application_id), counts)
     _delete(OriginationApplicationEvent.objects.filter(application_id=application_id), counts)
     _delete(OriginationReportingValue.objects.filter(application_id=application_id), counts)
+    _delete(OriginationSigningParticipant.objects.filter(application_id=application_id), counts)
     _delete(LoanOriginationApplication.objects.filter(pk=application_id), counts)
 
 
@@ -386,6 +389,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationCommercialException.objects.all(), deleted)
     _delete(OriginationApplicationEvent.objects.all(), deleted)
     _delete(OriginationReportingValue.objects.all(), deleted)
+    _delete(OriginationSigningParticipant.objects.all(), deleted)
     _delete(LoanOriginationApplication.objects.all(), deleted)
 
     # Product/template configuration uses protected links in both directions.

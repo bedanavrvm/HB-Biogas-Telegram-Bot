@@ -517,9 +517,9 @@ def portal_origination_applications(request):
             ).order_by('-created_at')[:10]]
         return JsonResponse({
             'ok': True,
-            'applications': [{**serialize_application(item, include_payload=False),
+            'applications': [{**serialize_application(item, include_payload=False, actor=user),
                               'next_action': next_actions.get(str(item.pk), ''),
-                              'status_label': STATUS_LABELS[item.status],
+                              'status_label': serialize_application(item, include_payload=False, actor=user)['status_text'],
                               'review_alert': next((a['message'] for a in reviewer_alerts
                                                     if a['application_id'] == str(item.pk)), ''),
                               'review_alert_id': next((a['id'] for a in reviewer_alerts
@@ -567,7 +567,7 @@ def portal_origination_applications(request):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except OriginationError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    return JsonResponse({'ok': True, 'replayed': replayed, 'application': serialize_application(application)}, status=200 if replayed else 201)
+    return JsonResponse({'ok': True, 'replayed': replayed, 'application': serialize_application(application, actor=request.origination_user)}, status=200 if replayed else 201)
 
 
 @csrf_exempt
@@ -606,7 +606,7 @@ def portal_origination_restart(request, application_id: str):
         return JsonResponse(_safe_error(exc), status=400)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
-        'application': serialize_application(replacement),
+        'application': serialize_application(replacement, actor=request.origination_user),
     }, status=200 if replayed else 201)
 
 
@@ -634,7 +634,7 @@ def portal_origination_application_detail(request, application_id: str):
         )
         return JsonResponse({
             'ok': True,
-            'application': serialize_application(application, presentation=mode),
+            'application': serialize_application(application, presentation=mode, actor=request.origination_user),
         })
     body = {}
     try:
@@ -672,7 +672,7 @@ def portal_origination_application_detail(request, application_id: str):
         payload = _safe_error(exc)
         payload['code'] = 'invalid_application_fields' if errors else 'invalid_draft'
         return JsonResponse(payload, status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+    return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -689,7 +689,7 @@ def portal_origination_submit(request, application_id: str):
         return access_error
     try:
         body = _body(request)
-        if application.approval_roles_snapshot:
+        if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required':
             package, _ = confirm_and_start_conditional_signing(
                 application_id=application.pk, actor=request.origination_user,
                 expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
@@ -705,7 +705,7 @@ def portal_origination_submit(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(submitted)})
+    return JsonResponse({'ok': True, 'application': serialize_application(submitted, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -731,7 +731,7 @@ def portal_origination_confirm_signing(request, application_id: str):
         return JsonResponse(_safe_error(exc), status=400)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
-        'application': serialize_application(package.application),
+        'application': serialize_application(package.application, actor=request.origination_user),
     })
 
 
@@ -765,7 +765,7 @@ def portal_origination_recall(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(recalled)})
+    return JsonResponse({'ok': True, 'application': serialize_application(recalled, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -843,7 +843,7 @@ def portal_origination_review(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(reviewed)})
+    return JsonResponse({'ok': True, 'application': serialize_application(reviewed, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -871,7 +871,7 @@ def portal_origination_final_review(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(reviewed)})
+    return JsonResponse({'ok': True, 'application': serialize_application(reviewed, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -895,7 +895,7 @@ def portal_origination_correction_takeover(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(application)})
+    return JsonResponse({'ok': True, 'application': serialize_application(application, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -922,7 +922,7 @@ def portal_origination_prepare_review_packet(request, application_id: str):
     package.application.refresh_from_db()
     return JsonResponse({
         'ok': True, 'replayed': replayed,
-        'application': serialize_application(package.application),
+        'application': serialize_application(package.application, actor=request.origination_user),
     }, status=200 if replayed else 201)
 
 
@@ -1008,7 +1008,7 @@ def portal_origination_prepare_signing(request, application_id: str):
     return JsonResponse({
         'ok': True, 'replayed': replayed,
         'signing_package': {'id': str(package.pk), 'reference': package.external_reference, 'status': package.status},
-        'application': serialize_application(package.application),
+        'application': serialize_application(package.application, actor=request.origination_user),
     }, status=200 if replayed else 201)
 
 
@@ -1052,7 +1052,7 @@ def portal_origination_signing_requirements(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+    return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -1145,12 +1145,12 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
         return JsonResponse({
             'ok': False, 'error': item.upload_error,
             'evidence': serialize_evidence(item),
-            'application': serialize_application(refreshed),
+            'application': serialize_application(refreshed, actor=request.origination_user),
         }, status=502)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
         'evidence': serialize_evidence(item),
-        'application': serialize_application(refreshed),
+        'application': serialize_application(refreshed, actor=request.origination_user),
     }, status=200 if replayed else 201)
 
 
@@ -1185,7 +1185,7 @@ def portal_origination_test_signing_action(request, application_id: str):
     application = _application(application.pk)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
-        'application': serialize_application(application),
+        'application': serialize_application(application, actor=request.origination_user),
     }, status=200 if replayed else 201)
 
 
@@ -1401,6 +1401,7 @@ def portal_origination_signer_session(request, application_id: str):
             actor=request.origination_user, request_id=_request_id(request, body),
             access_mode=str(body.get('access_mode') or 'self_service'),
             shared_phone_override_reason=str(body.get('shared_phone_override_reason') or ''),
+            participant_id=str(body.get('participant_id') or ''),
         )
         invitation = {}
         if not replayed and session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
@@ -1498,12 +1499,14 @@ def portal_origination_staff_signature(request, application_id: str):
             actor=request.origination_user, signature_capture=body.get('signature_capture'),
             expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
             reviewed_packet_version=str(body.get('reviewed_packet_version') or ''),
+            participant_id=str(body.get('participant_id') or ''),
+            consent=body.get('consent') is True,
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(package.application)})
+    return JsonResponse({'ok': True, 'application': serialize_application(package.application, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -1512,7 +1515,7 @@ def portal_origination_production_stamp(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    capability = 'origination.signing.staff' if application.approval_roles_snapshot else 'origination.signing.start'
+    capability = 'origination.signing.staff' if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required' else 'origination.signing.start'
     if (error := _capability_error(request, capability, application)):
         return error
     if (error := _application_access_error(request, application)):
@@ -1526,13 +1529,14 @@ def portal_origination_production_stamp(request, application_id: str):
             package_id=body.get('package_id'), document_key=str(body.get('document_key') or ''),
             slot_key=str(body.get('slot_key') or ''), signer_role=str(body.get('signer_role') or ''),
             stamp_asset_id=body.get('stamp_asset_id'), actor=request.origination_user,
+            participant_id=str(body.get('participant_id') or ''),
             expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(package.application)})
+    return JsonResponse({'ok': True, 'application': serialize_application(package.application, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -1544,7 +1548,7 @@ def portal_origination_archive_signed(request, application_id: str):
     # Authentication populates the actor before selecting the retry capability.
     if (error := _capability_error(request, 'origination.view', application)):
         return error
-    capability = ('origination.create' if application.officer_id == request.origination_user.pk else 'origination.signing.staff') if application.approval_roles_snapshot else 'origination.signing.start'
+    capability = ('origination.create' if application.officer_id == request.origination_user.pk else 'origination.signing.staff') if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required' else 'origination.signing.start'
     if (error := _capability_error(request, capability, application)):
         return error
     if (error := _application_access_error(request, application)):
@@ -1554,7 +1558,7 @@ def portal_origination_archive_signed(request, application_id: str):
         body = _body(request)
         if not application.signing_packages.filter(pk=body.get('package_id')).exists():
             return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
-        if application.approval_roles_snapshot:
+        if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required':
             from origination.services.origination_dispatch import queue_archive
             package = application.signing_packages.get(pk=body.get('package_id'))
             queue_archive(package, actor=request.origination_user, retry=True)
@@ -1710,7 +1714,7 @@ def portal_origination_evidence_remove(request, evidence_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(application)})
+    return JsonResponse({'ok': True, 'application': serialize_application(application, actor=request.origination_user)})
 
 
 @require_http_methods(['GET'])
@@ -1773,7 +1777,7 @@ def portal_origination_document_selection(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+    return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
 
 
 @csrf_exempt
@@ -1798,7 +1802,7 @@ def portal_origination_document_fields(request, application_id: str, document_ke
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+    return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
 
 
 @csrf_exempt

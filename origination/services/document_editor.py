@@ -223,9 +223,10 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
         document.events.create(action='editor_products_selected', actor=actor, metadata={'product_ids':product_ids,
             'source_ids':sorted(str(pk) for pk in source.eligible_products.values_list('pk',flat=True)) if source else []})
     known = dict(SIGNER_ROLE_CATALOG)
-    if not isinstance(rules, list) or len(rules) > len(known):
+    if not isinstance(rules, list) or len(rules) > 40:
         raise ValidationError('Choose valid signer roles.')
     seen = set()
+    placements = set()
     schema = deepcopy(document.form_schema or {'fields':[], 'sections':[]})
     schema.setdefault('fields', [])
     if not schema.get('sections'):
@@ -234,9 +235,10 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
     staff = {'officer','loan_officer','bro_1','bro_2','credit_analyst','branch_manager','management_approver'}
     for raw in rules:
         role = raw.get('role') if isinstance(raw, dict) else None
-        if role not in known or role in seen:
-            raise ValidationError('Each signer role must be valid and appear once.')
-        seen.add(role)
+        participant_key = str(raw.get('participant_key') or role) if isinstance(raw, dict) else ''
+        if role not in known or participant_key in seen:
+            raise ValidationError('Choose a valid role and a distinct participant for each person.')
+        seen.add(participant_key)
         rule = deepcopy(raw)
         if not isinstance(rule.get('required', True), bool):
             raise ValidationError('Choose whether each signer is required.')
@@ -249,13 +251,17 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
             if not isinstance(slot, dict) or not slot.get('key') or slot['key'] in slot_keys or slot.get('type', 'signature') not in {'signature','stamp','date_signed'}:
                 raise ValidationError('Each signer needs distinct valid signing fields.')
             slot_keys.add(slot['key'])
+            placement = role + '.' + slot['key']
+            if placement in placements:
+                raise ValidationError('Each person needs a distinct signature placement.')
+            placements.add(placement)
         if role not in staff:
             identity = rule.setdefault('identity_fields', {})
             for kind, field_type in [('name','text'),('phone','phone'),('national_id','national_id')]:
-                key = identity.get(kind) or f'{role}_{kind}'
+                key = identity.get(kind) or f'{participant_key}_{kind}'
                 if not any(f.get('key') == key for f in schema['fields']):
                     label = rule['label']+' '+kind.replace('_',' ')
-                    equivalent = semantic_field_conflict(key=key, label=label, aliases=[])
+                    equivalent = semantic_field_conflict(key=key, label=label, aliases=[]) if participant_key == role else None
                     if equivalent and equivalent.data_type == field_type:
                         field = equivalent
                     else:

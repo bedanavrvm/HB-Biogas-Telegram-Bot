@@ -5,6 +5,14 @@
   const schemaInput = document.getElementById('id_form_schema');
   const signersInput = document.getElementById('id_signer_rules');
   if (!root || !schemaInput || !signersInput) return;
+  const signingPolicy = document.getElementById('id_signing_policy');
+  const oldApproval = document.getElementById('id_approval_roles');
+  const syncApprovalControls = () => {
+    const row = oldApproval?.closest('.form-row') || oldApproval?.parentElement;
+    if (row && signingPolicy) row.hidden = signingPolicy.value === 'all_required';
+  };
+  signingPolicy?.addEventListener('change', syncApprovalControls);
+  syncApprovalControls();
 
   const supportingDocument = root.dataset.builderKind === 'supporting-document';
   const requiresFields = root.dataset.requireFields !== 'false';
@@ -101,6 +109,7 @@
       }
     });
     signers = signers.filter(item => item && typeof item === 'object').map(item => ({
+      ...(item.participant_key ? {participant_key:item.participant_key} : {}),
       role: item.role || 'borrower',
       required: item.required !== false,
       identity_fields: item.identity_fields && typeof item.identity_fields === 'object' ? { ...item.identity_fields } : {},

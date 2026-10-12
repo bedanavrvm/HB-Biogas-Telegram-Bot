@@ -1325,6 +1325,8 @@ def clone_product_version(
         form_schema=successor_schema,
         signer_rules=json.loads(json.dumps(source.signer_rules)),
         approval_roles=json.loads(json.dumps(source.approval_roles)),
+        signing_policy=source.signing_policy,
+        signing_defaults=json.loads(json.dumps(source.signing_defaults)),
         document_type=source.document_type,
         document_template_name='',
         document_template_version=next_version,
@@ -1557,12 +1559,12 @@ def assignment_template_compatibility_errors(
             errors.append(f'evidence requirement {key} changed type')
 
     baseline_signers = {
-        str(item.get('role') or ''): item
+        str(item.get('participant_key') or item.get('role') or ''): item
         for item in (baseline.signer_rules or [])
         if isinstance(item, dict) and item.get('role')
     }
     candidate_signers = {
-        str(item.get('role') or ''): item
+        str(item.get('participant_key') or item.get('role') or ''): item
         for item in (candidate.signer_rules or [])
         if isinstance(item, dict) and item.get('role')
     }

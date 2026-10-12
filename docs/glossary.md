@@ -143,6 +143,14 @@ label such as “in review” for a server-side state.
 
 ## UI status semantics
 
+**Origination signing plan**: The required people and document-signing obligations
+for one loan application. Under the configurable policy, all required signers
+complete approval, regardless of signing order.
+
+**Signing participant**: One identified person responsible for one or more
+document signature placements. A role identifies their capacity; repeated
+placements do not create additional people.
+
 | Semantic status | Meaning | Shared treatment |
 |---|---|---|
 | Informational | Neutral contextual state | Brand/info color |

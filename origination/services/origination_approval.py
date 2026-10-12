@@ -77,6 +77,27 @@ def guard_staff_signature(package, *, signer_role, actor, reviewed_packet_versio
 
 def approve_completed_packet(package):
     """Called inside the signing transaction, after rendering the final signed bytes."""
+    if (package.context_snapshot or {}).get('_signing_plan', {}).get('policy') == 'all_required':
+        if package.consent_policy_snapshot.get('signing_policy') != 'all_required':
+            raise OriginationError('The documents do not have consent for this signing plan.')
+        application = package.application
+        final_action = package.actions.filter(mode='verified', invalidation__isnull=True).order_by('-created_at', '-pk').first()
+        application.status = application.STATUS_APPROVED
+        application.final_reviewed_by = final_action.actor if final_action else None
+        application.final_reviewed_at = timezone.now()
+        package.final_decision = 'approved'
+        package.final_reviewed_by = application.final_reviewed_by
+        package.final_reviewed_at = application.final_reviewed_at
+        package.final_approved_signed_document_hash = package.signed_document_hash
+        package.archive_status = 'pending'
+        _record_event(application, 'signatures_completed', actor=application.final_reviewed_by,
+            request_id=f'complete-plan:{package.pk}', after={'package_id': str(package.pk),
+                'signing_policy': 'all_required', 'signed_document_hash': package.signed_document_hash,
+                'participant_id': str(final_action.participant_id or '') if final_action else '', 'status': 'approved',
+                **({'approved_facility_amount': (package.context_snapshot or {}).get('loan_amount'),
+                    'approved_package_revision': package.application_revision}
+                   if (package.context_snapshot or {}).get('_value_contract_version') == 2 else {})})
+        return True
     roles = package.application.approval_roles_snapshot or []
     if not roles:
         return False

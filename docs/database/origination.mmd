@@ -80,6 +80,9 @@ erDiagram
   core_originationtemplateconfigurationrevision {
     string id
   }
+  origination_signing_participant_record {
+    string id
+  }
   core_loanoriginationapplication ||--o{ core_loanoriginationapplication : contains
   core_originationproductdefinition ||--o{ core_loanoriginationapplication : contains
   core_loanoriginationapplication ||--o{ core_originationapplicationdocument : contains
@@ -109,12 +112,15 @@ erDiagram
   core_loanoriginationapplication ||--o{ core_originationreviewernotice : contains
   core_originationsigningpackage ||--o{ core_originationreviewernotice : contains
   core_originationsigningpackage ||--o{ core_originationsignersession : contains
+  origination_signing_participant_record ||--o{ core_originationsignersession : contains
   core_originationsignersession ||--o{ core_originationsigningaction : contains
   core_originationsigningaction ||--o{ core_originationsigningaction : contains
   core_originationsigningpackage ||--o{ core_originationsigningaction : contains
+  origination_signing_participant_record ||--o{ core_originationsigningaction : contains
   core_originationstampasset ||--o{ core_originationsigningaction : contains
   core_originationsigningaction ||--o{ core_originationsigningactioninvalidation : contains
   core_loanoriginationapplication ||--o{ core_originationsigningpackage : contains
   core_originationconsentpolicyversion ||--o{ core_originationsigningpackage : contains
   core_originationsignersession ||--o{ core_originationsigningrequestevent : contains
   core_originationdocumenttemplate ||--o{ core_originationtemplateconfigurationrevision : contains
+  core_loanoriginationapplication ||--o{ origination_signing_participant_record : contains

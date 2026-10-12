@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}{{ form.media.css }}<link rel="stylesheet" href="{% static 'admin/origination_application_signers.css' %}">{% endblock %}
+{% block content %}
+<section class="signer-workspace">
+  <header><div><h1>Signers</h1><p>{{ original.reference_number }} · {{ original.product_definition.name }}</p></div><a href="../change/">Back to application</a></header>
+  <p>All required signers complete approval. Signing order does not matter.</p>
+  {% if not editable %}<p role="status">{% if original.status == 'approved' %}Approved applications are read-only.{% else %}Withdraw this application before changing its signers. Submitted history is retained.{% endif %}</p>{% endif %}
+  <form method="post" data-signer-autosave>{% csrf_token %}{{ form.revision }}{{ form.plan_revision }}{{ form.request_id }}
+    <fieldset {% if not editable %}disabled{% endif %}>
+      {% for row in form.rows %}
+      {% ifchanged row.staff %}<h2>{% if row.staff %}JBL signers{% else %}Applicants and other signers{% endif %}</h2>{% endifchanged %}
+      <div class="signer-config-row">
+        <label for="{{ row.selected.id_for_label }}">{{ row.selected }}<span><strong>{{ row.label }}</strong>{% if row.name %}<small>{{ row.name }}</small>{% endif %}{% if row.required %}<small>Required by document</small>{% endif %}</span></label>
+        <div>{% if row.assigned %}{{ row.assigned }}{{ row.assigned.errors }}{% else %}<span>{{ row.documents|join:", " }}</span>{% endif %}{{ row.selected.errors }}</div>
+      </div>
+      {% endfor %}
+    </fieldset>
+    <footer><span role="status" aria-live="polite" data-save-status>{% if error %}{{ error }}{% else %}Changes save automatically{% endif %}</span>{% if editable %}<button type="submit">Save signers</button>{% endif %}</footer>
+  </form>
+</section>
+{% endblock %}
+{% block footer %}{{ block.super }}{{ form.media.js }}<script src="{% static 'admin/origination_application_signers.js' %}"></script>{% endblock %}

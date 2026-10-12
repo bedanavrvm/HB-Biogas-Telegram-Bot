@@ -255,6 +255,7 @@
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
 
   function applicationStatusLabel(application) {
+    if (application.signing_workspace) return application.signing_workspace.status_label;
     if (application.status_label) return application.status_label;
     if ((application.approval_roles || []).length) return application.status_text || 'Awaiting signatures';
     if (application?.status === 'ready_for_review') {
@@ -750,14 +751,14 @@
         <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-type hidden><label class="test-signature-name"><span>Typed TEST signer name</span><input type="text" maxlength="120" autocomplete="off" data-test-signature-name placeholder="Synthetic Test Signer"></label><output class="test-signature-typed-preview" data-test-signature-typed-preview>Synthetic Test Signer</output></section>
-        <p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
+        ${verified && current.signing_workspace ? `<label class="staff-signing-consent"><input type="checkbox" data-staff-consent><span>${escapeHtml(current.signing_package?.verified_signing?.consent_text || 'I reviewed these documents and agree to sign them.')}</span></label>` : ''}<p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
       footer: `<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="${verified ? 'Sign packet' : 'Place TEST signature'}" data-test-signature-confirm>${verified ? 'Sign complete packet' : 'Place TEST signature'}</button>`,
     });
     if (verified) {
       document.getElementById('origination-sheet-title').textContent = approving ? 'Approve & sign' : 'Sign packet';
       document.getElementById('origination-sheet-hint').textContent = approving
         ? 'Your approval and signature apply to this exact reviewed packet. The final approver locks the application.'
-        : 'Your signature remains provisional until the configured final approver approves and signs.';
+        : current.signing_workspace ? 'All required signers complete approval. Your signature applies to these documents.' : 'Your signature remains provisional until the configured final approver approves and signs.';
       document.querySelector('[data-test-signature-canvas]').setAttribute('aria-label', 'Draw your signature');
       document.querySelector('[data-test-signature-type] label span').textContent = 'Your full name';
       document.querySelector('[data-test-signature-name]').placeholder = 'Full name';
@@ -819,10 +820,12 @@
         : { method: 'typed', name: typedInput.value.trim() };
       if (drawn && !testSignatureStrokes.length) return setStatus('Draw the TEST signature before confirming.');
       if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus('Enter a test signer name using 2 to 120 characters.');
+      if (verified && current.signing_workspace && !document.querySelector('[data-staff-consent]')?.checked) return setStatus('Confirm that you reviewed and agree to sign the documents.');
       const result = await postJson(verified ? `/applications/${current.id}/staff-signature/` : `/applications/${current.id}/test-signing/action/`, {
         revision: current.revision, package_id: button.dataset.packageId,
         document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
-        signer_role: button.dataset.signerRole, signature_capture: capture,
+        signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '', signature_capture: capture,
+        consent: document.querySelector('[data-staff-consent]')?.checked === true,
         reviewed_packet_version: approvalReview?.revision === current.revision && approvalReview?.packageId === button.dataset.packageId ? approvalReview.version : '',
         client_request_id: requestId,
       });
@@ -1137,7 +1140,7 @@
         key: 'document_selection', label: 'Supporting documents',
         hint: 'Choose the additional documents that apply after saving and previewing the main LAF.',
       });
-      supporting.filter(item => item.selected).forEach(item => sections.push({
+      supporting.filter(item => item.selected && (!current.signing_workspace || (item.schema?.fields || []).some(field => field.editable !== false))).forEach(item => sections.push({
         key: `document:${item.key}`, label: item.name,
         hint: 'Shared application values are filled automatically. Complete only the remaining document details.',
         document: item,
@@ -2035,6 +2038,8 @@
   }
 
   function actionMarkup(editable) {
+    if (current.signing_workspace && !editable) return current.signing_workspace.can_recall
+      ? '<button class="btn btn-secondary" id="origination-recall">Withdraw for changes</button>' : '';
     if (!editable) {
       const officerOwnsApplication = capabilities.can_create
         && String(current.officer_id) === String(capabilities.user_id);
@@ -2063,7 +2068,7 @@
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
     }
-    const finalAction = (current.approval_roles || []).length
+    const finalAction = current.signing_workspace || (current.approval_roles || []).length
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Submit for signing">Submit for signing</button>'
       : capabilities.can_confirm_signing
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
@@ -2105,23 +2110,57 @@
     return '';
   }
 
+  function signingWorkspaceMarkup() {
+    const workspace = current.signing_workspace;
+    const packageData = current.signing_package || {};
+    const verified = packageData.verified_signing || {};
+    if (current.status === 'draft') return `<div class="section-title"><h3>Draft</h3></div><p>${escapeHtml(current.officer_name || 'The assigned officer')} is completing this application.</p>`;
+    if (verified.test_mode) return signingTestMarkup();
+    if (!verified.enabled && current.status !== 'approved') return '<aside class="notice"><strong>Signing is unavailable</strong><span>Ask IT to check signing delivery settings. Your application is saved.</span></aside>';
+    const dispatch = capabilities.can_create && (String(current.officer_id) === String(capabilities.user_id) || capabilities.is_superuser);
+    const stampOptions = (verified.production_stamps || []).map(stamp => `<option value="${escapeHtml(stamp.id)}">${escapeHtml(stamp.name)}</option>`).join('');
+    let primaryChosen = false;
+    const rows = (verified.participants || []).map(participant => {
+      const permitted = workspace.participants.find(row => row.id === participant.participant_id);
+      const complete = permitted?.complete;
+      const attributes = `data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}" data-participant-id="${escapeHtml(participant.participant_id)}"`;
+      let action = '<span class="status-chip">Awaiting signer</span>';
+      if (complete) action = '<span class="status-chip completed">Signed</span>';
+      else if (permitted?.can_sign) {
+        const primary = primaryChosen ? '' : 'data-primary-action="Sign"';
+        primaryChosen = true;
+        action = `<button type="button" class="btn btn-primary" data-staff-sign ${attributes} ${primary}>Sign</button>`;
+      } else if (!participant.staff && dispatch && current.status !== 'approved') {
+        action = participant.session_id
+          ? `<span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span><button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(participant.access_mode)}" data-target-access-mode="${escapeHtml(participant.access_mode)}">Replace link</button>`
+          : `<button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="self_service" ${attributes}>Send link</button><details class="signer-assistance"><summary>In person</summary><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" ${attributes}>Assisted signing</button></details>`;
+      }
+      const stamps = permitted?.can_sign ? (participant.slots || []).filter(slot => slot.type === 'stamp' && !slot.completed).map(slot => `<div class="signer-stamp"><label><span>Required stamp</span><select data-production-stamp-select><option value="">Choose stamp</option>${stampOptions}</select></label><button type="button" class="btn btn-secondary" data-production-stamp ${attributes} data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}">Apply</button></div>`).join('') : '';
+      return `<div class="participant-row"><div class="participant-person"><strong>${escapeHtml(participant.name || participant.label)}</strong>${participant.name ? `<small>${escapeHtml(participant.label)}</small>` : ''}</div><div class="participant-actions">${action}</div>${stamps}</div>`;
+    }).sort((a,b) => Number(b.includes('data-staff-sign')) - Number(a.includes('data-staff-sign'))).join('');
+    const approved = current.status === 'approved';
+    const preview = approved ? `<button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed documents</button>` : '<button type="button" class="btn btn-secondary" data-approval-preview>Review documents</button>';
+    const archive = approved && verified.archive_status !== 'uploaded' ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Archive needs retry' : 'Archiving in background'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-secondary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry archive</button>` : ''}</aside>` : '';
+    const details = (current.form_schema?.sections || []).map(section => `<details><summary>${escapeHtml(section.label)}</summary>${sectionFieldsMarkup(section.key, current.form_payload || {}, false)}</details>`).join('');
+    const history = (current.activity || []).map(event => `<p><strong>${escapeHtml(event.label)}</strong><small>${escapeHtml(event.actor)} · ${escapeHtml(new Date(event.at).toLocaleString('en-KE'))}</small></p>`).join('') || '<p>No activity yet.</p>';
+    return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div>${preview}</header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
+  }
+
   function renderEditor(application, requestedStep) {
     window.MiniAppUtils?.bindAccessibleForm?.(root())?.dispose();
     document.body.classList.add('origination-editor-open');
     current = application;
     step = Number.isInteger(requestedStep) ? requestedStep : step;
     const values = collectPayload();
-    const editable = ['draft', 'correction_required'].includes(application.status);
+    const editable = ['draft', 'correction_required'].includes(application.status) && (!application.signing_workspace || application.signing_workspace.can_submit);
     const sections = wizardSections();
     if (step >= sections.length) step = sections.length - 1;
     const section = sections[step];
-    const sectionLocked = application.status === 'draft'
-      && section.key !== 'review'
-      && completedDraftSections.has(section.key)
-      && !unlockedDraftSections.has(section.key);
+    const sectionLocked = false;
     const sectionEditable = editable && !sectionLocked && !syncConflict;
     let content;
-    if (section.key === 'review') content = reviewMarkup(values);
+    if (application.signing_workspace && !editable) content = signingWorkspaceMarkup();
+    else if (section.key === 'review') content = reviewMarkup(values);
     else if (section.key === 'document_selection') content = documentSelectionMarkup(sectionEditable && application.status !== 'correction_required');
     else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, sectionEditable);
     else {
@@ -2141,13 +2180,13 @@
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
     const statusHasPersistentBanner = application.status === 'signed_pending_approval';
-    const contextStatus = statusHasPersistentBanner
+    const contextStatus = statusHasPersistentBanner || application.signing_workspace
       ? '' : `<small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small>`;
     const contextChip = statusHasPersistentBanner
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = application.status === 'draft'
       ? '<button type="button" class="btn btn-secondary" id="origination-restart-laf">Change Main LAF</button>' : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small>${contextStatus}</div>${contextChip}${restartAction}</div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextStatus}</div>${contextChip}</div>${restartAction ? `<div class="draft-document-action">${restartAction}</div>` : ''}${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     window.MiniAppUtils?.bindAccessibleForm?.(root());
@@ -2974,7 +3013,7 @@
         const result = await postJson(`/applications/${current.id}/test-signing/action/`, {
           revision: current.revision, package_id: button.dataset.packageId,
           document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
-          signer_role: button.dataset.signerRole, stamp_asset_id: stampAssetId,
+          signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '', stamp_asset_id: stampAssetId,
         });
         if (!result.ok) return showToast(result.data?.error || 'Could not simulate this signing slot.', true);
         current = result.data.application;
@@ -2985,7 +3024,7 @@
     root().querySelectorAll('[data-create-signer-session]').forEach(button => button.addEventListener('click', async () => {
       await runPrimaryAction('Creating signer session...', async () => {
         const result = await postJson(`/applications/${current.id}/signer-sessions/`, {
-          package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
+          package_id: button.dataset.packageId, signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '',
           access_mode: button.dataset.accessMode,
         });
         if (!result.ok && result.data?.code === 'origination_shared_signer_phone' && capabilities.is_superuser) {
@@ -2998,7 +3037,7 @@
             returnFocus: button,
             onSubmit: async overrideReason => runPrimaryAction('Creating signer session...', async () => {
               const overrideResult = await postJson(`/applications/${current.id}/signer-sessions/`, {
-                package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
+                package_id: button.dataset.packageId, signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '',
                 access_mode: button.dataset.accessMode, shared_phone_override_reason: overrideReason,
               });
               if (!overrideResult.ok) {
@@ -3057,7 +3096,7 @@
       const result = await postJson(`/applications/${current.id}/production-stamp/`, {
         revision: current.revision, package_id: button.dataset.packageId,
         document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
-        signer_role: button.dataset.signerRole, stamp_asset_id: stampAssetId,
+        signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '', stamp_asset_id: stampAssetId,
       });
       if (!result.ok) return showToast(result.data?.error || 'Could not apply the production stamp.', true);
       await load(); showToast('Production stamp applied.');

@@ -23,6 +23,7 @@ from origination.services.origination_god_mode import _purge_application
 APPLICATION_RELATIONS = frozenset({
     'replacement_applications', 'commercial_exceptions', 'reporting_values', 'events',
     'reviewer_notices', 'correction_requests', 'requirement_evidence_files', 'packet_documents', 'signing_packages',
+    'signing_participants',
 })
 
 

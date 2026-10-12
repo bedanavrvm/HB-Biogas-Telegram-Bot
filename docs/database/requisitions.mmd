@@ -1,8 +1,18 @@
 erDiagram
+  requisition_order_number_claim {
+    string id
+  }
   requisition_order_sequence_event {
     string id
   }
   requisition_order_sequence_state {
     string id
   }
+  requisition_order_workbook_version {
+    string id
+  }
+  requisition_order_workspace_event {
+    string id
+  }
+  requisition_order_sequence_state ||--o{ requisition_order_number_claim : contains
   requisition_order_sequence_state ||--o{ requisition_order_sequence_event : contains

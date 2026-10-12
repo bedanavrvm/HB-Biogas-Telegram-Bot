@@ -185,23 +185,29 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | credit_assessment | `credit_assessment_statement_secret` | `credit_assessments.AssessmentSecret` | protected_secret | temporary | Short-lived authenticated ciphertext for a statement passcode. |
 | homebiogas_operations | `hb_operations_action_event` | `hb_operations.HomeBiogasActionEvent` | immutable_event | active | Append-only evidence for release, progress, and audited milestone corrections. |
 | homebiogas_operations | `hb_operations_action_root` | `hb_operations.HomeBiogasAction` | authoritative_record | active | Authoritative post-order installation and commissioning state for one Portal case. |
+| origination | `origination_signing_participant_record` | `origination.OriginationSigningParticipant` | authoritative_record | active | Immutable application-owned individual signer and document obligations. |
 | payments | `payment_batch` | `payments.PaymentBatch` | authoritative_record | active | Authoritative payment batch from editable preparation through accepted signed scan. |
 | payments | `payment_batch_case` | `payments.PaymentBatchCase` | business_assignment | active | Auditable current and removed membership of a Portal case in one payment batch. |
 | payments | `payment_batch_event` | `payments.PaymentBatchEvent` | immutable_event | active | Append-only customer-data-minimized history of payment batch mutations. |
 | payments | `payment_case_review` | `payments.PaymentCaseReview` | authoritative_record | active | Current per-case Head of Rural decision bound to exact payment data. |
+| payments | `payment_invoice_name_agreement` | `payments.InvoiceNameAgreement` | source_evidence | active | Exact signed letter and household facts permitting an invoice-name payment exception. |
+| payments | `payment_number_claim` | `payments.PaymentNumberClaim` | authoritative_record | active | Authoritative locked payment-number ownership and explicitly released slots. |
 | platform | `payment_receipt_batch` | `payments.PaymentReceiptBatch` | processing_record | active | One received HomeBiogas invoice delivery, reconciled as a unit. This is deliberately separate from ``InvoiceUploadBatch``: the latter is evidence for one uploaded PDF while a real HB delivery can contain one combined PDF or several files and must yield one payment preparation run. |
 | platform | `payment_receipt_item` | `payments.PaymentReceiptItem` | processing_record | active | One parsed invoice and its payment disposition within a receipt batch. |
 | payments | `payment_sequence_event` | `payments.PaymentSequenceEvent` | immutable_event | active | Immutable evidence for every official payment-number allocation or adjustment. |
 | payments | `payment_sequence_state` | `payments.PaymentSequenceState` | configuration_state | active | Group-scoped source of truth for the next official payment number. |
 | portal_recognition | `portal_recognition_live_standing` | `portal_recognition.PortalRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live Portal rank baseline for one authorized standing. |
 | portal_recognition | `portal_recognition_period_snapshot` | `portal_recognition.PortalRecognitionPeriodSnapshot` | immutable_event | active | Frozen attributed Portal performance facts for one group and settled calendar period. |
-| report_delivery | `report_delivery_message_root` | `report_delivery.ReportDelivery` | authoritative_record | active | Durable per-recipient submission, retry ownership and provider delivery evidence. |
+| report_delivery | `report_delivery_message_root` | `report_delivery.ReportDelivery` | authoritative_record | active | Durable scheduled or one-off export submission, requester/destination evidence and retry ownership; one-off destinations do not approve recurring disclosure. |
 | report_delivery | `report_delivery_recipient_link` | `report_delivery.ScheduleRecipient` | configuration_state | active | Explicit approved recipient membership in a report schedule. |
 | report_delivery | `report_delivery_recipient_root` | `report_delivery.ApprovedRecipient` | authoritative_record | active | Approved report recipient and explicit disclosure scope. |
 | report_delivery | `report_delivery_schedule_root` | `report_delivery.ReportSchedule` | authoritative_record | active | Scoped recurring Portal report configuration and Nairobi dispatch cadence. |
 | report_delivery | `report_delivery_webhook_event` | `report_delivery.WebhookReceipt` | immutable_event | active | Verified immutable provider event receipt and replay guard. |
+| requisitions | `requisition_order_number_claim` | `requisitions.OrderNumberClaim` | authoritative_record | active | Authoritative locked order-number ownership and explicitly released slots. |
 | requisitions | `requisition_order_sequence_event` | `requisitions.OrderSequenceEvent` | immutable_event | active | Immutable customer-data-free evidence for each official sequence mutation. |
 | requisitions | `requisition_order_sequence_state` | `requisitions.OrderSequenceState` | configuration_state | active | Group-scoped source of truth for the next official requisition order number. |
+| requisitions | `requisition_order_workbook_version` | `requisitions.OrderWorkbookVersion` | source_evidence | active | Exact immutable generated workbook bytes and membership for each order version. |
+| requisitions | `requisition_order_workspace_event` | `requisitions.OrderWorkspaceEvent` | immutable_event | active | Append-only generation, amendment and cancellation evidence. |
 | tat_recognition | `tat_recognition_live_standing` | `tat_recognition.TatRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live rank baseline for one authorized period and filter scope. |
 | tat_recognition | `tat_recognition_period_snapshot` | `tat_recognition.TatRecognitionPeriodSnapshot` | immutable_event | active | Frozen completed-stage facts for one TAT group and settled calendar period. |
 
@@ -260,7 +266,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`, `core/services/user_hard_delete.py`
-- Used by: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`, `origination/migrations/0003_independent_capabilities.py`
+- Used by: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`, `origination/migrations/0003_independent_capabilities.py`, `report_delivery/one_off.py`
 
 ### `core_accessgrant`
 
@@ -270,8 +276,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
-- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`, `origination/tests.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`, `origination/tests.py`, `origination/tests_migrations.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`, `origination/tests.py`, `origination/tests_approval.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`, `origination/services/origination_dispatch.py`, `origination/tests.py`, `origination/tests_approval.py`, `origination/tests_migrations.py`, `origination/tests_signing_plans.py`, `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests_operations_api.py`
 
 ### `core_branchservicearea`
 
@@ -315,7 +321,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ComplaintCaseEvidence`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`
-- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/complaint_timing.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`
+- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/complaint_timing.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/reporting_relationships.py`
 
 ### `core_complaintcasecontrol`
 
@@ -326,7 +332,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ComplaintCaseEvent`
 - Cross-domain parents: `auth.User`, `core.JawabuCustomer`, `core.OperationalLocation`
 - Direct ORM writers: `core/services/complaint_cases.py`, `core/services/complaint_publication.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `report_delivery/tests_settings.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `report_delivery/tests_settings.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `report_delivery/tests_settings.py`
 
 ### `core_complaintcaseevent`
 
@@ -337,7 +343,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`
-- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`
+- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_complaintcaseevidence`
 
@@ -348,7 +354,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/reporting_relationships.py`
 
 ### `core_complaintcaseimportbatch`
 
@@ -359,7 +365,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ComplaintCaseImportItem`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/complaint_imports.py`, `core/services/group_reset.py`
-- Used by: `core/services/complaint_imports.py`, `core/services/group_reset.py`
+- Used by: `core/services/complaint_imports.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_complaintcaseimportitem`
 
@@ -370,7 +376,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/complaint_imports.py`, `core/services/group_reset.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/group_reset.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_complaintcasesequence`
 
@@ -392,7 +398,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ComplaintCaseControl`, `core.ComplaintCategoryAlias`, `core.ComplaintCategoryAvailability`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_complaintcategoryalias`
 
@@ -403,7 +409,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/complaint_cases.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_complaintcategoryavailability`
 
@@ -414,7 +420,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `core.GroupSheetConfiguration`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: No direct service/API/command reference found
+- Used by: `core/services/miniapp_deletion_registry.py`
 
 ### `core_complianceauditchainstate`
 
@@ -424,8 +430,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/compliance_audit.py`
-- Used by: `core/services/compliance_audit.py`
+- Direct ORM writers: `core/services/compliance_audit.py`, `origination/tests_laf_bootstrap.py`
+- Used by: `core/services/compliance_audit.py`, `origination/tests_laf_bootstrap.py`
 
 ### `core_complianceauditcheckpoint`
 
@@ -447,7 +453,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`
-- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_laf_bootstrap.py`, `payments/receipt_batches.py`
 
 ### `core_deleteduseridentity`
 
@@ -468,8 +474,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.PaymentDocument`, `core.RequisitionBatch`
 - Children: `core.DocumentPhysicalSignoffEvent`, `hb_operations.HomeBiogasAction`
 - Cross-domain parents: `core.PaymentDocument`, `core.RequisitionBatch`
-- Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/portal_full_reset.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/services.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/services.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `core_documentphysicalsignoffevent`
 
@@ -480,7 +486,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/document_signoffs.py`
-- Used by: `core/services/document_signoffs.py`
+- Used by: `core/services/document_signoffs.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_documentsignoffpolicy`
 
@@ -491,7 +497,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`
-- Used by: `core/services/access_control.py`, `core/services/document_signoffs.py`, `hb_operations/services.py`, `payments/tests.py`
+- Used by: `core/services/access_control.py`, `core/services/document_signoffs.py`, `core/services/miniapp_deletion_registry.py`, `hb_operations/services.py`, `payments/tests.py`
 
 ### `core_durablejobrunnerheartbeat`
 
@@ -513,7 +519,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.Product`
 - Direct ORM writers: `core/services/access_control.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/tests.py`
-- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `origination/tests.py`
+- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `origination/tests.py`
 
 ### `core_fcaimportrecord`
 
@@ -524,7 +530,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `origination/tests.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `core/services/workflow_links.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_groupsheetconfiguration`
 
@@ -534,8 +540,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `origination.LoanOriginationApplication`, `payments.PaymentBatch`, `payments.PaymentReceiptBatch`, `payments.PaymentSequenceState`, `report_delivery.ApprovedRecipient`, `report_delivery.ReportSchedule`, `requisitions.OrderSequenceState`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/fca.py`, `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/tests.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
-- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_portal_sheet_numbers.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/models.py`, `origination/tests.py`, `origination/views.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`, `report_delivery/models.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`, `requisitions/models.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/tests.py`, `payments/tests_invoice_agreements.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_portal_sheet_numbers.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/document_signoffs.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/miniapp_settings.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `origination/models.py`, `origination/tests.py`, `origination/views.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `payments/tests_invoice_agreements.py`, `report_delivery/models.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/management/commands/audit_finance_order_links.py`, `requisitions/models.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `core_integrationcircuitstate`
 
@@ -545,8 +551,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/external_resilience.py`
-- Used by: `core/api/portal_views.py`, `core/services/external_resilience.py`
+- Direct ORM writers: `core/services/external_resilience.py`, `core/services/miniapp_deletion_sheets.py`
+- Used by: `core/api/portal_views.py`, `core/services/external_resilience.py`, `core/services/miniapp_deletion_sheets.py`
 
 ### `core_integrationoperation`
 
@@ -556,8 +562,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/invoice_cleanup.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/services/origination_esign.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/miniapp_deletion.py`, `core/services/portal_full_reset.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/invoice_cleanup.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`
 
 ### `core_invoiceidentityreview`
 
@@ -568,7 +574,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/services/invoice_identity.py`, `core/services/portal_dashboard.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `payments/tests_invoice_agreements.py`
 
 ### `core_invoicenamechangebatch`
 
@@ -579,7 +585,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceNameChangeItem`, `core.InvoiceNameChangeLetterArtifact`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`
 
 ### `core_invoicenamechangeitem`
 
@@ -590,7 +596,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`
 
 ### `core_invoicenamechangeletterartifact`
 
@@ -598,10 +604,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `core.InvoiceNameChangeBatch`, `core.InvoiceNameChangeLetterTemplate`
-- Children: `core.InvoiceNameChangeBatch`
+- Children: `core.InvoiceNameChangeBatch`, `payments.InvoiceNameAgreement`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`, `payments/models.py`
 
 ### `core_invoicenamechangelettertemplate`
 
@@ -611,8 +617,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.InvoiceNameChangeLetterArtifact`
 - Cross-domain parents: None
-- Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/invoice_name_change_letters.py`
+- Direct ORM writers: `payments/tests_invoice_agreements.py`
+- Used by: `core/services/invoice_name_change_letters.py`, `core/services/miniapp_deletion_registry.py`, `payments/tests_invoice_agreements.py`
 
 ### `core_invoiceuploadbatch`
 
@@ -622,8 +628,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.GroupSheetConfiguration`
 - Children: `core.ParsedInvoice`, `payments.PaymentReceiptItem`
 - Cross-domain parents: `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/inventory_invoice_recovery.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/inventory_invoice_recovery.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `core_jawabuapprovalcondition`
 
@@ -634,7 +640,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/api/portal_views.py`, `core/services/jawabu_approvals.py`
+- Used by: `core/api/portal_views.py`, `core/services/jawabu_approvals.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_jawabuapprovaldelegation`
 
@@ -645,7 +651,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuApprovalDelegationEvent`, `core.JawabuApprovalRecord`
 - Cross-domain parents: `auth.User`, `core.Product`
 - Direct ORM writers: `core/services/access_control.py`, `core/services/jawabu_approvals.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/user_hard_delete.py`
-- Used by: `core/api/portal_views.py`, `core/services/access_control.py`, `core/services/jawabu_approvals.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`
+- Used by: `core/api/portal_views.py`, `core/services/access_control.py`, `core/services/jawabu_approvals.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`
 
 ### `core_jawabuapprovaldelegationevent`
 
@@ -666,8 +672,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.PaymentDocument`
 - Children: `core.JawabuApprovalCondition`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`
+- Direct ORM writers: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `requisitions/tests.py`
+- Used by: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `requisitions/tests.py`
 
 ### `core_jawabucasecomment`
 
@@ -678,7 +684,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/jawabu_comments.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/jawabu_comments.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`
+- Used by: `core/services/jawabu_comments.py`, `core/services/jawabu_master.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`
 
 ### `core_jawabucustomer`
 
@@ -700,7 +706,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/jawabu_customer_quality.py`
-- Used by: `core/services/jawabu_customer_quality.py`, `core/services/workflow_timeline.py`
+- Used by: `core/services/jawabu_customer_quality.py`, `core/services/miniapp_deletion_registry.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawabucustomerphonehistory`
 
@@ -722,7 +728,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuDataQualityResolution`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`, `core/services/jawabu_validation.py`
-- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_validation.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_validation.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_jawabudataqualityresolution`
 
@@ -733,18 +739,18 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/workflow_timeline.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawabufarmermaster`
 
 - Application identity: `core.JawabuFarmerMaster` in **Jawabu**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
+- Parents: `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`, `core.RequisitionBatch`
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `hb_operations.HomeBiogasAction`, `payments.PaymentBatchCase`, `payments.PaymentReceiptItem`
 - Cross-domain parents: `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`, `report_delivery/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_links.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `report_delivery/tests.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/sysup_review.py`, `core/services/workflow_links.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `origination/tests.py`, `payments/invoice_agreements.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `requisitions/management/commands/audit_finance_order_links.py`, `requisitions/migrations/0004_bind_order_workspaces.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `core_jawabufarmeruploadbatch`
 
@@ -755,7 +761,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `origination/tests.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `core/services/workflow_links.py`, `origination/tests.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`, `core/services/sysup_review.py`, `core/services/workflow_links.py`, `origination/tests.py`
 
 ### `core_jawabuhouseholdrelationship`
 
@@ -766,7 +772,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_case360.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`
 
 ### `core_jawabumediaaccessevent`
 
@@ -777,7 +783,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.MediaAttachment`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_media_access.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/group_reset.py`, `core/services/jawabu_media_access.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/group_reset.py`, `core/services/jawabu_media_access.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`
 
 ### `core_jawabupipelineevent`
 
@@ -788,7 +794,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuCaseComment`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`
-- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
+- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_payment_candidates.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`, `payments/services.py`
 
 ### `core_jawaburelatedperson`
 
@@ -799,7 +805,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuHouseholdRelationship`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`
 
 ### `core_jawabuvisitrecord`
 
@@ -810,7 +816,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/portal_full_reset.py`
-- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`
 
 ### `core_livesheetrecordchange`
 
@@ -829,10 +835,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`, `origination.LoanOriginationApplication`, `origination.OriginationProductDefinition`
-- Children: `origination.LoanOriginationApplication`, `origination.OriginationApplicationDocument`, `origination.OriginationApplicationEvent`, `origination.OriginationCommercialException`, `origination.OriginationCorrectionRequest`, `origination.OriginationReportingValue`, `origination.OriginationRequirementEvidence`, `origination.OriginationReviewerNotice`, `origination.OriginationSigningPackage`
+- Children: `origination.LoanOriginationApplication`, `origination.OriginationApplicationDocument`, `origination.OriginationApplicationEvent`, `origination.OriginationCommercialException`, `origination.OriginationCorrectionRequest`, `origination.OriginationReportingValue`, `origination.OriginationRequirementEvidence`, `origination.OriginationReviewerNotice`, `origination.OriginationSigningPackage`, `origination.OriginationSigningParticipant`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`
-- Direct ORM writers: `core/services/portal_full_reset.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`, `origination/tests.py`
-- Used by: `core/services/fresh_database_baseline.py`, `core/services/location_catalog.py`, `core/services/portal_full_reset.py`, `core/services/product_deletion.py`, `core/services/workflow_links.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_consent.py`, `origination/services/origination_documents.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_fields.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/tests.py`, `origination/tests_migrations.py`, `origination/views.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`, `origination/tests.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`
+- Used by: `core/services/fresh_database_baseline.py`, `core/services/location_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/workflow_links.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_consent.py`, `origination/services/origination_documents.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_fields.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing_plans.py`, `origination/tests.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_migrations.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`, `origination/views.py`
 
 ### `core_locationconfigurationevent`
 
@@ -876,7 +882,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuMediaAccessEvent`
 - Cross-domain parents: `core.JawabuFarmerMaster`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/commands.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`
+- Used by: `core/api/portal_views.py`, `core/services/commands.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/order_approval.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`
 
 ### `core_miniappdiagnosticdailyaggregate`
 
@@ -941,8 +947,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.OperationalLocation`
 - Children: `core.AccessGrant`, `core.BranchServiceArea`, `core.ComplaintCaseControl`, `core.JawabuFarmerMaster`, `core.LocationMappingIssue`, `core.OperationalLocation`, `core.OperationalLocationAlias`, `core.OrderApprovalUpdate`, `core.ProductAvailability`, `origination.LoanOriginationApplication`, `origination.OriginationStampAsset`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/fresh_database_baseline.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_pipeline.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/product_availability.py`, `core/services/spin_credit.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_forms.py`, `origination/views.py`
+- Direct ORM writers: `core/services/fresh_database_baseline.py`, `origination/tests_field_rules.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_pipeline.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_report_insights.py`, `core/services/product_availability.py`, `core/services/spin_credit.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_forms.py`, `origination/tests_field_rules.py`, `origination/views.py`
 
 ### `core_operationallocationalias`
 
@@ -953,7 +959,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/location_catalog.py`
+- Used by: `core/services/location_catalog.py`, `core/services/portal_report_insights.py`
 
 ### `core_orderapprovalupdate`
 
@@ -974,8 +980,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `origination.LoanOriginationApplication`, `origination.OriginationDocumentTemplate`, `origination.OriginationProductDocumentAssignment`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `origination/services/origination_documents.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_documents.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`
 
 ### `core_originationapplicationevent`
 
@@ -986,7 +992,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/admin.py`, `origination/services/loan_origination.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationcommercialexception`
 
@@ -997,7 +1003,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.ProductVersion`
 - Direct ORM writers: `origination/services/origination_commercial_terms.py`
-- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationconsentpolicyversion`
 
@@ -1007,8 +1013,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: `origination.OriginationDocumentTemplate`, `origination.OriginationSigningPackage`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/admin.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_consent.py`, `origination/services/origination_god_mode.py`
+- Direct ORM writers: `origination/admin.py`, `origination/tests_approval.py`, `origination/tests_signing_configuration.py`, `origination/tests_signing_plans.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_consent.py`, `origination/services/origination_god_mode.py`, `origination/tests_approval.py`, `origination/tests_signing_configuration.py`, `origination/tests_signing_plans.py`
 
 ### `core_originationcorrectionitem`
 
@@ -1019,7 +1025,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationcorrectionrequest`
 
@@ -1030,7 +1036,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `origination.OriginationCorrectionItem`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationdatafield`
 
@@ -1040,8 +1046,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationDataField`
 - Children: `origination.OriginationDataField`, `origination.OriginationDataFieldEvent`, `origination.OriginationFieldReviewIssue`, `origination.OriginationReportingValue`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_main_laf_seeds.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_main_laf_seeds.py`, `origination/tests_field_rules.py`, `origination/tests_value_contracts.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`, `origination/tests_field_rules.py`, `origination/tests_value_contracts.py`
 
 ### `core_originationdatafieldevent`
 
@@ -1052,7 +1058,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/admin.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_main_laf_seeds.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`
 
 ### `core_originationdocumentproducteligibility`
 
@@ -1062,8 +1068,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.Product`, `origination.OriginationDocumentTemplate`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.Product`
-- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
-- Used by: `core/services/database_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/services/document_editor.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/document_editor_admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/document_editor.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/tests_laf_bootstrap.py`
 
 ### `core_originationdocumenttemplate`
 
@@ -1073,8 +1079,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationConsentPolicyVersion`, `origination.OriginationProductDefinition`, `origination.OriginationTemplateConfigurationRevision`
 - Children: `origination.OriginationApplicationDocument`, `origination.OriginationDocumentProductEligibility`, `origination.OriginationDocumentTemplateEvent`, `origination.OriginationProductDocumentAssignment`, `origination.OriginationTemplateConfigurationRevision`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/product_deletion.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_consent.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `origination/services/document_editor.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/document_editor_admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/document_editor.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_consent.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_laf_bootstrap.py`, `origination/tests_signing_plans.py`, `origination/tests_support_laf_seeds.py`, `origination/tests_value_contracts.py`
 
 ### `core_originationdocumenttemplateevent`
 
@@ -1084,8 +1090,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationDocumentTemplate`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/admin.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
-- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/document_editor.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`
 
 ### `core_originationfieldreviewissue`
 
@@ -1096,7 +1102,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
-- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationotpchallenge`
 
@@ -1107,7 +1113,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `origination/services/origination_esign.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationproductdefinition`
 
@@ -1117,8 +1123,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.ProductVersion`, `origination.OriginationProductDefinition`
 - Children: `origination.LoanOriginationApplication`, `origination.OriginationDocumentTemplate`, `origination.OriginationFieldReviewIssue`, `origination.OriginationProductDefinition`, `origination.OriginationProductDefinitionEvent`, `origination.OriginationProductDocumentAssignment`
 - Cross-domain parents: `auth.User`, `core.ProductVersion`
-- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/fresh_database_baseline.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/tests.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/fresh_database_baseline.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/tests.py`, `origination/tests_migrations.py`, `origination/views.py`
+- Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `core/services/fresh_database_baseline.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/tests.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/fresh_database_baseline.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/document_editor.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_documents.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/tests.py`, `origination/tests_approval.py`, `origination/tests_field_rules.py`, `origination/tests_migrations.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/tests_value_contracts.py`, `origination/views.py`
 
 ### `core_originationproductdefinitionevent`
 
@@ -1128,8 +1134,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationProductDefinition`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/management/commands/upgrade_origination_commercial_contract.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
-- Used by: `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `core/management/commands/upgrade_origination_commercial_contract.py`, `origination/admin.py`, `origination/origination_setup_admin.py`, `origination/services/document_editor.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`
+- Used by: `core/management/commands/upgrade_origination_commercial_contract.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/services/document_editor.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`
 
 ### `core_originationproductdocumentassignment`
 
@@ -1140,7 +1146,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `origination.OriginationApplicationDocument`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/management/commands/seed_origination_packet_demo.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
-- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/services/database_catalog.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
+- Used by: `core/management/commands/seed_origination_packet_demo.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_documents.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
 
 ### `core_originationreportingvalue`
 
@@ -1151,7 +1157,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationrequirementevidence`
 
@@ -1162,7 +1168,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/services/origination_evidence.py`, `origination/services/origination_god_mode.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_evidence.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_evidence.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
 
 ### `core_originationreviewernotice`
 
@@ -1172,30 +1178,30 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.LoanOriginationApplication`, `origination.OriginationSigningPackage`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/loan_origination.py`
-- Used by: `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
+- Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_dispatch.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
 
 ### `core_originationsignersession`
 
 - Application identity: `origination.OriginationSignerSession` in **Origination**
 - Source of truth: **Yes**
 - Retention: Service-managed bounded retention; see the owning service and deployment settings.
-- Parents: `auth.User`, `origination.OriginationSigningPackage`
+- Parents: `auth.User`, `origination.OriginationSigningPackage`, `origination.OriginationSigningParticipant`
 - Children: `origination.OriginationOtpChallenge`, `origination.OriginationSigningAction`, `origination.OriginationSigningRequestEvent`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_esign.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/views.py`
+- Direct ORM writers: `origination/services/origination_esign.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/tests_approval.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/views.py`
 
 ### `core_originationsigningaction`
 
 - Application identity: `origination.OriginationSigningAction` in **Origination**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `origination.OriginationSignerSession`, `origination.OriginationSigningAction`, `origination.OriginationSigningPackage`, `origination.OriginationStampAsset`
+- Parents: `auth.User`, `origination.OriginationSignerSession`, `origination.OriginationSigningAction`, `origination.OriginationSigningPackage`, `origination.OriginationSigningParticipant`, `origination.OriginationStampAsset`
 - Children: `origination.OriginationSigningAction`, `origination.OriginationSigningActionInvalidation`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_esign.py`, `origination/services/origination_signing.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`
+- Direct ORM writers: `origination/services/origination_esign.py`, `origination/services/origination_signing.py`, `origination/tests_approval.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/origination_approval.py`, `origination/services/origination_esign.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`, `origination/tests_approval.py`
 
 ### `core_originationsigningactioninvalidation`
 
@@ -1205,8 +1211,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationSigningAction`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_final_review.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationsigningpackage`
 
@@ -1216,8 +1222,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.LoanOriginationApplication`, `origination.OriginationConsentPolicyVersion`
 - Children: `origination.OriginationReviewerNotice`, `origination.OriginationSignerSession`, `origination.OriginationSigningAction`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_esign.py`
-- Used by: `core/management/commands/repair_origination_frozen_packet.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`, `origination/tests_migrations.py`, `origination/views.py`
+- Direct ORM writers: `origination/services/origination_esign.py`, `origination/tests_approval.py`
+- Used by: `core/management/commands/repair_origination_frozen_packet.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_permanent_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/loan_origination.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_evidence.py`, `origination/services/origination_final_review.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_queues.py`, `origination/services/origination_signing.py`, `origination/tests_approval.py`, `origination/tests_migrations.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/views.py`
 
 ### `core_originationsigningrequestevent`
 
@@ -1228,7 +1234,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `origination/services/origination_esign.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
 
 ### `core_originationstampasset`
 
@@ -1238,8 +1244,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.OperationalLocation`
 - Children: `origination.OriginationSigningAction`
 - Cross-domain parents: `auth.User`, `core.OperationalLocation`
-- Direct ORM writers: `origination/admin.py`, `origination/services/origination_god_mode.py`
-- Used by: `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`
+- Direct ORM writers: `origination/admin.py`, `origination/services/origination_god_mode.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`
 
 ### `core_originationtemplateconfigurationrevision`
 
@@ -1249,8 +1255,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `origination.OriginationDocumentTemplate`
 - Children: `origination.OriginationDocumentTemplate`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
-- Used by: `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
+- Direct ORM writers: `origination/services/document_editor.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/document_editor.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_templates.py`
 
 ### `core_parsedinvoice`
 
@@ -1261,7 +1267,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.ParsedInvoiceEvent`, `payments.PaymentReceiptItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_parser.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/miniapp_deletion_registry.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/invoice_agreements.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`
 
 ### `core_parsedinvoiceevent`
 
@@ -1272,7 +1278,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_parser.py`
-- Used by: `core/services/invoice_parser.py`
+- Used by: `core/services/invoice_parser.py`, `core/services/miniapp_deletion_registry.py`
 
 ### `core_parsedmessage`
 
@@ -1283,7 +1289,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.CaseUpdate`, `core.ComplaintCaseControl`, `core.ComplaintCaseEvidence`, `core.ComplaintCaseImportItem`, `core.PortalVoiceTranscriptionAttempt`
 - Cross-domain parents: None
 - Direct ORM writers: `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `origination/tests.py`, `report_delivery/tests_settings.py`
-- Used by: `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`, `core/services/workflow_links.py`, `origination/tests.py`, `report_delivery/tests_settings.py`
+- Used by: `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`, `core/services/workflow_links.py`, `origination/tests.py`, `report_delivery/tests_settings.py`
 
 ### `core_paymentdocument`
 
@@ -1293,8 +1299,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.DocumentPhysicalSignoff`, `core.JawabuApprovalRecord`, `payments.PaymentBatch`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `payments/tests.py`, `requisitions/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_case360.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests.py`
 
 ### `core_paymentdocumenttemplate`
 
@@ -1305,7 +1311,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/payment_documents.py`, `core/services/portal_health.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/payment_documents.py`, `core/services/portal_health.py`
 
 ### `core_portalcaseworkspace`
 
@@ -1316,7 +1322,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `core.JawabuFarmerMaster`
 - Direct ORM writers: `core/services/portal_workspace.py`
-- Used by: `core/api/portal_views.py`, `core/services/portal_workspace.py`, `core/services/user_hard_delete.py`
+- Used by: `core/api/portal_views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_workspace.py`, `core/services/user_hard_delete.py`
 
 ### `core_portalmaintenancestate`
 
@@ -1326,8 +1332,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/portal_maintenance.py`
-- Used by: `core/services/portal_maintenance.py`
+- Direct ORM writers: `core/services/portal_maintenance.py`, `payments/tests_invoice_agreements.py`
+- Used by: `core/services/portal_maintenance.py`, `payments/tests_invoice_agreements.py`
 
 ### `core_portalreportchart`
 
@@ -1338,7 +1344,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/portal_reporting.py`
-- Used by: `core/services/portal_reporting.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/portal_reporting.py`
 
 ### `core_portalreportdefinition`
 
@@ -1349,7 +1355,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.PortalReportChart`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/portal_reporting.py`
-- Used by: `core/api/portal_views.py`, `core/services/portal_reporting.py`
+- Used by: `core/api/portal_views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_reporting.py`
 
 ### `core_portalsavedview`
 
@@ -1371,7 +1377,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.PortalVoiceTranscriptionAttempt`
 - Cross-domain parents: `core.JawabuFarmerMaster`, `core.ParsedMessage`
 - Direct ORM writers: `core/services/portal_voice.py`
-- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/portal_voice.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_voice.py`
 
 ### `core_processedmessage`
 
@@ -1393,7 +1399,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.AccessGrant`, `core.EmergencyAccessGrant`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.ProductAlias`, `core.ProductAvailability`, `core.ProductMappingIssue`, `core.ProductVersion`, `core.SpinCreditRequest`, `core.TatRepairJob`, `core.TatTrackerCase`, `core.WorkflowTatDailyMetric`, `origination.OriginationDocumentProductEligibility`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/product_catalog_full_reset.py`, `origination/tests.py`
-- Used by: `core/api/views.py`, `core/services/access_policies.py`, `core/services/activity_changes.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/payment_documents.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_templates.py`, `origination/services/origination_terminology.py`, `origination/tests.py`, `payments/services.py`, `report_delivery/sources.py`
+- Used by: `core/api/views.py`, `core/management/commands/seed_origination_support_lafs.py`, `core/services/access_policies.py`, `core/services/activity_changes.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/payment_documents.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/sysup_review.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`, `origination/admin.py`, `origination/document_editor_admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/document_editor.py`, `origination/services/generic_jawabu_laf_seed.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/loan_origination.py`, `origination/services/origination_document_catalogue.py`, `origination/services/origination_fields.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/services/origination_setup_documents.py`, `origination/services/origination_templates.py`, `origination/services/origination_terminology.py`, `origination/tests.py`, `origination/tests_laf_bootstrap.py`, `payments/services.py`, `report_delivery/sources.py`
 
 ### `core_productalias`
 
@@ -1404,7 +1410,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/product_catalog.py`
-- Used by: `core/services/product_catalog.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`
 
 ### `core_productavailability`
 
@@ -1415,7 +1421,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/product_availability.py`, `core/services/product_catalog_full_reset.py`, `origination/origination_setup_admin.py`
-- Used by: `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `origination/origination_setup_admin.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `origination/origination_setup_admin.py`
 
 ### `core_productcustomattribute`
 
@@ -1426,7 +1432,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
 
 ### `core_productfee`
 
@@ -1437,7 +1443,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_deletion.py`, `core/services/product_quotes.py`, `origination/origination_setup_forms.py`, `origination/services/origination_commercial_terms.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/product_quotes.py`, `origination/origination_setup_forms.py`, `origination/services/origination_commercial_terms.py`
 
 ### `core_productionreleaseaudit`
 
@@ -1459,7 +1465,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
-- Used by: `core/services/portal_full_reset.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
 
 ### `core_productrequirement`
 
@@ -1470,7 +1476,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_forms.py`
 
 ### `core_producttatconfiguration`
 
@@ -1481,7 +1487,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/product_deletion.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_deletion.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`
 
 ### `core_productversion`
 
@@ -1492,7 +1498,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuFarmerMaster`, `core.ProductCustomAttribute`, `core.ProductFee`, `core.ProductRequirement`, `core.ProductTatConfiguration`, `core.ProductVersion`, `core.ProductVersionEvent`, `core.SpinCreditRequest`, `core.TatTrackerCase`, `origination.LoanOriginationApplication`, `origination.OriginationCommercialException`, `origination.OriginationProductDefinition`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/fresh_database_baseline.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`, `origination/tests.py`
-- Used by: `core/services/fresh_database_baseline.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_quotes.py`, `core/services/tat_configuration.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/tests.py`
+- Used by: `core/services/fresh_database_baseline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/product_quotes.py`, `core/services/tat_configuration.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/admin.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/origination_setup_admin.py`, `origination/origination_setup_forms.py`, `origination/services/invoice_finance_origination_seed.py`, `origination/services/origination_commercial_terms.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_main_laf_seeds.py`, `origination/services/origination_setup.py`, `origination/tests.py`
 
 ### `core_productversionevent`
 
@@ -1503,7 +1509,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`, `origination/services/origination_setup.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `origination/origination_setup_admin.py`, `origination/services/origination_setup.py`
 
 ### `core_publicendpointthrottlebucket`
 
@@ -1533,10 +1539,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.RequisitionTemplate`
-- Children: `core.DocumentPhysicalSignoff`, `hb_operations.HomeBiogasAction`
+- Children: `core.DocumentPhysicalSignoff`, `core.JawabuFarmerMaster`, `hb_operations.HomeBiogasAction`, `requisitions.OrderNumberClaim`, `requisitions.OrderWorkbookVersion`, `requisitions.OrderWorkspaceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `requisitions/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `requisitions/services.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/document_sync.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `requisitions/migrations/0004_bind_order_workspaces.py`, `requisitions/models.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `core_requisitiontemplate`
 
@@ -1547,7 +1553,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.RequisitionBatch`
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/portal_health.py`, `core/services/requisition.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/portal_health.py`, `core/services/requisition.py`
 
 ### `core_sheetregistercontract`
 
@@ -1591,7 +1597,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/spin_credit.py`, `core/services/workflow_pilot_purge.py`
-- Used by: `core/api/views.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`
+- Used by: `core/api/views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`
 
 ### `core_spincreditrequest`
 
@@ -1602,7 +1608,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.SpinBatchReviewItem`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
 - Direct ORM writers: `core/services/spin_credit.py`, `core/services/workflow_pilot_purge.py`, `origination/tests.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `origination/tests.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `origination/tests.py`
 
 ### `core_spinrequestsequence`
 
@@ -1657,7 +1663,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatActionTask`, `core.TatActionTaskLocator`, `core.TatActionTaskRecipient`, `core.TatTaskRerouteEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/api/views.py`, `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
+- Used by: `core/api/views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatactiontasklocator`
 
@@ -1668,7 +1674,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/user_hard_delete.py`
 
 ### `core_tatactiontaskrecipient`
 
@@ -1679,7 +1685,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatcasesequence`
 
@@ -1712,7 +1718,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `core/services/miniapp_settings.py`
-- Used by: `core/services/miniapp_settings.py`, `core/services/tat_full_reset.py`, `core/services/workflow_sla.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_settings.py`, `core/services/tat_full_reset.py`, `core/services/workflow_sla.py`
 
 ### `core_tatgroupexceptionstatus`
 
@@ -1745,7 +1751,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/fresh_database_baseline.py`
-- Used by: `core/services/fresh_database_baseline.py`, `core/services/tat_full_reset.py`, `core/services/tat_presentation.py`
+- Used by: `core/services/fresh_database_baseline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_presentation.py`
 
 ### `core_tatprivatealertconnection`
 
@@ -1778,7 +1784,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `core.GroupSheetConfiguration`, `core.Product`
 - Direct ORM writers: `core/services/tat_repair_jobs.py`
-- Used by: `core/services/durable_jobs.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/tat_repair_jobs.py`
+- Used by: `core/services/durable_jobs.py`, `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/tat_repair_jobs.py`
 
 ### `core_tatresponsibilityassignment`
 
@@ -1789,7 +1795,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatActionTask`, `core.TatResponsibilityBackup`, `core.TatResponsibilityChangePlan`, `core.TatResponsibilityEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `core/services/tat_responsibilities.py`, `core/services/user_hard_delete.py`
-- Used by: `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/user_hard_delete.py`
 
 ### `core_tatresponsibilitybackup`
 
@@ -1800,7 +1806,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/staff_lifecycle.py`, `core/services/user_hard_delete.py`
-- Used by: `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`
 
 ### `core_tatresponsibilitychangeplan`
 
@@ -1811,7 +1817,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_responsibilities.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_responsibilities.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_responsibilities.py`
 
 ### `core_tatresponsibilityevent`
 
@@ -1822,7 +1828,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_responsibilities.py`, `core/services/user_hard_delete.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_responsibilities.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_responsibilities.py`, `core/services/user_hard_delete.py`
 
 ### `core_tattaskrerouteevent`
 
@@ -1833,7 +1839,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`
 
 ### `core_tattrackerapprovalcertificate`
 
@@ -1844,7 +1850,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_pilot_purge.py`
-- Used by: `core/api/views.py`, `core/services/tat_full_reset.py`, `core/services/tat_signature.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_pilot_purge.py`
+- Used by: `core/api/views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_signature.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_pilot_purge.py`
 
 ### `core_tattrackercase`
 
@@ -1855,7 +1861,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatActionTask`, `core.TatTrackerApprovalCertificate`, `core.TatTrackerEvent`, `core.TatUpdateSideEffectDispatch`, `core.WorkflowTatMetricRebuildRequest`, `credit_assessments.CreditAssessment`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `credit_assessments/tests.py`, `origination/tests.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`, `origination/tests.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_links.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`, `origination/tests.py`
 
 ### `core_tattrackerevent`
 
@@ -1866,7 +1872,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatTrackerApprovalCertificate`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_tracker.py`
-- Used by: `core/services/group_reset.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_recognition.py`
+- Used by: `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatupdatesideeffectdispatch`
 
@@ -1877,7 +1883,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_update_dispatch.py`
-- Used by: `core/api/views.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_update_dispatch.py`
+- Used by: `core/api/views.py`, `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_update_dispatch.py`
 
 ### `core_telegramstaffactivation`
 
@@ -1987,7 +1993,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `hb_operations/tests.py`
-- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`, `hb_operations/tests.py`, `origination/migrations/0003_independent_capabilities.py`
+- Used by: `core/management/commands/repair_portal_operations_policy.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`, `hb_operations/tests.py`, `origination/migrations/0003_independent_capabilities.py`
 
 ### `core_workflowrolecapabilityauditevent`
 
@@ -2009,7 +2015,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
-- Used by: `core/services/portal_dashboard.py`, `core/services/tat_full_reset.py`, `core/services/workflow_escalations.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
+- Used by: `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/tat_full_reset.py`, `core/services/workflow_escalations.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
 
 ### `core_workflowtatdailymetric`
 
@@ -2020,7 +2026,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `core.Product`
 - Direct ORM writers: `core/services/tat_reporting.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
-- Used by: `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/tat_reporting.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/tat_reporting.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`
 
 ### `core_workflowtatmetricrebuildrequest`
 
@@ -2031,7 +2037,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/tat_presentation.py`, `core/services/tat_reporting.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_presentation.py`, `core/services/tat_reporting.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `core/services/tat_full_reset.py`, `core/services/tat_presentation.py`, `core/services/tat_reporting.py`
 
 ### `core_workflowtimelineannotation`
 
@@ -2042,7 +2048,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/portal_full_reset.py`
-- Used by: `core/services/portal_full_reset.py`, `core/services/tat_full_reset.py`, `core/services/workflow_timeline.py`
+- Used by: `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/tat_full_reset.py`, `core/services/workflow_timeline.py`
 
 ### `credit_assessment_analysis_package`
 
@@ -2053,7 +2059,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.AnalysisQuestion`, `credit_assessments.AssessmentDecision`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
 
 ### `credit_assessment_audit_event`
 
@@ -2064,7 +2070,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`, `credit_assessments/views.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/views.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/views.py`
 
 ### `credit_assessment_case_root`
 
@@ -2075,7 +2081,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.AnalysisPackage`, `credit_assessments.AssessmentDecision`, `credit_assessments.AssessmentDocument`, `credit_assessments.AssessmentEvent`, `credit_assessments.AssessmentSecret`, `credit_assessments.EngineJob`
 - Cross-domain parents: `auth.User`, `core.TatTrackerCase`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
 
 ### `credit_assessment_document_evidence`
 
@@ -2086,7 +2092,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.AnalysisPackage`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/views.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/views.py`
 
 ### `credit_assessment_engine_job`
 
@@ -2097,7 +2103,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`
 
 ### `credit_assessment_mailbox_cursor`
 
@@ -2119,7 +2125,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`
 
 ### `credit_assessment_question_item`
 
@@ -2130,7 +2136,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.QuestionResponse`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
 
 ### `credit_assessment_question_response`
 
@@ -2141,7 +2147,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.QuestionValidationEvent`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
 
 ### `credit_assessment_response_validation`
 
@@ -2152,7 +2158,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
 
 ### `credit_assessment_statement_receipt`
 
@@ -2163,7 +2169,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `credit_assessments.CreditAssessment`
 - Cross-domain parents: None
 - Direct ORM writers: `credit_assessments/mailbox.py`, `credit_assessments/tests.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/mailbox.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/mailbox.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
 
 ### `credit_assessment_statement_secret`
 
@@ -2174,7 +2180,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `credit_assessments/services.py`
-- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
 
 ### `hb_operations_action_event`
 
@@ -2185,7 +2191,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`
-- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/portal_report_insights.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
 
 ### `hb_operations_action_root`
 
@@ -2196,7 +2202,18 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `hb_operations.HomeBiogasActionEvent`
 - Cross-domain parents: `auth.User`, `core.DocumentPhysicalSignoff`, `core.JawabuFarmerMaster`, `core.RequisitionBatch`
 - Direct ORM writers: `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/migrations/0002_simplify_fulfilment_states.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `hb_operations/views.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/migrations/0002_simplify_fulfilment_states.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `hb_operations/views.py`
+
+### `origination_signing_participant_record`
+
+- Application identity: `origination.OriginationSigningParticipant` in **Origination**
+- Source of truth: **Yes**
+- Retention: Retain with application and signing evidence; scoped testing deletion only.
+- Parents: `auth.User`, `origination.LoanOriginationApplication`
+- Children: `origination.OriginationSignerSession`, `origination.OriginationSigningAction`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `origination/services/origination_signing_plans.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_signing_plans.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`
 
 ### `payment_batch`
 
@@ -2204,10 +2221,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained permanently with payment and signed-document evidence.
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`, `payments.PaymentReceiptBatch`
-- Children: `payments.PaymentBatchCase`, `payments.PaymentBatchEvent`, `payments.PaymentSequenceEvent`
+- Children: `payments.PaymentBatchCase`, `payments.PaymentBatchEvent`, `payments.PaymentNumberClaim`, `payments.PaymentSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`, `payments.PaymentReceiptBatch`
-- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_payment_candidates.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0005_paymentnumberclaim_and_more.py`, `payments/migrations/0006_bind_payment_numbers.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests.py`
 
 ### `payment_batch_case`
 
@@ -2218,7 +2235,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `payments.PaymentCaseReview`
 - Cross-domain parents: `auth.User`, `core.JawabuFarmerMaster`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_cleanup.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `core/services/portal_payment_candidates.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`, `requisitions/services.py`
 
 ### `payment_batch_event`
 
@@ -2229,7 +2246,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_case_review`
 
@@ -2240,7 +2257,29 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+
+### `payment_invoice_name_agreement`
+
+- Application identity: `payments.InvoiceNameAgreement` in **Payments**
+- Source of truth: **Yes**
+- Retention: Lifetime protected evidence; removed only by the owning configuration reset. No automatic purge.
+- Parents: `core.InvoiceNameChangeLetterArtifact`
+- Children: None
+- Cross-domain parents: `core.InvoiceNameChangeLetterArtifact`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_name_change_letters.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/invoice_agreements.py`, `payments/migrations/0007_invoicenameagreement.py`, `payments/models.py`, `payments/tests_invoice_agreements.py`
+
+### `payment_number_claim`
+
+- Application identity: `payments.PaymentNumberClaim` in **Payments**
+- Source of truth: **Yes**
+- Retention: Lifetime financial evidence; removed only by an owning configuration reset.
+- Parents: `payments.PaymentBatch`, `payments.PaymentSequenceState`
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/migrations/0005_paymentnumberclaim_and_more.py`, `payments/migrations/0006_bind_payment_numbers.py`, `payments/models.py`, `payments/services.py`, `requisitions/tests.py`
 
 ### `payment_receipt_batch`
 
@@ -2250,8 +2289,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
 - Children: `payments.PaymentBatch`, `payments.PaymentReceiptItem`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`, `payments/tests.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `payment_receipt_item`
 
@@ -2261,8 +2300,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`, `payments.PaymentReceiptBatch`
 - Children: None
 - Cross-domain parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`
-- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/invoice_cleanup.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `payments/receipt_batches.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_cleanup.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests_operations_api.py`
 
 ### `payment_sequence_event`
 
@@ -2273,18 +2312,18 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_sequence_state`
 
 - Application identity: `payments.PaymentSequenceState` in **Payments**
 - Source of truth: **Yes**
-- Retention: Retain permanently; allocated numbers are never reused and adjustments remain attributed.
+- Retention: Retain permanently; only explicitly released unsigned slots may be reused; signed numbers and attribution remain retained.
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
-- Children: `payments.PaymentSequenceEvent`
+- Children: `payments.PaymentNumberClaim`, `payments.PaymentSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `payments/services.py`, `requisitions/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0006_bind_payment_numbers.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`, `requisitions/tests.py`
 
 ### `portal_recognition_live_standing`
 
@@ -2312,12 +2351,12 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 
 - Application identity: `report_delivery.ReportDelivery` in **Report Delivery**
 - Source of truth: **Yes**
-- Retention: Erase payload and report snapshot after 30 days; delete delivery metadata after 180 days.
-- Parents: `report_delivery.ApprovedRecipient`, `report_delivery.ReportSchedule`
+- Retention: Erase payload and report snapshot after 30 days; delete delivery metadata including one-off destination after 180 days.
+- Parents: `auth.User`, `report_delivery.ApprovedRecipient`, `report_delivery.ReportSchedule`
 - Children: None
-- Cross-domain parents: None
-- Direct ORM writers: `report_delivery/services.py`, `report_delivery/tests.py`
-- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`
+- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/migrations/0004_reportdelivery_one_off.py`, `report_delivery/models.py`, `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/views.py`
 
 ### `report_delivery_recipient_link`
 
@@ -2339,7 +2378,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `report_delivery.ReportDelivery`, `report_delivery.ScheduleRecipient`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
-- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
+- Used by: `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`
 
 ### `report_delivery_schedule_root`
 
@@ -2350,7 +2389,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `report_delivery.ReportDelivery`, `report_delivery.ScheduleRecipient`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `report_delivery/admin.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
-- Used by: `core/api/portal_views.py`, `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_settings.py`
+- Used by: `core/api/portal_views.py`, `report_delivery/admin.py`, `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/settings.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`
 
 ### `report_delivery_webhook_event`
 
@@ -2360,8 +2399,19 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/views.py`
-- Used by: `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/views.py`
+- Direct ORM writers: `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/views.py`
+- Used by: `report_delivery/catalogue.py`, `report_delivery/migrations/0001_initial.py`, `report_delivery/models.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_one_off.py`, `report_delivery/views.py`
+
+### `requisition_order_number_claim`
+
+- Application identity: `requisitions.OrderNumberClaim` in **Requisitions**
+- Source of truth: **Yes**
+- Retention: Lifetime financial evidence; removed only by an owning configuration reset.
+- Parents: `core.RequisitionBatch`, `requisitions.OrderSequenceState`
+- Children: None
+- Cross-domain parents: `core.RequisitionBatch`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `requisitions/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0003_ordernumberclaim_orderworkbookversion_and_more.py`, `requisitions/migrations/0004_bind_order_workspaces.py`, `requisitions/models.py`, `requisitions/services.py`, `requisitions/tests.py`
 
 ### `requisition_order_sequence_event`
 
@@ -2380,10 +2430,32 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retain permanently; adjustments are attributed and finalized numbers are never rewritten.
 - Parents: `auth.User`, `core.GroupSheetConfiguration`
-- Children: `requisitions.OrderSequenceEvent`
+- Children: `requisitions.OrderNumberClaim`, `requisitions.OrderSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+- Direct ORM writers: `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/migrations/0004_bind_order_workspaces.py`, `requisitions/models.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+
+### `requisition_order_workbook_version`
+
+- Application identity: `requisitions.OrderWorkbookVersion` in **Requisitions**
+- Source of truth: **Yes**
+- Retention: Lifetime financial evidence; removed only by an owning configuration reset.
+- Parents: `auth.User`, `core.RequisitionBatch`
+- Children: None
+- Cross-domain parents: `auth.User`, `core.RequisitionBatch`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `requisitions/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0003_ordernumberclaim_orderworkbookversion_and_more.py`, `requisitions/migrations/0004_bind_order_workspaces.py`, `requisitions/models.py`, `requisitions/services.py`, `requisitions/tests.py`, `requisitions/tests_operations_api.py`
+
+### `requisition_order_workspace_event`
+
+- Application identity: `requisitions.OrderWorkspaceEvent` in **Requisitions**
+- Source of truth: **Yes**
+- Retention: Lifetime financial evidence; removed only by an owning configuration reset.
+- Parents: `auth.User`, `core.RequisitionBatch`
+- Children: None
+- Cross-domain parents: `auth.User`, `core.RequisitionBatch`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `requisitions/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0003_ordernumberclaim_orderworkbookversion_and_more.py`, `requisitions/models.py`, `requisitions/services.py`
 
 ### `tat_recognition_live_standing`
 

@@ -16,3 +16,10 @@
   --warn: #fff5cf;
 }
 .packet-preview { background: #d9dddb; }
+.sign-shell .sign-brand{flex-direction:row;text-align:left}
+.sign-shell .primary{background:var(--brand);border-color:var(--brand);color:#fff}
+#sign-role{text-transform:capitalize}
+details.card > summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:650}
+details.card[open] > summary{margin-bottom:6px}
+.summary-card{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-card strong{overflow-wrap:anywhere}
+@media(max-width:520px){.summary-card{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-card>div:first-child{grid-column:1/-1}}

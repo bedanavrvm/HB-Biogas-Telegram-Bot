@@ -111,14 +111,15 @@ def _primary_signer_rules(
         deepcopy(item) for item in (application_rules or []) if isinstance(item, dict)
     ]
     product_by_role = {
-        str(item.get('role') or '').strip(): item
+        str(item.get('participant_key') or item.get('role') or '').strip(): item
         for item in product_rules if str(item.get('role') or '').strip()
     }
     merged: list[dict[str, Any]] = []
     seen_roles: set[str] = set()
     for document_rule in document_rules:
         role = str(document_rule.get('role') or '').strip()
-        product_rule = product_by_role.get(role, {})
+        binding_key = str(document_rule.get('participant_key') or role)
+        product_rule = product_by_role.get(binding_key, {})
         combined = {**product_rule, **document_rule}
         identity_fields = {
             **(
@@ -134,8 +135,8 @@ def _primary_signer_rules(
             combined['identity_fields'] = identity_fields
         merged.append(combined)
         if role:
-            seen_roles.add(role)
-    merged.extend(item for item in product_rules if str(item.get('role') or '').strip() not in seen_roles)
+            seen_roles.add(binding_key)
+    merged.extend(item for item in product_rules if str(item.get('participant_key') or item.get('role') or '').strip() not in seen_roles)
     return merged
 
 
@@ -755,7 +756,11 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             role = str(raw.get('role') or '').strip() if isinstance(raw, dict) else ''
             if not role:
                 continue
-            existing = roles.get(role)
+            participant_key = str(raw.get('participant_key') or role) if application.signing_policy_snapshot == 'all_required' else role
+            existing = roles.get(participant_key)
+            if existing and existing.get('role') != role:
+                from origination.services.loan_origination import OriginationError
+                raise OriginationError('Different signing roles need separate document participant bindings.')
             resolved = dict(existing or raw)
             resolved['required'] = bool(resolved.get('required') or raw.get('required'))
             slots = list(existing.get('slots') or []) if existing else []
@@ -783,7 +788,7 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             })
             if role == 'witness' and not identity:
                 identity = {'name': context.get('witness_name', '')}
-            if role in {'borrower', 'customer'}:
+            if role in {'borrower', 'customer'} and (application.signing_policy_snapshot != 'all_required' or participant_key == role):
                 identity.setdefault('name', context.get('applicant_full_name') or context.get('borrower_full_name') or context.get('customer_name') or '')
                 identity.setdefault('phone', context.get('applicant_phone') or context.get('applicant_primary_phone') or context.get('primary_phone') or '')
                 identity.setdefault('national_id', context.get('applicant_national_id') or context.get('applicant_id_number') or context.get('national_id') or '')
@@ -795,7 +800,9 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             resolved['dispatch_ready'] = True if role in staff_roles else bool(resolved['identity'].get('phone'))
             if not resolved['dispatch_ready']:
                 resolved['dispatch_block_reason'] = 'Map a canonical signer phone field before OTP dispatch.'
-            roles[role] = resolved
+            if application.signing_policy_snapshot == 'all_required':
+                resolved['participant_key'] = participant_key
+            roles[participant_key] = resolved
     if any(value not in (None, '', []) for key, value in application.form_payload.items() if str(key).startswith('guarantor_2_')):
         guarantor_two = roles.get('guarantor_2')
         if guarantor_two:
@@ -812,6 +819,6 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             or any(item.get('required') for item in slots)
         )
         participant['applicable'] = applicable
-        if applicable:
+        if applicable or application.signing_policy_snapshot == 'all_required':
             participants.append(participant)
     return participants

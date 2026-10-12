@@ -1,5 +1,26 @@
 # Changelog
 
+## 12 October 2026 - Configurable Origination signing
+
+- Added opt-in product signing defaults and a compact, autosaving application
+  Signers workspace in Django Admin. Documents define the available people and
+  placements; active Superusers select optional participants and eligible staff.
+  Multiple borrowers or staff sharing a role retain separate identities.
+- New-policy applications go from Draft to Awaiting signatures to Approved.
+  Submission prepares the documents automatically; the officer deliberately
+  sends links. Everyone may sign in any order and the last required signature
+  or stamp approves the exact packet. No Operations preparation or final-review
+  screen is added to this flow.
+- Retained legacy policies, consent hashes, sessions and signed bytes. Withdrawal
+  retires signatures and links without deleting history. Current grants still
+  enforce scope, assignments and distinct staff; configuration grants no access.
+- Compacted the Mini App signing workspace and recipient ceremony, retained
+  existing form scale, and added recovery after SMS failure. Signed documents
+  remain reviewable; archival stays independent in the existing durable runner.
+- Added migration 0007, database catalogue metadata, scoped testing-deletion
+  ownership, PostgreSQL/concurrency tests and screenshot-backed browser checks.
+  Production activation still requires a reviewed product and matching consent.
+
 ## 9 October 2026 - Origination field controls and input validation
 
 - Added snapshot-owned email, integer, precision, date and dependent-location

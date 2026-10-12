@@ -108,6 +108,7 @@ REGISTRY = {
     'origination.OriginationStampAsset': config(active=False),
     'origination.LoanOriginationApplication': Policy('operational'),
     'origination.OriginationApplicationEvent': evidence('application'),
+    'origination.OriginationSigningParticipant': evidence('application'),
     'origination.OriginationCommercialException': evidence('application'),
     'origination.OriginationReportingValue': evidence('application'),
     'origination.OriginationReviewerNotice': evidence('application'),

@@ -46,7 +46,7 @@ def _slot_catalog(package: OriginationSigningPackage) -> list[dict[str, Any]]:
             document_key = str(slot.get('document_key') or 'primary').strip()
             if role and key:
                 slots.append({
-                    **slot, 'role': role, 'key': key, 'document_key': document_key,
+                    **slot, 'role': role, 'participant_id': participant.get('participant_id', ''), 'key': key, 'document_key': document_key,
                     'type': str(slot.get('type') or slot.get('slot_type') or 'signature'),
                     'required': bool(slot.get('required', participant.get('required', True))),
                 })

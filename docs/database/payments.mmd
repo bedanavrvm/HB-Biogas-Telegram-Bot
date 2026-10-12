@@ -11,6 +11,12 @@ erDiagram
   payment_case_review {
     string id
   }
+  payment_invoice_name_agreement {
+    string id
+  }
+  payment_number_claim {
+    string id
+  }
   payment_sequence_event {
     string id
   }
@@ -20,5 +26,7 @@ erDiagram
   payment_batch ||--o{ payment_batch_case : contains
   payment_batch ||--o{ payment_batch_event : contains
   payment_batch_case ||--o{ payment_case_review : contains
+  payment_batch ||--o{ payment_number_claim : contains
+  payment_sequence_state ||--o{ payment_number_claim : contains
   payment_batch ||--o{ payment_sequence_event : contains
   payment_sequence_state ||--o{ payment_sequence_event : contains

@@ -1,5 +1,51 @@
 # Loan Origination Mini App: Django Admin Guide
 
+## Configurable signing — 12 October 2026
+
+New product versions can use **All required signers complete approval**. Existing
+applications retain their original workflow. No consent or product is activated
+automatically by the migration.
+
+1. In the Document editor, choose **Who signs**. Add individual participants,
+   including another borrower or staff member with the same role when necessary.
+   Give them recognizable labels and separate signature placements. Map each
+   external person's own name, national ID and phone; never reuse another
+   borrower's fields simply because their role is the same.
+2. In Product guided setup → Documents, choose the configurable completion rule
+   and default signers. Document-required participants cannot be removed. Product
+   setup selects documents and defaults; PDF changes stay in the Document editor.
+3. Record and activate a separate compliance-approved consent policy covering
+   this completion rule. A legacy empty approval sequence does not cover it.
+   Publish the new product version only after the compatible documents and consent
+   are ready. Existing conditional-approval and verified-signing environment gates
+   still apply.
+4. For an exception, open Applications → application → **Configure signers**.
+   An active Superuser may select optional participants and assign eligible staff
+   while the application is a draft. Empty staff assignment means any currently
+   eligible person for that role; the officer slot remains assigned to its officer.
+   Configuration never grants access. Autosave displays **Saved** only after
+   server acknowledgement. The normal defaults need no per-application Admin visit.
+5. The officer completes the application, reviews its documents and taps
+   **Submit for signing**. Document preparation is automatic. The officer then
+   deliberately sends external links or chooses assisted signing.
+   Unsent or expired links remain an officer queue action after their own signature.
+6. Everyone may sign in any order. Progress counts people, not signature boxes.
+   Completing every required signature and stamp changes the application to
+   **Approved**; there is no separate Operations or final-approver task.
+
+Before completion, **Withdraw for changes** retires existing links/signatures and
+creates a successor draft plan. Changing participants requires withdrawal first.
+Everyone signs the replacement documents again. Approved applications are locked.
+Failed Drive archival is separate and can be retried without undoing approval.
+
+Apply reviewed migration 0007 with `python manage.py migrate` before using these
+controls. Reversal command:
+`python manage.py migrate origination 0006_originationdatafield_value_contract`.
+Reverse only before new-plan evidence exists, or following a verified backup and
+an explicit operator decision. Dropping this schema loses new participant evidence.
+
+The following chapters include the retained advanced and legacy workflows.
+
 Product and Document authoring updated on **8 October 2026**. The operational
 chapters below also describe advanced and legacy routes; use the current
 [Product and Document workspace guide](origination_product_setup_workspace.md)

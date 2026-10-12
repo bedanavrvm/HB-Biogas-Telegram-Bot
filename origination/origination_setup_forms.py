@@ -233,6 +233,7 @@ class SetupDocumentForm(forms.Form):
 class SetupCatalogueSelectionForm(forms.Form):
     approval_mode = forms.ChoiceField(required=False, label='Final approval', choices=(
         ('', 'Keep current approval policy'),
+        ('all_required', 'All required signers complete approval'),
         ('independent', 'Independent review after signing'),
         ('bm', 'Branch Manager approves and signs'),
         ('management', 'Branch Manager, then Management'),
@@ -241,9 +242,20 @@ class SetupCatalogueSelectionForm(forms.Form):
         queryset=OriginationDocumentTemplate.objects.none(), required=False,
         label='Available documents', widget=forms.CheckboxSelectMultiple,
     )
+    default_signers = forms.MultipleChoiceField(required=False, label='Default signers',
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Document-required signers stay required. Individual application changes are made in Admin.')
 
     def __init__(self, *args, definition, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['default_signers'].choices = [
+            (str(item.get('participant_key') or item['role']), str(item.get('label') or item['role']).replace('_', ' ').title())
+            for item in definition.signer_rules if isinstance(item, dict) and item.get('role')]
+        self.initial['default_signers'] = [str(item.get('participant_key') or item.get('role'))
+            for item in definition.signing_defaults] or [str(item.get('participant_key') or item['role']) for item in definition.signer_rules
+                if item.get('required', True) or any(slot.get('required') for slot in item.get('slots', []))]
+        if not definition.supersedes_id and definition.lifecycle_status == 'draft':
+            self.initial['approval_mode'] = 'all_required'
         from django.db.models import Q
         self.fields['templates'].queryset = OriginationDocumentTemplate.objects.filter(
             Q(status='active', published_configuration_revision__is_published=True)
@@ -254,6 +266,7 @@ class SetupCatalogueSelectionForm(forms.Form):
         )
         if definition.lifecycle_status != definition.STATUS_DRAFT:
             self.fields.pop('approval_mode')
+            self.fields.pop('default_signers')
         if not self.is_bound:
             from origination.services.origination_setup_documents import selected_documents
             self.initial['templates'] = selected_documents(definition)

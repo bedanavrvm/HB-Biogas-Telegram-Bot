@@ -42,6 +42,11 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'origination.OriginationSigningParticipant': {
+        'domain': 'origination', 'purpose': 'Immutable application-owned individual signer and document obligations.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain with application and signing evidence; scoped testing deletion only.',
+    },
     'payments.InvoiceNameAgreement': {
         'domain': 'payments', 'purpose': 'Exact signed letter and household facts permitting an invoice-name payment exception.',
         'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',

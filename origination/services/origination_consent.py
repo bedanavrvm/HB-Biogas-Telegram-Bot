@@ -22,12 +22,13 @@ def conditional_approval_enabled() -> bool:
     return bool(getattr(settings, 'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED', False))
 
 
-def active_consent_policy(*, approval_roles=None) -> OriginationConsentPolicyVersion:
+def active_consent_policy(*, approval_roles=None, signing_policy='legacy') -> OriginationConsentPolicyVersion:
     if not conditional_approval_enabled():
         raise OriginationConsentError('Conditional approval is not enabled for this environment.')
     policy = OriginationConsentPolicyVersion.objects.filter(
         status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
         approval_roles=approval_roles or [],
+        signing_policy=signing_policy,
     ).first()
     if not policy:
         raise OriginationConsentError(
@@ -39,7 +40,7 @@ def active_consent_policy(*, approval_roles=None) -> OriginationConsentPolicyVer
 
 
 def policy_snapshot(policy: OriginationConsentPolicyVersion) -> dict[str, Any]:
-    return {
+    snapshot = {
         'id': str(policy.pk),
         'version': policy.version,
         'content_sha256': policy.content_sha256,
@@ -51,6 +52,9 @@ def policy_snapshot(policy: OriginationConsentPolicyVersion) -> dict[str, Any]:
         'approval_reference': policy.approval_reference,
         'approved_at': policy.approved_at.isoformat() if policy.approved_at else '',
     }
+    if policy.signing_policy != 'legacy':
+        snapshot['signing_policy'] = policy.signing_policy
+    return snapshot
 
 
 def _wrapped_lines(text: str, *, font: str, size: float, width: float) -> list[str]:

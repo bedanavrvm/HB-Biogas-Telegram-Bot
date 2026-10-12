@@ -95,6 +95,13 @@ class OriginationSigningProblem(OriginationError):
 
 
 def _require_approved_package(package: OriginationSigningPackage) -> None:
+    if package.application.signing_policy_snapshot == 'all_required':
+        from origination.services.loan_origination import _package_review_scope_hash
+        if ((package.context_snapshot or {}).get('_signing_plan', {}).get('policy') != 'all_required'
+                or package.consent_policy_snapshot.get('signing_policy') != 'all_required'
+                or not package.consent_policy_id or package.consent_policy.signing_policy != 'all_required'
+                or _package_review_scope_hash(package) != package.review_scope_sha256):
+            raise OriginationError('The signing plan or approved consent failed its integrity check.')
     if package.application.status not in {
         LoanOriginationApplication.STATUS_SIGNING_PENDING,
         LoanOriginationApplication.STATUS_PARTIALLY_SIGNED,
@@ -146,7 +153,7 @@ def _session_token(package_id, signer_role: str, request_id: str) -> str:
 def _replayed_session_token(session: OriginationSignerSession, request_id: str) -> str:
     """Reconstruct compact tokens while preserving pre-cutover idempotent replays."""
     candidates = (
-        _session_token(session.package_id, session.signer_role, request_id),
+        _session_token(session.package_id, str(session.participant_id or session.signer_role), request_id),
         _legacy_session_token(session.package_id, session.signer_role, request_id),
     )
     for candidate in candidates:
@@ -167,7 +174,7 @@ def _client_ip_hash(request) -> str:
 
 
 def _binding(session: OriginationSignerSession) -> str:
-    return hashlib.sha256(json.dumps({
+    binding = {
         'package_id': str(session.package_id),
         'unsigned_document_hash': session.package.unsigned_document_hash,
         'signer_role': session.signer_role,
@@ -177,7 +184,10 @@ def _binding(session: OriginationSignerSession) -> str:
             (session.package.consent_policy_snapshot or {}).get('content_sha256') or ''
         ),
         'signature_capture_sha256': session.signature_capture_sha256,
-    }, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    }
+    if session.participant_id:
+        binding['participant_id'] = str(session.participant_id)
+    return hashlib.sha256(json.dumps(binding, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def _package_consent_version(package: OriginationSigningPackage) -> str:
@@ -209,23 +219,19 @@ def _create_or_get_active_action(
     ), True
 
 
-def _participant(package: OriginationSigningPackage, signer_role: str) -> dict[str, Any]:
-    participant = next((
-        dict(item) for item in package.participants_snapshot or []
-        if isinstance(item, dict) and str(item.get('role') or '') == signer_role
-    ), None)
-    if not participant:
-        raise OriginationError('Choose a configured signer from this package.')
+def _participant(package: OriginationSigningPackage, signer_role: str, participant_id='') -> dict[str, Any]:
+    from origination.services.origination_signing_plans import select_participant
+    participant = dict(select_participant(package, signer_role=signer_role, participant_id=participant_id))
     signature_slots = [
         item for item in _slot_catalog(package)
-        if item['role'] == signer_role and item['type'] == OriginationSigningAction.TYPE_SIGNATURE
+        if item['role'] == signer_role and (not participant_id or str(item['participant_id']) == str(participant_id)) and item['type'] == OriginationSigningAction.TYPE_SIGNATURE
     ]
     if not signature_slots:
         raise OriginationError('This signer has no configured signature slots.')
     participant['signature_slots'] = signature_slots
     participant['completion_slots'] = [
         item for item in _slot_catalog(package)
-        if item['role'] == signer_role and item['type'] in {
+        if item['role'] == signer_role and (not participant_id or str(item['participant_id']) == str(participant_id)) and item['type'] in {
             OriginationSigningAction.TYPE_SIGNATURE,
             OriginationSigningAction.TYPE_DATE_SIGNED,
         }
@@ -240,7 +246,8 @@ def _resolved_identity(
     role = str(participant.get('role') or '').strip()
     application_rule = next((
         item for item in (package.application.signer_rules_snapshot or [])
-        if isinstance(item, dict) and str(item.get('role') or '').strip() == role
+        if isinstance(item, dict) and str(item.get('participant_key') or item.get('role') or '').strip()
+            == str(participant.get('participant_key') or role)
     ), {})
     bindings = {
         **(
@@ -288,7 +295,7 @@ def _duplicate_external_phones(package: OriginationSigningPackage) -> dict[str, 
             continue
         phone = normalize_kenyan_phone(_resolved_identity(package, participant).get('phone'))
         if phone:
-            roles_by_phone.setdefault(phone, []).append(role)
+            roles_by_phone.setdefault(phone, []).append(str(participant.get('participant_key') or role))
     return {phone: roles for phone, roles in roles_by_phone.items() if len(set(roles)) > 1}
 
 
@@ -315,6 +322,7 @@ def create_signer_session(
     access_mode: str = OriginationSignerSession.MODE_SELF_SERVICE,
     shared_phone_override_reason: str = '',
     approved_shared_phone_by=None,
+    participant_id='',
 ) -> tuple[OriginationSignerSession, str, bool]:
     request_id = _require_request_id(request_id)
     if not esign_enabled():
@@ -326,7 +334,7 @@ def create_signer_session(
     _require_approved_package(package)
     replay = package.signer_sessions.filter(request_id=request_id).first()
     if replay:
-        if replay.signer_role != signer_role or replay.access_mode != access_mode:
+        if replay.signer_role != signer_role or str(replay.participant_id or '') != str(participant_id or '') or replay.access_mode != access_mode:
             raise OriginationError(
                 'This request key was already used for a different signer session.'
             )
@@ -337,7 +345,7 @@ def create_signer_session(
         raise OriginationError('This signing package no longer accepts signer sessions.')
     if signer_role in STAFF_SIGNER_ROLES:
         raise OriginationError('Staff signer roles use authenticated staff signing, not an OTP session.')
-    participant = _participant(package, signer_role)
+    participant = _participant(package, signer_role, participant_id)
     identity, phone = _identity_for(package, participant)
     duplicates = _duplicate_external_phones(package)
     # Reset/reissue carries forward evidence already approved on the previous
@@ -365,14 +373,15 @@ def create_signer_session(
     if access_mode not in dict(OriginationSignerSession.MODE_CHOICES):
         raise OriginationError('Choose self-service or assisted signing.')
     now = timezone.now()
-    package.signer_sessions.filter(signer_role=signer_role, is_active=True).update(
+    session_filter = {'participant_id': participant_id} if participant_id else {'signer_role': signer_role, 'participant__isnull': True}
+    package.signer_sessions.filter(**session_filter, is_active=True).update(
         is_active=False, status=OriginationSignerSession.STATUS_CANCELLED,
         invalidated_at=now, updated_at=now,
     )
-    raw_token = _session_token(package.pk, signer_role, request_id)
+    raw_token = _session_token(package.pk, str(participant_id or signer_role), request_id)
     ttl = max(1, min(168, int(getattr(settings, 'ORIGINATION_SIGNING_LINK_TTL_HOURS', SESSION_TTL_DEFAULT_HOURS) or SESSION_TTL_DEFAULT_HOURS)))
     session = OriginationSignerSession.objects.create(
-        package=package, signer_role=signer_role, identity_snapshot=identity,
+        package=package, signer_role=signer_role, participant_id=participant_id or None, identity_snapshot=identity,
         phone_normalized=phone, phone_hash=_digest(f'phone:{phone}'), phone_last4=phone[-4:],
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         token_expires_at=now + timedelta(hours=ttl), access_mode=access_mode,
@@ -700,7 +709,7 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
     if schedule_archive:
         package_id = package.pk
         signed_hash = package.signed_document_hash
-        if application.approval_roles_snapshot:
+        if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required':
             from origination.services.origination_dispatch import queue_archive
             queue_archive(package)
         else:
@@ -710,6 +719,9 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
     if application.approval_roles_snapshot:
         from origination.services.origination_dispatch import update_approval_notices
         update_approval_notices(package)
+    elif application.signing_policy_snapshot == 'all_required':
+        from origination.services.origination_dispatch import update_signing_notices
+        update_signing_notices(package)
 
 
 def _archive_signed_package_after_commit(*, package_id, signed_hash: str) -> None:
@@ -797,7 +809,7 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                 challenge.verified_at = now
                 challenge.save(update_fields=['verified_at', 'last_attempt_at'])
                 capture = dict(session.signature_capture or {})
-                for slot in _participant(package, session.signer_role)['completion_slots']:
+                for slot in _participant(package, session.signer_role, session.participant_id)['completion_slots']:
                     action_type = (
                         OriginationSigningAction.TYPE_DATE_SIGNED
                         if slot['type'] == OriginationSigningAction.TYPE_DATE_SIGNED
@@ -807,6 +819,7 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                         package=package, document_key=slot['document_key'], slot_key=slot['key'],
                         defaults={
                             'signer_role': session.signer_role,
+                            'participant_id': session.participant_id,
                             'action_type': action_type,
                             'mode': OriginationSigningAction.MODE_VERIFIED,
                             'signer_session': session,
@@ -872,6 +885,7 @@ def reset_signer_session(
         request_id=request_id, access_mode=target_mode,
         shared_phone_override_reason=old.shared_phone_override_reason,
         approved_shared_phone_by=old.shared_phone_approved_by,
+        participant_id=old.participant_id or '',
     )
     _record_event(
         old.package.application, 'signer_session_reset', actor=actor,
@@ -912,6 +926,8 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
         'consent_version': _package_consent_version(session.package),
         'consent_text': str(policy.get('signer_consent_text') or ''),
         'completion_text': str(policy.get('signer_completion_text') or ''),
+        'application_status': session.package.application.status,
+        'signing_policy': session.package.application.signing_policy_snapshot,
         'packet_version': verified_packet_version(session.package),
         'otp': {
             'delivery_status': latest.delivery_status if latest else '',
@@ -930,7 +946,7 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         )
     }
     sessions = {
-        item.signer_role: item
+        str(item.participant_id or item.signer_role): item
         for item in package.signer_sessions.filter(is_active=True).order_by('signer_role', '-created_at')
     }
     participants = []
@@ -938,11 +954,15 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         if not isinstance(raw, dict):
             continue
         role = str(raw.get('role') or '')
-        slots = [item for item in _slot_catalog(package) if item['role'] == role]
-        session = sessions.get(role)
+        participant_id = str(raw.get('participant_id') or '')
+        slots = [item for item in _slot_catalog(package) if item['role'] == role and (not participant_id or str(item['participant_id']) == participant_id)]
+        session = sessions.get(participant_id or role)
         participants.append({
             'role': role,
-            'label': role.replace('_', ' ').title(),
+            'participant_id': participant_id,
+            'name': str((raw.get('identity') or {}).get('name') or ''),
+            'staff_user_id': raw.get('staff_user_id'),
+            'label': str(raw.get('label') or role.replace('_', ' ').title()),
             'applicable': bool(raw.get('applicable', True)),
             'required': bool(raw.get('required')),
             'staff': role in STAFF_SIGNER_ROLES,
@@ -972,6 +992,7 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         'archive_status': package.archive_status,
         'archive_error': package.archive_error,
         'packet_version': verified_packet_version(package),
+        'consent_text': str((package.consent_policy_snapshot or {}).get('signer_consent_text') or ''),
         'signed_packet_available': bool(
             package.status == package.STATUS_FULLY_SIGNED and package.signed_document_hash
         ),
@@ -984,6 +1005,8 @@ def complete_staff_signatures(
     *, package_id, signer_role: str, actor, signature_capture: Any,
     expected_revision: int, request_id: str,
     reviewed_packet_version: str = '',
+    participant_id='',
+    consent=False,
 ) -> OriginationSigningPackage:
     request_id = _require_request_id(request_id)
     if signer_role not in STAFF_SIGNER_ROLES:
@@ -999,8 +1022,8 @@ def complete_staff_signatures(
     capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     replay = application.events.filter(action='staff_signer_verified', request_id=request_id, actor=actor).first()
     if replay:
-        if replay.after_values.get('signer_role') != signer_role or not package.actions.filter(
-            actor=actor, signer_role=signer_role, metadata__capture_sha256=capture_hash,
+        if replay.after_values.get('signer_role') != signer_role or str(replay.after_values.get('participant_id') or '') != str(participant_id or '') or not package.actions.filter(
+            actor=actor, signer_role=signer_role, participant_id=participant_id or None, metadata__capture_sha256=capture_hash,
         ).exists():
             raise OriginationError('This signing request was already used with different data.')
         return package
@@ -1010,9 +1033,17 @@ def complete_staff_signatures(
     if package.application.revision != int(expected_revision):
         raise OriginationConflict('This application changed. Refresh before signing.')
     from origination.services.origination_approval import guard_staff_signature
-    guard_staff_signature(package, signer_role=signer_role, actor=actor,
-                          reviewed_packet_version=reviewed_packet_version)
-    participant = _participant(package, signer_role)
+    participant = _participant(package, signer_role, participant_id)
+    if participant_id:
+        if not esign_enabled():
+            raise OriginationError('Verified signing is unavailable. Ask IT to check signing delivery settings.')
+        if consent is not True:
+            raise OriginationError('Confirm that you reviewed and agree to sign these documents.')
+        from origination.services.origination_signing_plans import guard_participant
+        guard_participant(package, participant, actor)
+    else:
+        guard_staff_signature(package, signer_role=signer_role, actor=actor,
+                              reviewed_packet_version=reviewed_packet_version)
     created_any = False
     signed_at = timezone.now()
     for slot in participant['completion_slots']:
@@ -1025,6 +1056,7 @@ def complete_staff_signatures(
             package=package, document_key=slot['document_key'], slot_key=slot['key'],
             defaults={
                 'signer_role': signer_role, 'action_type': action_type,
+                'participant_id': participant_id or None,
                 'mode': OriginationSigningAction.MODE_VERIFIED, 'actor': actor,
                 'request_id': _slot_request_id(request_id, slot['document_key'], slot['key']),
                 'metadata': {
@@ -1047,7 +1079,7 @@ def complete_staff_signatures(
         return package
     _update_package_status(package)
     _record_event(package.application, 'staff_signer_verified', actor=actor, request_id=request_id, after={
-        'package_id': str(package.pk), 'signer_role': signer_role,
+        'package_id': str(package.pk), 'signer_role': signer_role, 'participant_id': str(participant_id or ''),
     })
     return package
 
@@ -1056,22 +1088,35 @@ def complete_staff_signatures(
 def apply_production_stamp(
     *, package_id, document_key: str, slot_key: str, signer_role: str,
     stamp_asset_id, actor, expected_revision: int, request_id: str,
+    participant_id='',
 ) -> OriginationSigningPackage:
     request_id = _require_request_id(request_id)
     application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
     package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
     package.application = application
+    replay = package.actions.filter(request_id=request_id, action_type='stamp', invalidation__isnull=True).first()
+    if replay:
+        if (replay.actor_id != actor.pk or replay.document_key != document_key or replay.slot_key != slot_key
+                or replay.signer_role != signer_role or str(replay.participant_id or '') != str(participant_id or '')
+                or str(replay.stamp_asset_id) != str(stamp_asset_id)):
+            raise OriginationError('This stamp request was already used with different data.')
+        return package
     _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Production stamps cannot be applied to a test package.')
     if package.application.revision != int(expected_revision):
         raise OriginationConflict('This application changed. Refresh before stamping.')
+    if participant_id:
+        from origination.services.origination_signing_plans import guard_participant
+        guard_participant(package, _participant(package, signer_role, participant_id), actor)
+    elif application.signing_policy_snapshot == 'all_required':
+        raise OriginationError('Choose the individual signer before applying their stamp.')
     if application.approval_roles_snapshot:
         authorize_staff_signer(actor=actor, application=application, signer_role=signer_role)
     selected = next((item for item in _slot_catalog(package) if (
         item['document_key'] == document_key and item['key'] == slot_key
-        and item['role'] == signer_role and item['type'] == OriginationSigningAction.TYPE_STAMP
+        and item['role'] == signer_role and (not participant_id or str(item['participant_id']) == str(participant_id)) and item['type'] == OriginationSigningAction.TYPE_STAMP
     )), None)
     if not selected:
         raise OriginationError('Choose a configured stamp slot from this package.')
@@ -1086,6 +1131,7 @@ def apply_production_stamp(
         package=package, document_key=document_key, slot_key=slot_key,
         defaults={
             'signer_role': signer_role, 'action_type': OriginationSigningAction.TYPE_STAMP,
+            'participant_id': participant_id or None,
             'mode': OriginationSigningAction.MODE_VERIFIED, 'actor': actor,
             'stamp_asset': stamp, 'request_id': request_id,
             'metadata': {'staff_authenticated': True, 'stamp_sha256': stamp.content_sha256},

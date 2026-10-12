@@ -852,6 +852,13 @@ def _step_documents(model_admin, request, definition, context):
                 if approval_mode in modes:
                     definition.approval_roles = modes[approval_mode]
                     definition.save(update_fields=['approval_roles', 'updated_at'])
+                if approval_mode == 'all_required':
+                    definition.signing_policy = 'all_required'
+                    definition.approval_roles = []
+                elif approval_mode in modes:
+                    definition.signing_policy = 'legacy'
+                definition.signing_defaults = [{'participant_key': key} for key in selection.cleaned_data.get('default_signers', [])]
+                definition.save(update_fields=['signing_policy', 'signing_defaults', 'approval_roles', 'updated_at'])
         chosen = select_documents(definition=definition, templates=chosen,
                                   actor=request.user, request_id=request_id)
         if definition.lifecycle_status == definition.STATUS_DRAFT and any(item.document_role == item.ROLE_PRIMARY for item in chosen):

@@ -1,5 +1,44 @@
 # Loan Origination Mini App: Developer Guide
 
+## Application signing plans — 12 October 2026
+
+ADR 0045 introduces the opt-in `all_required` policy. Product definitions and
+consent versions retain `legacy` by default; application creation snapshots the
+selected policy. Empty `approval_roles` alone never selects this policy.
+
+`origination_signing_plans` is the shared module for defaults, configuration,
+freezing and current-actor workspace projection. Each individual has an immutable
+application-owned participant record. Roles still use the existing scoped staff
+authority mapping; configuration adds no access grants or new capability matrix.
+Sessions and actions gain nullable participant references; null preserves legacy
+tokens and role-based constraints. New active sessions are unique per package and
+participant. OTP binding includes the participant ID without changing legacy hashes.
+
+Admin autosave uses application and plan revisions plus a request key. Only active
+Superusers configure draft plans. Repeated unchanged saves retain preview validity.
+Withdrawal clones membership into new participant IDs and invalidates old sessions
+and actions; old package snapshots and evidence remain untouched.
+
+Application responses add `signing_workspace`: policy, revision, required/completed
+counts, current-actor actions and participant statuses. New signing requests include
+`participant_id`; role-only requests are rejected for the new policy. Staff signing
+also requires explicit consent. Document preparation and final completion remain
+transactional. The last required action approves once and queues archival through
+the existing durable request-assisted runner. Invitations remain officer initiated.
+
+Tests: `origination.tests_signing_plans`, `origination.tests_signing_migrations`, `origination.tests_approval` and
+`core/tests_browser/origination_signing_plans.spec.js`. Use the guarded local
+PostgreSQL profile for concurrency and synthetic Playwright fixtures for visuals.
+No real Telegram/SMS/Drive calls are needed for verification.
+
+Apply migration 0007 before new-policy writes. Reversal command:
+`python manage.py migrate origination 0006_originationdatafield_value_contract`.
+Do not reverse once new participant evidence exists without an explicit backup
+and recovery decision. Existing product/application/consent rows are not backfilled.
+
+The ordered BM/Management and independent-review descriptions below remain valid
+only for applications that captured those policies.
+
 Last verified against the repository on **20 August 2026**.
 
 This guide describes the current implementation and the invariants a developer

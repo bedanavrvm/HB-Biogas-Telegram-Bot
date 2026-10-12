@@ -472,7 +472,7 @@ def resolve_packet_values(application: Any, *, system: dict | None = None) -> di
                       if key in contract['fields'] and contract['fields'][key]['value_contract']['source'] == 'entered'}
     workflow = {}
     # Only an explicit existing approval of exact frozen terms can supply this.
-    event = application.events.filter(action='approval_signed').order_by('-occurred_at', '-id').first()
+    event = application.events.filter(action__in=['approval_signed', 'signatures_completed']).order_by('-occurred_at', '-id').first()
     if event and application.status == application.STATUS_APPROVED:
         workflow['approved_amount'] = (event.after_values or {}).get('approved_facility_amount')
     return resolve_values(

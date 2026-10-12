@@ -40,6 +40,7 @@ from origination.models import (
     OriginationApplicationDocument,
     OriginationProductDocumentAssignment,
     OriginationConsentPolicyVersion,
+    OriginationSigningParticipant,
     OriginationSigningPackage,
     OriginationSigningAction,
     OriginationSigningActionInvalidation,
@@ -77,6 +78,9 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     name = forms.CharField(required=False, widget=forms.HiddenInput)
     form_schema = forms.JSONField(widget=forms.HiddenInput)
     signer_rules = forms.JSONField(widget=forms.HiddenInput)
+    signing_policy = forms.ChoiceField(required=False, label='Signing requirements',
+        choices=OriginationProductDefinition._meta.get_field('signing_policy').choices,
+        widget=UnfoldAdminSelectWidget, initial='legacy')
     approval_roles = forms.JSONField(required=False, label='Final approval',
         widget=UnfoldAdminSelectWidget(choices=[('[]', 'Independent post-sign review'),
             ('["branch_manager"]', 'BM approves and signs'),
@@ -109,7 +113,7 @@ class OriginationProductDefinitionForm(forms.ModelForm):
             'product_version', 'main_laf_source', 'reusable_primary_template',
             'laf_pdf', 'product_key', 'name',
             'form_schema', 'signer_rules',
-            'approval_roles',
+            'approval_roles', 'signing_policy',
         )
 
     def __init__(self, *args, **kwargs):
@@ -180,6 +184,7 @@ class OriginationProductDefinitionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        cleaned['signing_policy'] = cleaned.get('signing_policy') or self.instance.signing_policy or 'legacy'
         schema = cleaned.get('form_schema')
         signer_rules = cleaned.get('signer_rules')
         product_version = cleaned.get('product_version')
@@ -276,6 +281,8 @@ class OriginationProductDefinitionForm(forms.ModelForm):
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         from origination.services.origination_approval import validate_approval_roles
         cleaned['approval_roles'] = cleaned.get('approval_roles') or []
+        if cleaned.get('signing_policy') == 'all_required':
+            cleaned['approval_roles'] = []
         try:
             validate_product_form_contract(schema, signer_rules)
             validate_approval_roles(cleaned['approval_roles'], signer_rules)
@@ -3351,7 +3358,27 @@ class LoanOriginationApplicationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
     list_display = ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
     list_filter = ('status', 'branch', 'product_definition')
     search_fields = ('reference_number', 'officer__username')
-    readonly_fields = tuple(field.name for field in LoanOriginationApplication._meta.fields)
+    readonly_fields = ('signing_setup_link',) + tuple(field.name for field in LoanOriginationApplication._meta.fields)
+    fieldsets = (
+        ('Application', {'fields': ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'signing_setup_link')}),
+        ('Advanced', {'classes': ('collapse',), 'fields': tuple(field.name for field in LoanOriginationApplication._meta.fields
+            if field.name not in {'reference_number', 'product_definition', 'officer', 'branch', 'status'})}),
+    )
+
+    @admin.display(description='Signers')
+    def signing_setup_link(self, obj):
+        if obj.signing_policy_snapshot != 'all_required':
+            return 'Original approval policy'
+        return format_html('<a href="{}">Configure signers</a>', reverse(
+            'admin:origination_application_signers', args=[obj.pk]))
+
+    def get_urls(self):
+        return [path('<uuid:object_id>/signers/', self.admin_site.admin_view(self.signers_view),
+            name='origination_application_signers')] + super().get_urls()
+
+    def signers_view(self, request, object_id):
+        from origination.admin_signing import application_signers_view
+        return application_signers_view(self, request, object_id)
 
     def has_add_permission(self, request):
         return False
@@ -3577,6 +3604,12 @@ class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
     exclude = ('frozen_unsigned_document', 'pending_signed_document')
 
 
+@admin.register(OriginationSigningParticipant)
+class OriginationSigningParticipantAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('application', 'participant_key', 'role', 'staff_user', 'created_at')
+    search_fields = ('application__reference_number', 'participant_key')
+
+
 @admin.register(OriginationConsentPolicyVersion)
 class OriginationConsentPolicyVersionAdmin(OriginationGodModeAdminMixin, ModelAdmin):
     list_display = (
@@ -3630,6 +3663,7 @@ class OriginationConsentPolicyVersionAdmin(OriginationGodModeAdminMixin, ModelAd
             OriginationConsentPolicyVersion.objects.select_for_update().filter(
                 status=policy.STATUS_ACTIVE,
                 approval_roles=policy.approval_roles,
+                signing_policy=policy.signing_policy,
             ).exclude(pk=policy.pk).update(
                 status=policy.STATUS_RETIRED, retired_by=request.user, retired_at=now,
             )

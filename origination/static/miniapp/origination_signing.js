@@ -90,6 +90,7 @@
     const assisted = session.access_mode === 'assisted';
     document.getElementById('assisted-confirmation').hidden = !assisted;
     const modeBanner = document.getElementById('signing-mode-banner');
+    modeBanner.hidden = session.status === 'verified';
     modeBanner.classList.toggle('assisted', assisted);
     document.getElementById('signing-mode-label').textContent = assisted ? 'Assisted signing' : 'Remote signing';
     document.getElementById('signing-mode-detail').textContent = assisted
@@ -100,12 +101,21 @@
     const consentText = document.getElementById('packet-consent-text');
     if (consentText && session.consent_text) consentText.textContent = session.consent_text;
     const allReviewed = pages > 0 && reviewedPages.size >= pages;
+    const signatureCard = document.getElementById('signature-card');
+    const verificationCard = document.getElementById('verification-card');
+    const reviewCard = document.getElementById('review-card');
+    if (signatureCard) signatureCard.hidden = !allReviewed || Boolean(session.consented);
+    if (verificationCard) verificationCard.hidden = !session.consented || session.status === 'verified';
+    if (reviewCard) reviewCard.open = !session.consented;
     document.getElementById('packet-consent').disabled = !allReviewed && !session.consented;
     document.getElementById('send-otp').disabled = !session.consented || session.status === 'verified';
     document.getElementById('otp-panel').hidden = !session.otp?.expires_at || session.status === 'verified';
     if (session.status === 'verified') {
-      show(session.completion_text || 'Signing complete. Your verified signature has been applied to every signature box assigned to you.', 'success');
-      document.querySelectorAll('button,input').forEach(element => { element.disabled = true; });
+      show(session.signing_policy === 'all_required'
+        ? session.application_status === 'approved' ? 'Your signature is complete. The application is approved.' : 'Your signature is complete. Awaiting the remaining signers.'
+        : session.completion_text || 'Signing complete. Your verified signature has been applied to every signature box assigned to you.', 'success');
+      document.querySelectorAll('#signature-card button,#signature-card input,#verification-card button,#verification-card input')
+        .forEach(element => { element.disabled = true; });
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
       try { window.sessionStorage.removeItem('jbl-origination-signing-token'); } catch (_) { /* restricted WebView */ }
     }
@@ -139,6 +149,7 @@
     document.getElementById('page-prev').disabled = page <= 1;
     document.getElementById('page-next').disabled = page >= pages;
     document.getElementById('packet-consent').disabled = reviewedPages.size < pages && !session.consented;
+    render();
     if (packetChanged) {
       show('The packet now includes a preceding verified signature. Your saved consent and verification step are unchanged.', 'info');
     }
@@ -197,11 +208,17 @@
         session = data.session;
         captureSaved = true;
         window.MiniAppUtils?.setCloseProtection?.('signing-capture', false);
-      }, { loadingLabel: 'Saving signature', successLabel: 'Signature saved' });
+        const verification = await api('otp/', {method: 'POST', body: '{}'});
+        session = verification.session;
+      }, { loadingLabel: 'Saving and sending code', successLabel: 'Code sent' });
       render();
       syncSignatureProtection();
-      show('Your signature is ready. Tap “Send verification code” to continue.', 'success');
-    } catch (error) { show(error.message, error.presentation?.tone || 'error'); }
+      show(`Enter the code sent to ${session.phone_masked}.`, 'success');
+      document.getElementById('otp-code').focus();
+    } catch (error) {
+      render();
+      show(captureSaved ? `Your signature is saved. ${error.message} Use Send verification code to retry.` : error.message, error.presentation?.tone || 'error');
+    }
   };
 
   document.getElementById('send-otp').onclick = async event => {
@@ -251,7 +268,9 @@
       reviewedPages = new Set((session.reviewed_pages || []).map(Number));
       content.hidden = false;
       render();
-      show('Review every page before signing.', 'info');
+      if (session.status !== 'verified') show(session.consented
+        ? session.otp?.expires_at ? 'Enter your verification code to finish signing.' : 'Your signature is saved. Send a verification code to finish signing.'
+        : 'Review every page before signing.', 'info');
       await loadPage();
     } catch (error) { show(error.message, error.presentation?.tone || 'error'); }
   })();

@@ -1,5 +1,50 @@
 # Known Gaps and Verified Workarounds
 
+## Configurable Origination signing - 12 October 2026
+
+Implemented the opt-in `all_required` policy: product defaults, document-owned
+participants/placements, Superuser application overrides, officer submission
+and deliberate link dispatch, parallel individual signatures, and transactional
+approval by the final required signature or stamp. Existing applications keep
+their captured approval policy. A matching compliance-approved consent policy
+is required; no product, consent or grant is activated by the migration.
+
+Migration 0007 adds the bounded participant table and nullable legacy-compatible
+session/action references. Synthetic PostgreSQL upgrade/reversal tests retain
+old packet bytes, policies and bearer-session evidence. Reversal is documented
+in ADR 0045 and the Admin guide; do not drop new evidence without an explicit
+backup/recovery decision. No cron, provider replacement or lending formula change.
+
+The focused PostgreSQL run passed 169 tests without skips, including concurrent
+final-signature retries, two borrowers/two same-role staff, required stamps,
+unchanged-save preview validity, authority, withdrawal, render failure, typed
+value contracts and scoped deletion. A final 23-test signing-plan run also passed,
+including the added officer queue regression: unsent/expired links stay actionable
+after the officer signs. The broader setup/editor/catalogue run
+passed 154 of 157 tests. Its three failures also reproduce on unchanged HEAD
+`e8928314`: grouped security-value repair, an older reusable-document Admin-copy
+label, and a duplicate requisition-number index. They are not suppressed here.
+
+All 48 selected browser checks passed. The 17 signing-specific checks were rerun
+after the final compactness changes. Actual templates/scripts and synthetic local
+responses cover 320/360/390/430px, desktop, light/dark Mini App themes, searchable
+Admin assignments and saved-signature recovery after SMS failure and refresh.
+Mobile Admin, pending/approved staff, and recipient screenshots were inspected.
+JavaScript syntax, the Node suite, Django checks and migration checks passed.
+
+The tracked-artifact audit still reports the same 19 logo/screenshot hash
+mismatches as the unchanged HEAD worktree. No assets, allowlist exceptions or
+customer data were added. Evidence is in `test-results/signing-plan-final-postgres.txt`,
+`signing-plan-regression-current-postgres.txt`, `signing-plan-baseline-postgres.txt`,
+`signing-plan-baseline-index.txt`, `signing-plan-browser-final-verified.txt`,
+`signing-plan-queues-final-postgres.txt`, `signing-plan-browser-signers-final.txt`,
+and the Playwright screenshot directory.
+
+No production migration/deployment, real SMS invitation/OTP, Telegram delivery
+or Drive archival was performed. Full-suite and live-device acceptance remain
+unverified. Review the new product/document/consent configuration before enabling
+the simplified policy for new applications.
+
 ## Origination field rules and country choices - 9 October 2026
 
 Main and supporting documents now share typed controls and server validation,

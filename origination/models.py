@@ -317,6 +317,11 @@ class OriginationProductDefinition(models.Model):
     version = models.PositiveIntegerField(default=1, db_comment='Version (PositiveIntegerField).')
     form_schema = models.JSONField(default=dict, db_comment='Form schema (JSONField).')
     signer_rules = models.JSONField(default=list, db_comment='Signer rules (JSONField).')
+    signing_policy = models.CharField(max_length=24, default='legacy', choices=[
+        ('legacy', 'Existing approval policy'), ('all_required', 'All required signers complete approval'),
+    ], db_comment='Published completion policy; legacy records are never reinterpreted.')
+    signing_defaults = models.JSONField(default=list, blank=True,
+        db_comment='Document-compatible default participant choices; copied into new applications.')
     approval_roles = models.JSONField(
         default=list, blank=True,
         help_text='Ordered approval signatures. Empty retains independent review; ["branch_manager"] enables BM approval and signing on a new published version.',
@@ -894,6 +899,12 @@ class LoanOriginationApplication(models.Model):
     form_payload = models.JSONField(default=dict, db_comment='Form payload (JSONField).')
     schema_snapshot = models.JSONField(default=dict, db_comment='Schema snapshot (JSONField).')
     signer_rules_snapshot = models.JSONField(default=list, db_comment='Signer rules snapshot (JSONField).')
+    signing_policy_snapshot = models.CharField(max_length=24, default='legacy',
+        db_comment='Creation-owned completion policy; never backfilled from the current product.')
+    signing_plan = models.JSONField(default=dict, blank=True,
+        db_comment='Current participant IDs and versioned plan; submitted bytes retain their own immutable copy.')
+    signing_plan_revision = models.PositiveIntegerField(default=0,
+        db_comment='Optimistic concurrency version for Admin participant configuration.')
     approval_roles_snapshot = models.JSONField(default=list, blank=True,
         db_comment='Immutable creation snapshot of the ordered approval signatures; never backfilled.')
     template_configuration_snapshot = models.JSONField(default=dict, blank=True, db_comment='Template configuration snapshot (JSONField).')
@@ -1437,6 +1448,39 @@ class OriginationApplicationDocument(models.Model):
 
 
 
+class OriginationSigningParticipant(models.Model):
+    """Immutable application-owned participant configuration; edits create successors."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Stable participant identity.')
+    application = models.ForeignKey(LoanOriginationApplication, on_delete=models.PROTECT,
+        related_name='signing_participants', db_comment='Owning application; scoped deletion only.')
+    role = models.CharField(max_length=80, db_comment='Allowlisted signing role, not the individual identity.')
+    participant_key = models.CharField(max_length=100, db_comment='Document-defined participant binding key.')
+    staff_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='assigned_origination_signing_participants', db_comment='Optional specific staff assignment; grants no authority.')
+    configuration = models.JSONField(default=dict, db_comment='Identity bindings and exact document obligations.')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='configured_origination_signing_participants', db_comment='Configuration actor; null for copied product defaults.')
+    created_at = models.DateTimeField(auto_now_add=True, db_comment='Configuration capture timestamp.')
+
+    class Meta:
+        db_table = 'origination_signing_participant_record'
+        db_table_comment = ('Domain: origination. Purpose: Immutable application signing participant and obligations. '
+            'Classification: authoritative_record. Source of truth: yes. Lifecycle: active. '
+            'Retention: Retain with application and all submitted signing evidence; scoped testing deletion only. '
+            'Parents: origination.LoanOriginationApplication, auth.User. '
+            'Children: origination.OriginationSignerSession, origination.OriginationSigningAction. '
+            'Code usage: origination.services.origination_signing_plans.')
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Submitted participant history is retained; create a new configuration instead.')
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.role.replace('_', ' ').title()
+
+
 class OriginationConsentPolicyVersion(models.Model):
     """Immutable approved wording bound to a conditional signing packet."""
 
@@ -1457,6 +1501,9 @@ class OriginationConsentPolicyVersion(models.Model):
     approval_roles = models.JSONField(default=list, blank=True,
         help_text='Approval sequence explicitly covered by this compliance-approved wording. Empty means independent post-sign review.',
         db_comment='Approval sequence covered by the immutable consent wording; empty means legacy review.')
+    signing_policy = models.CharField(max_length=24, default='legacy', choices=[
+        ('legacy', 'Existing approval policy'), ('all_required', 'All required signers complete approval'),
+    ], db_comment='Explicit completion rule covered by this consent; independent of legacy role sequence.')
     content_sha256 = models.CharField(max_length=64, unique=True, editable=False, db_comment='Content sha256 (CharField).')
     approval_reference = models.CharField(max_length=160, db_comment='Approval reference (CharField).')
     approved_by = models.ForeignKey(
@@ -1480,7 +1527,7 @@ class OriginationConsentPolicyVersion(models.Model):
         db_table_comment = 'Domain: origination. Purpose: Immutable approved wording bound to a conditional signing packet. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User. Children: origination.OriginationDocumentTemplate, origination.OriginationSigningPackage. Code usage: owning Django model and workflow service.'
         ordering = ['-created_at']
         constraints = [models.UniqueConstraint(
-            fields=['status', 'approval_roles'], condition=models.Q(status='active'),
+            fields=['status', 'approval_roles', 'signing_policy'], condition=models.Q(status='active'),
             name='one_active_orig_consent_sequence',
         )]
 
@@ -1496,6 +1543,8 @@ class OriginationConsentPolicyVersion(models.Model):
         }
         if self.approval_roles:
             content['approval_roles'] = self.approval_roles
+        if self.signing_policy != 'legacy':
+            content['signing_policy'] = self.signing_policy
         return hashlib.sha256(json.dumps(
             content, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
         ).encode('utf-8')).hexdigest()
@@ -1510,6 +1559,8 @@ class OriginationConsentPolicyVersion(models.Model):
         from origination.services.loan_origination import OriginationError
         try:
             validate_approval_roles(self.approval_roles)
+            if self.signing_policy == 'all_required' and self.approval_roles:
+                raise OriginationError('All-signers consent cannot require an ordered approval sequence.')
         except OriginationError as exc:
             raise ValidationError({'approval_roles': str(exc)}) from exc
         if self.status == self.STATUS_RETIRED and not (self.retired_by_id and self.retired_at):
@@ -1713,6 +1764,9 @@ class OriginationSignerSession(models.Model):
         (MODE_SELF_SERVICE, 'Self service'),
         (MODE_ASSISTED, 'Assisted by staff'),
     ]
+    participant = models.ForeignKey(OriginationSigningParticipant, null=True, blank=True,
+        on_delete=models.PROTECT, related_name='signer_sessions',
+        db_comment='Individual signer for new plans; null retains legacy role-based sessions.')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
     package = models.ForeignKey(
@@ -1760,9 +1814,12 @@ class OriginationSignerSession(models.Model):
         ordering = ['package', 'signer_role', '-created_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['package', 'signer_role'], condition=models.Q(is_active=True),
+                fields=['package', 'signer_role'], condition=models.Q(is_active=True, participant__isnull=True),
                 name='one_active_origination_signer_session',
             ),
+            models.UniqueConstraint(fields=['package', 'participant'],
+                condition=models.Q(is_active=True, participant__isnull=False),
+                name='one_active_orig_participant_session'),
             models.UniqueConstraint(
                 fields=['package', 'request_id'], condition=~models.Q(request_id=''),
                 name='unique_origination_signer_session_request',
@@ -1881,6 +1938,9 @@ class OriginationSigningAction(models.Model):
     MODE_TEST = 'test'
     MODE_VERIFIED = 'verified'
     MODE_CHOICES = [(MODE_TEST, 'Test simulation'), (MODE_VERIFIED, 'Verified production')]
+    participant = models.ForeignKey(OriginationSigningParticipant, null=True, blank=True,
+        on_delete=models.PROTECT, related_name='signing_actions',
+        db_comment='Exact individual participant; null for retained legacy evidence.')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
     package = models.ForeignKey(

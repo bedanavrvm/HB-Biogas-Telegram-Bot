@@ -10,7 +10,7 @@
   <meta name="description" content="Review and sign a JBL loan document packet">
   <title>JBL Loan Signing</title>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=12">
-  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20260821-3">
+  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20261012-1">
   <link rel="stylesheet" href="{% static 'miniapp/origination_signing_feedback.css' %}?v=20260828-2">
 </head>
 <body>
@@ -18,32 +18,33 @@
     <header class="sign-brand"><img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><small>SECURE LOAN DOCUMENTS</small><h1>Review and sign</h1></div></header>
     <div id="sign-status" class="notice" role="status" aria-live="polite">Loading your signing request…</div>
     <section id="sign-content" hidden>
-      <div class="summary-card"><div><span>Packet</span><strong id="sign-reference"></strong></div><div><span>Signing as</span><strong id="sign-role"></strong></div><div><span>OTP phone</span><strong id="sign-phone"></strong></div></div>
+      <div class="summary-card"><div><span>Packet</span><strong id="sign-reference"></strong></div><div><span>Signing as</span><strong id="sign-role"></strong></div><div><span>Phone</span><strong id="sign-phone"></strong></div></div>
       <div id="signing-mode-banner" class="mode-banner" role="status"><strong id="signing-mode-label"></strong><span id="signing-mode-detail"></span></div>
       <div id="shared-phone-warning" class="warning" hidden>Important: this phone number is also linked to another signer on this application. Check that the name and signing role above are yours before continuing.</div>
-      <section class="card">
-        <header><div><small>STEP 1</small><h2>Review the complete packet</h2></div><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><span id="page-label"></span><button id="page-next" type="button" aria-label="Next page">›</button></div></header>
+      <details class="card" id="review-card" open>
+        <summary>Review documents</summary>
+        <header><div><h2>Review</h2></div><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><span id="page-label"></span><button id="page-next" type="button" aria-label="Next page">›</button></div></header>
         <div id="document-list" class="document-list"></div>
         <div class="packet-preview"><div id="preview-loading">Loading page…</div><img id="packet-page" alt="Loan document page"></div>
-      </section>
-      <section class="card">
-        <header><div><small>STEP 2</small><h2>Create your signature</h2></div></header>
+      </details>
+      <section class="card" id="signature-card" hidden>
+        <header><div><h2>Sign</h2></div></header>
         <div class="signature-tabs" role="tablist"><button class="active" id="mode-drawn" type="button">Draw</button><button id="mode-typed" type="button">Type</button></div>
         <div id="draw-panel"><canvas id="signature-pad" width="800" height="260" tabindex="0" aria-label="Draw your signature, or use the Type button"></canvas><button id="signature-clear" class="link-button" type="button">Clear signature</button></div>
         <label id="type-panel" hidden><span>Type your full legal name</span><input id="typed-name" autocomplete="name" maxlength="120"></label>
         <label class="consent"><input id="packet-consent" type="checkbox"><span id="packet-consent-text">I have reviewed every document shown in this packet. I agree to sign the packet as one atomic loan application and understand that I cannot accept only some documents.</span></label>
         <label id="assisted-confirmation" class="consent" hidden><input id="assisted-consent" type="checkbox"><span>I am personally signing on a JBL officer’s device and will enter the OTP sent to my phone.</span></label>
-        <button id="save-signature" class="primary" type="button">Accept packet and save signature</button>
+        <button id="save-signature" class="primary" type="button">Confirm &amp; send code</button>
       </section>
-      <section class="card">
-        <header><div><small>STEP 3</small><h2>Verify your phone</h2></div></header>
+      <section class="card" id="verification-card" hidden>
+        <header><div><h2>Verify</h2></div></header>
         <p class="muted">The code verifies this signature against the exact packet you reviewed.</p>
         <button id="send-otp" class="secondary" type="button" disabled>Send verification code</button>
-        <div id="otp-panel" hidden><label><span>Six-digit code</span><input id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"></label><p id="otp-detail" class="muted"></p><button id="verify-otp" class="primary" type="button">Verify and sign complete packet</button></div>
+        <div id="otp-panel" hidden><label><span>Six-digit code</span><input id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"></label><p id="otp-detail" class="muted"></p><button id="verify-otp" class="primary" type="button">Verify &amp; sign</button></div>
       </section>
     </section>
   </main>
   <script src="{% static 'miniapp/utils.js' %}?v=25"></script>
-  <script src="{% static 'miniapp/origination_signing.js' %}?v=20261008-1"></script>
+  <script src="{% static 'miniapp/origination_signing.js' %}?v=20261012-1"></script>
 </body>
 </html>

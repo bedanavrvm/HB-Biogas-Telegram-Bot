@@ -1595,14 +1595,17 @@
   function renderSigners() {
     const list = $('document-signer-list'); if(!list) return;
     list.innerHTML = signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(rule.label || rule.role)}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(rule.label || rule.role)}" ${published ? 'disabled' : ''}>×</button></div>`).join('');
-    $('document-signer-role').innerHTML = signerRoles.filter(([role]) => !signerRules.some(r => r.role === role)).map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
+    $('document-signer-role').innerHTML = signerRoles.map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
     $('document-signer-add').disabled = published || !$('document-signer-role').options.length;
     $('document-signer-pack').disabled = published;
   }
   function addSigner(role) {
-    if(!role || signerRules.some(rule => rule.role === role)) return;
+    if(!role) return;
+    const count = signerRules.filter(rule => rule.role === role).length + 1;
     const label=signerRoles.find(([key]) => key === role)?.[1] || role;
-    signerRules.push({role,label,required:true,slots:[{key:'signature',type:'signature',label:`${label} signature`,required:true}]});
+    signerRules.push({role,label: count > 1 ? `${label} ${count}` : label,
+      ...(count > 1 ? {participant_key:`${role}_${count}`} : {}), required:true,
+      slots:[{key:count > 1 ? `signature_${count}` : 'signature',type:'signature',label:`${label} ${count} signature`,required:true}]});
   }
   function signerChanged() {signersDirty=true;autosaveFailed=false;serverReadinessIssue='';refreshDirtyState();}
   function detailsChanged() {documentDetails={name:$('document-name').value,products:[...$('document-product-choices').querySelectorAll('input:checked')].map(i => i.value),shared_values:Boolean($('document-shared-values')?.checked)};detailsDirty=true;autosaveFailed=false;refreshDirtyState();}
@@ -1611,7 +1614,7 @@
   $('document-product-choices')?.addEventListener('change',detailsChanged);
   $('document-signer-add')?.addEventListener('click',() => {addSigner($('document-signer-role').value);renderSigners();signerChanged();});
   $('document-signer-pack')?.addEventListener('change',event => {
-    for(const role of event.target.value.split(',')) addSigner(role);
+    for(const role of event.target.value.split(',')) if (!signerRules.some(rule => rule.role === role)) addSigner(role);
     event.target.value='';renderSigners();signerChanged();
   });
   $('document-lending-fields')?.addEventListener('click',() => {

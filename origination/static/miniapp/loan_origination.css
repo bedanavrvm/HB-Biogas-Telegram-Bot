@@ -523,3 +523,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .commercial-quote-warning { color: var(--laf-danger); }
 @media (max-width: 520px) { .commercial-quote-heading { display: grid; } }
 @media (max-width: 360px) { .evidence-upload-actions { grid-template-columns: 1fr; } }
+
+/* One task surface; existing form typography is intentionally unchanged. */
+.editor-context > .icon-button,.signing-panel-heading > .icon-button{flex:0 0 40px;width:40px;max-width:40px}
+.editor-context > div{min-width:0;flex:1}.editor-context .status-chip{flex:0 0 auto;max-width:40%;white-space:normal;text-align:center}
+.draft-document-action{display:flex;justify-content:flex-end;margin:0 0 8px}.draft-document-action .btn{min-height:40px}
+.wizard-actions > div{flex-wrap:wrap;min-width:0}.wizard-actions .btn{white-space:normal}
+.signing-workspace > header{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:0;border:0}
+.signing-workspace > header > div{flex:1;min-width:0}
+.signing-workspace h3,.signing-workspace p{margin:0}.signing-workspace header p{color:var(--laf-muted);margin-top:3px}
+.signing-workspace header .btn{flex:0 0 auto;width:auto;max-width:46%;min-height:40px;padding:7px 10px;white-space:normal}
+.staff-signing-consent{display:flex;align-items:flex-start;gap:8px;margin-top:10px}.staff-signing-consent input{flex:0 0 auto;width:20px;height:20px}
+.participant-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--laf-line)}
+.participant-person{min-width:0;overflow-wrap:anywhere}.participant-person small{display:block;color:var(--laf-muted)}
+.participant-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:170px}
+.participant-actions .btn{min-height:40px;white-space:normal;padding:7px 10px}.participant-actions .completed{background:var(--status-success-bg);color:var(--status-success)}
+.signer-stamp{grid-column:1/-1;display:flex;align-items:flex-end;gap:8px}.signer-stamp label{flex:1;min-width:0}.signer-stamp select{width:100%;min-height:40px}
+.workspace-details{border-top:1px solid var(--laf-line);margin-top:8px;padding-top:8px}.workspace-details summary{cursor:pointer;min-height:40px;display:flex;align-items:center;font-weight:600}
+.workspace-details small{display:block;color:var(--laf-muted)}.workspace-details p{margin-bottom:10px}.signer-assistance summary{cursor:pointer}
+@media(max-width:340px){.participant-actions{max-width:140px}.signing-workspace > header{align-items:flex-start}}

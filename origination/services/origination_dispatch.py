@@ -84,6 +84,24 @@ def queue_withdrawal_notices(package, actor):
         _reserve('origination_withdrawal_sms', session, actor)
 
 
+def update_signing_notices(package):
+    """Current grants and assignments authorize each individual private task."""
+    from origination.services.origination_signing_plans import workspace
+    application = package.application
+    assigned_ids = [item.get('staff_user_id') for item in package.participants_snapshot if item.get('staff_user_id')]
+    users = get_user_model().objects.filter(Q(access_grants__workflow='loan_origination') | Q(pk__in=assigned_ids), is_active=True).distinct()
+    for user in users:
+        ready = any(row['can_sign'] for row in workspace(application, package, user)['participants'])
+        key = f'plan-signing:{package.pk}:{user.pk}'
+        if not ready:
+            application.reviewer_notices.filter(request_id=key).update(seen_at=timezone.now())
+            continue
+        notice, _ = OriginationReviewerNotice.objects.get_or_create(application=application, package=package,
+            recipient=user, request_id=key, defaults={'created_by': application.officer,
+                'notice_type': 'approval_ready', 'message': 'Your signature is needed. Review the documents and sign.'})
+        _reserve('origination_approval_alert', notice, application.officer)
+
+
 def _perform(operation):
     if operation.operation_type == 'origination_approved_archive':
         from origination.services.origination_esign import archive_signed_package
@@ -114,6 +132,19 @@ def _perform(operation):
     notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').filter(pk=operation.source_id).first()
     if notice is None:
         return {'cancelled': True}
+    if notice.application.signing_policy_snapshot == 'all_required':
+        from origination.services.origination_signing_plans import workspace
+        if notice.seen_at or not any(row['can_sign'] for row in workspace(notice.application, notice.package, notice.recipient)['participants']):
+            return {'cancelled': True}
+        from core.services.telegram_launchers import telegram_api_call
+        profile = getattr(notice.recipient, 'staff_profile', None)
+        if not profile or not profile.telegram_id:
+            raise RuntimeError('Signer Telegram identity is not configured.')
+        base = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
+        telegram_api_call('sendMessage', {'chat_id': profile.telegram_id,
+            'text': f'JBL application {notice.application.reference_number}\nYour signature is needed.',
+            'reply_markup': {'inline_keyboard': [[{'text': 'Open Origination', 'web_app': {'url': f'{base}/origination/?application={notice.application_id}'}}]]}})
+        return {'sent': True}
     from origination.services.origination_approval import signing_progress
     from origination.services.origination_esign import STAFF_SIGNER_ACCESS_ROLES
     from core.services.workflow_access import workflow_access_decision

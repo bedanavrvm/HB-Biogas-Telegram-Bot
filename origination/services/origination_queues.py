@@ -34,7 +34,7 @@ def actionable_applications(scoped, *, user, access):
 
     # Legacy packets still require preparation, independent review and dispatch.
     for row in scope('origination.signing.start').filter(
-        approval_roles_snapshot=[], status__in=['ready_for_review', 'reviewed'],
+        approval_roles_snapshot=[], signing_policy_snapshot='legacy', status__in=['ready_for_review', 'reviewed'],
     ):
         prepared = row.signing_packages.filter(status='pending', review_scope_sha256__gt='').exists()
         if str(row.pk) in actions:
@@ -44,14 +44,14 @@ def actionable_applications(scoped, *, user, access):
         elif not prepared:
             actions[str(row.pk)] = 'Prepare packet'
     for row in scope('origination.review').filter(
-        approval_roles_snapshot=[], status__in=['ready_for_review', 'signed_pending_approval'],
+        approval_roles_snapshot=[], signing_policy_snapshot='legacy', status__in=['ready_for_review', 'signed_pending_approval'],
     ).exclude(officer=user):
         if row.status == 'signed_pending_approval':
             actions[str(row.pk)] = 'Review signed application'
         elif row.signing_packages.filter(status='pending', review_scope_sha256__gt='').exists():
             actions[str(row.pk)] = 'Review application'
 
-    from origination.services.origination_esign import STAFF_SIGNER_ACCESS_ROLES
+    from origination.services.origination_esign import STAFF_SIGNER_ACCESS_ROLES, STAFF_SIGNER_ROLES, esign_enabled
     from origination.services.origination_approval import signing_progress
     from origination.services.origination_signing import _slot_catalog
     packages = OriginationSigningPackage.objects.filter(
@@ -65,6 +65,11 @@ def actionable_applications(scoped, *, user, access):
         if row.pk in seen:
             continue
         seen.add(row.pk)
+        if row.signing_policy_snapshot == 'all_required':
+            from origination.services.origination_signing_plans import workspace
+            if any(item['can_sign'] for item in workspace(row, package, user)['participants']):
+                actions[str(row.pk)] = 'Sign application'
+            continue
         decision = workflow_access_decision(
             user, 'loan_origination', 'origination.signing.staff', access=access, resource=row)
         complete = {(a.document_key, a.slot_key) for a in package.actions.all()
@@ -91,4 +96,24 @@ def actionable_applications(scoped, *, user, access):
                    for s in slots if s['role'] == role):
                 actions[str(row.pk)] = 'Review and sign' if role in row.approval_roles_snapshot else 'Sign application'
                 break
+    # Signing the officer's own box must not hide the remaining dispatch task.
+    # This is an officer action, not an automatic customer invitation.
+    if esign_enabled():
+        from django.utils import timezone
+        for row in scope('origination.create').filter(officer=user, signing_policy_snapshot='all_required',
+                status__in=['signing_pending', 'partially_signed']):
+            if str(row.pk) in actions:
+                continue
+            package = row.signing_packages.filter(status__in=['pending', 'in_progress'], test_mode=False).first()
+            if not package:
+                continue
+            completed = set(package.actions.filter(mode='verified', invalidation__isnull=True).values_list('document_key', 'slot_key'))
+            linked = set(package.signer_sessions.filter(is_active=True, token_expires_at__gt=timezone.now(),
+                status__in=['pending', 'otp_sent', 'verified']).values_list('participant_id', flat=True))
+            if any(person['role'] not in STAFF_SIGNER_ROLES and person.get('required')
+                   and not all((slot.get('document_key', 'primary'), slot['key']) in completed
+                               for slot in person.get('slots', []) if slot.get('required', True))
+                   and person.get('participant_id') not in {str(pk) for pk in linked}
+                   for person in package.participants_snapshot):
+                actions[str(row.pk)] = 'Send signing links'
     return actions

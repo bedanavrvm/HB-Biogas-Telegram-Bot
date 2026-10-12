@@ -426,7 +426,7 @@ def prepare_document_profile(*, definition, templates):
     definition.form_schema = merge_commercial_contract(schema)
     # Preserve established minimum signing requirements; a new product adopts
     # its chosen LAF roles once instead of asking for a second signer builder.
-    if not definition.signer_rules:
+    if not definition.signer_rules or definition.signing_policy == 'all_required':
         definition.signer_rules = deepcopy(signers)
     if definition.approval_roles:
         by_role = {rule.get('role'): rule for rule in definition.signer_rules}
