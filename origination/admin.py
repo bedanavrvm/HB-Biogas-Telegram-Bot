@@ -1697,7 +1697,7 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         return super().get_readonly_fields(request, obj)
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
-        from origination.services.loan_origination import SIGNER_ROLE_CATALOG
+        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
         from origination.services.origination_fields import catalogue_for_product
         product = self.get_object(request, object_id) if object_id else None
         if (
@@ -2221,7 +2221,7 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     if setup_token:
                         calibration_url += '?' + urlencode({'setup_return': setup_token})
                     return HttpResponseRedirect(calibration_url)
-        from origination.services.loan_origination import SIGNER_ROLE_CATALOG
+        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
         from origination.services.origination_fields import catalogue_for_product
         return TemplateResponse(request, 'admin/core/originationproductdefinition/supporting_document_setup.html', {
             **self.admin_site.each_context(request),
@@ -2641,7 +2641,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         context = {**(extra_context or {})}
-        from origination.services.loan_origination import SIGNER_ROLE_CATALOG
+        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
         from origination.services.origination_fields import catalogue_for_product
         selected_product_id = request.POST.get('product_definition') or request.GET.get('product_definition')
         selected_product = OriginationProductDefinition.objects.filter(
@@ -2991,7 +2991,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
         from origination.services.origination_setup_documents import shared_review
         from origination.services.document_editor import readiness, authoring_products
-        from origination.services.loan_origination import SIGNER_ROLE_CATALOG
+        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
         return JsonResponse({
             'ok': True,
             'revision': latest.revision if latest else 0,
@@ -3188,7 +3188,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         obj = self._calibration_template(request, object_id)
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        if obj.product_definition_id is None:
+        if not self._pending_supporting_attachment(request, obj):
             try:
                 from origination.services.document_editor import publish_document
                 body = self._json_body(request)

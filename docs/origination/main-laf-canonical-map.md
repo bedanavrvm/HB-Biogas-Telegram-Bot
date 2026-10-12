@@ -61,11 +61,26 @@ widens an allowlist.
 
 ## Publication boundary
 
-The Admin alignment builder remains human-owned. An administrator must place
-fields and signer/stamp slots, choose checkbox conditions, inspect overflow and
-typography, preview realistic values, publish an alignment revision, and only
-then activate the catalogue version. The SME template must white-out the fixed
-`No. 3096` and overlay `reference_number` before activation.
+The Document editor remains human-owned. Missing fields, signers and placement
+are warnings, not publication blockers, in every environment. Publish saves the
+valid PDF/layout as an immutable version; it never publishes a product or makes
+an incomplete application ready for signing. Required signature geometry is
+checked before a signing package or links can be created. See
+[advisory publication](../adr/0046-advisory-laf-publication.md).
+
+Before operational use, review checkbox conditions, overflow and typography
+with realistic preview values. The SME template should white-out the printed
+`No. 3096` and overlay `reference_number`. Placed items show a green check in the
+editor. Add lending fields through the normal field picker; historical borrower
+role bindings remain valid but are not offered as a separate legacy option.
+
+Editable copies retain published placement, appearance and sample values; only
+drafts recorded as copies of that exact source are reused. Reopening a genuine
+draft keeps its later edits. Seeds recognize the existing logical document,
+including human edits and product assignments, instead of creating blank
+successors. Environment bootstrap completion survives seed-fingerprint changes
+and document deletion. Use explicit `bootstrap_origination_lafs --apply --force`
+to recreate missing seeds; present documents are not replaced.
 
 Each LAF has a dedicated reference containing its complete field, signer,
 evidence, validation, and render contract. `LafSeedDocumentationContractTests`

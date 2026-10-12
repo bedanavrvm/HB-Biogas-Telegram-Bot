@@ -33,6 +33,8 @@ from origination.services.origination_esign import (complete_staff_signatures, c
     APP_BASE_URL='http://127.0.0.1:8765')
 class SigningPlanTests(TestCase):
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         users = get_user_model()
         self.officer = users.objects.create_user(username='synthetic-plan-maker', is_superuser=True, is_staff=True)
         self.admin = users.objects.create_user(username='synthetic-plan-admin', is_superuser=True, is_staff=True)
@@ -329,6 +331,21 @@ class SigningPlanTests(TestCase):
         self.assertEqual(package.consent_policy.signing_policy,'all_required')
         self.assertEqual(len(PdfReader(BytesIO(bytes(package.frozen_unsigned_document))).pages),2)
         self.assertEqual(len(package.participants_snapshot),5)
+
+    def test_missing_required_placement_is_rejected_before_render_or_links(self):
+        self.submission_document()
+        document = self.application.packet_documents.get(document_key='primary')
+        document.template_snapshot['configuration']['signature_overlay_manifest']['slots'].pop('borrower.signature_0')
+        document.save(update_fields=['template_snapshot'])
+        with patch('origination.services.origination_documents.render_packet') as render:
+            with self.assertRaisesRegex(OriginationError, 'Place the required signatures'):
+                confirm_and_start_conditional_signing(application_id=self.application.pk, actor=self.officer,
+                    expected_revision=self.application.revision, request_id='missing-placement')
+        render.assert_not_called()
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'draft')
+        self.assertFalse(self.application.signing_packages.exists())
+        self.assertFalse(OriginationSignerSession.objects.filter(package__application=self.application).exists())
 
     def test_preparation_failure_returns_to_saved_draft(self):
         self.submission_document()

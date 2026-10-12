@@ -8,11 +8,12 @@ templates; it never publishes visual coordinates or changes product policy.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from django.db import models, transaction
+from django.db import connection, models, transaction
 
 from origination.models import (
     OriginationDataField,
@@ -697,11 +698,31 @@ def preflight_seed(definition: MainLafDefinition, *, laf_root: str | Path, unass
     source = _source_plan(definition, laf_root)
     product = None if unassigned else _product(definition)
     _validate_field_contract(definition)
-    candidates = OriginationDocumentTemplate.objects.filter(
-        document_type=definition.document_type, source_sha256=definition.sha256,
-        product_definition__isnull=True,
-    ).order_by('-version')
+    candidates = _seed_candidates(definition)
     return {**source, 'definition': definition, 'product': product, 'candidates': list(candidates)}
+
+
+def _seed_candidates(definition):
+    """Seed identity survives human edits, assignment and later publication."""
+    recorded = OriginationDocumentTemplateEvent.objects.filter(
+        action='main_laf_seed_created', metadata__seed_key=definition.key,
+    ).values('template_id')
+    return OriginationDocumentTemplate.objects.filter(product_definition__isnull=True).filter(
+        models.Q(pk__in=recorded) | models.Q(document_type=definition.document_type)
+        | models.Q(source_sha256=definition.sha256, document_role=definition.document_role),
+    ).order_by(models.Case(
+        models.When(status='active', then=0), models.When(status='ready', then=1),
+        models.When(status='upload_failed', then=2), default=3), '-version', '-created_at')
+
+
+def _lock_seed(definition):
+    # First requests have no document row to lock. PostgreSQL's transaction lock
+    # serializes that exact logical seed, including manual/bootstrap callers.
+    if connection.vendor == 'postgresql':
+        key = int.from_bytes(hashlib.sha256(('origination-laf-seed:' + definition.key).encode()).digest()[:8],
+                             byteorder='big', signed=True)
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(%s)', [key])
 
 
 def _ensure_fields(definition: MainLafDefinition, *, actor) -> dict[str, OriginationDataField]:
@@ -807,31 +828,12 @@ def build_form_schema(
     return schema
 
 
-def _contract_matches(
-    template: OriginationDocumentTemplate, *, definition: MainLafDefinition,
-    schema: dict[str, Any], product: Product | None,
-) -> bool:
-    actual_products = set(template.product_eligibilities.values_list('product_id', flat=True))
-    expected_products = {product.pk} if product else set()
-    return (
-        template.product_definition_id is None
-        and template.document_role == definition.document_role
-        and template.document_key == ('primary' if definition.document_role == 'primary' else definition.key)
-        and template.form_schema == schema
-        and template.signer_rules == list(definition.signers)
-        and actual_products == expected_products
-    )
-
-
 @transaction.atomic
 def _template_for(
     plan: dict[str, Any], *, schema: dict[str, Any], actor,
 ) -> tuple[OriginationDocumentTemplate, bool]:
     definition: MainLafDefinition = plan['definition']
     product: Product | None = plan['product']
-    for candidate in plan['candidates']:
-        if _contract_matches(candidate, definition=definition, schema=schema, product=product):
-            return candidate, False
     version = (
         OriginationDocumentTemplate.objects.filter(document_type=definition.document_type)
         .aggregate(models.Max('version'))['version__max'] or 0
@@ -848,6 +850,7 @@ def _template_for(
         source_byte_size=definition.byte_size, page_count=definition.page_count,
         placement_config=config, form_schema=json.loads(json.dumps(schema)),
         signer_rules=json.loads(json.dumps(definition.signers)), created_by=actor,
+        status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
     )
     template.full_clean()
     template.save()
@@ -871,18 +874,31 @@ def apply_seed(definition: MainLafDefinition, *, laf_root: str | Path, actor, sh
         raise MainLafSeedError('The seed actor must be an active Django Superuser.')
     plan = preflight_seed(definition, laf_root=laf_root, unassigned=unassigned)
     with transaction.atomic():
-        fields = _ensure_fields(definition, actor=actor)
-        schema = build_form_schema(definition, fields, shared_values=shared_values)
-        from origination.services.loan_origination import validate_product_form_contract
-        validate_product_form_contract(schema, list(definition.signers), require_signers=definition.document_role == 'primary')
-        template, created = _template_for(plan, schema=schema, actor=actor)
-    if created or template.status == template.STATUS_UPLOAD_FAILED or not template.drive_file_id:
-        template = upload_template_record(template, pdf_data=plan['pdf_data'], actor=actor)
+        _lock_seed(definition)
+        template = _seed_candidates(definition).first()
+        if template:
+            created = False
+            fields = {field.key: field for field in OriginationDataField.objects.filter(
+                key__in=[spec['key'] for spec in definition.fields])}
+        else:
+            fields = _ensure_fields(definition, actor=actor)
+            schema = build_form_schema(definition, fields, shared_values=shared_values)
+            from origination.services.loan_origination import validate_product_form_contract
+            validate_product_form_contract(schema, list(definition.signers), require_signers=definition.document_role == 'primary')
+            template, created = _template_for(plan, schema=schema, actor=actor)
+    # Serialize provider publication too. A crash after reserving the draft is
+    # resumable, and simultaneous seed requests never upload the same PDF twice.
+    with transaction.atomic():
+        _lock_seed(definition)
+        template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
+        if template.status == template.STATUS_UPLOAD_FAILED and template.source_sha256 == definition.sha256:
+            template = upload_template_record(template, pdf_data=plan['pdf_data'], actor=actor)
     if template.status == template.STATUS_UPLOAD_FAILED:
         raise MainLafSeedError(template.upload_error or f'{definition.name} could not be uploaded.')
     return {
         'definition': definition, 'template': template, 'fields': fields,
         'product': plan['product'], 'created_template': created,
+        'status': 'created' if created else 'reused',
     }
 
 

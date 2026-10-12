@@ -19,3 +19,5 @@ class Command(BaseCommand):
         except Exception as exc:
             raise CommandError('LAF bootstrap failed. Check the reviewed assets, canonical field contracts, active Superuser actor and Drive configuration.') from exc
         self.stdout.write(f"LAF bootstrap: {result['status']} ({result['fingerprint'][:12]}).")
+        if any(key in result for key in ('created', 'reused', 'skipped')):
+            self.stdout.write(f"Created: {result.get('created', 0)}; reused: {result.get('reused', 0)}; skipped: {result.get('skipped', 0)}.")

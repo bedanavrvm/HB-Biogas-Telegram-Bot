@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=23">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=24">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -25,13 +25,12 @@
  <details id="document-pdf"><summary>PDF</summary><p>{{ template_record.page_count }} page{{ template_record.page_count|pluralize }}</p><label for="document-name">Document name</label><input id="document-name" maxlength="180"><details><summary>Used by products</summary><div id="document-product-choices"></div></details><label class="cal-field-check"><input type="checkbox" id="document-shared-values"> Share application values across documents</label><a href="{% url 'admin:origination_document_new' %}?source={{ template_record.pk }}">Copy or upload a new PDF</a></details>
  <details id="document-signers" open><summary>Signers</summary><div class="document-signer-controls"><label for="document-signer-pack">Start with</label><select id="document-signer-pack"><option value="">Choose a signer pack</option><option value="borrower,officer,credit_analyst,branch_manager">Borrower + Officer + CA + BM</option><option value="borrower,guarantor_1,officer,credit_analyst,branch_manager">Add Guarantor</option></select><div id="document-signer-list"></div><label for="document-signer-role">Add signer</label><select id="document-signer-role"></select><button type="button" class="cal-button" id="document-signer-add">Add signer</button></div></details>
       <details id="calibration-readiness" class="calibration-readiness" open>
-        <summary><span><span id="calibration-readiness-heading" class="calibration-readiness-title">To do</span><strong id="calibration-readiness-count">Checking…</strong></span></summary>
+        <summary><span><span id="calibration-readiness-heading" class="calibration-readiness-title">Warnings</span><strong id="calibration-readiness-count">Checking…</strong></span></summary>
         <div class="calibration-readiness-body"><p id="calibration-readiness-message">Checking…</p><ul id="calibration-readiness-items"></ul></div>
       </details>
       <div class="tool-row"><button type="button" class="cal-button" id="calibration-add">+ Field</button><button type="button" class="cal-button" id="calibration-add-signature">+ Signature</button><button type="button" class="cal-button" id="calibration-draw">Draw</button><button type="button" class="cal-button" id="calibration-duplicate">Duplicate field</button><button type="button" class="cal-button cal-button-danger" id="calibration-delete">Delete</button></div>
       <details class="calibration-field-browser" id="calibration-field-browser" open>
         <summary><span>Fields and signatures</span><strong id="calibration-field-summary-count">0 items</strong></summary>
-        {% if template_record.status == 'ready' %}<button type="button" class="cal-button" id="document-lending-fields">Add lending fields</button>{% endif %}
         <div class="calibration-field-browser-body"><label>Find field<input id="calibration-search" type="search" placeholder="Name or signer"></label>
         <div id="calibration-fields" class="calibration-navigator" role="list" aria-label="Fields and signatures"></div></div>
       </details>
@@ -165,5 +164,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=25"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=26"></script>
 {% endblock %}

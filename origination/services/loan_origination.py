@@ -64,7 +64,7 @@ APPLICANT_IDENTITY_CONTRACT = 'applicant_v1'
 
 SIGNER_ROLE_CATALOG = (
     ('borrower', 'Borrower'),
-    ('customer', 'Borrower (legacy compatibility role)'),
+    ('customer', 'Borrower'),
     ('invoice_payer_representative', 'Invoice Payer Representative'),
     ('guarantor_1', 'Guarantor 1'),
     ('guarantor_2', 'Guarantor 2'),
@@ -78,6 +78,12 @@ SIGNER_ROLE_CATALOG = (
     ('supplier_representative', 'Supplier Representative'),
     ('commissioner_for_oaths', 'Commissioner for Oaths'),
     ('witness', 'Witness'),
+)
+
+# Historical role keys remain valid in frozen contracts, not new role choices.
+AUTHORING_SIGNER_ROLE_CATALOG = tuple(
+    (key, 'Officer' if key == 'officer' else label)
+    for key, label in SIGNER_ROLE_CATALOG if key != 'customer'
 )
 
 
@@ -2164,7 +2170,10 @@ def prepare_review_package(
         )
     package_id = uuid.uuid4()
     from origination.services.origination_evidence import evidence_manifest
-    from origination.services.origination_documents import packet_signers, render_packet
+    from origination.services.origination_documents import packet_signers, render_packet, validate_signing_placements
+    from origination.services.origination_signing_plans import enabled as plan_enabled, freeze_plan
+    participants = freeze_plan(application) if plan_enabled(application) else packet_signers(application)
+    validate_signing_placements(application, participants)
     packet_pdf, document_manifest = (
         render_packet(application) if application.packet_documents.exists() else (b'', [])
     )
@@ -2209,10 +2218,7 @@ def prepare_review_package(
         'product_custom_values': application.product_custom_values,
         'product_selected_fee_keys': application.product_selected_fee_keys,
     }
-    from origination.services.origination_signing_plans import enabled as plan_enabled, freeze_plan
-    participants = packet_signers(application)
     if plan_enabled(application):
-        participants = freeze_plan(application)
         frozen_context['_signing_plan'] = {**application.signing_plan, 'policy': 'all_required'}
     primary_document = application.packet_documents.filter(
         document_role='primary', selected=True,

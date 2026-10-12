@@ -38,6 +38,7 @@ class Command(BaseCommand):
         try:
             for definition in definitions:
                 result = apply_seed(definition, laf_root=options['laf_root'], actor=actor, shared_values=True)
-                self.stdout.write(f'Prepared {result["template"].name}; review fields, signers and placement. Not published or assigned to products.')
+                self.stdout.write(f'{"Created" if result["created_template"] else "Reused"} {result["template"].name}; '
+                    f'status: {result["template"].status}. Existing edits and assignments are preserved.')
         except MainLafSeedError as exc:
             raise CommandError(str(exc)) from exc

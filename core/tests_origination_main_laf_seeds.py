@@ -179,7 +179,7 @@ class MainLafSeedTests(TestCase):
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
     @patch('origination.services.origination_main_laf_seeds.upload_template_record')
-    def test_changed_contract_creates_successor_without_mutating_active_version(self, upload):
+    def test_changed_seed_contract_preserves_the_existing_human_document(self, upload):
         upload.side_effect = self._uploaded
         first = apply_seed(self.definition, laf_root=self.root, actor=self.actor)['template']
         first.status = first.STATUS_ACTIVE
@@ -196,12 +196,14 @@ class MainLafSeedTests(TestCase):
         first.refresh_from_db()
         self.assertEqual(first.status, first.STATUS_ACTIVE)
         self.assertEqual(first.version, 1)
-        self.assertEqual(successor.version, 2)
-        self.assertNotEqual(first.pk, successor.pk)
+        self.assertEqual(successor.version, 1)
+        self.assertEqual(first.pk, successor.pk)
+        self.assertEqual(upload.call_count, 1)
+        self.assertNotIn('synthetic_optional_note', [field['key'] for field in successor.form_schema['fields']])
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
     @patch('origination.services.origination_main_laf_seeds.upload_template_record')
-    def test_manual_allowlist_widening_is_not_silently_accepted(self, upload):
+    def test_seeding_preserves_manual_product_assignments(self, upload):
         upload.side_effect = self._uploaded
         first = apply_seed(self.definition, laf_root=self.root, actor=self.actor)['template']
         extra = Product.objects.create(name='Other Product', code='other_product')
@@ -211,10 +213,10 @@ class MainLafSeedTests(TestCase):
 
         successor = apply_seed(self.definition, laf_root=self.root, actor=self.actor)['template']
 
-        self.assertNotEqual(first.pk, successor.pk)
+        self.assertEqual(first.pk, successor.pk)
         self.assertEqual(
             set(successor.product_eligibilities.values_list('product__code', flat=True)),
-            {'synthetic_laf'},
+            {'synthetic_laf', 'other_product'},
         )
 
     def test_inactive_superuser_is_rejected(self):

@@ -100,3 +100,72 @@ for (const mode of ['detail', 'alignment']) {
     }
   });
 }
+
+test('alignment warnings allow publication and placed items stay compact and green', async ({page}, info) => {
+  const markup = '<!doctype html><meta charset="utf-8">' + render('editor');
+  const fields = [
+    {key:'synthetic_email',label:'Applicant email',type:'text',attached:true,required:true},
+    {key:'synthetic_address',label:'Applicant residential address',type:'text',attached:true,required:true},
+  ];
+  const configuration = {document_type:'synthetic',version:1,
+    field_overlay_manifest:{fields:{email:{context_key:fields[0].key,page_number:1,box:{x:50,y:50,width:180,height:20}}}},
+    signature_overlay_manifest:{slots:{}},sample_context:{synthetic_email:'synthetic@example.test'}};
+  const readiness = {can_publish:true,blockers:[],tasks:[
+    {key:'field:synthetic_address',label:'Place: Applicant residential address',section:'placement',blocking:false},
+    {key:'signature:borrower.signature',label:'Place: Borrower signature',section:'placement',blocking:false},
+  ]};
+  let publishRequest;
+  await page.route(/^https?:\/\//, route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'http://127.0.0.1:8124') return route.abort();
+    if (url.pathname === '/') return route.fulfill({contentType:'text/html',body:markup});
+    if (url.pathname.endsWith('/calibration-state/')) return route.fulfill({json:{configuration,revision:1,schema_revision:1,
+      page_sizes:[{page_number:1,width:595,height:842}],context_keys:fields,readiness,
+      signers:[{role:'borrower',label:'Borrower',required:true}],signer_roles:[['borrower','Borrower'],['customer','Borrower (legacy compatibility role)']],
+      signature_slots:[{role:'borrower',slot_key:'signature',label:'Borrower signature',required:true}],
+      details:{name:'Synthetic Main LAF',products:[],shared_values:false},shared_review:{required:false}}});
+    if (url.pathname.endsWith('/calibration-page/')) return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/></svg>'});
+    if (url.pathname.endsWith('/editor-readiness/')) return route.fulfill({json:{readiness,shared_review:{required:false}}});
+    if (url.pathname.endsWith('/calibration-save/')) return route.fulfill({json:{revision:2,
+      configuration:route.request().postDataJSON().configuration,readiness}});
+    if (url.pathname.endsWith('/calibration-publish/')) {
+      publishRequest = route.request().postDataJSON();
+      return route.fulfill({json:{ok:true,revision:2}});
+    }
+    return route.abort();
+  });
+  await page.goto('http://127.0.0.1:8124/');
+  await page.addStyleTag({content:'body{font:14px/1.4 Arial,sans-serif;margin:0;background:#f5f7fa}button,input{font:inherit}'});
+  await page.addStyleTag({path:path.join(root,'origination/static/admin/origination_calibration.css')});
+  await page.addScriptTag({path:path.join(root,'origination/static/admin/origination_calibration.js')});
+  await expect(page.locator('.calibration-nav-row.is-placed')).toHaveCount(1);
+  await expect(page.locator('#calibration-readiness-count')).toHaveText('2 warnings');
+  await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
+  await expect(page.locator('#calibration-status')).not.toContainText('Failed');
+  await expect(page.locator('#calibration-publish')).toBeEnabled();
+  await expect(page.locator('#calibration-readiness-heading')).toHaveText('Warnings');
+  await expect(page.locator('.calibration-nav-row.is-placed')).toHaveCount(1);
+  await expect(page.locator('.calibration-nav-row.is-placed')).toContainText('Placed');
+  await expect(page.locator('#document-lending-fields')).toHaveCount(0);
+  await expect(page.locator('#document-signer-role option[value="customer"]')).toHaveCount(0);
+  for (const theme of ['light','dark']) {
+    await page.evaluate(dark => document.documentElement.classList.toggle('dark',dark),theme === 'dark');
+    for (const width of [320,390,430,1280]) {
+      await page.setViewportSize({width,height:900});
+      if (width < 761) await page.locator('#cal-mobile-fields').click();
+      await page.locator('#calibration-readiness').evaluate(node => {node.open=true;});
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect(page.locator('.calibration-nav-row.is-placed')).toBeVisible();
+      await page.screenshot({path:info.outputPath(`alignment-warnings-${theme}-${width}.png`)});
+      if (width < 761) {
+        await page.locator('.calibration-nav-row.is-placed').scrollIntoViewIfNeeded();
+        await page.screenshot({path:info.outputPath(`alignment-placed-${theme}-${width}.png`)});
+        await page.keyboard.press('Escape');
+      }
+    }
+  }
+  await page.locator('#calibration-publish').click();
+  await expect(page.locator('#calibration-status')).toContainText('Document published');
+  expect(publishRequest.revision).toBe(2);
+  expect(configuration.field_overlay_manifest.fields.email.box).toEqual({x:50,y:50,width:180,height:20});
+});

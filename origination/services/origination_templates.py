@@ -529,7 +529,7 @@ def publish_calibration(
 ) -> OriginationTemplateConfigurationRevision:
     template = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=template.pk)
     selected = template.configuration_revisions.get(revision=revision)
-    validate_template_configuration(selected.configuration, template=template)
+    validate_template_configuration(selected.configuration, template=template, require_complete=False)
     request_id = _calibration_request_id(client_request_id)
     payload_hash = _calibration_payload_hash({'source_revision': int(revision)})
     replay = _calibration_request_replay(
@@ -541,6 +541,11 @@ def publish_calibration(
     current_published = template.published_configuration_revision
     if current_published and current_published.configuration == selected.configuration:
         return current_published
+    if template.status in {template.STATUS_ACTIVE, template.STATUS_RETIRED}:
+        raise OriginationTemplateError('Published documents cannot change. Create an editable version first.')
+    latest = template.configuration_revisions.order_by('-revision').first()
+    if latest and latest.pk != selected.pk:
+        raise OriginationTemplateError('The document changed. Publish its latest saved layout.')
     # Revisions are append-only: publishing creates a new immutable revision.
     published = OriginationTemplateConfigurationRevision.objects.create(
         template=template,
@@ -990,7 +995,7 @@ def clone_reusable_template_version(
     retires the old family version; existing applications and pinned product
     assignments remain unchanged.
     """
-    if not getattr(actor, 'is_superuser', False):
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
         raise OriginationTemplateError('Only a Django Superuser may version legal templates.')
     # Lock only the concrete template row. ``published_configuration_revision``
     # is nullable, and PostgreSQL rejects FOR UPDATE when a select_related()
@@ -1000,7 +1005,11 @@ def clone_reusable_template_version(
         raise OriginationTemplateError(
             'Create an editable version from the current published family version.',
         )
-    existing = OriginationDocumentTemplate.objects.select_for_update().filter(
+    copies = OriginationDocumentTemplateEvent.objects.filter(
+        action='editable_version_created', metadata__source_template_id=str(source.pk),
+    ).values('template_id')
+    existing = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).filter(
+        pk__in=copies,
         product_definition__isnull=True,
         document_type=source.document_type,
         status=OriginationDocumentTemplate.STATUS_READY,
@@ -1118,7 +1127,7 @@ def _source_template_for_product(
             ],
         )
         .select_related('published_configuration_revision')
-        .order_by('-created_at')
+        .order_by(models.Case(models.When(status='active', then=0), default=1), '-created_at')
         .first()
     )
     if template:
@@ -1153,12 +1162,17 @@ def _inherit_template_for_product_version(
     ).exclude(
         document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
         document_key__in=assigned_keys,
-    ).select_related('published_configuration_revision').order_by('display_order', 'document_key'))
+    ).select_related('published_configuration_revision').order_by(
+        'document_key', models.Case(models.When(status='active', then=0), default=1), 'display_order', '-created_at'))
     if not source_templates:
         fallback = _source_template_for_product(source)
         source_templates = [fallback] if fallback and fallback.drive_file_id else []
     inherited_primary = None
+    inherited_keys = set()
     for source_template in source_templates:
+        if source_template.document_key in inherited_keys:
+            continue
+        inherited_keys.add(source_template.document_key)
         existing = successor.document_templates.filter(
             document_key=source_template.document_key,
             status__in=[
@@ -1421,12 +1435,12 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     if template.status != template.STATUS_ACTIVE and template.product_definition_id is None:
         from origination.services.origination_setup_documents import reconcile_shared_eligibility
         reconcile_shared_eligibility(template)
-    from origination.services.origination_document_catalogue import validate_catalogue_publication
-    from origination.services.loan_origination import OriginationError
-    try:
-        validate_catalogue_publication(template)
-    except OriginationError as exc:
-        raise OriginationTemplateError(str(exc)) from exc
+    # Document publication records the saved layout. Completeness is advisory;
+    # product availability and application signing retain their own checks.
+    validate_template_configuration(
+        template.published_configuration_revision.configuration,
+        template=template, require_complete=False,
+    )
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
         folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
@@ -1456,7 +1470,8 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     template.activated_by = actor
     template.activated_at = timezone.now()
     template.save(update_fields=['status', 'activated_by', 'activated_at', 'updated_at'])
-    activation_metadata = {}
+    from origination.services.document_editor import readiness
+    activation_metadata = {'warnings': readiness(template)['warnings']}
     if template.product_definition_id is None:
         family_assignments = OriginationProductDocumentAssignment.objects.filter(
             version_policy=OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
@@ -1467,11 +1482,11 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
             resolved = resolve_assignment_template(assignment)
             target = latest_ids if resolved and resolved.pk == template.pk else fallback_ids
             target.append(str(assignment.pk))
-        activation_metadata = {
+        activation_metadata.update({
             'document_family': template.document_type,
             'latest_compatible_assignment_ids': latest_ids,
             'fallback_assignment_ids': fallback_ids,
-        }
+        })
     OriginationDocumentTemplateEvent.objects.create(
         template=template, action='activated', actor=actor,
         metadata=activation_metadata,
@@ -1885,7 +1900,8 @@ def publish_product_template(
     ):
         raise OriginationTemplateError('The assigned primary LAF must be published before the product.')
     validate_template_configuration(
-        selected.configuration, template=template, require_complete=True,
+        selected.configuration, template=template,
+        require_complete=publishing_assigned_primary or template.document_role == template.ROLE_PRIMARY,
     )
     if template.document_role == template.ROLE_SUPPORTING and not publishing_assigned_primary:
         published = publish_calibration(

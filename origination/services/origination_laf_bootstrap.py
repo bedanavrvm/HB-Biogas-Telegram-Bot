@@ -25,6 +25,7 @@ SOURCE_DEFINITIONS = tuple(item for item in MAIN_DEFINITIONS if item.key != 'wat
 # Increment when compilation changes without a semantic seed change.
 BOOTSTRAP_CONTRACT_VERSION = 1
 LEASE = timedelta(minutes=30)
+OPERATION_KEY = 'origination:laf-bootstrap'
 
 
 class LafBootstrapError(ValueError):
@@ -60,7 +61,7 @@ def _actor(username):
     return actor
 
 
-def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=None) -> dict:
+def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=None, automatic=False) -> dict:
     """Dry run by default. Force is an explicit command-only recreation request.
 
     Per-document commits retain successful uploads after a later failure. A
@@ -84,16 +85,21 @@ def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=No
     operation, _ = reserve_operation(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_DRIVE,
         operation_type='origination_laf_bootstrap',
-        deduplication_key=f'origination:laf-bootstrap:{fingerprint}',
+        deduplication_key=OPERATION_KEY,
         requested_by=actor, source_model='OriginationLafBootstrap', source_id=fingerprint,
         operation_payload={'fingerprint': fingerprint}, max_attempts=100,
     )
     token = uuid.uuid4().hex
     with transaction.atomic():
         operation = IntegrationOperation.objects.select_for_update().get(pk=operation.pk)
-        if not force and ComplianceAuditEvent.objects.filter(deduplication_key=completed_key).exists():
+        completed = ComplianceAuditEvent.objects.filter(workflow='loan_origination', action='laf.bootstrap_completed')
+        if not force and (completed.exists() if automatic else completed.filter(deduplication_key=completed_key).exists()):
             return {'status': 'already_completed', 'fingerprint': fingerprint}
-        if operation.status == operation.STATUS_RUNNING and operation.last_attempt_at and (
+        # Older releases used a fingerprint-specific lease. Respect an in-flight
+        # old worker too while every new release uses the stable installation key.
+        old_running = IntegrationOperation.objects.filter(operation_type='origination_laf_bootstrap',
+            status='running', last_attempt_at__gt=timezone.now() - LEASE).exclude(pk=operation.pk).exists()
+        if old_running or operation.status == operation.STATUS_RUNNING and operation.last_attempt_at and (
             timezone.now() - operation.last_attempt_at < LEASE
         ):
             return {'status': 'running', 'fingerprint': fingerprint}
@@ -105,6 +111,7 @@ def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=No
         operation.last_error_code = ''
         operation.metadata = {**operation.metadata, 'attempt_token': token, 'forced': force}
         operation.save()
+    counts = {'created': 0, 'reused': 0, 'skipped': 0}
     try:
         for definition in definitions:
             with transaction.atomic():
@@ -115,6 +122,7 @@ def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=No
                 current.save(update_fields=['last_attempt_at', 'updated_at'])
             with external_call_budget(120):
                 result = apply_seed(definition, laf_root=root, actor=actor, shared_values=True, unassigned=True)
+            counts['created' if result['created_template'] else 'reused'] += 1
             with transaction.atomic():
                 current = IntegrationOperation.objects.select_for_update().get(pk=operation.pk)
                 if current.metadata.get('attempt_token') != token:
@@ -131,7 +139,7 @@ def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=No
                 subject_type='OriginationLafBootstrap', subject_id=fingerprint,
                 actor=actor, authority_user=actor, request_id=token,
                 deduplication_key=f'{completed_key}:force:{token}' if force else completed_key,
-                after_values={'fingerprint': fingerprint, 'documents': len(definitions), 'forced': force},
+                after_values={'fingerprint': fingerprint, 'documents': len(definitions), 'forced': force, **counts},
             )
             # A forced first run also establishes the automatic completion marker.
             if force and not ComplianceAuditEvent.objects.filter(deduplication_key=completed_key).exists():
@@ -150,10 +158,14 @@ def bootstrap_lafs(*, apply=False, force=False, actor_username=None, laf_root=No
             last_error='LAF bootstrap did not complete; successful drafts are retained. Retry the bootstrap command.',
         )
         raise LafBootstrapError('LAF bootstrap did not complete. Successful drafts are retained; retry the bootstrap command.') from exc
-    return {'status': 'completed', 'fingerprint': fingerprint, 'documents': len(definitions)}
+    return {'status': 'completed', 'fingerprint': fingerprint, 'documents': len(definitions), **counts}
 
 
 def bootstrap_lafs_from_environment() -> dict:
     if not getattr(settings, 'ORIGINATION_LAF_BOOTSTRAP_ENABLED', False):
         return {'status': 'disabled'}
-    return bootstrap_lafs(apply=True)
+    completed = ComplianceAuditEvent.objects.filter(workflow='loan_origination', action='laf.bootstrap_completed').first()
+    if completed:
+        return {'status': 'already_completed', 'fingerprint': completed.after_values.get('fingerprint', completed.subject_id),
+                'skipped': completed.after_values.get('documents', 11), 'created': 0, 'reused': 0}
+    return bootstrap_lafs(apply=True, automatic=True)

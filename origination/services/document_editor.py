@@ -104,12 +104,15 @@ def readiness(document):
     fields = fields if isinstance(fields, dict) else {}
     slots = slots if isinstance(slots, dict) else {}
     tasks = []
-    def task(key, label, section, item=None):
-        tasks.append({'key':key, 'label':label, 'section':section, **(item or {})})
+    def task(key, label, section, item=None, *, blocking=False):
+        tasks.append({'key':key, 'label':label, 'section':section,
+                      'blocking': blocking, **(item or {})})
     if malformed:
-        task('layout', 'Review the saved layout', 'placement')
+        task('layout', 'Review the saved layout', 'placement', blocking=True)
     if not document.drive_file_id or document.status == 'upload_failed':
-        task('pdf', 'Upload the PDF', 'pdf')
+        task('pdf', 'Upload the PDF', 'pdf', blocking=True)
+    if document.status in {'active', 'retired'}:
+        task('published', 'Create an editable version to change this document', 'pdf', blocking=True)
     if not schema.get('fields'):
         task('fields', 'Add a field', 'fields')
     if document.document_role == 'primary' and not signers:
@@ -143,7 +146,7 @@ def readiness(document):
             validate_product_form_contract(schema, signers, require_signers=document.document_role == 'primary')
         except OriginationError as exc:
             task('contract', str(exc), 'signers')
-    if fields and not any(t['section'] == 'placement' for t in tasks):
+    if fields or slots:
         for key, spec in {**fields, **slots}.items():
             try:
                 box = spec.get('allowed_area') or spec.get('box') or {}
@@ -151,7 +154,7 @@ def readiness(document):
                 if not all(math.isfinite(value) for value in values) or min(values[:2]) < 0 or min(values[2:]) <= 0 or not 1 <= int(spec.get('page_number',0)) <= document.page_count:
                     raise ValueError
             except (ValueError, TypeError, KeyError, AttributeError):
-                task('geometry:'+key, 'Review the placement for '+key.replace('_',' '), 'placement')
+                task('geometry:'+key, 'Review the placement for '+key.replace('_',' '), 'placement', blocking=True)
     if not fields and schema.get('fields') and not any(item['section'] == 'placement' for item in tasks):
         task('placement', 'Place a field on the PDF', 'placement')
     if latest and not tasks:
@@ -172,7 +175,9 @@ def readiness(document):
             task('compatibility', str(exc), 'fields')
         finally:
             document.published_configuration_revision_id = original
-    return {'tasks':tasks, 'outstanding_count':len(tasks), 'can_publish':not tasks,
+    blockers = [item for item in tasks if item['blocking']]
+    return {'tasks':tasks, 'warnings':[item for item in tasks if not item['blocking']],
+            'blockers':blockers, 'outstanding_count':len(tasks), 'can_publish':not blockers,
             'revision':latest.revision if latest else 0, 'schema_revision':template_schema_revision(document),
             'signers':signers, 'form_schema':schema}
 
@@ -342,7 +347,7 @@ def copy_document(*, source, actor, request_id, product_id=None, replace=False):
 
 @transaction.atomic
 def publish_document(*, document, actor, revision, request_id, impact_token):
-    from origination.services.origination_templates import publish_product_template
+    from origination.services.origination_templates import publish_calibration, activate_template
     from origination.services.origination_setup_documents import shared_review
     require_editor(actor)
     # Lock the entire family in a stable order, including a product-only copy's
@@ -386,8 +391,8 @@ def publish_document(*, document, actor, revision, request_id, impact_token):
         product_id = copy_event.metadata['product_id']
         if not source.product_eligibilities.filter(product_id=product_id).exists():
             raise ValidationError('This product no longer uses the original document. Review the copy before publishing.')
-    publish_product_template(template=document, revision=revision, actor=actor,
-        client_request_id=request_id, expected_shared_impact=impact_token)
+    publish_calibration(template=document, revision=revision, actor=actor, client_request_id=request_id)
+    document = activate_template(document, actor=actor)
     if copy_event and copy_event.metadata.get('replace'):
         source.product_eligibilities.filter(product_id=product_id).delete()
         source.events.create(action='product_withdrawn', actor=actor,

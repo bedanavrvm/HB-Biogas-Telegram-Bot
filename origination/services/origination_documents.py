@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
+import math
 from io import BytesIO
 from typing import Any
 
@@ -744,6 +745,34 @@ def render_packet(
     output = BytesIO()
     writer.write(output)
     return output.getvalue(), manifest
+
+
+def validate_signing_placements(application, participants):
+    """Check frozen document geometry before a package or signing link exists."""
+    from origination.services.loan_origination import OriginationError
+    documents = {row.document_key: row for row in application.packet_documents.filter(selected=True)}
+    missing = []
+    for participant in participants:
+        for slot in participant.get('slots') or []:
+            if not isinstance(slot, dict) or not slot.get('required', participant.get('required', False)):
+                continue
+            document = documents.get(slot.get('document_key', 'primary'))
+            config = (document.template_snapshot or {}).get('configuration', {}) if document else application.template_configuration_snapshot or {}
+            key = participant['role'] + '.' + slot['key']
+            placement = (config.get('signature_overlay_manifest') or {}).get('slots', {}).get(key)
+            try:
+                box = placement.get('allowed_area') or placement.get('box') or placement
+                values = [float(box[name]) for name in ('x', 'y', 'width', 'height')]
+                if not all(math.isfinite(value) for value in values) or min(values[:2]) < 0 or min(values[2:]) <= 0:
+                    raise ValueError
+                page = int(placement.get('page_number', 0))
+                if page < 1 or document and page > document.template.page_count:
+                    raise ValueError
+            except (AttributeError, KeyError, TypeError, ValueError):
+                label = slot.get('label') or participant.get('label') or participant['role'].replace('_', ' ')
+                missing.append(f'{document.template.name if document else "Document"}: {label}')
+    if missing:
+        raise OriginationError('Place the required signatures in the Document editor before sending: ' + ', '.join(missing) + '.')
 
 
 def packet_signers(application: LoanOriginationApplication) -> list[dict[str, Any]]:

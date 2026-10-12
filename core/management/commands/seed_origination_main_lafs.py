@@ -60,10 +60,7 @@ class Command(BaseCommand):
             for plan in plans:
                 definition = plan['definition']
                 product = definition.product_code or 'unassigned'
-                reusable = next((
-                    item for item in plan['candidates']
-                    if item.status in {item.STATUS_READY, item.STATUS_ACTIVE}
-                ), None)
+                reusable = next(iter(plan['candidates']), None)
                 action = f'inspect/reuse v{reusable.version}' if reusable else 'create v1'
                 self.stdout.write(
                     f'Dry run: {definition.name}: {action}; {len(definition.fields)} reviewed '
@@ -89,7 +86,7 @@ class Command(BaseCommand):
             template = result['template']
             product = result['definition'].product_code or 'no product yet'
             self.stdout.write(self.style.SUCCESS(
-                f'Prepared {template.name} v{template.version} for {product} with '
-                f'{len(result["fields"])} canonical fields. It remains unpublished; '
-                'complete visual alignment and preview review in Admin.'
+                f'{"Created" if result["created_template"] else "Reused"} {template.name} v{template.version} '
+                f'for {product}; status: {template.status}. Existing edits and assignments are preserved. '
+                'Review fields and placement in the Document editor.'
             ))

@@ -736,10 +736,17 @@ The actor defaults to `DJANGO_SUPERUSER_USERNAME` if omitted. `release_productio
 Superuser bootstrap. No restart hook or cron runs it. It uploads the eleven
 reviewed blank PDFs to restricted Drive and creates shared-value drafts;
 it creates no products, eligibility, published coordinates or legal authority.
-Finish signers, fields, placement and normal publication in the Document editor.
+Review signers, fields and placement in the Document editor. **Warnings** are
+advisory: **Publish** is available before all items are placed, in every
+environment. Valid PDF/layout, access and saved-revision checks still apply.
+Required signatures must be placed before an application can start signing.
+Placed fields and signatures show a green check. Use the normal **Field** picker
+for lending fields; there is no separate legacy borrower mode.
 
-The completed source/contract fingerprint is retained outside the catalogue.
-Later releases skip it even if you delete a seeded draft. An interrupted run
+Completion evidence is retained outside the catalogue. Automatic bootstrap runs
+once per installation; later releases skip it even if the seed fingerprint
+changes or you delete a seeded draft. Edited, assigned and retired documents
+are recognized and never replaced by another blank seed. An interrupted run
 retains successful drafts/uploads and can be resumed explicitly:
 
 ```powershell
@@ -748,7 +755,8 @@ retains successful drafts/uploads and can be resumed explicitly:
 ```
 
 The first command is read-only. To deliberately recreate deleted completed
-seeds, add `--force` to the second command. Failed optional bootstrap is recorded
+seeds, add `--force` to the second command. Existing documents are reused, not
+overwritten, even with force. Failed optional bootstrap is recorded
 as a warning in release evidence; inspect the actor, assets, canonical fields
 and Drive configuration before retrying. Water Tank is excluded because its
 reviewed source is absent. Human review of ambiguous fields/legal roles remains
@@ -786,7 +794,7 @@ files cannot be recovered automatically.
 | “Published product versions are immutable” | Open the published record and use **Create editable next version**. |
 | PDF upload fails | Check PDF validity/size, Google credentials, folder ID, service-account folder permission, and the record's upload error. |
 | A field is missing from the builder | Search **Origination data fields**, confirm it is active, or create one canonical field. Resolve incompatible legacy bindings in **Legacy fields needing review**. |
-| Publish readiness is blocked | Place all required fields/signers, save, inspect filled sample, publish each reusable supporting template, and resolve field-review issues. |
+| Document Publish is disabled | Wait for server-confirmed autosave; check PDF upload, source integrity, invalid placement or a stale revision. Missing fields/signatures appear as warnings and do not block document publication. Product and application readiness remain separate. |
 | Supporting document dropdown is empty | The reusable template must be global, supporting-role, active, and have a published calibration. |
 | Supporting document is not in the Mini App | Confirm its assignment is on the published Origination definition. Create a **new application** after the change; existing applications retain their packet snapshot. |
 | “One or more supporting documents cannot be selected” | The document is required/conditional rather than selectable, is not applicable, or is absent from this application's snapshot. Refresh and verify the assignment; start a new application after configuration changes. |

@@ -42,7 +42,7 @@
   let pendingWriteKeys = {};
   let serverReadiness = {tasks: [], can_publish: false};
   let signerRules = [], signerRoles = [], signersDirty = false;
-  let detailsDirty = false, documentDetails = {}, pendingFieldPack = '';
+  let detailsDirty = false, documentDetails = {};
   let autosaveTimer = null, autosaveFailed = false, armedPlacement = null;
   const TAP_DISTANCE = 10;
   const TAP_DURATION = 350;
@@ -252,7 +252,7 @@
     return state;
   };
   function refreshDirtyState() {
-    dirty = signersDirty || detailsDirty || Boolean(pendingFieldPack) || configurationHash(configuration) !== savedBaselineHash;
+    dirty = signersDirty || detailsDirty || configurationHash(configuration) !== savedBaselineHash;
     $('calibration-save-state').textContent = published ? 'Published' : autosaveFailed ? 'Not saved · retry' : operationState === 'saving' ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
     $('calibration-save-state').classList.toggle('is-dirty', dirty);
     updateReadiness();
@@ -457,18 +457,19 @@
   const signatureByKey = key => signatureCatalog.find(item => `${item.role}.${item.slot_key}` === key);
   function readinessState() {
     const tasks = serverReadiness.tasks || [];
-    const blockers = tasks.map(item => item.label);
+    const blockers = (serverReadiness.blockers || tasks.filter(item => item.blocking)).map(item => item.label);
     if (serverReadinessIssue) blockers.push(serverReadinessIssue);
     return {tasks, blockers, ready: Boolean(serverReadiness.can_publish) && !serverReadinessIssue && !dirty};
   }
   function updateReadiness() {
     if (!configuration || !$('calibration-readiness-count')) return;
     const state = readinessState();
-    $('calibration-readiness-count').textContent = dirty ? 'Saving changes…' : state.ready ? 'All tasks done' : `${state.blockers.length} things left`;
-    $('calibration-readiness-label').textContent = state.ready ? 'Ready to publish' : `${state.blockers.length} item${state.blockers.length === 1 ? '' : 's'} needed`;
-    $('calibration-readiness-message').textContent = state.ready ? 'Ready to publish.' : 'Choose a task to continue.';
+    const warnings = state.tasks.filter(item => !item.blocking).length;
+    $('calibration-readiness-count').textContent = dirty ? 'Saving changes…' : `${warnings} warning${warnings === 1 ? '' : 's'}`;
+    $('calibration-readiness-label').textContent = state.ready ? 'Ready to publish' : state.blockers[0] || 'Saving changes…';
+    $('calibration-readiness-message').textContent = state.blockers.length ? 'Review the saved PDF or placement.' : warnings ? 'You can publish now and finish these later.' : 'Ready to publish.';
     $('calibration-readiness-items').innerHTML = state.tasks.map((item,index) => `<li><button type="button" class="document-task" data-document-task="${index}">${escapeHtml(item.label)}</button></li>`).join('') + (serverReadinessIssue ? `<li>${escapeHtml(serverReadinessIssue)}</li>` : '');
-    $('calibration-readiness').classList.toggle('is-ready', state.ready);
+    $('calibration-readiness').classList.toggle('is-ready', state.ready && warnings === 0);
     $('calibration-publish').disabled = published || operationState !== 'idle' || !state.ready;
     $('calibration-publish').title = state.ready ? '' : state.blockers[0] || 'Publishing is not available.';
     $('cal-mobile-field-count').textContent = String(Object.keys(fields()).length + Object.keys(signatures()).length);
@@ -492,7 +493,7 @@
   }
   function navigatorRowMarkup(item) {
     const selected = item.placed && item.kind === selectedKind && item.key === selectedKey;
-    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? ' is-placed' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>✓ Placed · Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
   }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
@@ -1594,8 +1595,9 @@
   }
   function renderSigners() {
     const list = $('document-signer-list'); if(!list) return;
-    list.innerHTML = signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(rule.label || rule.role)}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(rule.label || rule.role)}" ${published ? 'disabled' : ''}>×</button></div>`).join('');
-    $('document-signer-role').innerHTML = signerRoles.map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
+    const displayLabel = rule => ({'Borrower (legacy compatibility role)':'Borrower','Officer (legacy role)':'Officer'}[rule.label] || rule.label || (rule.role === 'customer' ? 'Borrower' : rule.role));
+    list.innerHTML = signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(displayLabel(rule))}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(displayLabel(rule))}" ${published ? 'disabled' : ''}>×</button></div>`).join('');
+    $('document-signer-role').innerHTML = signerRoles.filter(([role]) => role !== 'customer').map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
     $('document-signer-add').disabled = published || !$('document-signer-role').options.length;
     $('document-signer-pack').disabled = published;
   }
@@ -1616,9 +1618,6 @@
   $('document-signer-pack')?.addEventListener('change',event => {
     for(const role of event.target.value.split(',')) if (!signerRules.some(rule => rule.role === role)) addSigner(role);
     event.target.value='';renderSigners();signerChanged();
-  });
-  $('document-lending-fields')?.addEventListener('click',() => {
-    pendingFieldPack='lending';autosaveFailed=false;refreshDirtyState();
   });
   $('document-signer-list')?.addEventListener('change',event => {
     if(event.target.hasAttribute('data-signer-label')) signerRules[Number(event.target.dataset.signerLabel)].label=event.target.value;
@@ -1663,14 +1662,14 @@
       const controls=[...document.querySelectorAll('.document-signer-controls input,.document-signer-controls select,.document-signer-controls button,#document-name,#document-product-choices input')];
       controls.forEach(control => {control.disabled=true;});
       try {
-        if(signersDirty || detailsDirty || pendingFieldPack) {
+        if(signersDirty || detailsDirty) {
           const rules=copy(signerRules);
           const details=detailsDirty ? copy(documentDetails) : undefined;
-          const key=requestKey('signers',JSON.stringify([rules,snapshot,details,pendingFieldPack]));
-          const data=await jsonRequest(app.dataset.signersUrl,{method:'POST',body:JSON.stringify({signers:rules,details,field_pack:pendingFieldPack,configuration:snapshot,schema_revision:schemaRevision,revision,client_request_id:key})});
+          const key=requestKey('signers',JSON.stringify([rules,snapshot,details]));
+          const data=await jsonRequest(app.dataset.signersUrl,{method:'POST',body:JSON.stringify({signers:rules,details,configuration:snapshot,schema_revision:schemaRevision,revision,client_request_id:key})});
           revision=data.revision;schemaRevision=data.schema_revision;signerRules=data.signers;
           signatureCatalog=data.signature_slots;contextKeys=data.context_keys;formSections=data.form_sections;
-          serverReadiness=data.readiness;sharedReview=data.shared_review;signersDirty=false;detailsDirty=false;pendingFieldPack='';
+          serverReadiness=data.readiness;sharedReview=data.shared_review;signersDirty=false;detailsDirty=false;
           documentDetails=data.details;$('document-name').value=data.details.name;
           if ($('document-shared-values')) {
             $('document-shared-values').checked=Boolean(data.details.shared_values);
