@@ -32,7 +32,8 @@
       (change.field === 'value' && labels[String(change.new_value)]);
     if (normalized(context.detail) === normalized(next) ||
         (outcome && normalized(context.title).includes(normalized(next)))) return '';
-    return `<div class="activity-change"><span class="activity-change-label">${escape(label)}:</span> ${previous && !outcome ? `${textHtml(old)} <span aria-label="changed to">→</span> ` : ''}${textHtml(next)}</div>`;
+    const repeatedLabel = normalized(context.title) === normalized(label);
+    return `<div class="activity-change">${repeatedLabel ? '' : `<span class="activity-change-label">${escape(label)}:</span> `}${previous && !outcome ? `${textHtml(old)} <span aria-label="changed to">→</span> ` : ''}${textHtml(next)}</div>`;
   }
   function html(changes, context = {}) {
     if (!Array.isArray(changes) || !changes.length) return '';

@@ -106,6 +106,8 @@ def complaint_location_fixture():
 
 class ComplaintCaseServiceTests(TestCase):
     def setUp(self):
+        from core.services.access_grant_governance import governed_access_grant_mutation
+        self.enterContext(governed_access_grant_mutation('Synthetic complaint regression fixtures'))
         # TransactionTestCase flushes migration-seeded policies. Keep these
         # synthetic fixtures independent of test order and --keepdb history.
         from core.services.workflow_capabilities import default_enabled_capability_keys
@@ -170,6 +172,21 @@ class ComplaintCaseServiceTests(TestCase):
     def actor(self, telegram_id):
         return staff_actor_for_payload(self.config, {'user': json.dumps({'id': telegram_id})})
 
+    def test_queue_facets_filter_before_pagination_and_exclude_other_groups(self):
+        self.case.branch_region = 'Training'; self.case.complaint_category = 'Burner'
+        self.case.save(update_fields=['branch_region', 'complaint_category'])
+        second = self.create_case(self.group.group_id, 'QUEUE-SECOND')
+        second.branch_region = 'Other'; second.complaint_category = 'Leak'
+        second.save(update_fields=['branch_region', 'complaint_category'])
+        self.other_case.branch_region = 'Secret'; self.other_case.complaint_category = 'Secret'
+        self.other_case.save(update_fields=['branch_region', 'complaint_category'])
+        result = list_cases_page(self.config, self.actor('300'), branch='training', category='burner', page=20)
+        self.assertEqual(result['pagination']['total'], 1)
+        self.assertEqual(result['items'][0]['case_id'], self.case.message_id)
+        self.assertNotIn('Secret', str(result['filter_options']))
+        self.assertEqual(result['filter_options']['branches'], [{'label':'Training','count':1}])
+        self.assertEqual(list_cases_page(self.config, self.actor('300'), branch='Secret', page=1)['pagination']['total'], 0)
+
     def signed_init_data(self, telegram_id='100'):
         pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': int(telegram_id)})}
         check = '\n'.join(f'{key}={value}' for key, value in sorted(pairs.items()))
@@ -209,6 +226,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertIn('HB Resolver', resolution_comments_text(self.case))
         self.assertTrue(resolution_comments_text(self.case).startswith('Technician will call tomorrow.\n'))
         self.assertTrue(resolution_comments_text(self.case).endswith(' — HB Resolver'))
+        self.assertEqual(resolution_comments_text(self.case).count('\n────────────────────\n'), 1)
         self.assertEqual([row['actor_affiliation'] for row in second['updates'] if row['action'] == 'commented'], ['HB', 'HB'])
         self.assertLess(resolution_comments_text(self.case).index('Technician'), resolution_comments_text(self.case).index('Parts'))
         self.assertNotIn('Parts ordered.', resolution_history_text(self.case))
@@ -408,7 +426,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(control.pk, original_control_id)
         self.assertEqual(self.case.pk, original_case_id)
 
-    def test_legacy_status_filter_remains_compatible_but_branch_filter_is_ignored(self):
+    def test_legacy_status_filter_remains_compatible_and_branch_filter_is_applied(self):
         self.case.branch_region = 'Nakuru'
         self.case.save(update_fields=['branch_region'])
         embu_case = self.create_case('-100100', 'CASE-3')
@@ -422,7 +440,7 @@ class ComplaintCaseServiceTests(TestCase):
 
         cases = list_cases(self.config, status='In Progress', branch='Embu')
 
-        self.assertEqual({case['case_id'] for case in cases}, {'CASE-3', 'CASE-4'})
+        self.assertEqual({case['case_id'] for case in cases}, {'CASE-3'})
 
     def test_numbered_pages_are_limited_to_ten_and_report_totals(self):
         for index in range(11):
@@ -561,7 +579,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'complaint_cases/partials/case_list.html')
         self.assertContains(response, 'CASE-1')
-        self.assertContains(response, 'CASE-3')
+        self.assertNotContains(response, 'CASE-3')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_list_endpoint_returns_numbered_pagination_contract(self):
@@ -2019,7 +2037,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('inputmode="numeric" pattern="[0-9]{1,9}"', template)
         self.assertIn('name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required', template)
         self.assertIn('name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required', template)
-        self.assertIn('National ID / Maisha Namba is required.', script)
+        self.assertIn('National ID is required.', script)
         self.assertIn('Primary Mobile Number is required.', script)
         self.assertIn("data.set('category_inference_token', state.categoryInferenceToken)", script)
         self.assertIn('if (description.length < 20)', script)

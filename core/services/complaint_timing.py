@@ -7,6 +7,7 @@ from collections import defaultdict
 from itertools import islice
 from statistics import median
 from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 
 from django.utils import timezone
 
@@ -158,9 +159,9 @@ def timing_summary(cases, *, date_from=None, date_to=None, granularity='month', 
                     age_excluded += 1
             if facts['hb_response_hours'] is None:
                 response_excluded += 1
-        for stamp in facts['closures']:
-            if within(stamp):
-                activity[period_bucket(stamp, granularity)]['resolved'] += 1
+        # Deduplicate at the requested granularity, not by summing daily counts.
+        for bucket in {period_bucket(stamp, granularity) for stamp in facts['closures'] if within(stamp)}:
+            activity[bucket]['resolved'] += 1
         for stamp in facts['reopened']:
             if within(stamp):
                 reopenings[period_bucket(stamp, granularity)].add(case.pk)
@@ -184,6 +185,19 @@ def timing_summary(cases, *, date_from=None, date_to=None, granularity='month', 
             resolution_excluded += 1
     def trend(rows):
         return [{'label': label, 'hours': median_hours(values), 'count': len(values)} for label, values in sorted(rows.items())]
+    if activity:
+        first = period_bucket(date_from, granularity) if date_from else min(activity)
+        last = period_bucket(min(date_to, now), granularity) if date_to else max(activity)
+        cursor = datetime.fromisoformat(first + ('-01-01' if len(first) == 4 else '-01' if len(first) == 7 else '')).replace(tzinfo=NAIROBI)
+        # The report service rejects >366 buckets. Bound filling here as well.
+        while period_bucket(cursor, granularity) <= last and len(activity) <= 366:
+            activity[period_bucket(cursor, granularity)]
+            if granularity == 'year':
+                cursor = cursor.replace(year=cursor.year + 1)
+            elif granularity == 'month':
+                cursor = cursor.replace(year=cursor.year + (cursor.month == 12), month=cursor.month % 12 + 1)
+            else:
+                cursor += timedelta(days=7 if granularity == 'week' else 1)
     return {
         'calculated_at': now.isoformat(),
         'timing': {

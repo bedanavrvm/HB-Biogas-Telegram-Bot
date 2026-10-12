@@ -9,6 +9,7 @@
     groupId: document.body.dataset.groupId || '',
     initData: telegram?.initData || '',
     status: 'pending', query: '', page: 1, pages: 1,
+    queueFilters: {branch:'', category:''}, queueSequence: 0, queueFilterReturnFocus: null,
     capabilities: new Set(), currentCase: null, submitting: false,
     debounce: null, suggestionTimer: null, suggestionSequence: 0, suggestionUnavailableUntil: 0,
     suggestedCategory: null, categoryInferenceToken: '', categorySuggestionCache: new Map(), latitude: '', longitude: '',
@@ -72,18 +73,18 @@
       : `${prefix || 'complaint'}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
   function can(key) { return state.capabilities.has(key); }
-  function notify(message, error) {
+  function notify(message, error, feedback = 'success') {
     if (!error) clearPresentedError();
     if (window.MiniAppRuntime?.showToast) {
       window.MiniAppRuntime.showToast(message, { tone: error ? 'error' : 'success' });
-      utils.haptic?.(error ? 'error' : 'success');
+      utils.haptic?.(error ? 'error' : feedback);
       return;
     }
     const node = $('toast');
     node.textContent = message || '';
     node.classList.toggle('error', !!error);
     node.classList.add('visible');
-    utils.haptic?.(error ? 'error' : 'success');
+    utils.haptic?.(error ? 'error' : feedback);
     clearTimeout(node._timer);
     node._timer = setTimeout(() => node.classList.remove('visible'), 4000);
   }
@@ -640,9 +641,12 @@
   }
 
   async function loadCases() {
+    const sequence = ++state.queueSequence;
     $('caseList').replaceChildren(loadingNode('Loading complaints...'));
     try {
-      const response = await json('cases/', { status: state.status, query: state.query, page: state.page });
+      const response = await json('cases/', { status: state.status, query: state.query, page: state.page, ...state.queueFilters });
+      if (sequence !== state.queueSequence) return;
+      syncQueueFilterOptions(response.filter_options || {});
       const pagination = response.pagination || { page: 1, pages: 1, total: response.cases.length };
       state.page = pagination.page; state.pages = pagination.pages;
       $('queueResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'}`;
@@ -652,9 +656,38 @@
       $('queuePreviousBtn').disabled = pagination.page <= 1;
       $('queueNextBtn').disabled = pagination.page >= pagination.pages;
     } catch (error) {
+      if (sequence !== state.queueSequence) return;
       $('caseList').replaceChildren(textNode('p', 'Complaints could not be loaded.', 'empty'));
       presentError(error, loadCases);
     }
+  }
+
+  function syncQueueFilterOptions(options) {
+    const form = $('complaintQueueFilters');
+    for (const [name, key, placeholder] of [['branch','branches','All branches'],['category','categories','All types']]) {
+      const select = form.elements[name];
+      select.replaceChildren(new Option(placeholder, ''));
+      for (const item of options[key] || []) select.add(new Option(item.label, item.label));
+      const selected = state.queueFilters[name];
+      if (selected && ![...select.options].some(option=>option.value===selected)) select.add(new Option(`${selected} (no matches)`, selected));
+      select.value = selected;
+    }
+    const count = Object.values(state.queueFilters).filter(Boolean).length;
+    $('complaintQueueFilterCount').textContent = String(count);
+    $('complaintQueueFilterCount').hidden = !count;
+  }
+  function closeQueueFilters() {
+    $('complaintQueueFilterOverlay').hidden = true;
+    document.body.classList.remove('complaint-filter-open');
+    state.queueFilterReturnFocus?.focus?.(); state.queueFilterReturnFocus = null;
+  }
+  function openQueueFilters() {
+    state.queueFilterReturnFocus = document.activeElement;
+    const form = $('complaintQueueFilters');
+    for (const name of ['branch','category']) form.elements[name].value = state.queueFilters[name];
+    $('complaintQueueFilterOverlay').hidden = false;
+    document.body.classList.add('complaint-filter-open');
+    $('complaintQueueFilterSheet').focus();
   }
 
   function renderCases(cases, start) {
@@ -1073,10 +1106,10 @@
   function validateCustomerId(input) {
     const value = String(input?.value || '').trim();
     if (!value) {
-      return 'National ID / Maisha Namba is required.';
+      return 'National ID is required.';
     }
     if (!/^\d{1,9}$/.test(value)) {
-      return 'National ID / Maisha Namba must contain 1 to 9 digits only.';
+      return 'National ID must contain 1 to 9 digits only.';
     }
     input?.setCustomValidity?.(''); return '';
   }
@@ -1314,12 +1347,12 @@
       const replacement = { id: requestId('evidence-file'), file, preview: URL.createObjectURL(file) };
       items.splice(index, 1, replacement); renderSelectedEvidence(target);
       closeCamera({ restoreFocus: false }); openSelectedEvidence(target, replacement.id, null);
-      notify('Photo retaken. Review it or retake it again.');
+      notify('Photo retaken. Review it or retake it again.', false, 'light');
       return;
     }
     if (addFiles(target, [file])) {
       updateCameraCaptureState();
-      notify('Photo added. Take another photo or tap Done.');
+      notify('Photo added. Take another photo or tap Done.', false, 'light');
     }
   }
 
@@ -1912,6 +1945,24 @@
     document.querySelectorAll('[data-status]').forEach(item => item.classList.toggle('active', item === button)); loadCases();
   }));
   $('caseSearch').addEventListener('input', event => { state.query = event.target.value; state.page = 1; clearTimeout(state.debounce); state.debounce = setTimeout(loadCases, state.query ? 250 : 0); });
+  $('openComplaintQueueFilters').addEventListener('click', openQueueFilters);
+  $('closeComplaintQueueFilters').addEventListener('click', closeQueueFilters);
+  $('complaintQueueFilterOverlay').addEventListener('click', event=>{if(event.target===event.currentTarget)closeQueueFilters();});
+  $('complaintQueueFilters').addEventListener('submit', event=>{
+    event.preventDefault(); state.queueFilters=Object.fromEntries(new FormData(event.currentTarget));
+    state.page=1; closeQueueFilters(); loadCases();
+  });
+  $('resetComplaintQueueFilters').addEventListener('click', ()=>{
+    state.queueFilters={branch:'',category:''}; state.page=1; closeQueueFilters(); loadCases();
+  });
+  $('complaintQueueFilterSheet').addEventListener('keydown', event=>{
+    if(event.key==='Escape'){event.preventDefault();closeQueueFilters();return;}
+    if(event.key!=='Tab')return;
+    const nodes=[...event.currentTarget.querySelectorAll('button:not(:disabled), select:not(:disabled)')];
+    const first=nodes[0],last=nodes.at(-1);
+    if(event.shiftKey&&(document.activeElement===first||document.activeElement===event.currentTarget)){event.preventDefault();last.focus();}
+    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+  });
   $('queuePreviousBtn').addEventListener('click', () => { if (state.page > 1) { state.page -= 1; loadCases(); } });
   $('queueNextBtn').addEventListener('click', () => { if (state.page < state.pages) { state.page += 1; loadCases(); } });
   $('globalPreviousBtn').addEventListener('click', () => { if (state.globalPage > 1) { state.globalPage -= 1; refreshReport({ summary: false }); } });
@@ -2047,7 +2098,7 @@
   $('captureLocationBtn').addEventListener('click', captureLocation);
   document.querySelectorAll('[data-files-target]').forEach(button => button.addEventListener('click', () => $(`${button.dataset.filesTarget}EvidenceInput`).click()));
   document.querySelectorAll('[data-camera-target]').forEach(button => button.addEventListener('click', () => openCamera(button.dataset.cameraTarget)));
-  ['create', 'resolve'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { addFiles(target, event.target.files); event.target.value = ''; }));
+  ['create', 'resolve'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { if(addFiles(target, event.target.files))utils.haptic?.('light'); event.target.value = ''; }));
   $('cameraCloseBtn').addEventListener('click', () => closeCamera()); $('cameraCancelBtn').addEventListener('click', () => closeCamera()); $('cameraCaptureBtn').addEventListener('click', captureCameraPhoto);
   $('cameraOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeCamera(); });
   $('mediaViewerClose').addEventListener('click', closeMediaViewer);
@@ -2100,7 +2151,8 @@
   ['completeDetailsForm', 'resolveForm', 'commentForm', 'reopenForm'].forEach(id => $(id).addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true)));
   document.addEventListener('click', event => {
     const button = event.target.closest?.('button');
-    if (button && !button.disabled) utils.haptic?.('light');
+    const confirmsAction = button?.type === 'submit' || ['cameraCaptureBtn','captureLocationBtn'].includes(button?.id);
+    if (button && !button.disabled && !confirmsAction) utils.haptic?.('light');
   }, { capture: true });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {

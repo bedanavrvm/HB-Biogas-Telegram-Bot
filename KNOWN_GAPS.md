@@ -1,5 +1,22 @@
 # Known Gaps and Verified Workarounds
 
+## TAT and Complaints report/queue polish - 12 October 2026
+
+Focused service/API tests passed on an isolated local PostgreSQL 18 cluster
+(122 tests) and SQLite. All 46 focused browser checks passed; they use the real templates/scripts and
+synthetic, blocked-network integrations at 320/360/390/430/768/1280px with light
+and dark themes. Physical device vibration still needs an on-device Telegram
+check; browser tests verify API dispatch/fallback and no duplicate success pulse.
+No production assets have been deployed or external data modified.
+
+The expanded history/SLA run has two failures that also reproduce using the
+unchanged HEAD timeline implementation, not just this working copy:
+`UnifiedTimelineTests.test_case_history_merges_provenance_and_preserves_redacted_event_shell`
+and `HybridTatAndEscalationTests.test_daily_snapshots_are_idempotent_reporting_projections`
+in `core.tests_workflow_history_sla`. Evidence is retained in
+`test-results/ui-baseline-history-check.txt`; these are not suppressed or claimed
+as passing. The full repository suite has not been run in this pass.
+
 ## Configurable Origination signing - 12 October 2026
 
 Implemented the opt-in `all_required` policy: product defaults, document-owned

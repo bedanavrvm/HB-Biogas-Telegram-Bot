@@ -10,6 +10,23 @@ from payments.services import _payment_activity_changes
 
 
 class ActivityChangesTests(SimpleTestCase):
+    @patch('core.services.workflow_timeline._annotations', return_value=({}, []))
+    def test_tat_groups_explicit_requests_without_merging_later_corrections(self, annotations):
+        events = MagicMock()
+        def event(key, stage, request):
+            return SimpleNamespace(id=key, source='mini_app', stage_key=stage, stage_label=stage,
+                transition_code='tat.case.correct', created_at=datetime.now(timezone.utc), actor_user=None,
+                authority_user=None, actor_name='Training officer', old_value='Before', new_value='After',
+                request_id=request, reason='Updated details', revision_before=1, revision_after=2)
+        events.select_related.return_value.order_by.return_value = [event('a','Phone','one'),event('b','Branch','one'),event('c','Phone','two')]
+        rows = tat_case_timeline(SimpleNamespace(pk='case',events=events))['entries']
+        self.assertEqual(len(rows),2)
+        grouped = next(row for row in rows if row['operation_id']=='one')
+        self.assertEqual(grouped['detail'],'Updated details')
+        self.assertEqual(len(grouped['changes']),2)
+        self.assertEqual(len(grouped['children']),2)
+        self.assertEqual(len(grouped['children'][0]['changes']),1)
+
     def test_complaint_labels_hide_codes_priority_and_duplicate_locations(self):
         from core.services.complaint_cases import complaint_display_changes
 

@@ -8,8 +8,8 @@
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=6">
   <script src="{% static 'miniapp/components.js' %}?v=7"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=25"></script>
-  <script src="{% static 'miniapp/activity_changes.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=26"></script>
+  <script src="{% static 'miniapp/activity_changes.js' %}?v=5"></script>
   <link rel="stylesheet" href="{% static 'miniapp/activity_changes.css' %}?v=3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,14 +18,14 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=46">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=47">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
   <main class="complaint-app" aria-label="Complaints">
     <header id="appHeader" class="app-top">
       <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
-      <div style="display:flex;gap:4px;flex-shrink:0"><button id="complaintSettingsBtn" class="icon-button" type="button" aria-label="Settings" title="Settings" hidden><svg class="lucide" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z"/></svg></button><button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button></div>
+      <div style="display:flex;gap:4px;flex-shrink:0"><button id="complaintSettingsBtn" class="icon-button" type="button" aria-label="Settings" title="Settings" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg></button><button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button></div>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="complaintSettingsOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintSettingsTitle" hidden><section class="report-email-sheet"><div class="report-email-head"><h3 id="complaintSettingsTitle">Settings</h3><button id="complaintSettingsClose" class="icon-button" type="button" aria-label="Close settings">×</button></div><div id="complaintReportEmailSettings"></div></section></div>
@@ -40,17 +40,18 @@
     </nav>
 
     <section id="queueView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Complaint List</p><h2>Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-plus"></use></svg><span>New Complaint</span></button></div>
+      <p id="queueResultCount" class="sr-only" role="status" aria-live="polite">0 complaints</p>
       <nav class="status-tabs" aria-label="Complaint status">
         <button type="button" class="active" data-status="pending"><svg class="lucide" aria-hidden="true"><use href="#lucide-clock"></use></svg><span>Open</span><strong id="pendingCount">0</strong></button>
         <button type="button" data-status="resolved"><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><span>Closed</span><strong id="resolvedCount">0</strong></button>
         <button type="button" data-status="all"><svg class="lucide" aria-hidden="true"><use href="#lucide-list"></use></svg><span>All</span><strong id="totalCount">0</strong></button>
       </nav>
-      <label class="search-box"><span class="sr-only">Search complaints</span><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="caseSearch" type="search" autocomplete="off" placeholder="Search by complaint ID, name, customer ID, phone number or complaint"></label>
+      <div class="queue-search-toolbar"><label class="search-box"><span class="sr-only">Search complaints</span><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="caseSearch" type="search" autocomplete="off" placeholder="Search complaints, names, IDs or phones"></label><button id="openComplaintQueueFilters" class="icon-button" type="button" aria-label="Filter complaints" aria-haspopup="dialog" aria-controls="complaintQueueFilterOverlay"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><span id="complaintQueueFilterCount" class="queue-filter-count" hidden>0</span></button><button id="newCaseBtn" class="icon-button" type="button" aria-label="New complaint" title="New complaint" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-plus"></use></svg></button></div>
       <div id="caseList" class="case-list" aria-live="polite"></div>
       <nav id="queuePagination" class="pagination" aria-label="Complaint pages" hidden><button id="queuePreviousBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span>Previous</span></button><span id="queuePageLabel">Page 1 of 1</span><button id="queueNextBtn" type="button"><span>Next</span><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav>
     </section>
 
+    <div id="complaintQueueFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintQueueFilterTitle" hidden><section id="complaintQueueFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><h3 id="complaintQueueFilterTitle">Filter complaints</h3><button id="closeComplaintQueueFilters" type="button" aria-label="Close queue filters">&times;</button></header><form id="complaintQueueFilters" class="register-filters"><label>Branch<select name="branch"><option value="">All branches</option></select></label><label>Complaint type<select name="category"><option value="">All types</option></select></label></form><footer class="complaint-report-filter-actions"><button id="resetComplaintQueueFilters" type="button">Reset</button><button class="primary" type="submit" form="complaintQueueFilters">Apply</button></footer></section></div>
     <section id="globalView" hidden>
       <button id="reportBackBtn" class="back-button" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
       <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><div class="report-export-actions"><div class="report-email-actions"><button id="exportResultsBtn" class="primary" type="button" hidden>Download Excel</button><button id="emailResultsBtn" type="button" class="report-email-icon" aria-label="Email report" hidden></button></div><button id="exportAllBtn" type="button" hidden>Export all</button></div></div>
@@ -94,11 +95,11 @@
           <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="off" autocapitalize="words" placeholder="Enter customer full name" required></label>
           <label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required></label>
           <label>Secondary Mobile Number<input name="secondary_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="Optional"></label>
-          <label class="full">National ID / Maisha Namba<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required></label>
+          <label class="full">National ID<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required></label>
           <label class="full">Branch<select name="branch_region" required><option value="">Select branch</option></select></label>
           <label>County<select name="county" required><option value="">Select county</option></select></label>
           <label>Constituency<select name="sub_county" required disabled><option value="">Select county first</option></select></label>
-          <label class="full">Village<input name="village" maxlength="255" autocomplete="address-level3" placeholder="Enter village" required></label>
+          <label class="full">Village/Nearest Landmark<input name="village" maxlength="255" autocomplete="address-level3" placeholder="Enter village or nearest landmark" required></label>
           <div class="full voice-enabled-field"><div class="label-line"><label for="complaintDescription"><span>What happened? <span class="miniapp-required-mark" aria-hidden="true">*</span></span></label><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></div><textarea id="complaintDescription" name="complaint_description" rows="4" maxlength="5000" placeholder="Describe the complaint in detail..." required></textarea><div class="voice-input-slot" data-voice-field="complaint_description" data-input-id="complaintDescription" hidden></div></div>
           <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">Choose the option that best matches the main issue.</small></label>
         </div>
@@ -126,7 +127,7 @@
         <div class="sticky-action"><button class="primary" type="submit">Save comment</button></div>
       </form>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This complaint changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy My Draft</button><button id="reviewConflictBtn" type="button">Review Latest Complaint</button></div></section>
-      <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Legacy Complaint</p><h2>Complete Legacy Case Details</h2><p class="muted">This older complaint was recorded before customer identifiers became mandatory. Add the missing details to return it to Open.</p></div><div class="form-grid"><label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" required></label><label>National ID / Maisha Namba<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" required></label><label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select></label></div><div class="sticky-action"><span class="muted">Returns to Open</span><button class="primary" type="submit">Complete Legacy Details</button></div></form>
+      <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Legacy Complaint</p><h2>Complete Legacy Case Details</h2><p class="muted">This older complaint was recorded before customer identifiers became mandatory. Add the missing details to return it to Open.</p></div><div class="form-grid"><label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" required></label><label>National ID<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" required></label><label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select></label></div><div class="sticky-action"><span class="muted">Returns to Open</span><button class="primary" type="submit">Complete Legacy Details</button></div></form>
       <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">HomeBiogas Action</p><h2>Resolve Complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label class="resolution-note-field voice-enabled-field"><span>Resolution Note</span><textarea id="complaintResolutionNote" name="resolution_text" rows="4" maxlength="5000" aria-describedby="resolutionNoteHelp" placeholder="Describe the action taken and the outcome for the customer..." required></textarea><small id="resolutionNoteHelp" class="field-help">Include what was fixed or completed, when it was done, and whether the customer confirmed the issue is resolved.</small><div class="voice-input-slot" data-voice-field="complaint_resolution_note" data-input-id="complaintResolutionNote" hidden></div></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="resolveEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photos</span></button><button type="button" data-files-target="resolve"><svg class="lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>Upload Files</span></button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><span>Resolve Complaint</span></button></div></form>
       <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><h2>Reopen Complaint</h2><p class="muted">If the complaint was not resolved, explain why before reopening it.</p></div><label class="voice-enabled-field">Why are you reopening this complaint?<textarea id="complaintReopenReason" name="reason" rows="4" maxlength="5000" required></textarea><div class="voice-input-slot" data-voice-field="complaint_reopen_reason" data-input-id="complaintReopenReason" hidden></div></label><div class="sticky-action"><span class="muted">Previous updates will remain in the complaint history.</span><button class="primary" type="submit">Reopen Complaint</button></div></form>
       <section id="evidencePanel" class="panel"><div class="panel-heading icon-heading"><svg class="lucide" aria-hidden="true"><use href="#lucide-paperclip"></use></svg><h2>Attachments</h2></div><div id="evidenceList" class="item-list"></div></section>
@@ -146,11 +147,11 @@
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=8"></script>
-  <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/complaint_report_charts.js' %}?v=6"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_settings.css' %}?v=3">
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=6"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=66"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=67"></script>
 </body>
 </html>

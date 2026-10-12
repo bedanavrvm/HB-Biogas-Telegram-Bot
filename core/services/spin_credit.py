@@ -1843,7 +1843,7 @@ def normalize_spin_review_fields(group_config, record: SpinCreditRequest, fields
     national_id_source = str(merged.get('national_id') or '').strip()
     national_id = validate_kenyan_national_id(national_id_source) if national_id_source else ''
     if national_id_source and not national_id:
-        errors.append('National ID / Maisha Namba must contain 1 to 9 digits only.')
+        errors.append('National ID must contain 1 to 9 digits only.')
 
     primary_phone_source = str(merged.get('primary_phone') or '').strip()
     primary_phone = normalize_phone(primary_phone_source) if primary_phone_source else ''
@@ -2258,7 +2258,7 @@ def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], l
 
     national_id = validate_kenyan_national_id(data.get('national_id', ''))
     if not national_id:
-        errors.append('National ID / Maisha Namba must contain 1 to 9 digits only.')
+        errors.append('National ID must contain 1 to 9 digits only.')
 
     primary_phone = normalize_phone(data.get('primary_phone', ''))
     if not primary_phone:

@@ -31,6 +31,18 @@ troubleshooting, read the
 - Use the case reference when requesting support and keep customer personal
   information out of ordinary support chats.
 
+## Reports
+
+- **Current workload** shows cases waiting now and recorded queue history.
+  **Period performance** shows completed work and its time-target comparisons.
+  Only graphs available to your role are shown; a graph belongs to one tab.
+- Use the graph's options icon for chart type. Time-series graphs also offer
+  Day, Week, Month and Year grouping. Grouping changes the time buckets, not
+  your access or the period selected in Filters.
+- Use **?** for a short explanation of what is counted and how to read it.
+  Select a graph point or heatmap cell to narrow the table when case links
+  exist; historical queue totals may not have individual case links.
+
 ## Getting help
 
 Contact the JBL administrator for incorrect role, branch, product, or access.

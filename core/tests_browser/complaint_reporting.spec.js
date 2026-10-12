@@ -75,7 +75,7 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     }
     await page.locator('#openComplaintReportFilters').click();
     await expect(page.locator('#globalFilters select[name="date_basis"]')).toBeVisible();
-    const heading=await page.locator('.complaint-report-filter-head').boundingBox();
+    const heading=await page.locator('#complaintReportFilterSheet .complaint-report-filter-head').boundingBox();
     const close=await page.locator('#closeComplaintReportFilters').boundingBox();
     expect(heading.x+heading.width-close.x-close.width).toBeLessThan(16);
     expect(Math.abs(heading.y+heading.height/2-close.y-close.height/2)).toBeLessThan(8);
@@ -85,14 +85,14 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     await activity.locator('select[aria-label="Activity type"]').selectOption('1');
     await activity.locator('select').last().selectOption('0');
     await expect(activity.getByRole('button',{name:'Show cases'})).toHaveCount(0);
-    await expect(page.locator('#complaintChartSelection')).toContainText('Open & Reopened');
+    await expect(page.locator('#complaintChartSelection')).toContainText('Resolved');
     const pill=await page.locator('#complaintChartSelection').boundingBox(), search=await page.locator('.report-search').boundingBox();
     expect(pill.y+pill.height).toBeLessThanOrEqual(search.y);
     await expect(page.locator('#globalResultCount')).toHaveText('4 complaints found');
-    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'reported',metric:'reported_open',date_from:'2026-09-01',date_to:'2026-09-30'});
+    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'closures',metric:'closures',date_from:'2026-09-01',date_to:'2026-09-30'});
     await page.locator('#exportResultsBtn').click();
     await expect(page.locator('#miniapp-excel-dialog')).toBeVisible();
-    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params.metric)).toBe('reported_open');
+    expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params.metric)).toBe('closures');
     await page.getByRole('button', { name: 'Close download options' }).click();
     await expect(page.locator('#exportResultsBtn')).toBeFocused();
     await page.locator('#complaintChartSelection').click();
@@ -173,18 +173,60 @@ test('complaint charts show their units on the value axis and in tooltips', asyn
 
 test('actual chart points and series changes immediately select the correct cohort', async ({page}) => {
   await openReport(page);
+  expect(await page.evaluate(()=>Chart.getChart(document.getElementById('timeChart')).data.datasets.map(d=>({label:d.label,data:d.data})))).toEqual([
+    {label:'Reported',data:[12]},{label:'Resolved',data:[4]},
+  ]);
   const point = await page.evaluate(() => {
     const chart=Chart.getChart(document.getElementById('timeChart'));
     const point=chart.getDatasetMeta(1).data[0], rect=chart.canvas.getBoundingClientRect();
     return {x:rect.x+point.x,y:rect.y+point.y};
   });
   await page.mouse.click(point.x,point.y);
-  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('reported_open');
+  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('closures');
   await page.locator('select[aria-label="Activity type"]').selectOption('0');
-  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('reported_closed');
+  await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBe('received');
   await page.locator('#complaintChartSelection').click();
   await expect(page.locator('#complaintChartSelection')).toBeHidden();
   expect(await page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params.metric)).toBeUndefined();
+});
+
+for (const width of [320,360,390,430,768,1280]) test(`complaint queue filters share the search row at ${width}px`, async ({page},info)=>{
+  await page.setViewportSize({width,height:850}); await openReport(page);
+  await page.locator('#reportBackBtn').click();
+  await expect(page.locator('#queueView h2')).toHaveCount(0);
+  await expect(page.locator('#queueResultCount')).toHaveClass('sr-only');
+  await page.evaluate(()=>{
+    const post=ComplaintCasesMiniAppApi.postJson;
+    ComplaintCasesMiniAppApi.postJson=async(route,payload)=>{
+      if(route!=='cases/')return post(route,payload);
+      window.__queuePayload=payload;
+      return {cases:[],pagination:{page:1,pages:1,total:0},filter_options:{branches:[{label:'Training',count:2}],categories:[{label:'Burner',count:2}]}};
+    };
+    document.getElementById('complaintSettingsBtn').hidden=false;
+  });
+  await page.locator('#caseSearch').fill('Training');
+  await expect.poll(()=>page.evaluate(()=>window.__queuePayload?.query)).toBe('Training');
+  await page.locator('#openComplaintQueueFilters').click();
+  await page.locator('#complaintQueueFilters [name=branch]').selectOption('Training');
+  await page.locator('#complaintQueueFilters [name=category]').selectOption('Burner');
+  await page.getByRole('button',{name:'Apply',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__queuePayload)).toMatchObject({query:'Training',branch:'Training',category:'Burner',page:1});
+  await expect(page.locator('#complaintQueueFilterCount')).toHaveText('2');
+  for(const dark of [false,true]) {
+    await page.evaluate(value=>{document.documentElement.dataset.miniappColorScheme=value?'dark':'light';window.__reportThemeChanged();},dark);
+    const search=await page.locator('#caseSearch').boundingBox(),filter=await page.locator('#openComplaintQueueFilters').boundingBox();
+    expect(Math.abs(search.y+search.height/2-filter.y-filter.height/2)).toBeLessThan(1);
+    expect(filter.x).toBeGreaterThan(search.x+search.width);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`complaint-queue-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+    await page.locator('#openComplaintQueueFilters').click();
+    await page.screenshot({path:info.outputPath(`complaint-queue-filters-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#openComplaintQueueFilters')).toBeFocused();
+  }
+  await page.locator('#openComplaintQueueFilters').click();
+  await page.locator('#resetComplaintQueueFilters').click();
+  await expect.poll(()=>page.evaluate(()=>window.__queuePayload)).toMatchObject({branch:'',category:'',query:'Training'});
 });
 
 test('Real Complaints envelope sends current result filters without leaving the report',async({page},info)=>{

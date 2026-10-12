@@ -1497,7 +1497,7 @@ def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     notes = []
     raw_national_id = clean_text(row.get('National ID', ''))
     if raw_national_id and not clean_national_id(raw_national_id):
-        notes.append('National ID / Maisha Namba must contain 1-9 digits only')
+        notes.append('National ID must contain 1-9 digits only')
     required = [
         ('National ID', 'national_id'),
         ('Primary Phone', 'primary_phone'),
@@ -1742,7 +1742,7 @@ def clean_farmer_row(
     if raw_national_id and not explicit_national_id:
         review_notes.append('National ID must contain digits only')
     elif national_id and not is_valid_national_id(national_id):
-        review_notes.append('National ID / Maisha Namba must contain 1-9 digits only')
+        review_notes.append('National ID must contain 1-9 digits only')
     if bracketed_id_value and not clean_national_id(bracketed_id_value):
         review_notes.append('Bracketed National ID in Full Name must contain digits only')
     elif bracketed_id_value and not is_valid_national_id(bracketed_id_value):

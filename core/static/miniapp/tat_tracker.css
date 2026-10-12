@@ -502,6 +502,11 @@ h2 { font-size: 13px; font-weight: 750; }
   padding: 4px 9px;
 }
 .queue-filter-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tat-queue-search-row { display:flex;align-items:center;gap:6px; }
+.tat-queue-search-row .tat-queue-search { flex:1;min-width:0;margin:0; }
+.tat-queue-search-row .queue-filter-btn { margin-left:auto;display:grid;place-items:center;flex:0 0 40px;width:40px;min-width:40px;height:40px;padding:0; }
+.tat-queue-search-row .queue-filter-btn > span { display:none; }
+.queue-result-announcement { position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap; }
 .queue-filter-btn.active { border-color: var(--tat-accent); color: var(--tat-accent); }
 .queue-filter-btn b { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--tat-danger); }
 .active-filters { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
@@ -785,10 +790,11 @@ body.tat-sheet-open { overflow: hidden; }
 }
 .case-identifier {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 3px;
   min-width: 0;
 }
+.case-identifier-value { display: inline-flex; align-items: center; min-height: 24px; line-height: 1.4; }
 .case-identifier small {
   color: color-mix(in srgb, var(--tat-text) 68%, var(--tat-muted));
   font-size: 9px;
@@ -1768,7 +1774,12 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .tat-chart-options > summary { display: grid; place-items: center; width: 44px; height: 44px; list-style: none; cursor: pointer; font-size: 18px; }
 .tat-chart-options > summary::-webkit-details-marker { display: none; }
 .tat-chart-options .tat-insight-chart-toggle { position: absolute; z-index: 11; top: 48px; right: 8px; display: flex; padding: 8px; gap: 6px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); box-shadow: 0 8px 24px #0003; }
-.tat-chart-options .tat-insight-chart-toggle button { min-height: 44px; font-size: 12px; padding: 6px 10px; }
+.tat-chart-options .tat-insight-chart-toggle button { display:grid;place-items:center;flex:0 0 40px;width:40px;min-width:40px;max-width:40px;height:40px;min-height:40px;padding:8px; }
+.tat-chart-options .miniapp-chart-menu { width:min(208px,calc(100vw - 48px)); }
+.tat-chart-options .tat-insight-chart-toggle { flex-wrap:wrap; }
+.tat-chart-options .tat-insight-chart-toggle button svg { width:18px;height:18px; }
+.tat-chart-grouping { margin:0;letter-spacing:normal;text-transform:none; }
+.tat-chart-grouping select { width:100%;min-height:38px;font-size:12px; }
 .tat-heatmap table { table-layout: fixed; font-size: 12px; }
 .tat-heatmap th { width: 76px; max-width: 76px; padding: 3px 4px; font-size: 11px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
 .tat-heatmap th:first-child { width: 100px; max-width: 100px; }

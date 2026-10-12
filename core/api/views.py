@@ -826,6 +826,11 @@ def tat_tracker_reports_summary(request):
         for key in ('heatmap', 'target_review_signals', 'oldest_cases'):
             if key not in permitted_insights:
                 data.pop(key, None)
+    from core.services.tat_presentation import REPORT_PANEL_VIEWS, presentation_settings
+    view = 'performance' if payload.get('view') == 'performance' else 'current'
+    data['report_panel_views'] = dict(REPORT_PANEL_VIEWS)
+    data['visible_panel_keys'] = [key for key in presentation_settings()['report_panel_order']
+                                if key in permitted_insights and REPORT_PANEL_VIEWS.get(key) == view]
     return JsonResponse({'ok': True, 'data': data})
 
 

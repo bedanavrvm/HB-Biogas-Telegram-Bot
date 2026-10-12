@@ -57,7 +57,7 @@ def _clean_value(key: str, raw_value):
     if key in {'national_id', 'lead_national_id'}:
         value = validate_kenyan_national_id(raw_value) if str(raw_value or '').strip() else ''
         if str(raw_value or '').strip() and not value:
-            raise ValueError('National ID / Maisha Namba must contain 1 to 9 digits only.')
+            raise ValueError('National ID must contain 1 to 9 digits only.')
         return value
     if key in {'primary_phone', 'secondary_phone', 'lead_primary_phone'}:
         value = normalize_kenyan_phone(raw_value) if str(raw_value or '').strip() else ''

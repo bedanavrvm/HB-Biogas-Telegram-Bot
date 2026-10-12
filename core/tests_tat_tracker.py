@@ -116,6 +116,8 @@ from core.services.sync_governance import assert_registered_schema_before_publis
 @override_settings(SECURE_SSL_REDIRECT=False)
 class TatTrackerWorkflowTest(TestCase):
     def setUp(self):
+        from core.services.access_grant_governance import governed_access_grant_mutation
+        self.enterContext(governed_access_grant_mutation('Synthetic TAT regression fixtures'))
         _TAT_HEADER_CACHE.clear()
         GroupRegistry._instance = None
         self.config = GroupSheetConfiguration.objects.create(
@@ -1117,8 +1119,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("recordTatCarouselGesture('gesture_started')", source)
         self.assertIn("if (event.target.closest?.('.tat-heatmap')) return;", source)
         self.assertIn('function tatChartExplanation(payload)', source)
-        self.assertIn('Question: ${payload.question}', source)
-        self.assertIn('How to read it: ${payload.interpretation}', source)
+        self.assertNotIn('Question: ${payload.question}', source)
+        self.assertNotIn('How to read it: ${payload.interpretation}', source)
+        self.assertIn('if (payload.interpretation) parts.push(payload.interpretation)', source)
+        self.assertIn('setChartHelp(target, tatChartExplanation(payload))', source)
         self.assertIn("return parts.filter(Boolean).join('\\n');", source)
         self.assertIn('.tat-report-charts .chart-basis{white-space:pre-line}', stylesheet)
         self.assertIn('data-heat-row', source)
@@ -1363,6 +1367,11 @@ class TatTrackerWorkflowTest(TestCase):
             'load_per_assignee': 'configured assignee',
         }
         for metric, expected in comparison_meanings.items():
+            if metric not in {'workload','sla_state','load_per_assignee'}:
+                with self.assertRaisesMessage(ValueError, 'current-workload comparison metric'):
+                    report_summary(self.bro_user, {'view':'current','response_mode':'focused_v1',
+                                                  'insight':'explorer','chart_metric':metric})
+                continue
             focused = report_summary(self.bro_user, {
                 'view': 'current', 'response_mode': 'focused_v1',
                 'insight': 'explorer', 'chart_dimension': 'branch',
@@ -1374,14 +1383,14 @@ class TatTrackerWorkflowTest(TestCase):
             self.assertNotIn('IQR', explanation['subtitle'])
 
         heatmap_meanings = {
-            'workload': 'most current cases',
+            'workload': 'most completed actions',
             'duration': 'take longest',
             'target_usage': 'use or exceed',
             'sla_met': 'meet their targets most often',
         }
         for metric, expected in heatmap_meanings.items():
             focused = report_summary(self.bro_user, {
-                'view': 'current', 'response_mode': 'focused_v1',
+                'view': 'performance', 'response_mode': 'focused_v1',
                 'insight': 'heatmap', 'heatmap_pair': 'stage_branch',
                 'heatmap_metric': metric,
             })
@@ -1411,6 +1420,9 @@ class TatTrackerWorkflowTest(TestCase):
             report_summary(self.bro_user, {
                 'response_mode': 'focused_v1', 'insight': 'made_up_chart',
             })
+        for view, insight in [('current','heatmap'),('performance','trend')]:
+            with self.assertRaisesMessage(ValueError, 'available in this report tab'):
+                report_summary(self.bro_user, {'view':view,'response_mode':'focused_v1','insight':insight})
 
     def test_tat_report_fast_table_query_count_is_bounded(self):
         TatTrackerCase.objects.create(

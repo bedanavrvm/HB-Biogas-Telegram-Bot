@@ -17,6 +17,16 @@ REPORT_PANEL_ORDER = (
     'stage_target', 'explorer', 'heatmap', 'target_review_signals', 'oldest_cases',
 )
 
+# Presentation ownership, not permission: capability checks still authorize
+# every insight independently. Bootstrap and report responses share this map.
+REPORT_PANEL_VIEWS = {
+    'trend': 'current', 'case_progression': 'current', 'backlog_age': 'current',
+    'explorer': 'current', 'oldest_cases': 'current',
+    'sla_compliance': 'performance', 'tat_percentiles': 'performance',
+    'stage_target': 'performance', 'heatmap': 'performance',
+    'target_review_signals': 'performance',
+}
+
 
 def validate_report_panel_order(value):
     order = list(value) if isinstance(value, (list, tuple)) else []
@@ -33,6 +43,7 @@ def presentation_settings() -> dict:
             'business_time_enabled': True,
             'near_target_percent': 80,
             'report_panel_order': list(REPORT_PANEL_ORDER),
+            'report_panel_views': dict(REPORT_PANEL_VIEWS),
             'revision': 0,
             'updated_at': '',
         }
@@ -40,6 +51,7 @@ def presentation_settings() -> dict:
         'business_time_enabled': bool(row.business_time_enabled),
         'near_target_percent': int(row.near_target_percent),
         'report_panel_order': list(row.report_panel_order or REPORT_PANEL_ORDER),
+        'report_panel_views': dict(REPORT_PANEL_VIEWS),
         'revision': int(row.revision),
         'updated_at': row.updated_at.isoformat() if row.updated_at else '',
     }

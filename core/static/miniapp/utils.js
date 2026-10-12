@@ -642,8 +642,13 @@
   }
 
   function haptic(kind) {
-    const feedback = window.Telegram?.WebApp?.HapticFeedback;
-    if (!feedback) return false;
+    const app = window.Telegram?.WebApp;
+    const feedback = app?.HapticFeedback;
+    const fallback = () => {
+      try { return typeof window.navigator?.vibrate === 'function' && Boolean(window.navigator.vibrate(kind === 'error' ? [35,40,35] : 35)); }
+      catch (_) { return false; }
+    };
+    if (!feedback || (typeof app.isVersionAtLeast === 'function' && !app.isVersionAtLeast('6.1'))) return fallback();
     try {
       if (kind === 'error' || kind === 'warning' || kind === 'success') {
         feedback.notificationOccurred(kind === 'warning' ? 'warning' : kind);
@@ -654,7 +659,7 @@
     } catch (_) {
       // Haptics are an optional Telegram enhancement. Never affect the
       // completed server-side action if a client does not support them.
-      return false;
+      return fallback();
     }
   }
 

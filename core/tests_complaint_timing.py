@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.contrib.auth import get_user_model
@@ -20,6 +21,10 @@ from core.services.compliance_audit import record_event
 
 class ComplaintTimingTests(TestCase):
     now = datetime(2026, 10, 2, 12, tzinfo=ZoneInfo('Africa/Nairobi'))
+
+    def setUp(self):
+        # Table drill-down uses the same clock as the synthetic timing facts.
+        self.enterContext(patch('django.utils.timezone.now', return_value=self.now))
 
     def make_case(self, *, hours=48, closed=False, duration=24, target=24):
         index = ParsedMessage.objects.count() + 1
@@ -72,7 +77,7 @@ class ComplaintTimingTests(TestCase):
         self.assertEqual(facts['first_resolution_hours'], 20)
         self.assertEqual(facts['hb_response_hours'], 12)
         summary = timing_summary([case], now=self.now, granularity='year')
-        self.assertEqual(sum(row['resolved'] for row in summary['activity']), 2)
+        self.assertEqual(sum(row['resolved'] for row in summary['activity']), 1)
         self.assertEqual(sum(row['count'] for row in summary['reopenings']), 1)
 
     def test_unknown_roles_never_invent_hb_response(self):
@@ -80,6 +85,24 @@ class ComplaintTimingTests(TestCase):
         self.update(case, 24, 'Open', 'Closed')
         hydrate_timing([case], now=self.now)
         self.assertIsNone(case.complaint_timing['hb_response_hours'])
+
+    def test_activity_counts_unique_resolutions_per_bucket_and_matches_drilldown(self):
+        case = self.make_case(hours=100)
+        self.update(case, 20, 'Open', 'Closed')
+        self.update(case, 30, 'Closed', 'Reopened')
+        self.update(case, 90, 'Reopened', 'Closed')
+        hydrate_timing([case], now=self.now)
+        self.assertEqual(timing_summary([case], now=self.now, granularity='month')['activity'], [
+            {'label': '2026-09', 'received': 1, 'resolved': 1},
+            {'label': '2026-10', 'received': 0, 'resolved': 1},
+        ])
+        self.assertEqual(timing_summary([case], now=self.now, granularity='year')['activity'],
+                         [{'label': '2026', 'received': 1, 'resolved': 1}])
+        for month in ('09', '10'):
+            self.assertEqual(complaint_report_page(filters={
+                'metric': 'closures', 'date_basis': 'closures',
+                'date_from': f'2026-{month}-01', 'date_to': f'2026-{month}-30',
+            })['count'], 1)
 
     def test_reported_outcomes_are_distinct_current_states_not_repeat_closures(self):
         closed = self.make_case(hours=100, closed=True, duration=90)

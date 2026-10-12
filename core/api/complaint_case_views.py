@@ -440,6 +440,7 @@ def complaint_cases_list(request):
         result = list_cases_page(
             group_config, actor,
             query=str(payload.get('query') or ''), status=str(payload.get('status') or 'pending'),
+            branch=str(payload.get('branch') or ''), category=str(payload.get('category') or ''),
             cursor=str(payload.get('cursor') or ''), limit=10,
             page=payload.get('page') if 'page' in payload else None, page_size=10,
         )
@@ -450,6 +451,7 @@ def complaint_cases_list(request):
         'cases': result['items'],
         'next_cursor': result['next_cursor'],
         'pagination': result.get('pagination'),
+        'filter_options': result.get('filter_options', {}),
         'start_index': result.get('start_index', 0),
     })
 
@@ -469,6 +471,7 @@ def complaint_cases_list_fragment(request):
         result = list_cases_page(
             group_config, actor,
             query=str(payload.get('query') or ''), status=str(payload.get('status') or 'pending'),
+            branch=str(payload.get('branch') or ''), category=str(payload.get('category') or ''),
             page=payload.get('page') or 1, page_size=10,
         )
     except ComplaintCaseError as exc:

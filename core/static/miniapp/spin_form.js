@@ -324,7 +324,7 @@
     if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) add('request_type', 'Choose SPIN/CRB, SPIN, or CRB.');
     if (Array.isArray(config.branch_choices) && config.branch_choices.length && !data.branch) add('branch', 'Select a valid branch.');
     if (!data.customer_name) add('customer_name', 'Customer Name is required.');
-    if (!/^\d{1,9}$/.test(data.national_id)) add('national_id', 'National ID / Maisha Namba must contain 1 to 9 digits only.');
+    if (!/^\d{1,9}$/.test(data.national_id)) add('national_id', 'National ID must contain 1 to 9 digits only.');
     if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Mobile Number must be a valid Kenyan mobile number.');
     if (data.secondary_phone && !normalizePhone(data.secondary_phone)) add('secondary_phone', 'Secondary Mobile Number is invalid or not a Kenyan mobile number.');
     if (!data.requested_amount || Number(data.requested_amount) <= 0) add('requested_amount', 'Requested Amount is required and must be greater than 0.');

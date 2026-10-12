@@ -8,6 +8,7 @@ import re
 import base64
 import binascii
 from dataclasses import dataclass
+from collections import Counter
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -357,7 +358,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
 def list_cases_page(
     group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'pending',
     branch: str = '', priority: str = '', assignment: str = '', sla: str = '', cursor: str = '', limit: int = 40,
-    page: int | str | None = None, page_size: int = 10,
+    page: int | str | None = None, page_size: int = 10, category: str = '',
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
@@ -365,6 +366,34 @@ def list_cases_page(
         'case_updates', filter=Q(case_updates__source='mini_app_comment'),
     ))
     cases = _filter_query(cases, query)
+    def branch_filter(rows):
+        if not branch:
+            return rows
+        return rows.filter(Q(complaint_control__branch_ref__name__iexact=branch) |
+                           Q(complaint_control__branch_ref__isnull=True, branch_region__iexact=branch))
+
+    def category_filter(rows):
+        if not category:
+            return rows
+        return rows.filter(Q(complaint_control__category__label__iexact=category) |
+                           Q(complaint_control__category__isnull=True, complaint_category__iexact=category))
+
+    def options(rows, canonical, legacy):
+        counts, labels = Counter(), {}
+        for current, historical in rows.values_list(canonical, legacy):
+            label = str(current or historical or '').strip()
+            if label:
+                counts[label.casefold()] += 1
+                labels.setdefault(label.casefold(), label)
+        return [{'label': labels[key], 'count': counts[key]} for key in sorted(counts)]
+
+    # Facets are drawn only from this actor's queue, before pagination. Each
+    # facet keeps its alternatives while respecting the other selected facet.
+    filter_options = {
+        'branches': options(category_filter(cases), 'complaint_control__branch_ref__name', 'branch_region'),
+        'categories': options(branch_filter(cases), 'complaint_control__category__label', 'complaint_category'),
+    }
+    cases = category_filter(branch_filter(cases))
     if status in {'pending', 'active'}:
         cases = cases.exclude(complaint_status='Closed').order_by('timestamp', 'pk')
     elif status in {'resolved', 'closed', 'Closed'}:
@@ -384,6 +413,7 @@ def list_cases_page(
         rows = list(cases[offset:offset + bounded_page_size])
         return {
             'items': [serialize_case(case) for case in rows],
+            'filter_options': filter_options,
             'next_cursor': '',
             'start_index': offset + 1 if rows else 0,
             'pagination': {
@@ -415,6 +445,7 @@ def list_cases_page(
         next_cursor = base64.urlsafe_b64encode(raw_cursor).decode().rstrip('=')
     return {
         'items': [serialize_case(case) for case in rows[:page_size]],
+        'filter_options': filter_options,
         'next_cursor': next_cursor,
         'start_index': 1,
         'pagination': None,
@@ -540,7 +571,7 @@ def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uplo
 
 def resolution_comments_text(case: ParsedMessage) -> str:
     """Canonical append-only feedback; neither a resolution nor a transition."""
-    return '\n\n'.join(
+    return '\n────────────────────\n'.join(
         f'{update.resolution_text}\n{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}'
         for update in case.case_updates.filter(source='mini_app_comment').order_by('created_at', 'pk')
     )
@@ -828,7 +859,7 @@ def validate_new_case_fields(
         'customer_id': numeric_customer_id,
         'county': lambda value: required_case_text(value, 'County'),
         'sub_county': lambda value: required_case_text(value, 'Constituency'),
-        'village': lambda value: required_case_text(value, 'Village'),
+        'village': lambda value: required_case_text(value, 'Village/Nearest Landmark'),
     }
     for key, check in checks.items():
         try:
@@ -874,7 +905,7 @@ def validate_new_case_fields(
     latitude, longitude, gps_link = normalize_location(fields)
     county_value = required_case_text(fields.get('county'), 'County')
     sub_county_value = required_case_text(fields.get('sub_county'), 'Constituency')
-    village = required_case_text(fields.get('village'), 'Village')
+    village = required_case_text(fields.get('village'), 'Village/Nearest Landmark')
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
     try:
         branch_ref, county_ref, sub_county_ref = validate_location_selection(
@@ -980,12 +1011,12 @@ def normalize_customer_name(value: Any) -> str:
 
 
 def numeric_customer_id(value: Any) -> str:
-    """Validate a National ID/Maisha Namba while preserving leading zeroes."""
+    """Validate a National ID while preserving leading zeroes."""
     text = limited_case_text(value, 'Customer National ID')
     if not text:
         return ''
     if not validate_kenyan_national_id(text):
-        raise ComplaintCaseError('National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter the card serial number.')
+        raise ComplaintCaseError('National ID must contain 1 to 9 digits only. Do not enter the card serial number.')
     return text
 
 

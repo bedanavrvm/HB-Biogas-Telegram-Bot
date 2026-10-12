@@ -164,6 +164,10 @@ button{transition:border-color .16s ease,background-color .16s ease,color .16s e
 #globalMetrics .metric-pending strong{color:var(--danger)}
 #globalMetrics :is(.metric-resolved,.metric-on-time) strong{color:var(--success)}
 .report-search{display:block;margin:8px 0 5px;letter-spacing:normal;text-transform:none}
+.queue-search-toolbar{display:flex;align-items:center;gap:6px;margin:6px 0 8px}
+.queue-search-toolbar .search-box{flex:1;min-width:0;margin:0}
+.queue-search-toolbar .icon-button{flex:0 0 40px;width:40px;height:40px;position:relative}
+.queue-filter-count{position:absolute;top:-3px;right:-3px;min-width:16px;padding:1px 3px;border-radius:9px;background:var(--accent);color:var(--surface);font-size:10px;line-height:14px;text-align:center}
 .report-search .filter-search-control{display:block}
 .report-search input{min-height:40px;font-size:12px}
 .complaint-report-filter-head{display:grid;grid-template-columns:minmax(0,1fr) 36px;align-items:center;gap:8px;min-height:52px}

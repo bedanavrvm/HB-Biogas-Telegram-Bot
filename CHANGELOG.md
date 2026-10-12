@@ -1,5 +1,24 @@
 # Changelog
 
+## 12 October 2026 - TAT and Complaints report clarity
+
+- Separated TAT workload graphs from completed-performance graphs while keeping
+  capability checks and legacy full-report responses compatible. Added compact
+  chart-type icons and Day/Week/Month/Year controls for time-series graphs.
+- Rewrote graph help to explain the measure, dates, targets and exclusions inside
+  the existing question control, without repeating titles or visible paragraphs.
+- Aligned TAT queue phone/ID values, removed repeated queue titles/counts and
+  search headings, and grouped explicitly linked timeline changes without
+  changing their underlying audit events.
+- Restored Complaints' Reported vs resolved graph to reporting/closure dates;
+  repeated closures count a complaint once per displayed period. Added scoped,
+  data-backed Branch/Complaint type queue filters beside search.
+- Standardized the Complaints settings icon, Village/Nearest Landmark and
+  National ID wording. Sheet feedback has a visible separator with actor/time
+  at the end. Confirmed saves/uploads trigger shared success haptics once.
+- Added synthetic PostgreSQL, Node and screenshot-backed browser regressions;
+  no schema, identifier rules, grants or external provider data were changed.
+
 ## 12 October 2026 - Configurable Origination signing
 
 - Added opt-in product signing defaults and a compact, autosaving application

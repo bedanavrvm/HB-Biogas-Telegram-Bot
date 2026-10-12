@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {test, expect} = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
+const reportPanelViews = JSON.parse(fs.readFileSync(path.resolve(__dirname,'../services/tat_presentation.py'),'utf8')
+  .match(/REPORT_PANEL_VIEWS = (\{[\s\S]*?\})/)[1].replace(/'/g,'"').replace(/,\s*}/,'}'));
 const source = fs.readFileSync(path.resolve(__dirname, '../templates/tat_tracker/app.html'), 'utf8');
 const markup = source.slice(source.indexOf('<main class="tat-app"'), source.lastIndexOf('</main>') + 7)
   .replace(/{%[\s\S]*?%}|{{[\s\S]*?}}/g, '').replace(/<img[^>]*>/g, '');
@@ -11,7 +13,7 @@ async function mount(page, reports = false, native = false) {
   await page.route(/^https?:\/\//, route => route.abort());
   await page.setContent(`<body>${markup}</body>`);
   for (const name of ['base.css','components.css','tat_tracker.css']) await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
-  await page.evaluate(({reports,native}) => {
+  await page.evaluate(({reports,native,reportPanelViews}) => {
     if (native) {
       window.__handlers=new Set(); window.__native={show(){this.visible=true;},hide(){this.visible=false;},setText(){},enable(){},disable(){},hideProgress(){},
         onClick(fn){__handlers.add(fn);},offClick(fn){__handlers.delete(fn);}};
@@ -22,22 +24,29 @@ async function mount(page, reports = false, native = false) {
     const home = body => ({queue:body.queue||'role',items:[{...summary,client_name:body.query||summary.client_name}],metrics:{role:1,total:1},pagination:{page:body.page||1,pages:1,total:1,page_size:10},visibility:{}});
     window.TatMiniAppApi = {postJson:async (url, body) => {
       window.__calls.push({url,body});
-      if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,user:{name:'Synthetic Officer',roles:['BRO'],capabilities:['tat.home.view','tat.case.search', ...(reports?['tat.reports.view','tat.reports.export','tat.reports.insight.trend']:[])]},products:[],branches:[],statuses:[],...home({})}};
+      if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['BRO'],capabilities:['tat.home.view','tat.case.search', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[],branches:[],statuses:[],...home({})}};
       if(url.includes('/home/')) { if(body.query==='slow') await new Promise(resolve=>setTimeout(resolve,650)); return {ok:true,data:home(body)}; }
-      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],fields:[],events:[]}};
+      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],fields:[],events:[],timeline:window.__timeline||[]}};
       return {ok:true,data:{}};
     }};
     if (reports) window.fetch = async (url, options) => {
       const body = JSON.parse(options.body); __calls.push({url,body});
       const chart = {id:'trend',title:'Completed actions',basis:'completed_stage_actions',sample_count:2,labels:['2026-10-01','2026-10-02'],
         series:window.__multiTrend ? [{key:'created',label:'Created',values:[1,1]},{key:'disbursed',label:'Disbursed',values:[3,4]}] : [{key:'completed_actions',label:'Actions',values:[1,1]}],drilldown:{available:!window.__historical,reason:'Individual cases aren’t available for this historical total.'}};
-      const result = url.includes('/summary/') ? {response_mode:'focused_v1',metrics:{},filters:{},charts:{trend:chart}}
+      const key=body.insight||'trend';chart.id=key;
+      chart.interpretation=key==='tat_percentiles' ? 'Median is the middle completion time. P90 is the time within which 90% finished.' : 'Each point shows the last recorded queue size for that period.';
+      chart.scope_note='Scope: all records you are allowed to view.';
+      const visiblePanelKeys=Object.keys(reportPanelViews).filter(k=>reportPanelViews[k]===(body.view||'current')&&(reports==='all'||k==='trend'));
+      const result = url.includes('/summary/') ? {response_mode:'focused_v1',metrics:{},filters:{},visible_panel_keys:visiblePanelKeys,charts:{[key]:chart}}
         : {results:[{case_id:body.drill_bucket?'TAT-SELECTED':'TAT-ALL',client_name:'Synthetic Applicant'}],count:body.drill_bucket?1:30,stage_columns:[]};
       return new Response(JSON.stringify({ok:true,data:result}));
     };
-  }, {reports,native});
-  if (reports) for (const name of ['vendor-chartjs-4.5.1.umd.min.js','vendor-ag-grid-community-36.1.0.min.js']) await page.addScriptTag({path:asset(name)});
-  for (const name of ['utils.js','components.js','tat_formatters.js','tat_bro_assignment.js','tat_case_validation.js','tat_tracker.js']) await page.addScriptTag({path:asset(name)});
+  }, {reports,native,reportPanelViews});
+  if (reports) {
+    for(const name of ['vendor-ag-grid-community-36.1.0.min.css','vendor-ag-grid-theme-quartz-36.1.0.min.css'])await page.addStyleTag({path:asset(name)});
+    for (const name of ['vendor-chartjs-4.5.1.umd.min.js','vendor-ag-grid-community-36.1.0.min.js']) await page.addScriptTag({path:asset(name)});
+  }
+  for (const name of ['utils.js','components.js','activity_changes.js','tat_formatters.js','tat_bro_assignment.js','tat_case_validation.js','tat_tracker.js']) await page.addScriptTag({path:asset(name)});
   await expect(page.locator('#queueList')).toContainText('Synthetic Applicant');
 }
 
@@ -59,6 +68,23 @@ test('real TAT queue searches the selected queue, ignores stale responses and pr
   await expect(page.locator('#queueSearchInput')).toHaveValue('Current');
   await page.locator('#queueSearchInput').fill('');
   await expect(page.locator('#queueList')).toContainText('Synthetic Applicant');
+});
+
+for (const width of [320,360,390,430,768,1280]) test(`TAT queue identifiers align and search has no heading at ${width}px`, async ({page}, info) => {
+  await page.setViewportSize({width,height:850}); await mount(page);
+  await expect(page.getByText('Search this queue', {exact:true})).toHaveCount(0);
+  await expect(page.locator('#activeQueueHeading')).toHaveCount(0);
+  const searchBox=await page.locator('#queueSearchInput').boundingBox(), filterBox=await page.locator('#openQueueFiltersBtn').boundingBox();
+  expect(Math.abs(searchBox.y+searchBox.height/2-filterBox.y-filterBox.height/2)).toBeLessThan(2);
+  for (const theme of ['light','dark']) {
+    await page.evaluate(value=>document.documentElement.dataset.miniappColorScheme=value,theme);
+    const boxes=await page.locator('#queueList .case-identifier-value').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
+    expect(boxes).toHaveLength(2); expect(Math.abs(boxes[0]-boxes[1])).toBeLessThan(1);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`queue-identifiers-${width}-${theme}.png`),fullPage:true});
+  }
+  await page.locator('#queueList a[href^="tel:"]').click();
+  await expect(page.locator('#queueView')).toHaveClass(/active/);
 });
 
 for(const width of [320,360,390,430,768,1280]) test(`TAT correction Cancel stays right-aligned at ${width}px`,async({page},info)=>{
@@ -163,4 +189,53 @@ test('TAT detail does not make missing or masked contacts dialable',async({page}
     await expect(page.locator('#detailSummary a[href^="tel:"]')).toHaveCount(0);
     await page.locator('#backBtn').click();
   }
+});
+
+test('TAT activity displays the stage once alongside the recorded change',async({page})=>{
+  await mount(page);await page.evaluate(()=>window.__timeline=[{stage:'Credit analysis',actor:'Training analyst',
+    occurred_at:'2026-10-01T09:00:00+03:00',changes:[{field:'value',label:'Credit analysis',old_value:'Pending',new_value:'Approved'}]}]);
+  await page.locator('#queueList .case-name').first().click();
+  await page.locator('.activity-panel summary').click();
+  await expect(page.locator('#eventList').getByText('Credit analysis',{exact:true})).toHaveCount(1);
+  await expect(page.locator('#eventList')).toContainText('Approved');
+});
+
+test('TAT graph help stays inside the question control without repeating its title',async({page},info)=>{
+  await page.setViewportSize({width:390,height:850});await mount(page,'all');
+  await page.locator('#dashboardWorkspaceBtn').click();
+  await page.locator('[data-report-view="performance"]').click();
+  await page.locator('#tatChartNext').click();
+  const panel=page.locator('[data-report-key="tat_percentiles"]'), help=panel.locator('.miniapp-chart-help');
+  await expect(help.locator('.miniapp-chart-help-content')).toBeHidden();
+  await help.locator('summary').click();
+  await expect(help).toContainText('P90 is the time within which 90% finished.');
+  await expect(help).not.toContainText('How to read it:');
+  await expect(help).not.toContainText('Question:');
+  await expect(help).not.toContainText(await panel.locator('h3').innerText());
+  await page.screenshot({path:info.outputPath('tat-graph-help-390.png'),fullPage:true});
+});
+
+for (const width of [320,360,390,430,768,1280]) test(`TAT report tabs and icon/grouping controls fit ${width}px`,async({page},info)=>{
+  await page.setViewportSize({width,height:850});await mount(page,'all');
+  await page.locator('#dashboardWorkspaceBtn').click();
+  const keys=()=>page.locator('#tatReportCharts [data-report-slide]').evaluateAll(nodes=>nodes.filter(n=>!n.hidden).map(n=>n.dataset.reportKey));
+  const current=await keys();expect(current).toHaveLength(5);
+  await expect(page.locator('#tatReportPage')).toHaveText('Page 1 of 2');
+  for(const [key,grouping] of [['trend','day'],['sla_compliance','week'],['tat_percentiles','year']]) {
+    if(key==='sla_compliance')await page.locator('[data-report-view="performance"]').click();
+    if(key==='tat_percentiles')await page.locator('#tatChartNext').click();
+    const panel=page.locator(`[data-report-key="${key}"]`),toggle=panel.getByLabel('Chart options',{exact:true});
+    await expect(panel).toBeVisible();const before=await toggle.boundingBox();await toggle.click();
+    const after=await toggle.boundingBox();expect(Math.abs(before.x-after.x)).toBeLessThan(1);expect(Math.abs(before.y-after.y)).toBeLessThan(1);
+    const line=panel.getByRole('button',{name:'Line chart',exact:true});await expect(line.locator('svg')).toHaveCount(1);
+    expect((await line.boundingBox()).width).toBeLessThanOrEqual(44);
+    expect(await panel.getByLabel('Time grouping').locator('option').allTextContents()).toEqual(['Day','Week','Month','Year']);
+    await page.screenshot({path:info.outputPath(`tat-${key}-controls-${width}.png`),fullPage:true});
+    await panel.getByLabel('Time grouping').selectOption(grouping);
+    await expect.poll(()=>page.evaluate(()=>__calls.filter(c=>c.url.includes('/reports/summary/')).at(-1).body.granularity)).toBe(grouping);
+    await toggle.click();await panel.getByRole('button',{name:'Bar chart',exact:true}).click();
+    await expect(toggle.locator('..')).not.toHaveAttribute('open','');
+  }
+  const performance=await keys();expect(performance).toHaveLength(5);expect(current.filter(k=>performance.includes(k))).toEqual([]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });

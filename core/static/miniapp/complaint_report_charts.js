@@ -29,28 +29,28 @@
     const color = (token, fallback) => root.getPropertyValue(token).trim() || fallback;
     const text = color('--muted', '#667085'), grid = color('--line', '#e2e8f0');
     const green = '#168354', red = '#d14343', blue = '#2481cc';
-    const activity = summary.reported_outcomes || [], timing = summary.timing || {};
+    const activity = summary.activity || [], timing = summary.timing || {};
     const grouping = summary.time_granularity || 'month';
     const specifications = [
       {key:'activity', rows:activity, type:'line', datasets:[
-        {label:'Closed (+ve)',data:activity.map(row=>row.closed),borderColor:green},
-        {label:'Open & Reopened (−ve)',data:activity.map(row=>row.open),borderColor:red}],
-        select:(row, dataset)=>({...period(row.label, grouping),date_basis:'reported',metric:dataset ? 'reported_open':'reported_closed'}),
-        help:'Grouped by reporting date. Each complaint appears once, under its current status.'},
+        {label:'Reported',data:activity.map(row=>row.received),borderColor:blue},
+        {label:'Resolved',data:activity.map(row=>row.resolved),borderColor:green}],
+        select:(row, dataset)=>({...period(row.label, grouping),date_basis:dataset ? 'closures':'reported',metric:dataset ? 'closures':'received'}),
+        help:'Compare complaints reported and resolved in each period. Resolved complaints may have been reported earlier. Each complaint counts once per period.'},
       {key:'age',rows:summary.open_age || [],horizontal:true,
-        select:row=>({date_basis:'reported',metric:'open_age',metric_value:row.key}),note:timing.age_unavailable ? `${timing.age_unavailable} Complaint(s) without timing` : ''},
+        select:row=>({date_basis:'reported',metric:'open_age',metric_value:row.key}),help:'How long unresolved complaints have been open, from their original reporting date. Includes reopened complaints reported in the selected dates.',note:timing.age_unavailable ? `${timing.age_unavailable} Complaint(s) without timing` : ''},
       {key:'resolution',rows:summary.resolution_trend || [],type:'line',hours:true,
-        select:row=>({...period(row.label,grouping),date_basis:'resolved',metric:'resolution'}),help:'Median elapsed time from reporting to final closure, grouped by closure date.',note:timing.resolution_excluded ? `${timing.resolution_excluded} Complaint(s) without timing` : ''},
+        select:row=>({...period(row.label,grouping),date_basis:'resolved',metric:'resolution'}),help:'Typical time from reporting to final resolution. Uses the median of complaints currently closed, grouped by resolution date.',note:timing.resolution_excluded ? `${timing.resolution_excluded} Complaint(s) without timing` : ''},
       {key:'target',rows:[{label:'On time',count:timing.on_time || 0},{label:'Late',count:timing.late || 0}],colors:[green,red],
-        select:row=>({date_basis:'resolved',metric:row.label==='On time'?'on_time':'late'}),note:timing.target_unavailable ? `${timing.target_unavailable} Complaint(s) without a target` : ''},
+        select:row=>({date_basis:'resolved',metric:row.label==='On time'?'on_time':'late'}),help:'Complaints resolved within their recorded time target versus those resolved late. Uses resolution dates; complaints without a target are excluded.',note:timing.target_unavailable ? `${timing.target_unavailable} Complaint(s) without a target` : ''},
       {key:'category',rows:summary.by_category || [],horizontal:categoryType!=='pie',type:categoryType,
         select:row=>({category:row.label,date_basis:'reported'}),help:'Complaint(s) reported in the selected dates, grouped by type.'},
       {key:'category_time',rows:summary.resolution_by_category || [],hours:true,horizontal:true,
-        select:row=>({category:row.label,date_basis:'resolved',metric:'resolution'}),help:'Median elapsed time for Complaint(s) closed in the selected dates.'},
+        select:row=>({category:row.label,date_basis:'resolved',metric:'resolution'}),help:'Compare typical resolution time across complaint types. Uses the median for complaints currently closed in the selected resolution dates.'},
       {key:'response',rows:summary.response_trend || [],hours:true,type:'line',
-        select:row=>({...period(row.label,grouping),date_basis:'response',metric:'hb_response'}),help:'Median time to the first saved HB comment or closure, grouped by that response date.',note:timing.response_unavailable ? `${timing.response_unavailable} Complaint(s) without an HB response` : ''},
+        select:row=>({...period(row.label,grouping),date_basis:'response',metric:'hb_response'}),help:'Typical wait from reporting to the first recorded HB comment or resolution. Grouped by that first response date; complaints with no recorded HB response are excluded.',note:timing.response_unavailable ? `${timing.response_unavailable} Complaint(s) without an HB response` : ''},
       {key:'reopened',rows:summary.reopenings || [],type:'line',
-        select:row=>({...period(row.label,grouping),date_basis:'reopened',metric:'reopened'}),help:'Grouped by reopening date. Each complaint counts once per period.'},
+        select:row=>({...period(row.label,grouping),date_basis:'reopened',metric:'reopened'}),help:'Complaints returned to open after being resolved. Grouped by reopening date; repeated reopenings of one complaint count once per period.'},
     ];
     for (const spec of specifications) {
       const slide = document.querySelector(`[data-complaint-chart="${spec.key}"]`);
@@ -90,7 +90,7 @@
         `${spec.help || (spec.key === 'age' ? 'Current age of open Complaint(s), grouped by reporting date.' : 'Closed Complaint(s) compared with their recorded resolution target.')} Select a point or an option below to filter the table.`, spec.note || '');
       canvas.setAttribute('role','img'); canvas.setAttribute('aria-label',slide.querySelector('h3').textContent);
       slide.querySelector('.chart-drill-controls')?.remove();
-      const hasData = spec.rows.some(row => spec.hours ? row.hours != null : (row.count || row.closed || row.open));
+      const hasData = spec.rows.some(row => spec.hours ? row.hours != null : (row.count || row.received || row.resolved));
       canvas.hidden = !hasData; status.hidden = hasData;
       status.textContent = spec.hours ? 'Timing unavailable for this period.' : 'No matching complaints.';
       if (!hasData) continue;

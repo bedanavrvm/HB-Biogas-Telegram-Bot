@@ -66,3 +66,21 @@ assert.deepEqual(chromeColors, {
 });
 
 console.log('Mini App Telegram theme tests passed');
+
+const hapticCalls=[];
+window.navigator={vibrate(value){hapticCalls.push(['vibrate',value]);return true;}};
+window.Telegram={WebApp:{isVersionAtLeast:()=>true,HapticFeedback:{
+  notificationOccurred(value){hapticCalls.push(['notification',value]);},
+  impactOccurred(value){hapticCalls.push(['impact',value]);},
+}}};
+window.MiniAppUtils.haptic('success');
+assert.deepEqual(hapticCalls,[['notification','success']]);
+window.Telegram.WebApp.HapticFeedback.notificationOccurred=()=>{throw new Error('Unsupported device');};
+assert.equal(window.MiniAppUtils.haptic('error'),true);
+assert.deepEqual(hapticCalls[1],['vibrate',[35,40,35]]);
+delete window.Telegram;
+assert.equal(window.MiniAppUtils.haptic('light'),true);
+assert.deepEqual(hapticCalls[2],['vibrate',35]);
+delete window.navigator;
+assert.equal(window.MiniAppUtils.haptic('success'),false);
+console.log('Shared haptic success, error and unsupported-device tests passed');

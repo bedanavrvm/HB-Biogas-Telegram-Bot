@@ -16,12 +16,12 @@ _PHONE_VISUAL_SEPARATOR_PATTERN = re.compile(r'[\s()\-]')
 
 
 def validate_kenyan_national_id(value: Any) -> str:
-    """Return an issued Kenyan National ID/Maisha Namba in entered form.
+    """Return an issued Kenyan National ID in entered form.
 
     National IDs are numeric identifiers, not numbers: leading zeroes are
     meaningful and no formatting, padding, checksum, or character stripping is
     applied.  The accepted format covers legacy 1--8 digit values and modern
-    9-digit Maisha identifiers.
+    9-digit identifiers.
     """
     text = str(value or '').strip()
     return text if KENYAN_NATIONAL_ID_PATTERN.fullmatch(text) else ''

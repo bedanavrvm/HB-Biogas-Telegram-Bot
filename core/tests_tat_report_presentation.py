@@ -3,7 +3,7 @@ from django.test import SimpleTestCase, TestCase
 from django.core.exceptions import ValidationError
 
 from core.models import WorkflowRoleCapability
-from core.services.tat_presentation import REPORT_PANEL_ORDER, validate_report_panel_order
+from core.services.tat_presentation import REPORT_PANEL_ORDER, REPORT_PANEL_VIEWS, validate_report_panel_order
 from core.services.tat_reporting import _heatmap_dimension_labels, _stage_columns_for_rows
 from core.services.access_control import create_capability_request
 from core.services.workflow_capabilities import (
@@ -12,6 +12,14 @@ from core.services.workflow_capabilities import (
 
 
 class TatReportPresentationPolicyTests(SimpleTestCase):
+    def test_report_panels_have_one_owner_without_changing_order(self):
+        self.assertEqual(set(REPORT_PANEL_VIEWS), set(REPORT_PANEL_ORDER))
+        current = {key for key, view in REPORT_PANEL_VIEWS.items() if view == 'current'}
+        performance = {key for key, view in REPORT_PANEL_VIEWS.items() if view == 'performance'}
+        self.assertFalse(current & performance)
+        self.assertEqual(len(current), 5)
+        self.assertEqual(len(performance), 5)
+
     def test_stage_labels_follow_loan_cycle_not_alphabetical_or_frequency(self):
         rows = [
             {'current_stage': 'Credit', 'current_stage_key': 'credit', '_stage_columns': [

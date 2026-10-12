@@ -55,7 +55,7 @@
     if (!['update_existing', 'create_additional_unit'].includes(row['Application Action'] || 'update_existing')) issues.push({severity:'blocker', field:'Application Action', message:'Application Action must be selected'});
     if (row['Application Action'] === 'create_additional_unit' && isBlank(row['Additional Unit Reason'])) issues.push({severity:'blocker', field:'Additional Unit Reason', message:'Additional Unit Reason is required'});
     const nationalId = String(row['National ID'] || '').trim();
-    if (nationalId && !/^\d{1,9}$/.test(nationalId)) issues.push({severity:'blocker', field:'National ID', message:'National ID / Maisha Namba must contain 1 to 9 digits only'});
+    if (nationalId && !/^\d{1,9}$/.test(nationalId)) issues.push({severity:'blocker', field:'National ID', message:'National ID must contain 1 to 9 digits only'});
     return issues;
   }
   function fieldInvalid(row, field) {

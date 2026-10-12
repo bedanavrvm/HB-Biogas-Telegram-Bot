@@ -7855,7 +7855,7 @@ def portal_create_and_complete_jbl_lead(request):
     deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
-    if not national_id: errors['national_id'] = 'National ID / Maisha Namba must contain 1 to 9 digits only.'
+    if not national_id: errors['national_id'] = 'National ID must contain 1 to 9 digits only.'
     if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
     if not str(body.get('sub_county') or '').strip(): errors['sub_county'] = 'Choose the constituency where this visit was done.'

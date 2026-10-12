@@ -82,7 +82,7 @@
           <input name="customer_name" autocomplete="name" required>
         </label>
         <label class="field">
-          <span>National ID / Maisha Namba</span>
+          <span>National ID</span>
           <input name="national_id" inputmode="numeric" maxlength="9" pattern="[0-9]{1,9}" required>
         </label>
         <label class="field">
@@ -301,7 +301,7 @@
           <input name="customer_name" autocomplete="name">
         </label>
         <label class="field">
-          <span>National ID / Maisha Namba</span>
+          <span>National ID</span>
           <input name="national_id" inputmode="numeric" maxlength="9" pattern="[0-9]{1,9}">
         </label>
         <label class="field">
@@ -354,9 +354,9 @@
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
   {% include "miniapp_diagnostics.html" %}
-<script src="{% static 'miniapp/utils.js' %}?v=21"></script>
+<script src="{% static 'miniapp/utils.js' %}?v=22"></script>
   <script src="{% static 'miniapp/spin_api.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/spin_form.js' %}?v=115"></script>
+  <script src="{% static 'miniapp/spin_form.js' %}?v=116"></script>
 </body>
 </html>
 

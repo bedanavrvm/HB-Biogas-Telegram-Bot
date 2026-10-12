@@ -586,7 +586,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                         from core.services.identifiers import validate_kenyan_national_id
                         if not validate_kenyan_national_id(cell):
                             errors[key] = (
-                                f'Enter a National ID / Maisha Namba using 1 to 9 digits only '
+                                f'Enter a National ID using 1 to 9 digits only '
                                 f'for {column.get("label") or column_key} in row {index + 1}.'
                             )
                             break
@@ -675,7 +675,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         if field_type == 'national_id':
             from core.services.identifiers import validate_kenyan_national_id
             if not validate_kenyan_national_id(value):
-                errors[key] = 'Enter a National ID / Maisha Namba using 1 to 9 digits only.'
+                errors[key] = 'Enter a National ID using 1 to 9 digits only.'
         elif field_type == 'phone':
             from core.services.identifiers import normalize_kenyan_phone
             if not normalize_kenyan_phone(value):

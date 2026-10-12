@@ -32,7 +32,8 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
     window.__complaintFixture = item;
     const webApp = { initData, BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {} };
     window.Telegram = { WebApp: webApp };
-    Object.assign(window.MiniAppUtils, { initTelegram: () => webApp, setCloseProtection() {}, haptic() {} });
+    window.__haptics=[];
+    Object.assign(window.MiniAppUtils, { initTelegram: () => webApp, setCloseProtection() {}, haptic(kind) {window.__haptics.push(kind);} });
     window.ComplaintCasesMiniAppApi = {
       async postJson(path) {
         if (path === 'bootstrap/') return { data: {
@@ -83,8 +84,10 @@ test('HB comments retain resolution drafts, keep cases open, and fit narrow scre
   await page.locator('#complaintResolutionNote').fill('Unfinished resolution draft');
   await page.locator('#commentTab').click();
   await page.locator('#complaintResolutionComment').fill('Technician will visit tomorrow.');
+  await page.evaluate(()=>window.__haptics=[]);
   await page.locator('#commentForm button[type="submit"]').click();
   await expect(page.locator('#activityList')).toContainText('Technician will visit tomorrow.');
+  expect(await page.evaluate(()=>window.__haptics)).toEqual(['success']);
   await expect(page.locator('#activityList .history-affiliation')).toHaveText(['HB', 'JBL']);
   const badgeColors = await page.locator('#activityList .history-affiliation').evaluateAll(nodes => nodes.map(node => {
     const rgb = getComputedStyle(node).color.match(/\d+/g).map(Number);

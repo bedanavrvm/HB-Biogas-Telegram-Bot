@@ -522,8 +522,8 @@
 
   function caseIdentifierMarkup(item) {
     const identifiers = [];
-    if (item.national_id) identifiers.push(`<span class="case-identifier"><small>ID</small>${escapeHtml(item.national_id)}</span>`);
-    if (item.primary_phone) identifiers.push(`<span class="case-identifier"><small>Phone</small><span data-miniapp-phone>${escapeHtml(item.primary_phone)}</span></span>`);
+    if (item.national_id) identifiers.push(`<span class="case-identifier"><small>ID</small><span class="case-identifier-value">${escapeHtml(item.national_id)}</span></span>`);
+    if (item.primary_phone) identifiers.push(`<span class="case-identifier"><small>Phone</small><span class="case-identifier-value" data-miniapp-phone>${escapeHtml(item.primary_phone)}</span></span>`);
     return identifiers.length ? `<div class="case-identifiers">${identifiers.join('')}</div>` : '';
   }
   function renderEmpty(title, detail) {
@@ -601,14 +601,12 @@
   }
 
   function renderHomeQueueSelection(queue, loading) {
-    const presentation = queuePresentation(queue);
     document.querySelectorAll('[data-home-queue]').forEach((button) => {
       const selected = button.dataset.homeQueue === queue;
       button.classList.toggle('active', selected);
       button.setAttribute('aria-pressed', selected ? 'true' : 'false');
       button.toggleAttribute('aria-busy', selected && Boolean(loading));
     });
-    $('activeQueueHeading').textContent = presentation[0];
   }
 
   function formatElapsedSeconds(value) {
@@ -2883,6 +2881,9 @@
   function reportPayload(extra) {
     const form = $('tatReportFilters');
     const values = Object.fromEntries(new FormData(form).entries());
+    if (state.report.view === 'current' && !['workload','sla_state','load_per_assignee'].includes(values.chart_metric)) {
+      values.chart_metric = 'workload'; form.elements.chart_metric.value = 'workload';
+    }
     return basePayload(Object.assign(values, {
       view: state.report.view, page: state.report.page, page_size: state.report.pageSize,
       sort: state.report.sort,
@@ -3449,9 +3450,8 @@
 
   function tatChartExplanation(payload) {
     const parts = [];
-    if (payload.question) parts.push(`Question: ${payload.question}`);
-    if (payload.interpretation) parts.push(`How to read it: ${payload.interpretation}`);
-    if (payload.scope_note) parts.push(payload.scope_note);
+    if (payload.interpretation) parts.push(payload.interpretation);
+    if (payload.scope_note) parts.push(payload.scope_note.replace(/^Scope:\s*/,'Showing '));
     if (!parts.length && payload.subtitle) parts.push(payload.subtitle);
     if (payload.excluded_count) {
       const count = Number(payload.excluded_count);
@@ -3464,9 +3464,7 @@
   }
 
   function showTatChartHelp(target, payload) {
-    const count = Number(payload.excluded_count || 0);
-    window.MiniAppReportControls?.setChartHelp(target, tatChartExplanation(payload),
-      count ? `${formatLocalizedNumber(count)} records not compared: ${payload.exclusion_reason || 'required data unavailable'}.` : '');
+    window.MiniAppReportControls?.setChartHelp(target, tatChartExplanation(payload));
   }
 
   function renderExplorerDetails(payload) {
@@ -3604,14 +3602,18 @@
   function tatInsightAllowed(key) {
     const capabilities = ((state.data || {}).user || {}).capabilities || [];
     if (!capabilities.includes(`tat.reports.insight.${key}`)) return false;
-    if (key === 'backlog_age') return state.report.view === 'current';
-    if (['sla_compliance', 'tat_percentiles', 'stage_target'].includes(key)) return state.report.view === 'performance';
-    return true;
+    if (state.data?.presentation?.report_panel_views?.[key] !== state.report.view) return false;
+    return state.report.panelVisibilityView !== state.report.view || !Array.isArray(state.report.visiblePanelKeys) || state.report.visiblePanelKeys.includes(key);
   }
 
   function syncTatReportPanelAvailability() {
+    const metric = $('tatReportFilters')?.elements.chart_metric;
+    if (metric) for (const option of metric.options) {
+      option.hidden = option.disabled = !['workload','sla_state','load_per_assignee'].includes(option.value);
+    }
     const container = $('tatReportCharts');
-    const order = ((state.data || {}).presentation || {}).report_panel_order || [];
+    const order = state.report.panelVisibilityView === state.report.view && Array.isArray(state.report.visiblePanelKeys)
+      ? state.report.visiblePanelKeys : ((state.data || {}).presentation || {}).report_panel_order || [];
     if (container && Array.isArray(order)) {
       const panels = new Map([...container.querySelectorAll('[data-report-slide]')].map(panel => [panel.dataset.reportKey, panel]));
       order.forEach(key => { if (panels.has(key)) container.append(panels.get(key)); });
@@ -3720,15 +3722,31 @@
         const toggle = document.createElement('summary'); toggle.setAttribute('aria-label', 'Chart options'); toggle.innerHTML = window.MiniAppReportControls.chartOptionsIcon;
         group.before(menu); menu.append(toggle, group);
       }
+      if (['trend','sla_compliance','tat_percentiles'].includes(key) && !menu.querySelector('[data-tat-granularity]')) {
+        const label = document.createElement('label'); label.className = 'tat-chart-grouping';
+        const select = document.createElement('select'); select.dataset.tatGranularity = key;
+        select.setAttribute('aria-label','Time grouping');
+        for (const value of ['day','week','month','year']) select.add(new Option(value[0].toUpperCase()+value.slice(1),value));
+        select.addEventListener('change',()=>{
+          const control=$('tatReportFilters').elements.granularity;
+          control.value=select.value; menu.open=false;
+          document.querySelectorAll('[data-tat-granularity]').forEach(node=>node.value=select.value);
+          control.dispatchEvent(new Event('change',{bubbles:true}));
+        });
+        label.append(select); menu.append(label);
+      }
       window.MiniAppReportControls.prepareChartMenu(menu);
       group.replaceChildren(...rule.allowed.map(type => {
         const button = document.createElement('button'); button.type = 'button';
         button.dataset.tatChartKey = key; button.dataset.tatChartType = type;
-        button.textContent = ({ stacked_bar: 'Stacked bar', doughnut: 'Doughnut' })[type] || `${type[0].toUpperCase()}${type.slice(1)}`;
+        const label = `${({stacked_bar:'Stacked bar',doughnut:'Doughnut'})[type] || type[0].toUpperCase()+type.slice(1)} chart`;
+        button.innerHTML = window.MiniAppReportControls.chartTypeIcon(type);
+        button.setAttribute('aria-label',label); button.title=label;
         button.addEventListener('click', () => { setTatReportChartType(key, type); menu.open = false; });
         return button;
       }));
     });
+    document.querySelectorAll('[data-tat-granularity]').forEach(select=>select.value=$('tatReportFilters').elements.granularity.value);
     document.querySelectorAll('[data-tat-chart-key][data-tat-chart-type]').forEach(button => {
       const active = tatReportChartType(button.dataset.tatChartKey) === button.dataset.tatChartType;
       button.classList.toggle('active', active);
@@ -3748,6 +3766,13 @@
   }
 
   function renderTatReportCharts(summary) {
+    if (Array.isArray(summary.visible_panel_keys)) {
+      state.report.visiblePanelKeys = summary.visible_panel_keys;
+      state.report.panelVisibilityView = state.report.view;
+    }
+    if (summary.report_panel_views && state.data) {
+      state.data.presentation = Object.assign({}, state.data.presentation, {report_panel_views: summary.report_panel_views});
+    }
     const focused = summary.response_mode === 'focused_v1';
     if (!focused) {
       Object.values(state.report.charts).forEach(chart => chart && chart.destroy());
@@ -3772,15 +3797,12 @@
       sla_compliance: 'tatSla', tat_percentiles: 'tatPercentiles',
       stage_target: 'tatTarget', explorer: 'tatExplorer',
     };
-    const currentOnly = new Set(['backlog_age']);
-    const performanceOnly = new Set(['sla_compliance', 'tat_percentiles', 'stage_target']);
     Object.entries(definitions).forEach(([key, prefix]) => {
       const panel = $(`${prefix}Panel`);
       const payload = charts[key];
-      const allowed = !currentOnly.has(key) || state.report.view === 'current';
-      const performanceAllowed = !performanceOnly.has(key) || state.report.view === 'performance';
-      if (panel) panel.hidden = !allowed || !performanceAllowed;
-      if (!payload || !allowed || !performanceAllowed) return;
+      const allowed = tatInsightAllowed(key);
+      if (panel) panel.hidden = !allowed;
+      if (!payload || !allowed) return;
       state.report.charts[key]?.destroy?.();
       delete state.report.charts[key];
       $(`${prefix}Title`).textContent = payload.title || '';
@@ -4017,6 +4039,7 @@
     $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Disbursed and Declined';
     $('tatReportPeriod').textContent = view === 'current' ? 'Unfinished cases now' : 'Activity and outcomes in this period';
     invalidateTatReportInsights();
+    syncTatReportPanelAvailability();
     syncTatChartDisplay();
     refreshTatReport(); utils.haptic?.('light');
   }

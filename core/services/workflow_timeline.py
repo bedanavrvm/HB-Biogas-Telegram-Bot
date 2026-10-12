@@ -426,6 +426,7 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
     """Return the same normalized history contract for a TAT case."""
     redactions, annotations = _annotations('tat_tracker', str(case.pk))
     entries = []
+    operations = {}
     for event in case.events.select_related('actor_user', 'authority_user').order_by('-created_at'):
         # These two rows are idempotency/transition receipts created alongside
         # the actual staff event. Keep them in the immutable audit store while
@@ -437,7 +438,7 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
         ):
             continue
         source_id = f'tat:{event.id}'
-        entries.append(_entry(
+        entry = _entry(
             source_id=source_id,
             action=event.transition_code or event.stage_key or 'case_updated',
             occurred_at=event.created_at,
@@ -449,7 +450,29 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
             changes=recorded_changes({'value': event.old_value}, {'value': event.new_value},
                                      labels={'value': event.stage_label or event.stage_key or 'Value'}),
             redaction=redactions.get(source_id),
-        ))
+            operation_id=str(getattr(event, 'request_id', '') or ''),
+        )
+        request_id = entry['operation_id']
+        # Only explicit request/revision linkage can group staff changes.
+        # Identical stage names or neighboring timestamps are not evidence.
+        key = (request_id, getattr(event.actor_user, 'pk', None) or getattr(event, 'actor_telegram_id', '') or event.actor_name,
+               getattr(event.authority_user, 'pk', None), event.source, event.transition_code,
+               getattr(event, 'revision_before', None), getattr(event, 'revision_after', None))
+        groupable = bool(request_id) and not entry['redacted'] and event.source in {'mini_app','telegram','admin_correction'}
+        parent = operations.get(key) if groupable else None
+        if parent:
+            if not parent.get('children'):
+                parent['children'] = [dict(parent, changes=list(parent['changes']))]
+            parent['children'].append(entry)
+            parent['changes'].extend(entry['changes'])
+            if entry['detail'] and entry['detail'] not in parent['detail'].split('\n'):
+                parent['detail'] = '\n'.join(filter(None, [parent['detail'], entry['detail']]))
+            if parent['stage'] != entry['stage']:
+                parent['stage'] = 'Case details updated'
+        else:
+            entries.append(entry)
+            if groupable:
+                operations[key] = entry
     entries.extend(_annotation_entries(annotations))
     entries.sort(key=lambda item: item['occurred_at'], reverse=True)
     return {'entries': entries, 'related_cases': []}

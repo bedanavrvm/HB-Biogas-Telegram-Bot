@@ -57,7 +57,7 @@ def national_id_quality_message(value: object) -> str:
         return ''
     national_id = validate_kenyan_national_id(raw_value)
     if not national_id:
-        return 'National ID / Maisha Namba must contain 1 to 9 digits only.'
+        return 'National ID must contain 1 to 9 digits only.'
     return ''
 
 

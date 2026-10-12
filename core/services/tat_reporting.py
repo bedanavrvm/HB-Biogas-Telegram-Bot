@@ -883,12 +883,12 @@ def _plain_language_chart_copy(payload, filters):
         if basis == 'daily_point_in_time_snapshots':
             return (
                 'Is the workload becoming healthier or are more cases becoming stalled over time?',
-                'Compare the blue Active line with the amber Overdue line. A rising Overdue line means late work is building up; a falling line means delayed cases are being cleared.',
+                'Each point shows the last recorded queue size for that period. Active is work not yet overdue; Overdue is work past its target. Rising Overdue values mean delayed work is building up, not that more cases were reported.',
             )
         if basis == 'completed_stage_actions':
             return (
                 'How many matching stage actions were completed in each period?',
-                'Higher points mean more work was completed in that period. A drop may indicate slower processing or fewer matching cases, so compare it with the selected filters.',
+                'Counts stages completed during each period, not new cases. One case can contribute several actions if more than one stage was completed.',
             )
         return (
             'How many cases entered and finished the workflow, and what outcomes did they reach?',
@@ -898,33 +898,33 @@ def _plain_language_chart_copy(payload, filters):
         if payload.get('selection_state') != 'single':
             return (
                 'Which single case should be analysed stage by stage?',
-                'Narrow the filters until one case remains. If names are similar, search with the exact case reference.',
+                'Search for one case reference to compare its stages. This graph needs a single case; broader comparisons are available in the other graphs.',
             )
         return (
             'Where did this case spend its time, and which stages took longer than their targets?',
-            'Compare Actual with Target at every stage. Actual above Target marks a delay; the final live point is the time already spent in the current stage.',
+            'Compare time spent at each stage with its target. Actual above Target means that stage ran late. An unfinished stage shows time spent so far, not its final duration.',
         )
     if chart_id == 'backlog_age':
         return (
             'How long have active cases been waiting in their current stage?',
-            'Cases in the older buckets have waited longer. Growth in the 3–7 day or 7+ day buckets signals an ageing backlog that needs attention.',
+            'Groups unfinished cases by time spent in their current stage, not time since the case was created. Larger older groups show where follow-up may be needed. Date filters do not apply.',
         )
     if chart_id == 'sla_compliance':
         subject = 'stage actions' if basis == 'completed_stage_actions' else 'finished cases'
         return (
             f'What percentage of matching {subject} met their target in each period?',
-            'Values closer to 100% are better. A sustained fall means more work is finishing late; records without a target are left out of the percentage.',
+            f'The percentage of {subject} completed within their recorded time target. Higher is better. Completion dates decide the period; work without a target is excluded.',
         )
     if chart_id == 'tat_percentiles':
         subject = 'stage actions' if basis == 'completed_stage_duration' else 'finished cases'
         return (
             f'How long did a typical {subject[:-1]} take, and how slow were the longest-running 10%?',
-            'Median is the typical time. P90 is the time within which 90% finished; a widening gap between them means a smaller group is taking much longer.',
+            'Median is the middle completion time. P90 is the time within which 90% finished. A large gap shows that some work takes much longer. Uses completion dates and the units shown on the axis.',
         )
     if chart_id == 'stage_target':
         return (
             'Which stages used or exceeded the largest share of their allowed time?',
-            'The 100% line is the target. Values below it finished within target; values above it were late. Median shows the typical result and P90 highlights the slower cases.',
+            '100% means all the allowed time was used. Below 100% is within target; above 100% is late. Each completed action uses its own recorded target. Median is typical; P90 covers 90% of completions.',
         )
     if chart_id in {'stage', 'role', 'person'}:
         label = {'stage': 'stage', 'role': 'responsible role', 'person': 'person'}[chart_id]
@@ -947,12 +947,12 @@ def _plain_language_chart_copy(payload, filters):
             subject = 'completed actions' if basis == 'completed_stage_actions' else 'current cases'
             return (
                 f'Which {dimension_plural} have the most {subject}?',
-                f'Larger values mean more {subject} are concentrated in that {dimension[:-1] if dimension.endswith("s") else dimension}. Compare groups to see where work is busiest.',
+                f'Compare the number of {subject} across {dimension_plural}. Larger groups have more work, not necessarily slower work. Use a time-target measure to compare delays.',
             )
         if metric == 'sla_state':
             return (
                 f'Which {dimension_plural} have work within target, near target, overdue, or missing a target?',
-                'More green is healthy; more amber needs watching; more red shows delay. Grey means no target was available for comparison.',
+                'Splits current cases into within target, near target, overdue and no recorded target. Use the labels as well as the colours. This shows work waiting now, not completed work.',
             )
         if metric == 'duration':
             return (
@@ -976,7 +976,7 @@ def _plain_language_chart_copy(payload, filters):
             )
         return (
             f'Where are current cases heaviest for each configured assignee across {dimension_plural}?',
-            'Higher values can signal thin responsibility coverage. This compares cases with configured assignees; it does not measure attendance or individual productivity.',
+            'Divides current cases by the number of staff assigned to handle that work. A high value may mean more support is needed. It does not measure attendance or individual productivity.',
         )
     if chart_id == 'heatmap':
         rows = str(payload.get('row_dimension') or 'group').replace('_', ' ')
@@ -989,31 +989,31 @@ def _plain_language_chart_copy(payload, filters):
             subject = 'completed actions' if basis == 'completed_stage_actions' else 'current cases'
             return (
                 f'Where are the most {subject} concentrated across {rows} and {columns}?',
-                f'Each cell combines one {rows} with one {columns}. Larger values show where more {subject} are concentrated.{stage_order_note}',
+                f'Each cell counts {subject} for one {rows} and {columns} combination. Larger counts show more work, not worse performance. Select a cell to see the contributing cases.{stage_order_note}',
             )
         if metric == 'duration':
             return (
                 f'Which {rows} and {columns} combinations take longest?',
-                f'Larger times identify possible bottlenecks. Compare neighbouring cells to see whether a delay is widespread or concentrated in one combination.{stage_order_note}',
+                f'Each cell shows the median time for completed stages in that combination. Longer times can identify delays. Select a cell to see the contributing cases.{stage_order_note}',
             )
         if metric == 'target_usage':
             return (
                 f'Which {rows} and {columns} combinations use or exceed the most target time?',
-                f'100% equals the target. Values above 100% are late; lower values are healthier. Compare cells to locate concentrated delay.{stage_order_note}',
+                f'100% means the full time target was used; above 100% is late and below 100% is within target. Each action is compared with its own recorded target.{stage_order_note}',
             )
         return (
             f'Which {rows} and {columns} combinations meet their targets most often?',
-            f'Higher percentages are better. Low percentages identify combinations where late completion is more common.{stage_order_note}',
+            f'Each cell shows the percentage of completed stages within target. Higher is better; stages without a recorded target are excluded. Select a cell to see its cases.{stage_order_note}',
         )
     if chart_id == 'target_review_signals':
         return (
             'Which stage targets or processes show a strong enough delay pattern to review?',
-            'A review message means delays are repeated enough to investigate. It is a prompt for human review and never changes a target automatically.',
+            'Highlights stages with repeated delays worth investigating. Check the supporting numbers before deciding whether the process or target needs attention. These suggestions never change targets automatically.',
         )
     if chart_id == 'oldest_cases':
         return (
             'Which active cases have waited the longest and may need attention first?',
-            'The first case has waited longest in its current stage. Red is overdue, amber is near target, and green is still within target.',
+            'Lists the ten cases that have waited longest in their current stage, not the oldest creation dates. Read the time-target status beside each case. Date filters do not apply.',
         )
     return (
         'What does this graph show for the selected records?',
@@ -1059,7 +1059,7 @@ def _attach_report_filter_guidance(common, charts, filters):
                 if filters['view'] == 'current' else ()
             ),
             filter_notes={
-                key: 'Selecting this changes the current workload trend to completed actions over time.'
+                key: 'Workload history is unavailable with this case-level filter. Clear it to view the trend.'
                 for key in ('search', 'stage', 'role', 'status', 'sla_state')
             } if filters['view'] == 'current' else None,
         )
@@ -1636,6 +1636,7 @@ def _target_review_signals(actor, filters, selected_samples, *, context=None):
 
 
 def report_summary(actor, payload, *, include_people=False):
+    from core.services.tat_presentation import REPORT_PANEL_VIEWS
     filters = _filters(payload)
     # Point selection narrows the table/export, not the charts that produced it.
     filters.update(drill_chart='', drill_series='', drill_bucket='')
@@ -1643,9 +1644,15 @@ def report_summary(actor, payload, *, include_people=False):
     insight = str(payload.get('insight') or 'trend').strip().lower()
     if focused and insight not in FOCUSED_INSIGHTS:
         raise ValueError('The selected TAT report insight is not supported.')
+    if focused and REPORT_PANEL_VIEWS.get(insight) != filters['view']:
+        raise ValueError('Choose a chart available in this report tab.')
+    if focused and insight == 'explorer' and filters['chart_metric'] not in {'workload', 'sla_state', 'load_per_assignee'}:
+        raise ValueError('Choose a current-workload comparison metric.')
     include_overview = not focused or payload.get('include_overview') is not False
     include_options = not focused or payload.get('include_options') is not False
-    wants = lambda key: not focused or insight == key
+    # Keep legacy full responses compatible; focused screen requests have one
+    # tab owner. Clients use the shared ownership metadata for all rendering.
+    wants = lambda key: not focused or (REPORT_PANEL_VIEWS.get(key) == filters['view'] and insight == key)
     all_cases = _filtered_cases(actor, filters)
     scope_cases = list(scoped_cases(actor)) if include_options else []
     context_cases = list({case.pk: case for case in [*all_cases, *scope_cases]}.values())
@@ -1759,21 +1766,14 @@ def report_summary(actor, payload, *, include_people=False):
             }
         action_trend = bool(filters['search'] or filters['status'] or filters['stage'] or filters['role'] or filters['sla_state'])
         if wants('trend') and action_trend:
-            buckets = defaultdict(int)
-            for sample in stage_samples:
-                completed_date = _iso_local_date(sample['completed_at'])
-                buckets[_bucket_label(completed_date, filters['granularity'])] += 1
-            common['trend'] = [
-                {'label': label, 'completed_actions': count}
-                for label, count in sorted(buckets.items())
-            ]
-            common['trend_notice'] = 'No completed actions match these filters.'
+            common['trend'] = []
+            common['trend_notice'] = 'Clear case-level filters to view workload history.'
             charts['trend'] = _chart_payload(
-                'trend', 'Completed Actions over Time', 'completed_stage_actions',
-                'Showing completed stage actions because case-level filters cannot be applied to aggregate workload snapshots.',
-                [item['label'] for item in common['trend']],
-                [_series('completed_actions', 'Completed Actions', [item['completed_actions'] for item in common['trend']])],
-                applied_filters=active_filters, sample_count=len(stage_samples),
+                'trend', 'Workload over Time', 'daily_point_in_time_snapshots',
+                'Workload history cannot apply case-level filters. Clear those filters to view it.',
+                [], [], applied_filters=active_filters, sample_count=0,
+                extras={'selection_message': common['trend_notice'], 'drilldown': {
+                    'available': False, 'reason': 'Individual cases are unavailable for aggregate workload history.'}},
             )
         elif wants('trend'):
             daily = WorkflowTatDailyMetric.objects.filter(
@@ -2050,6 +2050,7 @@ def report_summary(actor, payload, *, include_people=False):
     else:
         logger.info('TAT report legacy full response used')
     common['charts'] = charts
+    common['report_panel_views'] = dict(REPORT_PANEL_VIEWS)
     return common
 
 

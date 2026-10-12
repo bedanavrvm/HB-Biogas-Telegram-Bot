@@ -1059,7 +1059,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         )
     if not national_id:
         raise TatCreateValidationError(
-            'tat_create_invalid_national_id', 'National ID / Maisha Namba must contain 1 to 9 digits only.',
+            'tat_create_invalid_national_id', 'National ID must contain 1 to 9 digits only.',
         )
     if not primary_phone:
         raise TatCreateValidationError(
@@ -1891,7 +1891,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         elif field == 'national_id':
             new_value = validate_kenyan_national_id(raw_value)
             if not new_value:
-                raise ValueError('National ID / Maisha Namba must contain 1 to 9 digits only.')
+                raise ValueError('National ID must contain 1 to 9 digits only.')
         elif field == 'primary_phone':
             new_value = normalize_kenyan_phone(raw_value)
             if not new_value:
