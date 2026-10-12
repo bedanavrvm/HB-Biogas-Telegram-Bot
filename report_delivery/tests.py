@@ -390,10 +390,13 @@ class DeliveryTests(TransactionTestCase):
         from core.api.portal_views import portal_report_send_now
         request = RequestFactory().post('/api/portal/settings/reports/send/', data=json.dumps({'client_request_id': str(uuid.uuid4())}), content_type='application/json')
         request.portal_user = self.actor
-        with patch('report_delivery.resend.send_email') as sender:
+        # This is the request/authorization test, not a real worker run. A
+        # daemon continuing into TransactionTestCase's flush can deadlock PG.
+        with patch('report_delivery.resend.send_email') as sender, patch('report_delivery.dispatch.wake_deliveries') as wake:
             response = portal_report_send_now.__wrapped__.__wrapped__.__wrapped__(request)
         self.assertEqual(response.status_code, 202)
         sender.assert_not_called()
+        wake.assert_called_once()
         request.portal_user = self.officer
         self.assertEqual(portal_report_send_now.__wrapped__.__wrapped__.__wrapped__(request).status_code, 403)
 

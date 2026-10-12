@@ -4590,6 +4590,24 @@
     bootstrap(result.data);
     if (state.directTask && state.directTask.case_id) {
       await openCase(state.directTask.case_id, state.directTask.stage_key);
+    } else if (new URLSearchParams(window.location.search).get('view') === 'reports'
+      && (state.data?.user?.capabilities || []).includes('tat.reports.view')) {
+      const entry = new URLSearchParams(window.location.search);
+      const form = $('tatReportFilters');
+      state.report.view = entry.get('report_view') === 'current' ? 'current' : 'performance';
+      for (const key of ['date_from', 'date_to', 'branch', 'product']) {
+        const input = form.elements[key];
+        const value = entry.get(key);
+        if (!input || !value) continue;
+        if (input.tagName === 'SELECT' && !Array.from(input.options).some(option => option.value === value)) {
+          input.add(new Option(value, value));
+        }
+        input.value = value;
+      }
+      form.elements.date_mode.value = entry.get('date_from') ? 'custom' : 'all';
+      syncTatPeriodControls();
+      show('dashboard');
+      setTatReportView(state.report.view);
     }
   }
 

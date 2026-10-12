@@ -1,109 +1,42 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="x-apple-disable-message-reformatting">
-  <meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no">
-  <meta name="color-scheme" content="light">
-  <title>{{ title }}</title>
-  <style>
-    table,td,th{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;line-height:1.5}
-    @media(max-width:600px){
-      .email-outer{padding:12px 8px!important}
-      .email-body{padding:16px 12px!important}
-      .brand-logo{width:118px!important}
-      .brand-name{font-size:14px!important;line-height:1.4!important}
-      .report-title{font-size:26px!important}
-      .report-heading,.report-generated{display:block!important;width:100%!important;text-align:left!important}
-      .report-generated{padding:8px 0 0!important}
-      .metric-row{font-size:0!important}
-      .metric{display:inline-block!important;width:50%!important;box-sizing:border-box;vertical-align:top!important;padding:4px!important}
-      .metric-last-odd{width:100%!important}
-      .metric-roomy{width:100%!important}
-      .metric-content{height:110px!important}
-      .secondary-metric{display:block!important;width:100%!important;box-sizing:border-box;padding:4px 0!important}
-      .breakdown-panel{display:block!important;width:100%!important;box-sizing:border-box;padding:0 0 16px!important}
-    }
-  </style>
-</head>
-<body style="margin:0;padding:0;background-color:#f2f4f8;color:#1f2a4d;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5">
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{{ title }} · {{ period }}. {{ total }} matching cases. Detailed Excel attached.</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2f4f8"><tr><td class="email-outer" align="center" style="padding:24px 12px">
-<!--[if mso]><table role="presentation" width="900" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table class="email-container" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:1.5;width:100%;max-width:900px;background-color:#ffffff;border:1px solid #e1e4ee;border-radius:8px">
-  <tr><td style="padding:16px;background-color:#2e3480;border-bottom:5px solid #6cbe45;border-radius:8px 8px 0 0">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td valign="middle" style="width:176px">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:6px"><tr><td style="padding:10px 12px">
-          {% if logo_src %}<img class="brand-logo" src="{{ logo_src }}" width="150" alt="Jawabu Biashara · Finance, Empower, Transform" style="display:block;width:150px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none">
-          {% else %}<span style="color:#2e3480;font-size:24px;font-weight:bold">JBL</span>{% endif %}
-        </td></tr></table>
-      </td>
-      <td class="brand-name" valign="middle" align="right" style="padding-left:12px;color:#ffffff;font-size:19px;line-height:1.4;font-weight:bold">JAWABU BIASHARA<br><span style="color:#a6dd89;font-size:14px;letter-spacing:1px">LIMITED</span></td>
-    </tr></table>
-  </td></tr>
-  <tr><td class="email-body" style="padding:16px 20px 12px">
-    <p style="margin:0 0 8px;color:#4a5578;font-size:14px;font-weight:bold">{{ period }}</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td class="report-heading" valign="bottom"><h1 class="report-title" style="margin:0;padding-left:10px;border-left:4px solid #6cbe45;color:#2e3480;font-size:26px;line-height:1.25;font-weight:bold">{{ title }}</h1></td>
-      <td class="report-generated" valign="bottom" align="right" style="padding-left:12px;color:#4a5578;font-size:14px;white-space:nowrap">{{ generated }}</td>
-    </tr></table>
-    <p style="margin:10px 0 12px;color:#4a5578;font-size:14px;line-height:1.5">{{ basis }}</p>
-    {% if headline %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed">
-      {% for row in headline_rows %}<tr class="metric-row">{% for item in row %}
-      <td class="metric{% if roomy_headline or item.long_value or item.mobile_full %} metric-roomy{% endif %}{% if forloop.last and not forloop.counter|divisibleby:2 %} metric-last-odd{% endif %}" width="{{ headline_width }}%" valign="top" style="padding:4px">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="metric-content" style="height:100px;padding:10px;background-color:{{ item.background }};border-top:4px solid {{ item.accent }};vertical-align:top">
-          <p class="metric-value" style="margin:0;color:{{ item.ink }};font-size:30px;font-weight:bold;line-height:1.2;overflow-wrap:anywhere">{{ item.value }}</p>
-          <p class="metric-label" style="margin:6px 0 0;color:#4a5578;font-size:14px;line-height:1.5;min-height:21px">{{ item.label }}</p>
-          {% if item.note %}<p style="margin:2px 0 0;font-size:14px;color:#4a5578">{{ item.note }}</p>{% endif %}
-          {% if item.comparison %}<p style="margin:4px 0 0;font-size:14px;color:{% if item.comparison.tone == 'good' %}#2f6b17{% elif item.comparison.tone == 'bad' %}#a31d64{% else %}#4a5578{% endif %}">{{ item.comparison.text }}</p>{% endif %}
-        </td></tr></table>
-      </td>
-      {% endfor %}</tr>{% endfor %}
-    </table>
-    {% endif %}
-    {% if remaining_rows %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;table-layout:fixed">
-      {% for row in remaining_rows %}<tr>{% for item in row %}
-      <td class="secondary-metric" valign="top" style="padding:4px">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:8px 6px;border-bottom:2px solid {{ item.accent }}">
-          <p style="margin:0;color:#4a5578;font-size:14px;line-height:1.5">{{ item.label }}</p>
-          <p style="margin:4px 0 0;color:{{ item.ink }};font-size:18px;font-weight:bold;line-height:1.5;overflow-wrap:anywhere">{{ item.value }}</p>
-          {% if item.note %}<p style="margin:2px 0 0;font-size:14px;color:#4a5578">{{ item.note }}</p>{% endif %}
-          {% if item.comparison %}<p style="margin:4px 0 0;font-size:14px;color:{% if item.comparison.tone == 'good' %}#2f6b17{% elif item.comparison.tone == 'bad' %}#a31d64{% else %}#4a5578{% endif %}">{{ item.comparison.text }}</p>{% endif %}
-        </td></tr></table>
-      </td>{% endfor %}</tr>{% endfor %}
-    </table>
-    {% endif %}
-    {% if comparison_label %}<p style="margin:10px 4px;color:#4a5578;font-size:14px">{{ comparison_label }}</p>{% endif %}
-    {% for notice in notices %}<p style="margin:8px 4px;color:#4a5578;font-size:14px">{{ notice }}</p>{% endfor %}
-    {% for group in breakdown_groups %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;table-layout:fixed"><tr>
-      {% for chart in group %}
-      <td class="breakdown-panel" width="{% if group|length == 2 %}50{% else %}100{% endif %}%" valign="top" style="padding:0 6px">
-        {% include 'report_delivery/email_section.html' %}
-      </td>{% endfor %}
-    </tr></table>
-    {% endfor %}
-    {% if filters %}
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e1e4ee">
-      <h2 style="margin:0 0 6px;font-size:18px;color:#2e3480">Scope</h2>
-      <p style="margin:0;font-size:14px;color:#4a5578;line-height:1.5;overflow-wrap:anywhere">{% for filter in filters %}<strong>{{ filter.label }}:</strong> {{ filter.value }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>
-    </div>
-    {% endif %}
-  </td></tr>
-  <tr><td style="padding:16px 20px;background-color:#eef8e9;border-top:3px solid #6cbe45">
-    <p style="margin:0;color:#2f6b17;font-size:16px;font-weight:bold">Detailed Excel attached</p>
-    <p style="margin:4px 0 0;color:#1f2a4d;font-size:14px;line-height:1.5">{{ exported }} of {{ total }} matching cases.{% if truncated %}<br>The export limit was reached. Narrow the filters for a complete export.{% endif %}</p>
-  </td></tr>
-  <tr><td style="padding:12px 20px;background-color:#2e3480;border-radius:0 0 8px 8px;color:#ffffff">
-    <p style="margin:0;font-size:14px;font-weight:bold">JBL BOT · Jawabu Biashara Limited</p>
-    <p style="margin:4px 0 0;font-size:14px;color:#d9dcee;line-height:1.5">Confidential · Share only with authorized recipients.</p>
-  </td></tr>
-</table>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>{{ title }}</title>
+<style>
+table,td,th{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;line-height:1.5}
+@media(max-width:480px){.email-outer{padding:8px!important}.email-body{padding:16px 12px!important}.metric{display:inline-block!important;width:50%!important;box-sizing:border-box;vertical-align:top!important}.metric-roomy{width:100%!important}.brand-name{font-size:12px!important}.brand-logo{width:110px!important}}
+@media(prefers-color-scheme:dark){.email-page{background-color:#151a23!important}.email-container,.metric-content{background-color:#202733!important;color:#f2f4f8!important}.email-copy,.metric-label,.report-stamp,.breakdown-table td,.breakdown-table th{color:#c6cdd8!important}.email-heading,.metric-value{color:#e0e6ff!important}.metric-better{color:#85ddb0!important}.metric-worse{color:#ffa89d!important}.email-divider{border-color:#465063!important}.report-cta{background-color:#c9d1ff!important;color:#202733!important}}
+</style></head>
+<body class="email-page" style="margin:0;background-color:#f2f4f8;color:#243244;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.5">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{{ period }}. {{ verdict }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="email-outer" align="center" style="padding:20px 12px">
+<!--[if mso]><table role="presentation" width="600"><tr><td><![endif]-->
+<table class="email-container" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background-color:#ffffff;color:#243244;font-size:15px">
+<tr><td style="padding:14px 20px;border-top:4px solid #2e3480"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td>{% if logo_src %}<img class="brand-logo" src="{{ logo_src }}" width="125" alt="Jawabu Biashara" style="display:block;width:125px;height:auto;border:0;background-color:#ffffff;padding:4px;border-radius:4px">{% endif %}</td><td class="brand-name email-copy" align="right" style="font-size:12px;color:#526173;font-weight:bold">JAWABU BIASHARA<br>JBL BOT · MANAGEMENT REPORT</td></tr></table></td></tr>
+<tr><td class="email-body" style="padding:8px 20px 20px">
+<h1 class="email-heading report-title" style="margin:0 0 6px;color:#2e3480;font-size:25px;line-height:1.25">{{ title }}</h1>
+<p class="report-stamp" style="margin:0;color:#526173;font-size:13px">{{ period }}{% if previous_period %}<br>vs {{ previous_period }}{% endif %}<br>Data as of {{ generated }}</p>
+<p class="email-copy report-verdict" style="margin:16px 0 6px;font-size:17px;line-height:1.5;font-weight:600">{{ verdict }}</p>
+<p class="email-copy" style="margin:0 0 12px;color:#526173;font-size:13px"><strong>Full detail in the attached Excel.</strong> {{ exported }} of {{ total }} matching cases.{% if truncated %} Export limit reached; narrow the filters for a complete export.{% endif %}</p>
+{% if report_url %}<p style="margin:0 0 16px"><a class="report-cta" href="{{ report_url }}" style="display:inline-block;padding:10px 18px;background-color:#2e3480;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;border-radius:4px">Open in app</a></p>{% endif %}
+{% if headline %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed"><tr class="metric-row">{% for item in headline %}
+<td class="metric{% if roomy_headline %} metric-roomy{% endif %}" width="{{ headline_width }}%" valign="top" style="padding:6px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="metric-content email-divider" style="height:150px;vertical-align:top;border-top:2px solid #dfe3eb;padding:8px 4px;background-color:#ffffff">
+<p class="metric-label" style="margin:0 0 5px;color:#526173;font-size:12px">{{ item.label }}</p>
+<p class="metric-value{% if item.status == 'Better' %} metric-better{% elif item.status == 'Worse' or item.ink == '#b42318' %} metric-worse{% endif %}" {% if item.exact_value %}title="{{ item.exact_value }} KES"{% endif %} style="margin:0;color:{{ item.ink }};font-size:28px;line-height:1.2;font-weight:bold;overflow-wrap:anywhere">{{ item.value }}</p>
+{% if item.target %}<p class="email-copy" style="margin:5px 0 0;color:#526173;font-size:12px">{{ item.target }}</p>{% endif %}
+<p class="email-copy" style="margin:8px 0 0;color:#526173;font-size:12px">Previous: {{ item.previous }}</p>
+<p class="{% if item.status == 'Better' %}metric-better{% elif item.status == 'Worse' %}metric-worse{% else %}email-copy{% endif %}" style="margin:3px 0 0;color:{{ item.ink }};font-size:12px;font-weight:600">{{ item.change }}</p>
+{% if item.comparison_scope %}<p class="email-copy" style="margin:4px 0 0;font-size:12px;color:#526173">{{ item.comparison_scope }}</p>{% endif %}
+{% if item.note %}<p class="email-copy" style="margin:4px 0 0;color:#526173;font-size:12px">{{ item.note }}</p>{% endif %}
+</td></tr></table></td>{% endfor %}</tr></table>{% endif %}
+<section style="margin-top:12px">
+<h2 class="email-heading" style="margin:0 0 6px;color:#2e3480;font-size:17px">Needs attention</h2>
+{% for item in attention %}<p class="email-copy email-divider" style="margin:0;padding:8px 0;border-bottom:1px solid #e4e7ec;font-size:14px">{{ item.text }}{% if item.url %} <a class="email-heading" href="{{ item.url }}" style="color:#2e3480;font-weight:600">View in app →</a>{% endif %}</p>{% empty %}<p class="email-copy" style="margin:0;color:#526173;font-size:14px">{% if not total %}No cases match this report.{% elif exceptions_available %}No target breaches identified in this report.{% else %}Exception detail is not available in this report. Review Excel for case-level detail.{% endif %}</p>{% endfor %}
+</section>
+{% if overview_graph %}<div style="margin-top:18px">{% include 'report_delivery/email_section.html' with chart=overview_graph %}</div>{% endif %}
+{% if top_table %}<div style="margin-top:18px">{% include 'report_delivery/email_section.html' with chart=top_table %}</div>{% endif %}
+{% for notice in notices %}<p class="email-copy" style="margin:10px 0 0;font-size:13px;color:#526173">{{ notice }}</p>{% endfor %}
+{% if comparison_label and not previous_period %}<p class="email-copy" style="margin:10px 0 0;font-size:13px;color:#526173">{{ comparison_label }}</p>{% endif %}
+{% if filters %}<p class="email-copy email-divider" style="margin:16px 0 0;padding-top:10px;border-top:1px solid #e4e7ec;font-size:12px;color:#526173">{% for filter in filters %}<strong>{{ filter.label }}:</strong> {{ filter.value }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+<p class="email-copy" style="margin:12px 0 0;font-size:12px;color:#526173">{{ basis }}</p>
+</td></tr><tr><td class="email-copy email-divider" style="padding:14px 20px;border-top:1px solid #e4e7ec;color:#526173;font-size:12px">JBL BOT · Jawabu Biashara Limited<br>Confidential · Share only with authorized recipients. App access requires your usual sign-in and permissions.</td></tr></table>
 <!--[if mso]></td></tr></table><![endif]-->
-</td></tr></table>
-</body>
-</html>
+</td></tr></table></body></html>

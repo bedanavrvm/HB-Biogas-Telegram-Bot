@@ -67,11 +67,12 @@ class PeriodTests(SimpleTestCase):
         self.assertEqual(result[2], result[3])
         self.assertIn('has not started', result[4])
 
-    def test_history_is_bounded_and_marks_partial_bucket(self):
+    def test_partial_year_keeps_all_months_without_technical_markers(self):
         windows, unit = _history_windows(stamp('2026-01-01T00:00'), stamp('2026-12-17T12:00'))
-        self.assertLessEqual(len(windows), 8)
+        self.assertEqual(len(windows), 12)
         self.assertEqual(unit, 'month')
-        self.assertTrue(windows[-1][2].endswith('*'))
+        self.assertEqual(windows[-1][1], stamp('2026-12-17T12:00'))
+        self.assertFalse(any('*' in window[2] for window in windows))
 
     def test_count_duration_percentage_and_missing_baselines(self):
         self.assertEqual(_delta('Reported', 7, 5), {'text': '+2 vs previous', 'tone': 'muted'})
@@ -103,6 +104,17 @@ class ProjectionTests(SimpleTestCase):
         self.assertEqual(result['summary']['Resolved on time (%)'], 100)
         self.assertEqual(len(result['email_sections']), 4)
         self.assertEqual(sum(section['presentation'] == 'chart' for section in result['email_sections']), 1)
+
+    def test_monthly_graph_includes_first_and_last_days_only_inside_selection(self):
+        cases = [synthetic_case(index, reported=reported) for index, reported in enumerate([
+            '2026-08-31T23:59', '2026-09-01T00:00', '2026-09-30T23:59', '2026-10-01T00:00'])]
+        result = self.project(cases)
+        chart = result['email_sections'][0]
+        self.assertEqual(result['summary']['Reported'], 2)
+        self.assertEqual(len(chart['labels']), 30)
+        self.assertEqual(chart['datasets'][0]['values'], [1] + [0] * 28 + [1])
+        self.assertNotIn('bucket', chart['context'])
+        self.assertIn('per day', chart['context'])
 
     def test_closures_reopened_and_targets_have_distinct_denominators(self):
         cases = [synthetic_case(i, resolved='2026-09-11T09:00', target=target)
@@ -152,25 +164,25 @@ class ProjectionTests(SimpleTestCase):
         self.assertEqual(result['comparison']['metrics'], {})
         self.assertIn('exact selected filters', ' '.join(result['notices']))
 
-    def test_all_report_types_render_plaintext_and_at_most_two_graphs(self):
+    def test_all_report_types_render_plaintext_and_at_most_one_graph(self):
         for preset in ['complaints', 'cmp_tat', 'cmp_open']:
             result = self.project([synthetic_case(1, resolved='2026-09-11T09:00', response='2026-09-10T15:00')], preset)
             snapshot = {**result, 'preset': preset, 'period': {'from': '2026-09-01', 'to': '2026-09-30'},
                         'run_at': self.now.isoformat(), 'total_rows': 1, 'rows': [],
                         'xlsx_content': base64.b64encode(b'synthetic').decode(), 'applied_filters': self.filters}
             payload = build_payload(snapshot, 'synthetic@example.invalid', {})
-            self.assertLessEqual(payload['html'].count('class="report-graph"'), 2)
+            self.assertLessEqual(payload['html'].count('class="report-graph"'), 1)
             self.assertNotIn('Breakdown</h2>', payload['html'])
             self.assertIn(result['email_sections'][0]['title'], payload['text'])
             self.assertNotIn('customer_name', payload['html'])
-            self.assertIn('max-width:900px', payload['html'])
+            self.assertIn('max-width:600px', payload['html'])
 
     def test_follow_up_headlines_stay_compact_without_repeated_snapshot_labels(self):
         from .rendering import email_context
         result = self.project([synthetic_case(1)], 'cmp_open')
         context = email_context({**result, 'preset': 'cmp_open', 'run_at': self.now.isoformat(),
                                  'total_rows': 1, 'rows': [], 'applied_filters': self.filters})
-        self.assertEqual(context['headline'][-1]['value'], '17d 0h')
+        self.assertEqual(context['headline'][-1]['value'], '17.0 days')
         self.assertFalse(context['headline'][-1]['long_value'])
         self.assertEqual(context['comparison_label'], '')
 
@@ -229,3 +241,11 @@ class ComplaintScheduleTests(TestCase):
             self.assertEqual([row['customer_name'] for row in snapshot['rows']], [expected_name])
             if preset == 'cmp_tat':
                 self.assertEqual(snapshot['summary']['Median resolution (hours)'], 960)
+        schedule.preset, schedule.frequency = 'complaints', 'yearly'
+        with patch('report_delivery.complaint_reports.timezone.now', return_value=stamp('2027-01-02T12:00')):
+            snapshot = capture_workflow_report(schedule, {'period': {'from': '2026-01-01', 'to': '2026-12-31'}})
+        self.assertEqual(snapshot['total_rows'], 2)
+        self.assertEqual({row['customer_name'] for row in snapshot['rows']}, {'Synthetic 0', 'Synthetic 1'})
+        self.assertEqual(snapshot['summary']['Reported'], 2)
+        self.assertEqual(len(snapshot['charts'][0]['labels']), 12)
+        self.assertEqual(snapshot['applied_filters']['date_mode'], 'year')

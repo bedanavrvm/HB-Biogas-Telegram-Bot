@@ -58,6 +58,7 @@ def _stats(cases, start, end):
     reported, closed, reopened = set(), set(), set()
     resolution, response, categories = [], [], defaultdict(list)
     on_time = late = no_target = 0
+    targets = set()
     for case in cases:
         facts = case.complaint_timing
         if _in(facts['reported_at'], start, end):
@@ -70,6 +71,9 @@ def _stats(cases, start, end):
             value = facts['resolution_hours']
             resolution.append(value)
             categories[_category(case)].append(value)
+            target = getattr(case.complaint_control, 'sla_target_hours', None)
+            if target and target > 0:
+                targets.add(str(target))
             if facts['on_time'] is True:
                 on_time += 1
             elif facts['on_time'] is False:
@@ -84,7 +88,7 @@ def _stats(cases, start, end):
             'Resolved on time (%)': round(on_time * 100 / (on_time + late), 1) if on_time + late else None,
             'resolution_count': len(resolution), 'response_count': len(response),
             'on_time': on_time, 'late': late, 'no_target': no_target,
-            'categories': categories}
+            'categories': categories, 'targets': sorted(targets, key=Decimal)}
 
 
 def _category(case):
@@ -97,9 +101,9 @@ def _branch(case):
     return control.branch_ref.name if control.branch_ref_id else case.branch_region or 'Not provided'
 
 
-def _section(title, labels, datasets, *, kind='rows', context=''):
+def _section(title, labels, datasets, *, kind='rows', context='', unit='complaints'):
     return {'title': title, 'labels': list(labels), 'datasets': datasets, 'type': 'line',
-            'presentation': kind, 'context': context}
+            'presentation': kind, 'context': context, 'unit': unit}
 
 
 def _counts(title, counts, *, context='', top=False):
@@ -112,8 +116,9 @@ def _counts(title, counts, *, context='', top=False):
 
 def _history_windows(start, end):
     days = (end - start).total_seconds() / 86400
-    unit = 'day' if days <= 8 else 'week' if days <= 56 else 'month' if days <= 730 else 'year'
-    # Calendar buckets, not averages of daily medians or daily distinct counts.
+    unit = 'day' if days <= 31 else 'month' if days <= 366 else 'year'
+    # Cover the entire selection. Thin axis labels in the renderer, never facts.
+    # Months show days; quarters/years show calendar months, not clipped weeks.
     cursor = start
     windows = []
     while cursor < end:
@@ -122,15 +127,13 @@ def _history_windows(start, end):
             following = datetime.combine(next_day, time.min, NAIROBI)
         elif unit == 'year':
             following = datetime(cursor.year + 1, 1, 1, tzinfo=NAIROBI)
-        elif unit == 'week':
-            following = datetime.combine(cursor.date() + timedelta(days=7 - cursor.weekday()), time.min, NAIROBI)
         else:
             following = datetime.combine(cursor.date() + timedelta(days=1), time.min, NAIROBI)
         stop = min(following, end)
-        label = cursor.strftime('%d-%m-%y') + ('*' if stop < following else '')
+        label = cursor.strftime('%d-%m-%y')
         windows.append((cursor, stop, label))
         cursor = following
-    return windows[-8:], unit
+    return windows, unit
 
 
 def _delta(label, current, previous):
@@ -188,6 +191,7 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
     age_section['labels'] = [label for _, label, *_ in AGE_BUCKETS]
     age_section['datasets'][0]['values'] = [ages[key] for key, *_ in AGE_BUCKETS]
     if preset == 'cmp_open':
+        age_section.update(type='bar', presentation='chart')
         elapsed = [case.complaint_timing['elapsed_seconds'] / 3600 for case in open_cases if case.complaint_timing['elapsed_seconds'] is not None]
         summary = {'Open now': len(open_cases), 'Over 14 days': ages['over_14'],
                    'No HB response': sum(values[2] for values in branch_counts.values()),
@@ -202,16 +206,21 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
              for index, label in enumerate(['Open', 'Over 14 days', 'No HB response'])], context='14d+: over 14 days. No reply: no HB response recorded. Top five branches + remaining branches.')]
         return {'summary': summary, 'email_sections': sections, 'charts': sections,
                 'comparison': {'label': 'Current snapshot · generated now; no historical open-count comparison.'},
-                'metric_notes': {}, 'notices': _age_notices(ages)}
+                'metric_notes': {}, 'notices': _age_notices(ages),
+                'management': {'open': len(open_cases), 'late_open': _late_open(open_cases),
+                               'no_response': summary['No HB response']}}
     recent_start = datetime.combine(headline_end.astimezone(NAIROBI).date() - timedelta(days=7), time.min, NAIROBI)
     history_start = period_start if period_start and period_end else max(period_start or recent_start, recent_start)
     windows, unit = _history_windows(history_start, headline_end)
     history = [_stats(selected, a, b) for a, b, _ in windows]
-    history_context = f'Latest {len(windows)} {unit} buckets · * partial bucket.'
+    cadence = {'day': 'Daily', 'month': 'Monthly', 'year': 'Yearly'}[unit]
+    history_context = f'{cadence} medians · hours.' if preset == 'cmp_tat' else f'Distinct complaints per {unit}.'
+    if period_end and now < period_end and windows:
+        history_context += f' Through {headline_end:%d-%m-%y %H:%M} EAT.'
     if preset == 'cmp_tat':
         summary = {key: stats[key] for key in ['Median resolution (hours)', 'Median HB response (hours)', 'Resolved on time (%)', 'Reopened in period']}
         sections = [_section(title, [label for _, _, label in windows],
-            [{'label': 'Hours', 'values': [row[key] for row in history]}], kind='chart', context=history_context)
+            [{'label': 'Hours', 'values': [row[key] for row in history]}], kind='chart', context=history_context, unit='hours')
             for title, key in [('Resolution time', 'Median resolution (hours)'), ('HB response time', 'Median HB response (hours)')]]
         sections += [_counts('Resolution targets', {'On time': stats['on_time'], 'Late': stats['late'], 'No target': stats['no_target']}, context=f"{stats['on_time'] + stats['late']} timed resolutions with a target; no-target cases excluded from the rate."),
             _section('Slowest complaint types', list(sorted(stats['categories'], key=lambda key: (-median_hours(stats['categories'][key]), key))[:5]), [])]
@@ -225,12 +234,14 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
                    'Median HB response (hours)': stats['Median HB response (hours)']}
         reported_cases = [case for case in selected if _in(case.complaint_timing['reported_at'], headline_start, headline_end)]
         sections = [_section('Reported vs resolved', [label for _, _, label in windows],
-            [{'label': title, 'values': [row[key] for row in history]} for title, key in [('Reported', 'Reported'), ('Resolved', 'Resolved in period')]], kind='chart', context=history_context + ' Counts: distinct complaints per bucket.'),
+            [{'label': title, 'values': [row[key] for row in history]} for title, key in [('Reported', 'Reported'), ('Resolved', 'Resolved in period')]], kind='chart', context=history_context),
             age_section, _counts('Complaint types', Counter(_category(case) for case in reported_cases), top=True, context='Reported in the selected period · top five + Other.'),
             _counts('Complaints by branch', Counter(_branch(case) for case in reported_cases), top=True, context='Reported in the selected period · top five + Other.')]
     safe_compare = not filters.get('metric') and filters.get('date_basis', 'reported') == 'reported'
     bounded = period_start is not None and period_end is not None
     deltas = {key: _delta(key, current[key], previous[key]) for key in summary if key in current} if safe_compare and bounded else {}
+    for key, delta in deltas.items():
+        delta['paired_values'] = {'current': current[key], 'previous': previous[key]}
     notices = _age_notices(ages)
     if deltas and end < headline_end:
         notices.append('Headline totals cover the selected dates. Comparisons use the shorter matching window shown below.')
@@ -247,7 +258,18 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
             'comparison': {'label': comparison_label if safe_compare else 'Comparison unavailable', 'metrics': deltas},
             'metric_notes': {'Median resolution (hours)': f"{stats['resolution_count']} timed resolution{'s' if stats['resolution_count'] != 1 else ''}",
                              'Median HB response (hours)': f"{stats['response_count']} first HB response{'s' if stats['response_count'] != 1 else ''}"},
-            'notices': notices}
+            'notices': notices,
+            'management': {'resolved': stats['Resolved in period'], 'on_time': stats['on_time'],
+                'late': stats['late'], 'no_target': stats['no_target'], 'targets_hours': stats['targets'],
+                'resolution_count': stats['resolution_count'], 'response_count': stats['response_count'],
+                'resolution_hours': stats['Median resolution (hours)'], 'open': len(open_cases),
+                'late_open': _late_open(open_cases),
+                'previous_on_time': previous['on_time'] if deltas else None,
+                'previous_target_count': previous['on_time'] + previous['late'] if deltas else None,
+                'comparison_on_time': current['on_time'], 'comparison_target_count': current['on_time'] + current['late'],
+                'previous_from': prior.date().isoformat() if deltas else None,
+                'previous_to': (prior_end - timedelta(microseconds=1)).date().isoformat() if deltas else None,
+                'comparison_cutoff': end.isoformat() if deltas and end < headline_end else None}}
     if preset == 'cmp_tat':
         result['_activity_case_ids'] = [str(case.pk) for case in selected if any(
             _in(stamp, headline_start, headline_end) for stamp in [case.complaint_timing['resolved_at'],
@@ -256,4 +278,12 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
 
 
 def _age_notices(ages):
-    return [f"{ages[None]} unresolved complaint(s) have no reliable age and are excluded from age buckets."] if ages[None] else []
+    return [f"{ages[None]} open complaint(s) have no recorded start date."] if ages[None] else []
+
+
+def _late_open(cases):
+    return sum(1 for case in cases
+               if getattr(case.complaint_control, 'sla_target_hours', None)
+               and case.complaint_control.sla_target_hours > 0
+               and case.complaint_timing['elapsed_seconds'] is not None
+               and case.complaint_timing['elapsed_seconds'] > case.complaint_control.sla_target_hours * 3600)

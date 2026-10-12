@@ -2,15 +2,24 @@ JBL BOT — {{ title }}
 {{ period }}
 Generated {{ generated }}
 
+{{ verdict }}
+Full detail in the attached Excel.
+{% if report_url %}Open in app: {{ report_url }}{% endif %}
+{% if previous_period %}vs {{ previous_period }}{% endif %}
+
 {{ basis }}
 {% for item in metrics %}
-{{ item.label }}: {{ item.value }}{% endfor %}
+{{ item.label }}: {% if item.exact_value %}{{ item.exact_value }}{% else %}{{ item.value }}{% endif %}{% if item.target %} · {{ item.target }}{% endif %}
+Previous: {{ item.previous }} · {{ item.change }}{% endfor %}
 {{ comparison_label }}
 {% for item in metrics %}{% if item.comparison %}{{ item.label }}: {{ item.comparison.text }}
 {% endif %}{% if item.note %}{{ item.label }}: {{ item.note }}
 {% endif %}{% endfor %}
 {% for notice in notices %}{{ notice }}
 {% endfor %}
+Needs attention
+{% for item in attention %}{{ item.text }}{% if item.url %} {{ item.url }}{% endif %}
+{% empty %}No additional exceptions identified.{% endfor %}
 {% for chart in breakdowns %}
 {{ chart.title }}
 {{ chart.context }}

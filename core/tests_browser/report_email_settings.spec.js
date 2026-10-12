@@ -27,6 +27,11 @@ test('Complaint report choices explain the cohort and save the selected preset',
     await page.getByRole('button',{name:'Add report'}).click();
     await page.getByRole('combobox',{name:'Report',exact:true}).selectOption(preset);
     await expect(page.locator('#reportPresetHelp')).toContainText(description);
+    await page.getByRole('combobox',{name:'Frequency',exact:true}).selectOption('monthly');
+    await expect(page.locator('#reportPeriodHelp')).toContainText(preset==='cmp_open'?'current open cases':'previous calendar month');
+    await page.getByRole('combobox',{name:'Frequency',exact:true}).selectOption('yearly');
+    await expect(page.locator('#reportPeriodHelp')).toContainText('On January 1');
+    await expect(page.locator('#reportPeriodHelp')).toContainText(preset==='cmp_open'?'current open cases':'previous calendar year');
     await page.getByLabel('Report name',{exact:true}).fill(label);
     await page.getByLabel('Recipients',{exact:true}).fill('synthetic@example.invalid');
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -34,6 +39,7 @@ test('Complaint report choices explain the cohort and save the selected preset',
     await page.getByRole('button',{name:'Save',exact:true}).click();
   }
   expect(await page.evaluate(()=>window.saved.map(item=>item.preset))).toEqual(['complaints','cmp_tat','cmp_open']);
+  expect(await page.evaluate(()=>window.saved.every(item=>item.frequency==='yearly'))).toBe(true);
 });
 
 for(const outcome of ['accepted','failed'])test(`Send report automatically checks delivery and shows ${outcome}`,async({page})=>{
@@ -115,6 +121,8 @@ for(const app of ['portal','tat','complaints']) {
       },app);
       await page.getByRole('button',{name:'Manage reports'}).click();
       await page.getByRole('button',{name:'Add report'}).click();
+      await page.getByRole('combobox',{name:'Frequency',exact:true}).selectOption('yearly');
+      await expect(page.locator('#reportPeriodHelp')).toContainText('On January 1');
       await page.getByLabel('Report name',{exact:true}).fill('Synthetic report');
       await page.getByLabel('Recipients',{exact:true}).fill('first@example.invalid\nsecond@example.invalid');
       await page.getByLabel('Active',{exact:true}).check();
@@ -124,6 +132,7 @@ for(const app of ['portal','tat','complaints']) {
       await expect(page.locator('#settings').getByRole('status')).toHaveText('Report settings saved.');
       expect(await page.evaluate(()=>window.calls.at(-1).recipients)).toEqual(['first@example.invalid','second@example.invalid']);
       expect(await page.evaluate(()=>window.calls.at(-1).active)).toBe(true);
+      expect(await page.evaluate(()=>window.calls.at(-1).frequency)).toBe('yearly');
     }
   });
 }

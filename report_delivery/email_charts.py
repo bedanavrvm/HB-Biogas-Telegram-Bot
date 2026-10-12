@@ -1,11 +1,11 @@
 """Bounded, offline PNG charts for email; the captured facts are never modified."""
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
 
-PALETTE = ('#2e3480', '#438323', '#c8247a', '#a36b08')
+PALETTE = ('#2e3480', '#748398', '#a36b08', '#655789')
 WIDTH = 840
 INK = '#1f2a4d'
 MUTED = '#4a5578'
@@ -45,12 +45,14 @@ def _wrap(draw, text, font, width):
 def chart_png(chart):
     """Return a PNG or None when a complete chart would be unreadable on mobile.
 
-    Eight groups/four series bound both rendering work and mobile density.
+    Up to 31 line points (one calendar month) or eight bar groups/four series
+    bound rendering work. Date labels are thinned, never the captured points.
     Missing values remain missing, never zero. Unsupported/dense data stays in
     the HTML breakdown. No font files, URLs, browser, or native SVG backend.
     """
     labels, datasets = chart.get('labels', []), chart.get('datasets', [])
-    if not 0 < len(labels) <= 8 or not 0 < len(datasets) <= 4:
+    line_chart = chart.get('type') == 'line'
+    if not 0 < len(labels) <= (31 if line_chart else 8) or not 0 < len(datasets) <= 4:
         return None
     if chart.get('type', 'bar') not in {'bar', 'line'}:
         return None
@@ -64,7 +66,6 @@ def chart_png(chart):
         return None
     low, high = min(numbers + [Decimal(0)]), max(numbers + [Decimal(0)])
     span = high - low or Decimal(1)
-    line_chart = chart.get('type') == 'line'
     font = ImageFont.load_default(size=40 if line_chart else 26)
     small = ImageFont.load_default(size=36 if line_chart else 23)
     measure = ImageDraw.Draw(Image.new('RGB', (WIDTH, 1)))
@@ -103,13 +104,38 @@ def chart_png(chart):
         y += 8
     if line_chart:
         top, bottom = y + 30, 330
-        left, right = 100, WIDTH - 36
-        for value, position in ((high, top), (low, bottom)):
-            draw.line((left, position, right, position), fill='#e1e4ee', width=1)
-            if draw.textlength(_label(value), font=small) > left - 12:
-                return None
-            draw.text((left - 12, position), _label(value), anchor='ra', font=small, fill=MUTED)
+        # Rounded scale with interior horizontal guides, plus vertical guides
+        # at the labelled dates. Real axes stay distinct from the light grid.
+        count_axis = chart.get('unit') in {'cases', 'complaints', 'actions'}
+        if count_axis:
+            high = max(high, Decimal(3))
+            span = high - low
+        rough = span / 4
+        magnitude = Decimal(10) ** rough.adjusted()
+        interval = next(Decimal(value) * magnitude for value in ('1', '2', '2.5', '5', '10')
+                        if Decimal(value) * magnitude >= rough)
+        if count_axis:
+            interval = interval.to_integral_value(rounding=ROUND_CEILING)
+        low = (low / interval).to_integral_value(rounding=ROUND_FLOOR) * interval
+        high = (high / interval).to_integral_value(rounding=ROUND_CEILING) * interval
+        if high == low:
+            high = low + interval * 4
+        span = high - low
+        values = [low + interval * i for i in range(int(span / interval) + 1)]
+        left = max(100, int(max(draw.textlength(_label(value), font=small) for value in values)) + 18)
+        right = WIDTH - 36
+        if left > 240:
+            return None
+        for value in values:
+            position = bottom - int((value - low) / span * (bottom - top))
+            draw.line((left, position, right, position), fill='#dce1ed', width=2)
+            draw.text((left - 12, position), _label(value), anchor='rm', font=small, fill=MUTED)
         step = Decimal(right - left) / max(1, len(labels) - 1)
+        for i in sorted(visible_ticks):
+            x = left + int(i * step)
+            draw.line((x, top, x, bottom), fill='#dce1ed', width=2)
+        draw.line((left, top, left, bottom), fill='#8a90ab', width=3)
+        draw.line((left, bottom, right, bottom), fill='#8a90ab', width=3)
         for index, values in enumerate(series):
             previous = None
             for i, value in enumerate(values):

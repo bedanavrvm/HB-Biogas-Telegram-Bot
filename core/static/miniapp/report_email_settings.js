@@ -97,7 +97,16 @@
       const presetHint=node('p','', 'report-email-wide');presetHint.id='reportPresetHelp';presetHint.style.margin='0';
       const updatePresetHint=()=>{presetHint.textContent=data.preset_options?.find(option=>option.value===form.elements.preset.value)?.description || '';};
       form.elements.preset.setAttribute('aria-describedby',presetHint.id);form.elements.preset.addEventListener('change',updatePresetHint);updatePresetHint();form.append(presetHint);
-      field('frequency','Frequency',['daily','weekly','monthly','quarterly'].map(v=>[v,v[0].toUpperCase()+v.slice(1)])); field('send_time','Time (Nairobi)',null,'time');
+      field('frequency','Frequency',['daily','weekly','monthly','quarterly','yearly'].map(v=>[v,v[0].toUpperCase()+v.slice(1)])); field('send_time','Time (Nairobi)',null,'time');
+      const periodHint=node('p','', 'report-email-wide');periodHint.id='reportPeriodHelp';periodHint.style.margin='0';
+      const updatePeriodHint=()=>{
+        const frequency=form.elements.frequency.value;
+        const period={daily:'yesterday',weekly:'the previous Monday–Sunday',monthly:'the previous calendar month',quarterly:'the previous calendar quarter',yearly:'the previous calendar year'}[frequency];
+        const when={daily:'Daily',weekly:'Mondays',monthly:'On the 1st',quarterly:'On Jan/Apr/Jul/Oct 1',yearly:'On January 1'}[frequency];
+        const snapshot={cmp_open:'current open cases',pipeline:'current pipeline'}[form.elements.preset.value];
+        periodHint.textContent=when+' · '+(snapshot?snapshot+'.':'covers '+period+'. Send now uses the same period.');
+      };
+      form.elements.frequency.setAttribute('aria-describedby',periodHint.id);form.elements.frequency.addEventListener('change',updatePeriodHint);form.elements.preset.addEventListener('change',updatePeriodHint);updatePeriodHint();form.append(periodHint);
       const branches=(data.branches_by_group?.[String(editing.group_configuration)] || [{value:'',label:'All branches'}]).map(b=>[b.value,b.label]);
       if(editing.branch && !branches.some(b=>b[0]===editing.branch))branches.push([editing.branch,editing.branch]);
       field('branch','Branch',branches);

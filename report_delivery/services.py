@@ -96,6 +96,9 @@ def recipient_stamp(recipient):
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
+MONTH_CADENCES = {'monthly': 1, 'quarterly': 3, 'yearly': 12}
+
+
 def _month_shift(day, count):
     index = day.year * 12 + day.month - 1 + count
     return day.replace(year=index // 12, month=index % 12 + 1, day=1)
@@ -108,7 +111,7 @@ def adjacent_occurrence(schedule, at, direction):
     elif schedule.frequency == 'weekly':
         day = local.date() + timedelta(days=7 * direction)
     else:
-        day = _month_shift(local.date(), direction * (3 if schedule.frequency == 'quarterly' else 1))
+        day = _month_shift(local.date(), direction * MONTH_CADENCES[schedule.frequency])
     return datetime.combine(day, schedule.send_time, NAIROBI)
 
 
@@ -117,10 +120,12 @@ def period_boundary(schedule, now):
     day = local.date()
     if schedule.frequency == 'weekly':
         day -= timedelta(days=day.weekday())
-    elif schedule.frequency in {'monthly', 'quarterly'}:
+    elif schedule.frequency in MONTH_CADENCES:
         day = day.replace(day=1)
         if schedule.frequency == 'quarterly':
             day = day.replace(month=((day.month - 1) // 3) * 3 + 1)
+        elif schedule.frequency == 'yearly':
+            day = day.replace(month=1)
     return datetime.combine(day, schedule.send_time, NAIROBI)
 
 
@@ -141,7 +146,7 @@ def completed_period(schedule, occurrence):
     elif schedule.frequency == 'weekly':
         start = day - timedelta(days=7)
     else:
-        start = _month_shift(day, -3 if schedule.frequency == 'quarterly' else -1)
+        start = _month_shift(day, -MONTH_CADENCES[schedule.frequency])
     return {'from': start.isoformat(), 'to': end.isoformat()}
 
 
@@ -150,6 +155,7 @@ def _configuration(schedule, recipient, occurrence):
     filters = {key: getattr(schedule, key) for key in ('branch', 'product', 'county') if getattr(schedule, key)}
     # Pipeline is a current backlog snapshot, not a historical pipeline.
     filters.update({'date_mode': 'all'} if schedule.preset == 'pipeline' else {'date_mode': 'custom', **period})
+    filters['granularity'] = 'month' if schedule.frequency in {'quarterly', 'yearly'} else 'day'
     return {
         'revision': schedule.revision, 'group': schedule.group_configuration_id, 'workflow': schedule.workflow,
         'approved_by': schedule.authorized_by_id, 'recipient_approved_by': recipient.authorized_by_id,
@@ -206,7 +212,7 @@ def reserve_due(*, now=None, limit=20):
             if schedule.frequency in {'daily', 'weekly'}:
                 skipped = (due.date() - old.date()).days // (7 if schedule.frequency == 'weekly' else 1)
             else:
-                skipped = ((due.year - old.year) * 12 + due.month - old.month) // (3 if schedule.frequency == 'quarterly' else 1)
+                skipped = ((due.year - old.year) * 12 + due.month - old.month) // MONTH_CADENCES[schedule.frequency]
             schedule.skipped_occurrences += max(0, skipped)
             schedule.next_run_at = adjacent_occurrence(schedule, due, 1)
             schedule.save(update_fields=['next_run_at', 'skipped_occurrences', 'updated_at'])
@@ -296,6 +302,7 @@ def preview_report(schedule, actor):
     return capture_report(schedule, {'preset': schedule.preset, 'filters': {
         **{key: getattr(schedule, key) for key in ('branch', 'product', 'county') if getattr(schedule, key)},
         **({'date_mode': 'all'} if schedule.preset == 'pipeline' else {'date_mode': 'custom', **completed_period(schedule, due)}),
+        'granularity': 'month' if schedule.frequency in {'quarterly', 'yearly'} else 'day',
     }, 'period': completed_period(schedule, due)})
 
 

@@ -85,7 +85,7 @@ def report_basis(preset):
         'outcomes': 'Actions recorded during the selected period.',
         'tat': 'Completed-period TAT outcomes; current authorized operational data only.',
         'complaints': 'Complaints reported in this period; resolution status is current at generation.',
-        'cmp_tat': 'Resolution and first HB response events in the selected period; targets use reliable timed resolutions only.',
+        'cmp_tat': 'Resolution and first HB response dates in this period. On-time rates exclude missing targets and dates.',
         'cmp_open': 'All currently unresolved complaints in the approved scope, including older cases. Current snapshot, not period-end backlog.',
     }[preset]
 
@@ -179,7 +179,7 @@ def build_payload(snapshot, email, configuration):
     attempted = 0
     for index, section in enumerate(context['breakdowns']):
         chart = section['definition']
-        if section['presentation'] != 'chart' or attempted >= 2:
+        if section is not context['overview_graph'] or attempted >= 1:
             continue
         attempted += 1
         try:
@@ -188,6 +188,7 @@ def build_payload(snapshot, email, configuration):
             # A presentation failure must not block the canonical Excel report.
             content = None
         if content is None:
+            section['context'] += ' Up to five dates shown below; complete history is in Excel.'
             continue
         content_id = f'jawabu-report-chart-{index + 1}'
         chart_attachments.append({'filename': f'report-chart-{index + 1}.png', 'content_type': 'image/png',
@@ -223,16 +224,19 @@ def build_payload(snapshot, email, configuration):
 
 
 def email_context(snapshot, configuration=None):
+    from .management_email import date_range, present
     def date_label(value):
-        return datetime.fromisoformat(str(value)[:10]).strftime('%d-%b-%Y')
+        day = datetime.fromisoformat(str(value)[:10])
+        return f'{day.day} {day:%b %Y}'
 
     filters = snapshot.get('applied_filters', {})
     period = snapshot.get('period') or (configuration or {}).get('period')
     start = period.get('from') if period else filters.get('date_from') or filters.get('from')
     end = period.get('to') if period else filters.get('date_to') or filters.get('to')
-    period_text = (f'{date_label(start)} – {date_label(end)}' if start and end else
+    period_text = (date_range(start, end) if start and end else
                    f'From {date_label(start)}' if start else f'Through {date_label(end)}' if end else 'Current snapshot')
-    generated = timezone.localtime(datetime.fromisoformat(snapshot['run_at'])).strftime('%d-%b-%Y · %H:%M EAT')
+    stamp = timezone.localtime(datetime.fromisoformat(snapshot['run_at']))
+    generated = f'{stamp.day} {stamp:%b %Y · %H:%M} EAT'
     if snapshot['preset'] == 'cmp_open':
         period_text = 'Current snapshot'
     titles = {'pipeline': 'Pipeline overview', 'finance': 'Finance overview', 'outcomes': 'Case outcomes',
@@ -241,15 +245,8 @@ def email_context(snapshot, configuration=None):
     comparisons = snapshot.get('comparison', {})
     metrics = [{**_email_metric(label, value), 'comparison': comparisons.get('metrics', {}).get(label),
                 'note': snapshot.get('metric_notes', {}).get(label, '')} for label, value in snapshot['summary'].items()]
-    for metric, label in zip(metrics, snapshot['summary']):
-        comparison = metric.get('comparison')
-        if comparison and comparison.get('paired_values'):
-            values = comparison['paired_values']
-            # Do not mutate the captured comparison while formatting it.
-            metric['comparison'] = {**comparison, 'text': comparison['text'] + ' (' +
-                _email_metric(label, values['current'])['value'] + ' vs ' +
-                _email_metric(label, values['previous'])['value'] + ')'}
-    excluded = {'date_mode', 'month', 'quarter', 'year', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group'}
+    excluded = {'date_mode', 'month', 'quarter', 'year', 'from', 'to', 'date_from', 'date_to', 'granularity', 'sort', 'group',
+                'group_id', 'init_data', 'token', 'task_token', 'search'}
     scope = [{'label': key.replace('_', ' ').capitalize(), 'value': str(value).replace('_', ' ') if key in {'stage', 'view', 'sla_state', 'date_basis'} else str(value)}
              for key, value in filters.items() if value not in (None, '') and key not in excluded]
     breakdowns = []
@@ -303,7 +300,7 @@ def email_context(snapshot, configuration=None):
     if len(metrics) >= 4 and metrics[3]['long_value'] and not metrics[2]['long_value']:
         metrics[2]['mobile_full'] = True
     headline_columns = min(2 if roomy_headline else 4, len(metrics)) or 1
-    return {'title': titles.get(snapshot['preset'], 'Report overview'), 'period': period_text, 'generated': generated,
+    context = {'title': titles.get(snapshot['preset'], 'Report overview'), 'period': period_text, 'generated': generated,
             'basis': basis, 'metrics': metrics, 'headline': metrics[:4],
             'remaining': metrics[4:], 'filters': scope, 'breakdowns': breakdowns,
             'comparison_label': comparisons.get('label', '') if snapshot['preset'] != 'cmp_open' else '', 'notices': snapshot.get('notices', []),
@@ -312,6 +309,8 @@ def email_context(snapshot, configuration=None):
             'remaining_rows': [metrics[i:i + 3] for i in range(4, len(metrics), 3)],
             'breakdown_groups': breakdown_groups, 'logo_src': 'cid:' + BRAND_LOGO_ID,
             'total': snapshot['total_rows'], 'exported': exported, 'truncated': exported < snapshot['total_rows']}
+    present(snapshot, context)
+    return context
 
 
 def _finite(value):

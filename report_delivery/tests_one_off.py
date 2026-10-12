@@ -53,10 +53,10 @@ class EmailPresentationTests(SimpleTestCase):
                                           'Missing timing (hours)': None, 'Open': 0})
         before = deepcopy(snapshot)
         context = email_context(snapshot)
-        self.assertEqual([m['value'] for m in context['metrics']], ['2 days 14 hr', '15 min', '0 min', '87.50%', '—', '0'])
+        self.assertEqual([m['value'] for m in context['metrics']], ['2.6 days', '0.2 hours', '0.0 hours', '87.50%', '—', '0'])
         self.assertEqual(context['metrics'][0]['label'], 'Median resolution')
         self.assertEqual(snapshot, before)
-        self.assertEqual(email_context(self.snapshot(summary={'Median resolution (hours)': 24.25}))['metrics'][0]['value'], '1 day 15 min')
+        self.assertEqual(email_context(self.snapshot(summary={'Median resolution (hours)': 24.25}))['metrics'][0]['value'], '1.0 days')
 
     def test_breakdowns_pair_small_tables_but_keep_multi_series_full_width(self):
         from .rendering import email_context
@@ -84,12 +84,12 @@ class EmailPresentationTests(SimpleTestCase):
         from .rendering import email_context
         snapshot = self.snapshot(summary={'Cases': 12, 'Invoice total (KES)': '123456789'})
         context = email_context(snapshot)
-        self.assertTrue(context['roomy_headline'])
+        self.assertFalse(context['roomy_headline'])
         self.assertEqual(context['headline_width'], 50)
         payload = build_payload(snapshot, 'management@example.invalid', {})
         self.assertIn("'Segoe UI','Helvetica Neue',Arial,sans-serif", payload['html'])
-        self.assertNotIn('font-size:12px', payload['html'])
-        self.assertIn('font-size:30px', payload['html'])
+        self.assertIn('font-size:12px', payload['html'])
+        self.assertIn('font-size:28px', payload['html'])
         self.assertIn('123,456,789', payload['html'])
 
     def test_charts_are_offline_inline_pngs_and_snapshot_is_unchanged(self):
@@ -114,13 +114,14 @@ class EmailPresentationTests(SimpleTestCase):
         self.assertNotIn('https://', payload['html'])
         self.assertNotIn('<script', payload['html'])
 
-    def test_only_first_two_nonempty_charts_are_considered(self):
+    def test_only_first_chart_is_visible_remaining_datasets_stay_in_text(self):
         charts = [self.chart(labels=[])] + [self.chart(title=f'Graph {i}') for i in range(5)]
         payload = build_payload(self.snapshot(charts=charts), 'management@example.invalid', {})
         graphs = [a for a in payload['attachments'] if a.get('content_id', '').startswith('jawabu-report-chart')]
-        self.assertEqual(len(graphs), 2)
-        self.assertEqual(len({a['content_id'] for a in graphs}), 2)
-        self.assertIn('Graph 4', payload['html'])  # Tables remain for the remaining graphs.
+        self.assertEqual(len(graphs), 1)
+        self.assertEqual(len({a['content_id'] for a in graphs}), 1)
+        self.assertNotIn('Graph 4', payload['html'])
+        self.assertIn('Graph 4', payload['text'])
 
     def test_dense_chart_retains_every_group_in_html_fallback(self):
         labels = [f'Training group {i}' for i in range(12)]
@@ -129,7 +130,8 @@ class EmailPresentationTests(SimpleTestCase):
                                 'management@example.invalid', {})
         self.assertEqual(len(payload['attachments']), 2)
         for label in labels:
-            self.assertIn(label, payload['html'])
+            self.assertIn(label, payload['text'])
+        self.assertEqual(payload['html'].count('<tr>\n    <td'), 5)  # Email stays short; complete dataset remains in text/Excel.
         self.assertNotIn('First 8 groups', payload['html'])
 
     def test_chart_render_failure_keeps_report_tables_and_workbook(self):
@@ -188,7 +190,7 @@ class ExportSummaryTests(SimpleTestCase):
         context = email_context({'preset':'tat', 'summary':{}, 'total_rows':0, 'rows':[],
                                  'applied_filters':{'date_from':'2026-10-01','view':'current'},
                                  'run_at':'2026-10-05T09:00:00+03:00'})
-        self.assertEqual(context['period'], 'From 01-Oct-2026')
+        self.assertEqual(context['period'], 'From 1 Oct 2026')
         self.assertIn('Current workload', context['basis'])
 
 
@@ -349,7 +351,7 @@ class OneOffTests(TestCase):
         self.assertEqual(payload['from'], 'JBL BOT <reports@example.invalid>')
         self.assertGreaterEqual(len(payload['attachments']), 2)
         self.assertEqual(payload['attachments'][1]['content_id'], 'jawabu-report-logo')
-        self.assertIn('Detailed Excel attached', payload['html'])
+        self.assertIn('Full detail in the attached Excel.', payload['html'])
         self.assertNotIn('Synthetic matching case', payload['html'])
 
     def test_native_exporters_keep_tat_and_complaint_workbook_bytes(self):
@@ -374,15 +376,15 @@ class OneOffTests(TestCase):
         snapshot = {'preset':'complaints', 'period':{'from':'2026-10-01','to':'2026-10-05'},
                     'summary':{'Open':0,'Median HB response (hours)':None}, 'charts':[], 'rows':[],
                     'total_rows':0, 'export_limit':None, 'xlsx_content':base64.b64encode(b'xlsx').decode(),
-                    'applied_filters':{'search':'<script>unsafe</script>'}, 'run_at':'2026-10-05T09:00:00+03:00'}
+                    'applied_filters':{'branch':'<script>unsafe</script>'}, 'run_at':'2026-10-05T09:00:00+03:00'}
         payload = build_payload(snapshot, self.payload['email'], {})
-        self.assertIn('01-Oct-2026', payload['subject'])
+        self.assertIn('1 Oct - 5 Oct 2026', payload['subject'])
         self.assertNotIn('<script>unsafe</script>', payload['html'])
         self.assertIn('&lt;script&gt;', payload['html'])
         self.assertIn('—', payload['html'])
         snapshot.update(preset='tat', period=None, applied_filters={'view':'current','date_from':'2026-10-01'})
         current = build_payload(snapshot, self.payload['email'], {})
-        self.assertIn('From 01-Oct-2026', current['subject'])
+        self.assertIn('From 1 Oct 2026', current['subject'])
         self.assertIn('Current workload at generation time', current['html'])
         self.assertNotIn('Completed-period', current['html'])
         with patch('report_delivery.rendering.MAX_PAYLOAD_BYTES', 1), self.assertRaises(ReportTooLarge):

@@ -1,5 +1,41 @@
 # Changelog
 
+## 12 October 2026 - Decision-first management email
+
+- Replaced the wide dashboard-style email with a 600px computed headline,
+  in-tile prior values/semantic Better-Worse changes, prioritized attention,
+  one offline PNG and one top-five table. Removed empty/repeated body tables.
+- Complaint summaries use actual targets, rounded days, target denominators,
+  low-volume sample labels and consistent Nairobi date stamps; one-sample type
+  medians are suppressed. Current backlog and unsupported comparisons remain
+  explicitly separate, never reconstructed or fabricated.
+- Added normal authenticated Reports entry links, scoped complaint drill-down,
+  TAT task-link priority, dark-mode styling and readable blocked-image text.
+  Customer facts stay in Excel/app; frozen retries and workbook bytes survive.
+- Verified 125 report-delivery/complaint-timing tests on isolated PostgreSQL,
+  then 80 final focused checks, 88 browser checks plus 13 final entry/design checks,
+  JavaScript syntax and Node tests.
+  Mobile/desktop light/dark screenshots were inspected; real inbox rendering
+  and production deployment are not claimed.
+
+## 12 October 2026 - Calendar report frequency and readable graph axes
+
+- Added Yearly in shared Portal/TAT/Complaints email settings and Django Admin.
+  It runs January 1 for the previous January–December, using Nairobi boundaries.
+  Settings now explain each cadence's coverage and explicitly identify current
+  backlog snapshots. Send now and preview retain the completed-period rule.
+- Monthly complaint graphs show every day; quarter/year graphs show calendar
+  months. Removed the confusing partial-week labels and the eight-point history
+  clipping. Charts retain all selected-period facts, with daily/monthly units,
+  visible axes/grid lines and whole-number complaint-count scales.
+- Added calendar, scope, annual reservation/idempotency, workbook and rendering
+  regressions plus mobile/desktop screenshot checks. Isolated the background
+  wake-up in the existing request test so it cannot race PostgreSQL test cleanup.
+- Migration `report_delivery.0006_yearly_frequency` changes choice metadata and
+  a column comment only. Apply with `python manage.py migrate report_delivery`;
+  pause/reconfigure yearly schedules before reverting code. No real email,
+  production database, deployment or external service was changed.
+
 ## 12 October 2026 - Compact report emails and complaint comparisons
 
 - Widened the shared email to 900px, paired compact panels and capped graph

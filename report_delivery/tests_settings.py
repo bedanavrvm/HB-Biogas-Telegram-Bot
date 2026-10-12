@@ -1,6 +1,8 @@
 """Synthetic cross-workflow settings and ownership checks."""
 import uuid
+from datetime import datetime
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -30,6 +32,32 @@ class SettingsTests(TestCase):
         self.assertEqual(ReportSchedule.objects.count(),1)
         self.assertEqual(ApprovedRecipient.objects.get().workflow,'tat_tracker')
         self.assertIsNotNone(second.next_run_at)
+
+    def test_yearly_saves_and_queues_whole_year_in_each_app(self):
+        from .services import queue_schedule, reserve_due
+        eat = ZoneInfo('Africa/Nairobi')
+        now = datetime(2026, 10, 12, 12, tzinfo=eat)
+        for workflow, preset in [('tat_tracker', 'tat'), ('complaint_cases', 'complaints'), ('jawabu_portal', 'outcomes')]:
+            if workflow != 'tat_tracker':
+                AccessGrant.objects.create(user=self.user, workflow=workflow, role='IT', group_configuration=self.group)
+            with patch('report_delivery.settings.timezone.now', return_value=now):
+                schedule = save_configuration(self.user, workflow, {**self.payload, 'id': str(uuid.uuid4()),
+                    'frequency': 'yearly', 'preset': preset})
+            self.assertEqual(schedule.next_run_at, datetime(2027, 1, 1, 8, tzinfo=eat))
+            # Simulate downtime: do not enqueue every missed year or count months.
+            schedule.next_run_at = datetime(2023, 1, 1, 8, tzinfo=eat)
+            schedule.save(update_fields=['next_run_at'])
+            self.assertEqual(reserve_due(now=now), 1)
+            self.assertEqual(reserve_due(now=now), 0)
+            schedule.refresh_from_db()
+            self.assertEqual(schedule.skipped_occurrences, 3)
+            delivery = queue_schedule(schedule.pk, actor=self.user, request_key=uuid.uuid4(), now=now)[0]
+            self.assertEqual(delivery.configuration['period'], {'from': '2025-01-01', 'to': '2025-12-31'})
+            self.assertEqual(delivery.configuration['filters']['granularity'], 'month')
+            self.assertEqual(schedule.deliveries.exclude(occurrence__startswith='manual:').get().configuration['period'],
+                             delivery.configuration['period'])
+        with self.assertRaises(ValidationError):
+            save_configuration(self.user, 'tat_tracker', {**self.payload, 'frequency': 'arbitrary'})
 
     def test_branch_options_use_complete_current_workflow_grants(self):
         narrow = get_user_model().objects.create_user(username='synthetic-branch-options-it')
@@ -112,6 +140,17 @@ class SettingsTests(TestCase):
         self.assertEqual(payload['group'],self.group.group_id)
         self.assertEqual(payload['product'],'X')
         self.assertEqual(snapshot['preset'],'tat')
+
+    def test_yearly_tat_adapter_uses_calendar_months_and_exact_year(self):
+        schedule = save_configuration(self.user, 'tat_tracker', {**self.payload, 'frequency': 'yearly'})
+        period = {'from': '2025-01-01', 'to': '2025-12-31'}
+        with patch('core.services.tat_reporting.report_summary', return_value={'metrics': {}, 'charts': {}}) as summary, \
+             patch('core.services.tat_reporting.report_cases', return_value={'results': [], 'count': 0}):
+            snapshot = capture_workflow_report(schedule, {'period': period})
+        self.assertEqual(summary.call_args.args[1]['granularity'], 'month')
+        self.assertEqual(summary.call_args.args[1]['date_from'], period['from'])
+        self.assertEqual(summary.call_args.args[1]['date_to'], period['to'])
+        self.assertEqual(snapshot['period'], period)
 
     def test_complaints_adapter_excludes_other_groups_and_branches(self):
         from core.models import RawMessage, ProcessedMessage, ParsedMessage, ComplaintCaseControl

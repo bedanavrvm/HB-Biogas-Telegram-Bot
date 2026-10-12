@@ -9,26 +9,52 @@ you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
 Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
-The shared 900px fluid email layout uses Jawabu navy/green branding, compact coloured
-headline figures, readable duration/percentage values and paired breakdowns.
-Segoe UI/Helvetica Neue/Arial fallbacks use 16px body/table text, 14px supporting
-labels, 18px section headings, a 26px title and 30px headline figures. Long
-amounts get wider cards rather than reduced font sizes. On phones, ordinary
-headline figures form two columns, financial figures use full width, and
-breakdown tables stack.
+The shared 600px fluid email is decision-first: title and date stamp, computed
+headline, attachment note/Open in app, three or four KPIs, Needs attention, one
+chart and one top-five table, then the footer. This replaces the earlier 900px
+paired-panel design. Segoe UI/Helvetica Neue/Arial fallbacks use 15px body,
+14px tables, 12px KPI labels and 28px values. On phones KPIs form two columns.
+Large KES figures use M/B in tiles; exact amounts remain in plain text, Excel
+and the tile's title. A navy structural accent and light dividers replace coloured
+box walls; green/red mean Better/Worse, with directional symbols and words.
+
+Complaint headlines use captured counts, the existing median (not a newly
+invented average), actual SLA targets and previous-period target counts. Every
+tile shows its previous value and absolute/rate-point/time change where the
+source supplies a safe comparison. Higher/lower-is-better rules govern direction;
+reported volume is neutral. Current backlog has no invented historical baseline.
+Resolution uses rounded days throughout the email; HB response/TAT stages use
+hours. Missing targets are explicit, multiple targets show a range, and positive
+durations below 0.1 units are not rounded to zero. Sample sizes below five say
+low volume; a type with one sample shows n/a instead of a misleading median.
+Nairobi period stamps use 5 Oct - 11 Oct 2026, with comparison dates/data-as-of.
+Shorter matched comparison windows are explicitly distinguished from headline
+totals; they never silently replace the selected scope.
+
+Needs attention prioritizes late measured resolutions, the slowest measured
+complaint type, missing targets and current overdue/open work. Zero target rows
+and empty age tables are not repeated. Customer facts remain in the protected
+app/Excel, not the email body: attention links identify an aggregate selection,
+not a customer. APP_BASE_URL enables the Open in app button; links contain no
+credentials or bearer access. Complaints and TAT open Reports only after ordinary
+authentication and a current report-capability check; existing task links take
+priority in TAT. Portal uses its existing Reports entry. Email delivery does not
+grant recipients Mini App access. Sources without comparison/exception facts
+(including Portal/TAT presets that do not capture a prior period) say unavailable;
+they are never given fabricated previous scores or targets.
 The existing project logo is embedded as a local base64 inline attachment using
 [Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
 remote image URL, tracking pixel or new hosting is needed. If the packaged logo
 is unavailable, text branding remains and the report can still be sent.
-At most two chart panels use offline PNGs with the existing Pillow dependency.
+At most one chart panel uses an offline PNG with the existing Pillow dependency.
 Graphs have a bounded height (at most 220px at their 420px desktop display width).
-Category/branch counts use compact HTML rows with integrated bars instead of
-large images. A successfully rendered graph is not repeated as a table;
-unreadable/unsupported graphs and rendering failures use a complete HTML table
-instead. Images have meaningful data alternatives and a visible latest-value
-summary; the plain-text email includes every displayed dataset. PNGs use the same
+Category/branch counts use a top-five HTML table instead of more large images.
+A successfully rendered graph is not repeated as a table; unreadable/unsupported
+graphs and rendering failures use a clearly labelled five-date preview instead.
+The plain-text email and Excel retain complete datasets. Images have meaningful
+data alternatives and a visible latest-value summary. PNGs use the same
 inline Content-ID mechanism as the logo. No interactive tabs, remote assets,
-public links, browser process or additional dependency is required.
+public download links, browser process or additional dependency is required.
 The Excel remains the only report file; logo/graphs are additional inline images.
 The existing serialized 10-MiB ceiling includes all inline image bytes.
 The attachment notice is not a fake download button or a public report link.
@@ -54,7 +80,12 @@ dispatch is best-effort and database-leased; a process restart or occupied
 worker slots retains the queued work. Status checks and the existing processor
 can resume it; this does not introduce an unattended retry scheduler.
 
-Apply `python manage.py migrate report_delivery` through `0005_alter_reportschedule_preset`.
+Apply `python manage.py migrate report_delivery` through `0006_yearly_frequency`.
+0006 adds Yearly to the frequency choices and updates the sending-time column
+comment; it does not rewrite schedules or deliveries. Reverse this metadata with
+`python manage.py migrate report_delivery 0005_alter_reportschedule_preset`.
+Before reverting application code, pause/reconfigure yearly schedules and retain
+their pending delivery evidence: older code does not understand yearly cadence.
 Reversing only the report-choice metadata uses
 `python manage.py migrate report_delivery 0004_reportdelivery_one_off`.
 There is no data rewrite or new column in 0005. Before rolling back application
@@ -84,16 +115,17 @@ or activating additional schedules. No cross-workflow customer joins are made.
 
 - **Summary:** Reported and distinct complaints resolved in-period, current Open,
   on-time rate, median resolution/first HB response with sample sizes. One history
-  panel plus current age buckets; top five types and branches plus Other use
-  integrated HTML rows, not repeated graph/table pairs.
+  panel and top-five complaint types. Current open/overdue work appears in Needs
+  attention, not a separate age table.
 - **Turnaround performance:** median resolution/first HB response, on-time rate
-  and distinct reopened complaints. Two history panels, explicit On time / Late /
-  No target counts and five slowest types with samples. The scheduled workbook
+  and distinct reopened complaints. One history panel, explicit late denominator /
+  percentage and missing-target counts, and five slowest types with samples.
+  The scheduled workbook
   includes cases with resolution, first response or reopening events in-period,
   including cases reported earlier.
 - **Open-case follow-up:** all currently unresolved complaints in the approved
   group/branch, including older cases. Open, Over 14 days, No HB response, oldest
-  age; four age buckets and top five branches plus remaining branch counts. The
+  age; one age chart and top five branches. The
   scheduled workbook contains currently unresolved cases without date limits.
   This is a current snapshot, never reconstructed period-end backlog.
 
@@ -115,8 +147,14 @@ elapsed time, capped by the shorter calendar period, and state the cutoff. Count
 use absolute changes, rates percentage points, times readable durations. Volume
 changes are neutral. Zero count baselines say No previous activity; measured
 0% rates and immediate responses remain valid comparison baselines. Missing timing is
-unavailable. History uses at most eight calendar buckets; * marks a partial last
-bucket. Unbounded one-off headlines retain all-time totals, with latest-eight-day
+unavailable. Selected months show every day, quarters/years every calendar month;
+longer custom ranges use calendar years. The entire selected range is retained,
+not clipped to the latest eight points. Line images support up to 31 points and
+thin only axis labels; dense/unreadable data keeps complete text/Excel and a small
+email preview.
+Axes have horizontal/vertical grid lines; complaint-count ticks are whole numbers.
+Ongoing selections state their Nairobi cutoff, not technical partial-bucket marks.
+Unbounded one-off headlines retain all-time totals, with latest-eight-day
 history and a separately labelled Today vs yesterday comparison. Unsafe chart/date
 selections disable comparisons, not broaden the cohort. No prior Open is invented.
 Capture remains in the existing repeatable-read transaction; retries reuse the
@@ -157,7 +195,7 @@ scheduler.
 
 ## Operator setup
 
-1. Apply reviewed `report_delivery` migrations through `0005` in your approved
+1. Apply reviewed `report_delivery` migrations through `0006` in your approved
    release process. These changes affect only delivery/configuration tables.
 2. In Resend, verify an organization-owned sending domain using the DNS records
    it supplies. Configure SPF/DKIM and the organization's DMARC policy. Disable
@@ -220,6 +258,12 @@ scheduler.
   report covers the previous Monday–Sunday; day-one monthly reports cover the
   previous month; quarter reports run January/April/July/October day one and
   cover the previous quarter. Calendar boundaries include leap days.
+  Yearly reports run January 1 and cover January 1–December 31 of the previous
+  year. Monthly means the previous full calendar month, not a rolling 30 days.
+  Send now and Admin preview use that same last-completed-period rule, even
+  before the configured dispatch time. The settings explain the covered period;
+  email headers state the exact dates. Current-backlog reports stay explicitly
+  labelled snapshots, regardless of sending cadence.
 - Pipeline is the **current backlog at generation**, not historical pipeline
   reconstruction. Outcomes uses activity in the completed period. Finance uses
   the period's matching cases with **current recorded financial values**, not

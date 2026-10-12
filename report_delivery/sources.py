@@ -30,7 +30,8 @@ def capture_workflow_report(schedule, configuration):
     if schedule.workflow == 'tat_tracker':
         from core.services.tat_reporting import report_summary, report_cases
         filters.update(group=str(schedule.group_configuration.group_id), product=schedule.product,
-                       view='performance', granularity='day', insight='trend', include_options=False)
+                       view='performance', granularity='month' if schedule.frequency in {'quarterly', 'yearly'} else 'day',
+                       insight='trend', include_options=False)
         overview = report_summary(schedule.authorized_by, filters)
         metrics = overview.get('metrics', {})
         labels = {'created': 'Cases received', 'finished': 'Completed cases', 'disbursed': 'Disbursed',
@@ -41,7 +42,7 @@ def capture_workflow_report(schedule, configuration):
         chart = overview.get('charts', {}).get('trend', {})
         charts = [{'title': chart.get('title', 'TAT outcomes'), 'labels': chart.get('labels', []),
                    'datasets': [{'label': s.get('label', ''), 'values': s.get('values', s.get('data', []))} for s in chart.get('series', [])],
-                   'type': 'line', 'context': chart.get('subtitle', '')}]
+                   'type': 'line', 'unit': chart.get('unit', 'cases'), 'context': chart.get('subtitle', '')}]
         rows, total = [], 0
         for page in range(1, 21):
             result = report_cases(schedule.authorized_by, {**filters, 'page': page, 'page_size': 100})
@@ -54,7 +55,8 @@ def capture_workflow_report(schedule, configuration):
     else:
         from core.services.complaint_register import _report_queryset, _apply_report_filters, serialize_report_case
         from .complaint_reports import complaint_email_projection
-        filters['date_mode'] = {'daily': 'day', 'weekly': 'week', 'monthly': 'month', 'quarterly': 'quarter'}[schedule.frequency]
+        filters['group_id'] = str(schedule.group_configuration.group_id)
+        filters['date_mode'] = {'daily': 'day', 'weekly': 'week', 'monthly': 'month', 'quarterly': 'quarter', 'yearly': 'year'}[schedule.frequency]
         base = _report_queryset().filter(group_id=str(schedule.group_configuration.group_id))
         # Narrow the base before all aggregate, option, timing and row queries.
         if schedule.branch:

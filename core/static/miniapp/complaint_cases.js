@@ -634,6 +634,28 @@
       updateEvidenceHints();
       setView('queueView');
       await loadCases();
+      const reportEntry = new URLSearchParams(window.location.search);
+      if (reportEntry.get('view') === 'reports' && can('complaint.reports.view')) {
+        const formNode = $('globalFilters');
+        for (const key of ['branch', 'category', 'status', 'date_from', 'date_to', 'date_basis']) {
+          const input = formNode.elements[key];
+          if (input && reportEntry.has(key)) {
+            const value = reportEntry.get(key);
+            if (['branch', 'category'].includes(key)) preserveSelectOptions(input, [{label: value}], key === 'branch' ? 'Any Branch' : 'Any Category');
+            input.value = key === 'status' ? value.toLowerCase() : value;
+          }
+        }
+        formNode.elements.date_mode.value = reportEntry.get('date_from') ? 'custom' : 'all';
+        updateReportDateControls();
+        // Read-only drill-down uses the same server filters as graph clicks.
+        const metric = reportEntry.get('metric');
+        if (['late', 'resolution'].includes(metric)) {
+          state.reportDrill = { filters: {metric, date_basis: 'resolved'}, label: metric === 'late' ? 'Late resolutions' : 'Resolution time' };
+          $('complaintChartSelection').hidden = false;
+          $('complaintChartSelection').textContent = state.reportDrill.label + ' ×';
+        }
+        await openGlobalWorkspace();
+      }
     } catch (error) {
       $('loadingState').textContent = error.message || 'Complaints could not be opened.';
       presentError(error, bootstrap);

@@ -1,5 +1,57 @@
 # Known Gaps and Verified Workarounds
 
+## Decision-first email presentation - 12 October 2026
+
+The current 600px management email replaces the earlier 900px layout described
+below. Complaint facts supply computed verdicts, safe previous-period comparisons,
+actual/mixed targets, low-volume warnings and prioritized aggregate attention.
+HTML is bounded to one chart and one five-entry table; complete source datasets
+remain in plain text/Excel. Customer identities are not newly exposed in the body.
+
+125 report-delivery/complaint-timing checks passed on isolated PostgreSQL 18
+(test-results/management-email-postgres.txt); 80 final affected-module checks passed
+in management-email-final-focused-postgres.txt. All 88 browser checks passed
+in management-email-browser-complete.txt, including current-access report links,
+mobile widths, dark/light emails, chart/settings behavior and TAT task priority.
+Another 13 final entry/design checks passed in management-email-browser-last-check.txt.
+Screenshots were visually inspected, and a dark table-contrast/logo-background
+issue discovered in that inspection was corrected. Node and JS checks passed.
+0006 was reversed/reapplied successfully on the owned synthetic database;
+makemigrations --check reports no drift. No real email/customer data or external
+service mutation was used.
+
+Portal/TAT sources without captured prior-period/exception facts explicitly show
+unavailable rather than invented numbers. Open backlog is current, never a
+historical reconstruction. Attention links open approved report selections;
+case-level names/details remain in the app and Excel. APP_BASE_URL must be set
+for app links; links grant no access. Gmail/Outlook actual-inbox inversion and
+the full repository suite are unverified. Already-frozen provider retries retain
+their previous template; the redesign applies to newly captured deliveries.
+
+## Calendar report cadence and graph axes - 12 October 2026
+
+Yearly is available in each app's shared email settings and Admin. Scheduled
+activity reports, Send now and Admin preview cover the last completed Nairobi
+calendar period; current open/pipeline snapshots remain explicitly labelled.
+Monthly complaint history retains every day, annual history all twelve months.
+Graph date labels alone are thinned, not data; dense graphs retain complete HTML
+fallbacks. Existing frozen report payloads are never rewritten on retry.
+
+Synthetic evidence is retained in `test-results/email-frequency-postgres-final.txt`,
+`email-frequency-browser-final.txt`, `email-frequency-unit-final.txt`,
+`email-frequency-node.txt` and `email-frequency-migrations-check.txt`. Monthly
+and annual screenshots were visually inspected at mobile and desktop widths.
+The initial PostgreSQL run exposed a test-only background-worker/flush race;
+the request test now mocks only worker wake-up, retaining authorization and
+queue checks. Worker behavior keeps its separate tests; production dispatch
+was not changed to accommodate testing.
+
+Apply `python manage.py migrate report_delivery` through `0006_yearly_frequency`.
+Rollback metadata to `0005_alter_reportschedule_preset` only after pausing or
+reconfiguring yearly schedules; retain delivery evidence when rolling back code.
+No production migration/deployment or real email was performed. Actual inbox
+rendering and the full repository test suite remain unverified.
+
 ## Compact report emails and complaint comparisons - 12 October 2026
 
 The shared 900px email layout and three Complaints schedule choices are

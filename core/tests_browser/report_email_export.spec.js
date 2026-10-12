@@ -22,7 +22,9 @@ snapshot['preset']=${JSON.stringify(preset)}
 if snapshot['preset'] in {'complaints','cmp_tat','cmp_open'}:
     snapshot['comparison']={'label':'01-10-26 to 05-10-26 vs 01-09-26 to 05-09-26 · equal elapsed time','metrics':{'Reported':{'text':'+12 vs previous','tone':'muted'},'Resolved on time (%)':{'text':'+5.5 pp vs previous','tone':'good'}}}
     snapshot['summary']={'Reported':128,'Resolved in period':91,'Open now':37,'Resolved on time (%)':87.5,'Median resolution (hours)':18.5,'Median HB response (hours)':4.2}
-    trend={'title':'Reported vs resolved','type':'line','presentation':'chart','context':'Daily counts · * partial bucket.','labels':['01-10-26','02-10-26','03-10-26','04-10-26','05-10-26*'],'datasets':[{'label':'Reported','values':[12,20,32,40,24]},{'label':'Resolved','values':[15,12,24,20,20]}]}
+    snapshot['management']={'resolved':91,'on_time':70,'late':10,'no_target':11,'targets_hours':['72'],'resolution_count':91,'response_count':91,'resolution_hours':18.5,'open':37,'late_open':10,'previous_on_time':66,'previous_target_count':80,'previous_from':'2026-09-01','previous_to':'2026-09-05'}
+    snapshot['comparison']['metrics'].update({'Reported':{'paired_values':{'current':128,'previous':116}},'Resolved in period':{'paired_values':{'current':91,'previous':80}},'Resolved on time (%)':{'paired_values':{'current':87.5,'previous':82}},'Median resolution (hours)':{'paired_values':{'current':18.5,'previous':25}}})
+    trend={'title':'Reported vs resolved','type':'line','presentation':'chart','context':'Distinct complaints per day.','labels':['01-10-26','02-10-26','03-10-26','04-10-26','05-10-26'],'datasets':[{'label':'Reported','values':[12,20,32,40,24]},{'label':'Resolved','values':[15,12,24,20,20]}]}
     age={'title':'Open-case age','presentation':'rows','context':'All currently unresolved complaints, including older cases.','labels':['Under 3 days','3–7 days','8–14 days','Over 14 days'],'datasets':[{'label':'Complaints','values':[10,9,8,10]}]}
     snapshot['email_sections']=[trend,age,*snapshot['charts']]
     if snapshot['preset']=='cmp_tat':
@@ -38,7 +40,22 @@ if snapshot['preset']=='tat':
 elif snapshot['preset']=='finance':
     snapshot.update(summary={'Cases in scope':128,'Invoice total (KES)':123456789,'Paid (KES)':95000000,'Outstanding (KES)':28456789},charts=[{'title':'Financial amounts by branch','labels':['Training branch with a long descriptive name','Second training branch'],'datasets':[{'label':s,'values':[123456789,98456789]} for s in ['Invoice','Paid','Balance','Deposit']]}])
 elif snapshot['preset']=='empty':
-    snapshot.update(preset='complaints',summary={},charts=[],total_rows=0,exported_rows=0)
+    snapshot.update(preset='complaints',summary={},charts=[],email_sections=[],management={},total_rows=0,exported_rows=0)
+elif snapshot['preset']=='late':
+    from report_delivery.tests_management_email import ManagementEmailTests
+    snapshot=ManagementEmailTests().snapshot('cmp_tat')
+    from django.conf import settings
+    settings.APP_BASE_URL='https://local-app.example.invalid'
+elif snapshot['preset'] in {'month','year'}:
+    from unittest.mock import patch
+    from report_delivery.complaint_reports import complaint_email_projection
+    from report_delivery.tests_complaint_reports import synthetic_case, stamp
+    annual=snapshot['preset']=='year'
+    filters={'date_from':'2026-01-01' if annual else '2026-09-01','date_to':'2026-12-31' if annual else '2026-09-30','date_mode':'year' if annual else 'month'}
+    cases=[synthetic_case(i,reported=f'2026-{i+1:02d}-05T09:00',resolved=f'2026-{i+1:02d}-06T09:00') for i in range(12)] if annual else [synthetic_case(i,reported=f'2026-09-{i+1:02d}T09:00',resolved=f'2026-09-{i+1:02d}T15:00') for i in range(30)]
+    with patch('core.services.complaint_register._apply_report_filters',return_value=object()), patch('report_delivery.complaint_reports.timed_cases',return_value=iter(cases)):
+        snapshot.update(complaint_email_projection(object(),filters,now=stamp('2027-02-01T12:00')))
+    snapshot.update(preset='complaints',period={'from':filters['date_from'],'to':filters['date_to']},applied_filters=filters,total_rows=len(cases),exported_rows=len(cases),run_at='2027-02-01T12:00:00+03:00')
 payload=build_payload(snapshot,'management@example.invalid',{})
 html=payload['html']
 for attachment in payload['attachments']:
@@ -125,8 +142,8 @@ for(const width of [320,360,390,430,768,1280])test(`Generated management email f
   await expect(page.locator('.report-graph')).toHaveCount(1);
   expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.naturalWidth===840))).toBe(true);
   expect(await page.locator('.report-graph').evaluateAll(images=>images.every(img=>img.getBoundingClientRect().height<=240))).toBe(true);
-  expect(await page.locator('.metric-label').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('14px');
-  expect(await page.locator('.breakdown-table').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('16px');
+  expect(await page.locator('.metric-label').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('12px');
+  expect(await page.locator('.breakdown-table').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('14px');
   expect(await page.locator('.email-container').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('Segoe UI');
   await expect(page.getByText('Median resolution',{exact:true})).toBeVisible();
   await expect(page.getByText('87.50%',{exact:true})).toBeVisible();
@@ -134,29 +151,37 @@ for(const width of [320,360,390,430,768,1280])test(`Generated management email f
   expect(Math.abs(metrics[0].y-metrics[1].y)).toBeLessThan(1);
   expect(Math.abs(metrics[0].width-metrics[1].width)).toBeLessThan(1);
   expect(Math.max(...metrics.map(metric=>metric.height))-Math.min(...metrics.map(metric=>metric.height))).toBeLessThan(1);
-  if(width<=600) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
+  if(width<=480) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
   else expect(Math.abs(metrics[2].y-metrics[0].y)).toBeLessThan(1);
-  const panels=await page.locator('.breakdown-panel').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
-  if(width<=600) expect(panels[1].y).toBeGreaterThan(panels[0].y);
-  else expect(Math.abs(panels[1].y-panels[0].y)).toBeLessThan(1);
+  expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(600);
+  const attention=await page.getByRole('heading',{name:'Needs attention'}).boundingBox();
+  const chart=await page.locator('.report-graph').boundingBox();
+  expect(attention.y).toBeLessThan(chart.y);
   await page.screenshot({path:info.outputPath(`management-email-${width}.png`),fullPage:true});
 });
 
-for(const preset of ['tat','finance','empty','cmp_tat','cmp_open']) for(const width of [320,430,1280]) {
+for(const preset of ['tat','finance','empty','cmp_tat','cmp_open','month','year']) for(const width of [320,430,1280]) {
   test(`${preset} management email fits ${width}px without invented links`,async({page},info)=>{
     await page.route(/^https?:\/\//,route=>route.abort());
     await page.setViewportSize({width,height:900});await page.setContent(renderPreview(preset));
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-    await expect(page.getByText('Detailed Excel attached',{exact:true})).toBeVisible();
+    await expect(page.getByText('Full detail in the attached Excel.',{exact:true})).toBeVisible();
     await expect(page.locator('a')).toHaveCount(0);
-    if(preset==='tat') await expect(page.getByText('2 hr 30 min',{exact:true})).toBeVisible();
+    // Secondary metrics are in the text alternative/Excel, not extra KPI rows.
+    if(preset==='tat') await expect(page.locator('.metric')).toHaveCount(4);
     if(preset==='finance') {
       await expect(page.locator('.breakdown-multi')).toHaveCount(1);
       await expect(page.locator('.breakdown-multi td').first()).toHaveText('123,456,789');
       const values=await page.locator('.metric-value').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().height));
       expect(Math.max(...values)).toBeLessThanOrEqual(36);
     }
-    if(preset==='empty') await expect(page.getByText('0 of 0 matching cases.',{exact:true})).toBeVisible();
+    if(preset==='empty') await expect(page.getByText(/0 of 0 matching cases\./)).toBeVisible();
+    if(['month','year'].includes(preset)) {
+      await expect(page.locator('.report-graph')).toHaveCount(1);
+      expect(await page.locator('.report-graph').evaluate(img=>img.naturalWidth)).toBe(840);
+      await expect(page.getByText(preset==='month'?'Distinct complaints per day.':'Distinct complaints per month.',{exact:true})).toBeVisible();
+      await expect(page.getByText(/partial bucket|Latest.*bucket/)).toHaveCount(0);
+    }
     await page.screenshot({path:info.outputPath(`management-${preset}-${width}.png`),fullPage:true});
   });
 }
@@ -165,11 +190,34 @@ test('Image-blocked management email retains readable breakdown values',async({p
   await page.route(/^https?:\/\//,route=>route.abort());
   await page.setViewportSize({width:320,height:900});await page.setContent(renderPreview());
   await page.locator('img').evaluateAll(images=>images.forEach(img=>img.remove()));
-  await expect(page.locator('.breakdown-table')).toHaveCount(3);
-  await expect(page.locator('.breakdown-table').nth(1).getByText('54',{exact:true})).toBeVisible();
+  await expect(page.locator('.breakdown-table')).toHaveCount(1);
+  await expect(page.locator('.breakdown-table').getByText('54',{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath('management-images-blocked-320.png'),fullPage:true});
 });
+
+for (const width of [320,430,600,1280]) for (const colorScheme of ['light','dark']) {
+  test(`Decision-first email ${colorScheme} at ${width}px keeps bad news honest`, async ({page},info) => {
+    await page.route(/^https?:\/\//,route=>route.abort());
+    await page.emulateMedia({colorScheme});
+    await page.setViewportSize({width,height:900});
+    await page.setContent(renderPreview('late'));
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(600);
+    await expect(page.locator('.report-verdict')).toContainText('previously 2 of 4');
+    await expect(page.locator('.report-verdict')).toContainText('6.9 days; target 3.0 days');
+    await expect(page.locator('.metric-worse').filter({hasText:'▼ 50.0 pts · Worse'})).toBeVisible();
+    await expect(page.locator('.metric-value.metric-worse').filter({hasText:'0%'})).toBeVisible();
+    await expect(page.getByRole('link',{name:'Open in app',exact:true})).toHaveAttribute('href',/view=reports/);
+    const link=await page.getByRole('link',{name:'View in app →',exact:true}).first().getAttribute('href');
+    expect(link).toContain('metric=late'); expect(link).toContain('branch=Training'); expect(link).not.toContain('token');
+    const bad=await page.locator('.metric-value.metric-worse').filter({hasText:'0%'}).evaluate(el=>getComputedStyle(el).color);
+    expect(bad).toBe(colorScheme==='dark'?'rgb(255, 168, 157)':'rgb(180, 35, 24)');
+    if(colorScheme==='dark') expect(await page.locator('.breakdown-table td').last().evaluate(el=>getComputedStyle(el).color)).toBe('rgb(198, 205, 216)');
+    await expect(page.locator('.report-graph')).toHaveCount(1);
+    await page.screenshot({path:info.outputPath(`decision-email-${colorScheme}-${width}.png`),fullPage:true});
+  });
+}
 
 test('Real TAT report header keeps email beside export and strips launch credentials',async({page},info)=>{
   await page.setViewportSize({width:320,height:740});

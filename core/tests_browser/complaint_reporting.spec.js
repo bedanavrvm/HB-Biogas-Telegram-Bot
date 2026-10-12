@@ -6,13 +6,16 @@ const root = path.resolve(__dirname, '../..');
 const asset = name => path.join(root, 'core/static/miniapp', name);
 const { initData } = require('./fixtures/local_mcp_fixtures.js');
 
-async function openReport(page) {
+async function openReport(page, {entry='', reportAccess=true}={}) {
   const template = fs.readFileSync(path.join(root, 'core/templates/complaint_cases/app.html'), 'utf8')
     .replace('{% include "complaint_cases/lucide_icons.html" %}', fs.readFileSync(path.join(root, 'core/templates/complaint_cases/lucide_icons.html'), 'utf8'))
     .replace("{% static 'miniapp/jawabu-logo.png' %}", `data:image/png;base64,${fs.readFileSync(asset('jawabu-logo.png')).toString('base64')}`)
     .replace(/{#[\s\S]*?#}/g, '').replace(/{%[^%]*%}/g, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '').replace(/<link[^>]*>/g, '');
-  await page.setContent(template);
+  if (entry) {
+    await page.route('http://127.0.0.1/email-report-entry**', route=>route.fulfill({contentType:'text/html',body:template}));
+    await page.goto('http://127.0.0.1/email-report-entry'+entry);
+  } else await page.setContent(template);
   await page.addStyleTag({ path: asset('base.css') });
   await page.addStyleTag({ path: asset('components.css') });
   await page.addScriptTag({ path: asset('components.js') });
@@ -49,16 +52,40 @@ async function openReport(page) {
       },
     };
   }, initData);
+  if (!reportAccess) await page.evaluate(()=>{
+    const original=ComplaintCasesMiniAppApi.postJson;
+    ComplaintCasesMiniAppApi.postJson=async(route,payload)=>{
+      const result=await original(route,payload);
+      if(route==='bootstrap/') result.data.actor.capabilities=['complaint.queue.view'];
+      return result;
+    };
+  });
   await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
   await page.addScriptTag({ path: path.join(root, 'node_modules/ag-grid-community/dist/ag-grid-community.min.js') });
   await page.addScriptTag({ path: asset('complaint_report_charts.js') });
   await page.addStyleTag({ path: asset('report_email_export.css') });
   await page.addScriptTag({ path: asset('report_email_export.js') });
   await page.addScriptTag({ path: asset('complaint_cases.js') });
-  await expect(page.locator('#globalWorkspaceBtn')).toBeVisible();
-  await page.locator('#globalWorkspaceBtn').click();
-  await expect(page.locator('#globalResultCount')).toHaveText('12 complaints found');
+  if (!reportAccess) return;
+  if (!entry) {
+    await expect(page.locator('#globalWorkspaceBtn')).toBeVisible();
+    await page.locator('#globalWorkspaceBtn').click();
+  } else await expect(page.locator('#globalView')).toBeVisible();
+  await expect(page.locator('#globalResultCount')).toHaveText(entry.includes('metric=')?'4 complaints found':'12 complaints found');
 }
+
+test('Email attention link opens scoped late resolutions after authentication',async({page})=>{
+  await openReport(page,{entry:'?view=reports&branch=Training%20branch&date_from=2026-10-05&date_to=2026-10-11&date_basis=resolved&metric=late'});
+  const query=await page.evaluate(()=>window.__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params);
+  expect(query).toMatchObject({branch:'Training branch',metric:'late',date_basis:'resolved',date_from:'2026-10-05',date_to:'2026-10-11'});
+  await expect(page.locator('#complaintChartSelection')).toHaveText('Late resolutions ×');
+});
+
+test('Email report link does not grant report access',async({page})=>{
+  await openReport(page,{entry:'?view=reports&metric=late',reportAccess:false});
+  await expect(page.locator('#globalView')).toBeHidden();
+  expect(await page.evaluate(()=>window.__reportQueries.length)).toBe(0);
+});
 
 for (const width of [320, 360, 390, 430, 768, 1280]) {
   test(`complaint reports fit ${width}px, carousel and drill-down stay aligned`, async ({ page }, testInfo) => {
