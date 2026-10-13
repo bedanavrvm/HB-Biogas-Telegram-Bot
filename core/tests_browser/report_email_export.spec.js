@@ -46,6 +46,25 @@ elif snapshot['preset']=='late':
     snapshot=ManagementEmailTests().snapshot('cmp_tat')
     from django.conf import settings
     settings.APP_BASE_URL='https://local-app.example.invalid'
+elif snapshot['preset'] in {'polish_overview','polish_tat','polish_open'}:
+    from unittest.mock import patch
+    from report_delivery.complaint_reports import complaint_email_projection
+    from report_delivery.tests_complaint_reports import synthetic_case, stamp
+    preset={'polish_overview':'complaints','polish_tat':'cmp_tat','polish_open':'cmp_open'}[snapshot['preset']]
+    filters={'date_from':'2026-10-05','date_to':'2026-10-11','branch':'Training'}
+    cases=[synthetic_case(i,reported='2026-10-05T09:00',resolved='2026-10-05T09:06',hours=.1,target=True,response='2026-10-05T09:03',category='Installation follow-up') for i in range(4)]
+    cases.append(synthetic_case(5,reported='2026-10-03T09:00',resolved='2026-10-11T09:00',hours=192,target=False,response='2026-10-04T09:00',category='Maintenance'))
+    cases[3].complaint_timing.update(resolved_at=stamp('2026-10-07T09:00'),resolution_hours=48,
+        closures=[stamp('2026-10-05T09:06'),stamp('2026-10-07T09:00')],reopened=[stamp('2026-10-06T09:00')])
+    cases += [synthetic_case(10+i,reported='2026-09-30T09:00',category='Maintenance' if i<3 else 'Installation follow-up',branch='Training branch with a longer name' if i<3 else 'Second branch',age='8_14',response='2026-10-01T09:00' if i<2 else None) for i in range(5)]
+    for case in cases:
+        case.complaint_control.sla_target_hours=72
+        if case.pk < 4: case.complaint_timing['hb_response_hours']=.05
+        else: case.complaint_timing['hb_response_hours']=24 if case.complaint_timing['response_at'] else None
+        if case.complaint_status=='Open': case.complaint_timing['elapsed_seconds']=12*86400
+    with patch('core.services.complaint_register._apply_report_filters',return_value=object()), patch('report_delivery.complaint_reports.timed_cases',return_value=iter(cases)):
+        projection=complaint_email_projection(object(),filters,preset=preset,now=stamp('2026-10-12T12:00'))
+    snapshot.update(projection,preset=preset,period={'from':filters['date_from'],'to':filters['date_to']},applied_filters=filters,total_rows=len(cases),exported_rows=len(cases),run_at='2026-10-12T12:00:00+03:00')
 elif snapshot['preset'] in {'month','year'}:
     from unittest.mock import patch
     from report_delivery.complaint_reports import complaint_email_projection
@@ -146,12 +165,12 @@ for(const width of [320,360,390,430,768,1280])test(`Generated management email f
   expect(await page.locator('.breakdown-table').first().evaluate(el=>getComputedStyle(el).fontSize)).toBe('14px');
   expect(await page.locator('.email-container').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('Segoe UI');
   await expect(page.getByText('Median resolution',{exact:true})).toBeVisible();
-  await expect(page.getByText('87.50%',{exact:true})).toBeVisible();
+  await expect(page.getByText('88%',{exact:true})).toBeVisible();
   const metrics=await page.locator('.metric').evaluateAll(cells=>cells.map(c=>c.getBoundingClientRect().toJSON()));
   expect(Math.abs(metrics[0].y-metrics[1].y)).toBeLessThan(1);
   expect(Math.abs(metrics[0].width-metrics[1].width)).toBeLessThan(1);
   expect(Math.max(...metrics.map(metric=>metric.height))-Math.min(...metrics.map(metric=>metric.height))).toBeLessThan(1);
-  if(width<=480) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
+  if(width<=600) expect(metrics[2].y).toBeGreaterThan(metrics[0].y);
   else expect(Math.abs(metrics[2].y-metrics[0].y)).toBeLessThan(1);
   expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(900);
   const attention=await page.getByRole('heading',{name:'Needs attention'}).boundingBox();
@@ -177,9 +196,9 @@ for(const preset of ['tat','finance','empty','cmp_tat','cmp_open','month','year'
     }
     if(preset==='empty') await expect(page.getByText('No cases match this report.',{exact:true})).toBeVisible();
     if(['month','year'].includes(preset)) {
-      await expect(page.locator('.report-graph')).toHaveCount(1);
-      expect(await page.locator('.report-graph').evaluate(img=>img.naturalWidth)).toBe(840);
-      await expect(page.getByText(preset==='month'?'Distinct complaints per day.':'Distinct complaints per month.',{exact:true})).toBeVisible();
+      await expect(page.locator('.report-graph')).toHaveCount(2);
+      expect(await page.locator('.report-graph').first().evaluate(img=>img.naturalWidth)).toBe(840);
+      await expect(page.getByText(preset==='month'?'Complaints per day.':'Complaints per month.',{exact:true})).toBeVisible();
       await expect(page.getByText(/partial bucket|Latest.*bucket/)).toHaveCount(0);
     }
     await page.screenshot({path:info.outputPath(`management-${preset}-${width}.png`),fullPage:true});
@@ -190,8 +209,8 @@ test('Image-blocked management email retains readable breakdown values',async({p
   await page.route(/^https?:\/\//,route=>route.abort());
   await page.setViewportSize({width:320,height:900});await page.setContent(renderPreview());
   await page.locator('img').evaluateAll(images=>images.forEach(img=>img.remove()));
-  await expect(page.locator('.breakdown-table')).toHaveCount(1);
-  await expect(page.locator('.breakdown-table').getByText('54',{exact:true})).toBeVisible();
+  await expect(page.locator('.breakdown-table')).toHaveCount(2);
+  await expect(page.locator('.breakdown-table').first().getByText('54',{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath('management-images-blocked-320.png'),fullPage:true});
 });
@@ -206,10 +225,11 @@ for (const width of [320,430,600,1280]) for (const colorScheme of ['light','dark
     expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(900);
     if(width===1280) expect(await page.locator('.email-container').evaluate(el=>el.getBoundingClientRect().width)).toBe(900);
     await expect(page.locator('.report-verdict')).toHaveCount(0);
-    await expect(page.getByText('Target 3.0 days',{exact:true})).toBeVisible();
-    await expect(page.getByText('Based on 3 complaints',{exact:true}).first()).toBeVisible();
+    await expect(page.locator('.eligibility-note')).toContainText('Target 3.0 days');
+    await expect(page.locator('.eligibility-note')).toContainText('3 of 3');
+    await expect(page.getByText(/Based on/)).toHaveCount(0);
     await expect(page.getByText(/n=\d|low volume/)).toHaveCount(0);
-    await expect(page.locator('.metric-worse').filter({hasText:'▼ 50.0 pts · Worse'})).toBeVisible();
+    await expect(page.locator('.metric-comparison.metric-worse').filter({hasText:'▼ 50 pts lower'})).toBeVisible();
     await expect(page.locator('.metric-value.metric-worse').filter({hasText:'0%'})).toBeVisible();
     await expect(page.getByRole('link')).toHaveCount(0);
     for(const label of ['Time','Cases']) {
@@ -222,6 +242,44 @@ for (const width of [320,430,600,1280]) for (const colorScheme of ['light','dark
     if(colorScheme==='dark') expect(await page.locator('.breakdown-table td').last().evaluate(el=>getComputedStyle(el).color)).toBe('rgb(198, 205, 216)');
     await expect(page.locator('.report-graph')).toHaveCount(1);
     await page.screenshot({path:info.outputPath(`decision-email-${colorScheme}-${width}.png`),fullPage:true});
+  });
+}
+
+for (const preset of ['polish_overview','polish_tat','polish_open']) for (const width of [320,390,430,768,1280]) for (const colorScheme of ['light','dark']) {
+  test(`Polished ${preset} ${colorScheme} fits ${width}px with unique aligned panels`, async ({page},info) => {
+    await page.route(/^https?:\/\//,route=>route.abort());
+    await page.emulateMedia({colorScheme});
+    await page.setViewportSize({width,height:900});
+    await page.setContent(renderPreview(preset));
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await expect(page.locator('a')).toHaveCount(0);
+    const images=page.locator('.report-graph');
+    const count=await images.count();
+    expect(count).toBeGreaterThanOrEqual(2);
+    expect(count).toBeLessThanOrEqual(3);
+    const sources=await images.evaluateAll(items=>items.map(item=>item.src));
+    expect(new Set(sources).size).toBe(count);
+    const headings=await page.locator('h2').allTextContents();
+    expect(new Set(headings).size).toBe(headings.length);
+    await expect(page.locator('.metric-comparison')).toHaveCount(4);
+    expect(await page.locator('.metric-content').evaluateAll(items=>Math.max(...items.map(el=>el.offsetHeight))-Math.min(...items.map(el=>el.offsetHeight)))).toBeLessThanOrEqual(1);
+    for (const row of await page.locator('.panel-row').all()) {
+      const cells=await row.locator(':scope > tbody > tr > .panel-cell').evaluateAll(items=>items.map(el=>el.getBoundingClientRect().toJSON()));
+      if(cells.length===2) {
+        if(width>600) {
+          expect(Math.abs(cells[0].y-cells[1].y)).toBeLessThan(1);
+          expect(Math.abs(cells[0].width-cells[1].width)).toBeLessThan(1);
+          expect(Math.abs(cells[0].height-cells[1].height)).toBeLessThan(1);
+        } else expect(cells[1].y).toBeGreaterThan(cells[0].y);
+      }
+    }
+    if(preset==='polish_tat') {
+      await expect(page.locator('.metric-label').first()).toHaveText('Resolved on time');
+      await expect(page.locator('.metric-value').nth(1)).toHaveText('Under 1 hour');
+      await expect(page.getByText(/Longest resolution: 8.0 days/)).toBeVisible();
+    }
+    if(preset==='polish_open') await expect(page.getByRole('heading',{name:'Open-case age',exact:true})).toHaveCount(1);
+    await page.screenshot({path:info.outputPath(`${preset}-${colorScheme}-${width}.png`),fullPage:true});
   });
 }
 

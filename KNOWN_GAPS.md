@@ -1,5 +1,36 @@
 # Known Gaps and Verified Workarounds
 
+## Complaint email presentation - 13 October 2026
+
+The report layout now keeps the 900px desktop width, compact mobile tiles,
+single comparison lines and up to three complementary charts. Charts and tables
+have separate rendering slots with unique inline chart IDs. Synthetic Open-case
+reports render the age chart once, including populated and empty scopes.
+
+The reported duplicate/clipped age chart in a delivered inbox has **not** been
+reproduced from the current renderer. Keep this issue open until the affected
+email/screenshot can be compared with its saved HTML and inline attachments.
+Already frozen deliveries retain their original payload on retry; a fresh
+authorized report capture is needed to see new formatting. Do not erase delivery
+evidence or resend automatically to investigate a visual issue.
+
+The apparent short-median/eight-day discrepancy is reproduced: the tile uses
+the whole-period median, while chart points use each date's median. Both can be
+correct; the report now states this and explains the longest measured resolution.
+Missing timing and missing targets have distinct denominator explanations.
+
+Local screenshots cover all three reports at mobile/desktop widths and light/
+dark modes under `test-results/email-polish-*`; they do not certify Gmail/Outlook
+or dark-mode inversion in a real inbox. No real recipient or external service
+was contacted, and no migration/configuration change or deployment was performed.
+Verification: 125 PostgreSQL report-delivery tests passed; the final presentation
+and fallback refinements passed 57 focused tests and 85 browser tests. Final
+screenshots were inspected at 320px and 1280px, including light/dark reports.
+JavaScript syntax, Node tests, migration drift and whitespace checks passed.
+The full repository suite was not run.
+Ruff is not installed in the local virtual environment; focused tests and
+JavaScript syntax checks are used, without adding a dependency.
+
 ## Placement-driven Origination forms - 13 October 2026
 
 The form now follows valid captured PDF placements plus essential operational

@@ -85,7 +85,7 @@ def report_basis(preset):
         'outcomes': 'Actions recorded during the selected period.',
         'tat': 'Completed-period TAT outcomes; current authorized operational data only.',
         'complaints': 'Complaints reported in this period; resolution status is current at generation.',
-        'cmp_tat': 'Resolution and first HB response dates in this period. On-time rates exclude missing targets and dates.',
+        'cmp_tat': 'Resolution and first HomeBiogas response dates in this period. On-time rates exclude missing targets and dates.',
         'cmp_open': 'All currently unresolved complaints in the approved scope, including older cases. Current snapshot, not period-end backlog.',
     }[preset]
 
@@ -176,26 +176,29 @@ def build_payload(snapshot, email, configuration):
     from .email_charts import chart_png
     chart_attachments = []
     context['email_graphs'] = []
-    attempted = 0
-    for index, section in enumerate(context['breakdowns']):
+    for index, section in enumerate(context['graph_sections']):
         chart = section['definition']
-        if section is not context['overview_graph'] or attempted >= 1:
-            continue
-        attempted += 1
         try:
             content = chart_png(chart)
         except (OSError, ValueError, RuntimeError):
             # A presentation failure must not block the canonical Excel report.
             content = None
         if content is None:
-            section['context'] += ' Up to five dates shown below; complete history is in Excel.'
+            section['context'] += ' Chart unavailable; complete figures are in Excel.'
+            section['fallback'] = True
             continue
         content_id = f'jawabu-report-chart-{index + 1}'
         chart_attachments.append({'filename': f'report-chart-{index + 1}.png', 'content_type': 'image/png',
                                   'content_id': content_id, 'content': base64.b64encode(content).decode()})
         section['graph'] = {'src': 'cid:' + content_id,
-                            'alt': chart['title'] + '. ' + section['accessible_summary']}
+                            'alt': chart['title'] + '. ' + section['visible_summary']}
         context['email_graphs'].append(section['graph'])
+    # Rendering failure changes the display role, not the captured data. Never
+    # put a fallback table beside a chart, or render one panel in two slots.
+    rendered = [section for section in context['graph_sections'] if section.get('graph')]
+    context['fallback_sections'] = [section for section in context['graph_sections'] if not section.get('graph')]
+    context['overview_graph'] = rendered[0] if rendered else None
+    context['graph_pairs'] = [rendered[i:i + 2] for i in range(1, len(rendered), 2)]
     try:
         logo = {'filename': 'jawabu-logo.png', 'content_type': 'image/png',
                 'content_id': BRAND_LOGO_ID, 'content': base64.b64encode(BRAND_LOGO_PATH.read_bytes()).decode()}

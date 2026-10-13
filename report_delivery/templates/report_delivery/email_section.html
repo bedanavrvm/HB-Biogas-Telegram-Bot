@@ -1,11 +1,11 @@
 <h2 class="email-heading" style="margin:0 0 6px;color:#2e3480;font-size:17px;line-height:1.5">{{ chart.title }}</h2>
 {% if chart.context %}<p class="email-copy" style="margin:0 0 8px;color:#526173;font-size:13px">{{ chart.context }}</p>{% endif %}
 {% if chart.graph %}
-<img class="report-graph" src="{{ chart.graph.src }}" width="420" alt="{{ chart.graph.alt }}" style="display:block;width:100%;max-width:420px;height:auto;margin:0 auto;border:0;outline:none">
-<p class="email-copy" style="margin:4px 0;color:#526173;font-size:13px">Latest: {% with row=chart.rows|last %}{{ row.label }} · {% for cell in row.cells %}{{ cell.label }} {{ cell.value }}{% if not forloop.last %} · {% endif %}{% endfor %}{% endwith %}</p>
+<img class="report-graph" src="{{ chart.graph.src }}" width="420" alt="{{ chart.graph.alt }}" style="display:block;width:100%;max-width:420px;height:auto;margin:0;border:0;outline:none">
+<p class="email-copy chart-text" style="margin:6px 0 0;color:#526173;font-size:12px">{{ chart.visible_summary }}</p>
 {% elif chart.single_series %}
 <table class="breakdown-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-collapse:collapse;table-layout:fixed">
-  <thead><tr><th align="left" scope="col" style="padding:4px 6px;font-size:14px;color:#4a5578">Breakdown</th><th align="right" scope="col" style="width:84px;padding:4px 6px;font-size:14px;color:#4a5578">{{ chart.headers.0 }}</th></tr></thead>
+  <thead><tr><th align="left" scope="col" style="padding:4px 6px;font-size:14px;color:#4a5578">{{ chart.label_header }}</th><th align="right" scope="col" style="width:84px;padding:4px 6px;font-size:14px;color:#4a5578">{{ chart.display_headers.0 }}</th></tr></thead>
   <tbody>{% for row in chart.rows_display %}<tr>
     <td style="padding:6px;border-bottom:1px solid #eef0f5;overflow-wrap:anywhere">
       {{ row.label }}
@@ -22,7 +22,7 @@
 </table>
 {% else %}
 <table class="breakdown-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-collapse:collapse;table-layout:fixed">
-  <thead><tr><th align="left" scope="col" style="width:44%;padding:4px;font-size:14px;color:#4a5578">Breakdown</th>{% for header in chart.display_headers %}<th align="right" scope="col" style="padding:4px;font-size:14px;color:#4a5578;overflow-wrap:anywhere">{{ header }}</th>{% endfor %}</tr></thead>
+  <thead><tr><th align="left" scope="col" style="width:36%;padding:4px;font-size:14px;color:#4a5578">{{ chart.label_header }}</th>{% for header in chart.display_headers %}<th align="right" scope="col" style="padding:4px;font-size:14px;color:#4a5578;overflow-wrap:normal">{{ header }}</th>{% endfor %}</tr></thead>
   <tbody>{% for row in chart.rows_display %}<tr><td style="padding:5px 4px;border-bottom:1px solid #eef0f5;overflow-wrap:anywhere">{{ row.label }}</td>{% for value in row.values %}<td align="right" style="padding:5px 4px;border-bottom:1px solid #eef0f5;color:#243244;font-weight:bold;overflow-wrap:anywhere">{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>
 </table>
 {% endif %}

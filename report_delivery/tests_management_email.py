@@ -28,8 +28,8 @@ class ManagementEmailTests(SimpleTestCase):
         context = email_context(self.snapshot())
         resolution = next(item for item in context['headline'] if item['label'] == 'Median resolution')
         self.assertEqual(resolution['value'], '6.9 days')
-        self.assertEqual(resolution['target'], 'Target 3.0 days')
-        self.assertEqual(next(item for item in context['headline'] if item['label'] == 'Median resolution')['note'], 'Based on 3 complaints')
+        self.assertIn('Target 3.0 days', context['eligibility_note'])
+        self.assertEqual(resolution['note'], '')
         self.assertEqual(context['period'], '5 Oct - 11 Oct 2026')
         self.assertEqual(context['previous_period'], '28 Sep - 4 Oct 2026')
 
@@ -38,8 +38,9 @@ class ManagementEmailTests(SimpleTestCase):
         context = email_context(snapshot)
         metric = next(item for item in context['headline'] if item['label'] == 'Resolved on time')
         self.assertEqual(metric['ink'], '#b42318')
-        self.assertEqual(metric['previous'], '50.0%')
-        self.assertEqual(metric['change'], '▼ 50.0 pts · Worse')
+        self.assertEqual(metric['previous'], '50%')
+        self.assertEqual(metric['change'], '▼ 50 pts lower')
+        self.assertEqual(metric['status'], 'Worse')
         snapshot['comparison']['metrics']['Median resolution (hours)']['paired_values'] = {'current': 24, 'previous': 48}
         context = email_context(snapshot)
         self.assertEqual(next(item for item in context['metrics'] if item['label'] == 'Median resolution')['status'], 'Better')
@@ -57,7 +58,7 @@ class ManagementEmailTests(SimpleTestCase):
                 self.assertNotIn(forbidden, content)
         self.assertNotIn('<a ', payload['html'])
 
-    def test_only_one_chart_top_five_and_no_empty_bucket_tables(self):
+    def test_complementary_charts_top_five_and_no_empty_age_tables(self):
         snapshot = self.snapshot('cmp_tat')
         before = deepcopy(snapshot)
         payload = build_payload(snapshot, 'management@example.invalid', {})
@@ -74,11 +75,12 @@ class ManagementEmailTests(SimpleTestCase):
     def test_single_case_type_suppresses_median_and_mixed_targets_are_honest(self):
         snapshot = self.snapshot('cmp_tat')
         snapshot['management']['targets_hours'] = ['24', '72']
-        section = snapshot['email_sections'][-1]
+        section = next(section for section in snapshot['email_sections'] if section['title'] == 'Slowest complaint types')
         section['datasets'][1]['values'] = [1]
         context = email_context(snapshot)
-        self.assertEqual(context['top_table']['rows'][0]['values'][0], 'Not enough complaints')
-        self.assertIn('Targets vary: 1.0 days - 3.0 days', context['headline'][0]['target'])
+        self.assertEqual(context['top_table']['display_headers'], ['Cases'])
+        self.assertIn('Too few to rate', context['top_table']['context'])
+        self.assertIn('Targets vary: 1.0 days - 3.0 days', context['eligibility_note'])
         self.assertFalse(any('Longest median' in item['text'] for item in context['attention']))
 
     def test_current_open_snapshot_has_no_invented_previous_value(self):
@@ -92,11 +94,12 @@ class ManagementEmailTests(SimpleTestCase):
         snapshot['management'].update(comparison_cutoff='2026-10-10T00:00:00+03:00',
                                       comparison_on_time=0, comparison_target_count=2)
         context = email_context(snapshot)
-        self.assertIn('matching elapsed window', context['headline'][0]['comparison_scope'])
+        self.assertIn('Matched window', context['headline'][0]['comparison_line'])
         self.assertIn('10 Oct 2026', context['notices'][-1])
 
     def test_positive_short_duration_never_rounds_to_a_false_zero(self):
         from .management_email import duration
-        self.assertEqual(duration('Median resolution (hours)', 1), '<0.1 days')
-        self.assertEqual(duration('Median TAT (minutes)', 1), '<0.1 hours')
-        self.assertEqual(duration('Median resolution (hours)', 0), '0.0 days')
+        self.assertEqual(duration('Median resolution (hours)', 1), '1.0 hours')
+        self.assertEqual(duration('Median resolution (hours)', 2), '2.0 hours')
+        self.assertEqual(duration('Median TAT (minutes)', 1), 'Under 1 hour')
+        self.assertEqual(duration('Median resolution (hours)', 0), '0 hours')

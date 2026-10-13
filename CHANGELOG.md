@@ -1,5 +1,18 @@
 # Changelog
 
+## 13 October 2026 - Compact, clearer complaint email reports
+
+- Retained the 900px layout with short factual summaries, consistent mobile KPI
+  tiles and one comparison line instead of repeated previous/sample messages.
+- Added up to three complementary charts per complaint report, paired panels,
+  compact table headings and full-width lone charts; no app links or new service.
+- Whole-number rates, truthful short durations, explicit target-rated counts and
+  long-resolution context explain differences between period tiles and daily charts.
+- Chart labels use supported hyphens, bounded PNG layouts and unique inline IDs.
+  Existing frozen deliveries and Excel/cohort/authorization rules remain unchanged.
+- No migration or environment change. Screenshot checks use synthetic data;
+  affected inbox duplication and real Gmail/Outlook rendering still need verification.
+
 ## 13 October 2026 - Placement-driven Origination forms
 
 - Application forms show placed PDF fields and essential applicant, signing,

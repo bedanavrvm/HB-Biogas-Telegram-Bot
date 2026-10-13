@@ -10,30 +10,39 @@ Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
 The shared fluid email uses up to 900px on desktop: title and date stamp,
-attachment note, three or four KPIs, Needs attention, one chart and one top-five
-table, then the footer. There is no introductory verdict paragraph or app link
-in either HTML or plain text. Segoe UI/Helvetica Neue/Arial fallbacks use 15px body,
-14px tables, 12px KPI labels and 28px values. On phones KPIs form two columns.
+a short factual summary for Complaints overview/Open-case follow-up, attachment
+note, three or four KPIs, Needs attention, up to three complementary complaint
+charts and top-five tables, then the footer. There is no long verdict paragraph
+or app link in either HTML or plain text. Segoe UI/Helvetica Neue/Arial fallbacks
+use 15px body, 14px tables, 12px KPI labels and 28px numbers (20px duration phrases).
+On phones KPIs form two columns. Nested-table panel pairs stack below 600px;
+charts pair with charts, tables with tables, and lone panels use full width.
 Large KES figures use M/B in tiles; exact amounts remain in plain text, Excel
 and the tile's title. A navy structural accent and light dividers replace coloured
-box walls; green/red mean Better/Worse, with directional symbols and words.
+box walls. Comparison arrows say more/fewer, higher/lower or longer/quicker and
+use higher/lower-is-better colours; reported volume is neutral. Absolute on-time
+rates are green at 80%+, amber at 60-79%, red below 60%, independently of movement.
 
 Complaint cards use captured counts, the existing median (not a newly
 invented average), actual SLA targets and previous-period target counts. Every
 tile shows its previous value and absolute/rate-point/time change where the
 source supplies a safe comparison. Higher/lower-is-better rules govern direction;
 reported volume is neutral. Current backlog has no invented historical baseline.
-Resolution uses rounded days throughout the email; HB response/TAT stages use
-hours. Missing targets are explicit, multiple targets show a range, and positive
-durations below 0.1 units are not rounded to zero. Small-sample context uses
-plain wording such as "Based on 3 complaints"; a type with one complaint says
-"Not enough complaints" instead of a misleading median. No n= or low-volume jargon.
+Tiles have a label, value and one comparison line. Missing comparisons say
+"No earlier data yet"; current backlog says "Current snapshot". Resolution uses
+days from 24 hours, otherwise hours; positive durations below one hour say
+"Under 1 hour", never a false zero. First response means the first recorded
+HomeBiogas comment or resolution. Target-rated counts reconcile with distinct
+resolved totals, with missing targets/timing explained once outside the tiles.
+A type with one measured resolution says "Too few to rate"; if every row has
+one, the rating column becomes a single note. No n= or low-volume jargon.
 Nairobi period stamps use 5 Oct - 11 Oct 2026, with comparison dates/data-as-of.
 Shorter matched comparison windows are explicitly distinguished from headline
 totals; they never silently replace the selected scope.
 
-Needs attention prioritizes late measured resolutions, the slowest measured
-complaint type, missing targets and current overdue/open work. Zero target rows
+Needs attention prioritizes late measured resolutions, long outliers and current
+overdue/open work. Daily medians may differ from the whole-period tile median;
+the chart explains its basis and long resolutions get aggregate context. Zero target rows
 and empty age tables are not repeated. Customer facts remain in the protected
 app/Excel, not the email body. Emails deliberately have no app links. Previously
 supported authenticated Reports entry routes remain available, but email rendering
@@ -45,19 +54,21 @@ The existing project logo is embedded as a local base64 inline attachment using
 [Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
 remote image URL, tracking pixel or new hosting is needed. If the packaged logo
 is unavailable, text branding remains and the report can still be sent.
-At most one chart panel uses an offline PNG with the existing Pillow dependency.
+Up to three complaint chart panels use offline PNGs with the existing Pillow dependency.
 Graphs have a bounded height (at most 220px at their 420px desktop display width).
 Category/branch counts use a top-five HTML table instead of more large images.
 A successfully rendered graph is not repeated as a table; unreadable/unsupported
 graphs and rendering failures use a clearly labelled five-date preview instead.
-The plain-text email and Excel retain complete datasets. Images have meaningful
+The plain-text email and Excel retain complete selected datasets. Images have meaningful
 data alternatives and a visible latest-value summary. PNGs use the same
 inline Content-ID mechanism as the logo. No interactive tabs, remote assets,
 public download links, browser process or additional dependency is required.
 The Excel remains the only report file; logo/graphs are additional inline images.
 The existing serialized 10-MiB ceiling includes all inline image bytes.
 The attachment notice is not a fake download button or a public report link.
-New formatting affects only emails, never captured metrics or workbook cells.
+New formatting affects only emails, never scoring/cohort rules or workbook cells.
+New captures add aggregate chart/interpretation facts; already frozen deliveries
+keep their exact existing bytes on retry. No migration or new setting is needed.
 Actual Gmail/Outlook rendering and client-controlled dark-mode inversion still
 require inbox verification; local browser previews are not that certification.
 
@@ -114,17 +125,18 @@ or activating additional schedules. No cross-workflow customer joins are made.
 
 - **Summary:** Reported and distinct complaints resolved in-period, current Open,
   on-time rate, median resolution/first HB response with sample sizes. One history
-  panel and top-five complaint types. Current open/overdue work appears in Needs
+  panel, on-time/late and first-response charts, paired complaint-type/branch tables. Current open/overdue work appears in Needs
   attention, not a separate age table.
 - **Turnaround performance:** median resolution/first HB response, on-time rate
-  and distinct reopened complaints. One history panel, explicit late denominator /
+  and distinct reopened complaints. Resolution/first-response/reopening panels, explicit late denominator /
   percentage and missing-target counts, and five slowest types with samples.
   The scheduled workbook
   includes cases with resolution, first response or reopening events in-period,
   including cases reported earlier.
 - **Open-case follow-up:** all currently unresolved complaints in the approved
   group/branch, including older cases. Open, Over 14 days, No HB response, oldest
-  age; one age chart and top five branches. The
+  age; one age chart, response coverage, overdue complaint types and top five branches
+  (Open, Overdue, No response yet). The
   scheduled workbook contains currently unresolved cases without date limits.
   This is a current snapshot, never reconstructed period-end backlog.
 

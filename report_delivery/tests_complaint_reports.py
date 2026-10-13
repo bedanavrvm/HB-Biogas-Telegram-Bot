@@ -102,8 +102,8 @@ class ProjectionTests(SimpleTestCase):
         self.assertEqual(result['summary']['Resolved in period'], 1)
         self.assertEqual(result['summary']['Open now'], 2)
         self.assertEqual(result['summary']['Resolved on time (%)'], 100)
-        self.assertEqual(len(result['email_sections']), 4)
-        self.assertEqual(sum(section['presentation'] == 'chart' for section in result['email_sections']), 1)
+        self.assertEqual(len(result['email_sections']), 6)
+        self.assertEqual(sum(section['presentation'] == 'chart' for section in result['email_sections']), 3)
 
     def test_monthly_graph_includes_first_and_last_days_only_inside_selection(self):
         cases = [synthetic_case(index, reported=reported) for index, reported in enumerate([
@@ -137,7 +137,7 @@ class ProjectionTests(SimpleTestCase):
 
     def test_top_five_plus_other_reconciles_without_repeated_graph(self):
         result = self.project([synthetic_case(i, category=f'Type {i}', branch=f'Branch {i}') for i in range(10)])
-        for section in result['email_sections'][2:]:
+        for section in result['email_sections'][2:4]:
             self.assertEqual(len(section['labels']), 6)
             self.assertEqual(section['labels'][-1], 'Other')
             self.assertEqual(sum(section['datasets'][0]['values']), 10)
@@ -164,16 +164,19 @@ class ProjectionTests(SimpleTestCase):
         self.assertEqual(result['comparison']['metrics'], {})
         self.assertIn('exact selected filters', ' '.join(result['notices']))
 
-    def test_all_report_types_render_plaintext_and_at_most_one_graph(self):
+    def test_all_report_types_render_plaintext_and_at_most_three_graphs(self):
         for preset in ['complaints', 'cmp_tat', 'cmp_open']:
             result = self.project([synthetic_case(1, resolved='2026-09-11T09:00', response='2026-09-10T15:00')], preset)
             snapshot = {**result, 'preset': preset, 'period': {'from': '2026-09-01', 'to': '2026-09-30'},
                         'run_at': self.now.isoformat(), 'total_rows': 1, 'rows': [],
                         'xlsx_content': base64.b64encode(b'synthetic').decode(), 'applied_filters': self.filters}
             payload = build_payload(snapshot, 'synthetic@example.invalid', {})
-            self.assertLessEqual(payload['html'].count('class="report-graph"'), 1)
+            self.assertLessEqual(payload['html'].count('class="report-graph"'), 3)
             self.assertNotIn('Breakdown</h2>', payload['html'])
-            self.assertIn(result['email_sections'][0]['title'], payload['text'])
+            if preset != 'cmp_open':
+                self.assertIn(result['email_sections'][0]['title'], payload['text'])
+            else:
+                self.assertNotIn('Open-case age', payload['html'])  # No open cases: omit the empty chart.
             self.assertNotIn('customer_name', payload['html'])
             self.assertIn('max-width:900px', payload['html'])
 

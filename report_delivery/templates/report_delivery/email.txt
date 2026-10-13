@@ -1,6 +1,8 @@
 JBL BOT — {{ title }}
 {{ period }}
 Generated {{ generated }}
+{% if summary_sentence %}
+{{ summary_sentence }}{% endif %}
 
 Full detail in the attached Excel.
 {% if previous_period %}vs {{ previous_period }}{% endif %}
@@ -8,17 +10,15 @@ Full detail in the attached Excel.
 {{ basis }}
 {% for item in metrics %}
 {{ item.label }}: {% if item.exact_value %}{{ item.exact_value }}{% else %}{{ item.value }}{% endif %}{% if item.target %} · {{ item.target }}{% endif %}
-Previous: {{ item.previous }} · {{ item.change }}{% endfor %}
+{{ item.comparison_line }}{% endfor %}
 {{ comparison_label }}
-{% for item in metrics %}{% if item.comparison %}{{ item.label }}: {{ item.comparison.text }}
-{% endif %}{% if item.note %}{{ item.label }}: {{ item.note }}
-{% endif %}{% endfor %}
+{{ eligibility_note }}
 {% for notice in notices %}{{ notice }}
 {% endfor %}
 Needs attention
 {% for item in attention %}{{ item.text }}
 {% empty %}No additional exceptions identified.{% endfor %}
-{% for chart in breakdowns %}
+{% for chart in text_sections %}
 {{ chart.title }}
 {{ chart.context }}
 {% for row in chart.rows %}{{ row.label }}: {% for cell in row.cells %}{{ cell.label }} {{ cell.value }}{% if not forloop.last %}; {% endif %}{% endfor %}

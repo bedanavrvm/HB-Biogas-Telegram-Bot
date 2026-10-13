@@ -53,7 +53,7 @@ class EmailPresentationTests(SimpleTestCase):
                                           'Missing timing (hours)': None, 'Open': 0})
         before = deepcopy(snapshot)
         context = email_context(snapshot)
-        self.assertEqual([m['value'] for m in context['metrics']], ['2.6 days', '0.2 hours', '0.0 hours', '87.50%', '—', '0'])
+        self.assertEqual([m['value'] for m in context['metrics']], ['2.6 days', 'Under 1 hour', '0 hours', '88%', '—', '0'])
         self.assertEqual(context['metrics'][0]['label'], 'Median resolution')
         self.assertEqual(snapshot, before)
         self.assertEqual(email_context(self.snapshot(summary={'Median resolution (hours)': 24.25}))['metrics'][0]['value'], '1.0 days')
@@ -102,7 +102,7 @@ class EmailPresentationTests(SimpleTestCase):
         graph = payload['attachments'][2]
         self.assertEqual(graph['content_type'], 'image/png')
         self.assertIn('src="cid:' + graph['content_id'] + '"', payload['html'])
-        self.assertIn('Training branch: Complaints 5', payload['html'])
+        self.assertIn('Training branch: 5', payload['html'])
         self.assertNotIn('class="breakdown-table"', payload['html'])
         self.assertIn('Training branch: Complaints 5', payload['text'])
         with Image.open(BytesIO(base64.b64decode(graph['content']))) as image:
