@@ -503,7 +503,7 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.assertIn(self.client.get(url).status_code, {302, 403})
 
     @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-preview')
-    def test_editable_application_preview_refreshes_published_calibration(self, renderer):
+    def test_editable_application_preview_preserves_captured_calibration(self, renderer):
         digest = hashlib.sha256(self.pdf).hexdigest()
         product = OriginationProductDefinition.objects.create(
             product_key='calibration-refresh', name='Calibration refresh', version=1,
@@ -535,8 +535,8 @@ class OriginationTemplateLifecycleTests(TestCase):
         render_application_preview(application)
 
         application.refresh_from_db()
-        self.assertEqual(application.template_configuration_snapshot, published_config)
-        self.assertEqual(renderer.call_args.kwargs['configuration'], published_config)
+        self.assertEqual(application.template_configuration_snapshot, json.loads(synthetic_config()))
+        self.assertEqual(renderer.call_args.kwargs['configuration'], application.template_configuration_snapshot)
 
     @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-updated')
     @patch('origination.services.loan_origination._published_template_configuration')

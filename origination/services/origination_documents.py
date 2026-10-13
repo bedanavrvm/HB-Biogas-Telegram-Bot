@@ -314,7 +314,8 @@ def refresh_document_applicability(application: LoanOriginationApplication) -> N
 
 
 def _document_fields(document: OriginationApplicationDocument) -> list[dict[str, Any]]:
-    schema = document.schema_snapshot or {}
+    from origination.services.origination_value_contracts import application_document_schema
+    schema = application_document_schema(document.application, document)
     fields = schema.get('fields') if isinstance(schema, dict) else []
     return fields if isinstance(fields, list) else []
 
@@ -329,19 +330,25 @@ def document_context(application: LoanOriginationApplication, document: Originat
             field['key'] for field in _document_fields(document) if field.get('type') == 'date'
         })
         return apply_choice_display_values(context, document.schema_snapshot)
-    context = {**preview_context(application), **(document.field_payload or {})}
+    from origination.services.origination_value_contracts import form_projection_enabled
+    local_values = document.field_payload or {}
+    if form_projection_enabled(application):
+        active = {field['key'] for field in _document_fields(document)}
+        local_values = {key: value for key, value in local_values.items() if key in active}
+    context = {**preview_context(application), **local_values}
     apply_choice_display_values(context, document.schema_snapshot, include_repeating=False)
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or timezone.now(),
     ).isoformat()
     context['_date_fields'] = sorted(set(context.get('_date_fields') or []) | {
-        str(field.get('key') or '') for field in _document_fields(document)
+        str(field.get('key') or '') for field in (document.schema_snapshot or {}).get('fields', [])
         if str(field.get('type') or '') == 'date'
     } | {'home_visit_completed_date'})
     return context
 
 
 def serialize_document(document: OriginationApplicationDocument) -> dict[str, Any]:
+    from origination.services.origination_value_contracts import application_document_schema, form_projection_enabled, entered_payload
     application = document.application
     fields = _document_fields(document)
     context = document_context(application, document) if document.selected else {}
@@ -370,8 +377,8 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
         'applicable': document.applicable,
         'selected': document.selected,
         'officer_selectable': document.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL,
-        'schema': document.schema_snapshot,
-        'field_payload': document.field_payload,
+        'schema': application_document_schema(application, document),
+        'field_payload': entered_payload(document.field_payload or {}, schema=application_document_schema(application, document)) if form_projection_enabled(application) else document.field_payload,
         'resolved_values': {field['key']: context.get(field['key'], '') for field in fields} if (application.schema_snapshot or {}).get('value_contract_version') == 2 else {},
         'missing_fields': missing,
         'complete': not missing,
@@ -506,13 +513,15 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     document = application.packet_documents.select_for_update().filter(document_key=document_key).first()
     if not document or document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY or not document.selected:
         raise OriginationError('This supporting document is not selected for the application.')
-    schema = document.schema_snapshot or {'fields': []}
+    from origination.services.origination_value_contracts import application_document_schema, form_projection_enabled, entered_payload
+    schema = application_document_schema(application, document)
     from origination.services.origination_value_contracts import enabled, packet_contract, normalize_changes, ValueContractError
     if enabled(application.schema_snapshot):
         changed_shared = False
         try:
             contract = packet_contract(application)
-            shared, local_changes = normalize_changes(contract, payload, application.form_payload or {}, document_key=document.document_key)
+            shared, local_changes = normalize_changes(contract, payload, application.form_payload or {}, document_key=document.document_key,
+                                                      preserve_inactive_links=form_projection_enabled(application))
         except ValueContractError as exc:
             raise OriginationError(str(exc), errors=exc.errors) from exc
         if shared != (application.form_payload or {}):
@@ -528,18 +537,20 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
             application = save_application_fields(application_id=application.pk, actor=actor,
                 payload=changed_inputs, expected_revision=expected_revision, request_id=_slot_request_id(request_id, 'shared'))
         local_schema = {'fields': list(contract['documents'][document.document_key].values())}
-        values = normalize_form_payload(local_schema, {**(document.field_payload or {}), **local_changes})
+        retained = document.field_payload or {}
+        current_local = entered_payload(retained, schema=local_schema) if form_projection_enabled(application) else retained
+        values = normalize_form_payload(local_schema, {**current_local, **local_changes})
         result = validate_form_payload(local_schema, values, require_complete=False)
         if not result.valid:
             raise OriginationError('Correct the document fields before saving.', errors=result.errors)
         if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
             targets = correction_targets(application)['document_field']
-            changed = _changed_keys(document.field_payload, values)
+            changed = _changed_keys(current_local, values)
             if any(f'{document.document_key}.{key}' not in targets for key in changed):
                 raise OriginationError('Only requested document fields may be changed.')
-        changed_local = values != document.field_payload
+        changed_local = values != current_local
         if changed_local:
-            document.field_payload = values
+            document.field_payload = {**retained, **values} if form_projection_enabled(application) else values
             document.previewed_application_revision = None
             document.completed_at = None
             document.save(update_fields=['field_payload', 'previewed_application_revision', 'completed_at', 'updated_at'])
@@ -557,14 +568,24 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
         # Correction UIs submit only unlocked controls. Merge them over the
         # frozen document values before validation/comparison so locked fields
         # cannot be erased by omission.
-        payload = {**(document.field_payload or {}), **payload}
+        previous = entered_payload(document.field_payload or {}, schema=schema) if form_projection_enabled(application) else document.field_payload or {}
+        payload = {**previous, **payload}
+    projected = form_projection_enabled(application)
+    if projected and isinstance(payload, dict):
+        active_keys = {field['key'] for field in _document_fields(document)}
+        invalid = set(payload) - active_keys
+        if invalid:
+            raise OriginationError('These fields are not part of the current document.',
+                                   errors={key: 'This field is not active.' for key in invalid})
+        payload = {**entered_payload(document.field_payload or {}, schema=schema), **payload}
     payload = normalize_form_payload(schema, payload)
     result = validate_form_payload(schema, payload, require_complete=False)
     if not result.valid:
         raise OriginationError('Correct the supporting-document fields before saving.', errors=result.errors)
     if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
         targets = correction_targets(application)['document_field']
-        changed = _changed_keys(document.field_payload, payload)
+        previous = entered_payload(document.field_payload or {}, schema=schema) if projected else document.field_payload
+        changed = _changed_keys(previous, payload)
         permitted = {
             key for key in changed
             if f'{document.document_key}.{key}' in targets
@@ -591,6 +612,8 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
         for legacy_key in ('security_1_description', 'security_1_current_value'):
             if legacy_key in primary_keys:
                 application.form_payload[legacy_key] = synchronized.get(legacy_key, '')
+    if projected:
+        values = {**(document.field_payload or {}), **values}
     if values == document.field_payload:
         _record_event(
             application, 'supporting_document_unchanged', actor=actor,
@@ -601,7 +624,7 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     document.previewed_application_revision = None
     document.completed_at = None
     document.save(update_fields=['field_payload', 'previewed_application_revision', 'completed_at', 'updated_at'])
-    application.form_payload = {**application.form_payload, **values}
+    application.form_payload = {**application.form_payload, **(entered_payload(values, schema=schema) if projected else values)}
     application.revision += 1
     application.primary_previewed_revision = None
     application.save(update_fields=['form_payload', 'revision', 'primary_previewed_revision', 'updated_at'])
@@ -631,7 +654,7 @@ def _frozen_document_context(
         document.completed_at or document.application.submitted_at or document.application.created_at,
     ).isoformat()
     context['_date_fields'] = sorted(set(context.get('_date_fields') or []) | {
-        str(field.get('key') or '') for field in _document_fields(document)
+        str(field.get('key') or '') for field in (document.schema_snapshot or {}).get('fields', [])
         if str(field.get('type') or '') == 'date'
     } | {'home_visit_completed_date'})
     return context
@@ -672,7 +695,7 @@ def mark_document_previewed(application: LoanOriginationApplication, document_ke
         fields = _document_fields(document)
         context = document_context(application, document)
         result = validate_form_payload(
-            document.schema_snapshot or {'fields': []},
+            {'fields': fields, 'input_rules_version': (document.schema_snapshot or {}).get('input_rules_version')},
             {str(item.get('key')): (context.get('_canonical_values') or {}).get(
                 str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
             require_complete=True,
@@ -697,7 +720,7 @@ def mark_packet_previewed(application: LoanOriginationApplication) -> None:
         fields = _document_fields(document)
         context = document_context(application, document)
         result = validate_form_payload(
-            document.schema_snapshot or {'fields': []},
+            {'fields': fields, 'input_rules_version': (document.schema_snapshot or {}).get('input_rules_version')},
             {str(item.get('key')): (context.get('_canonical_values') or {}).get(
                 str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
             require_complete=True,

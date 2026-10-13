@@ -1,5 +1,16 @@
 # Changelog
 
+## 13 October 2026 - Placement-driven Origination forms
+
+- Application forms show placed PDF fields and essential applicant, signing,
+  lending and calculation details; empty sections and unused document steps hide.
+- Main and supporting forms share server-owned visibility and required checks.
+  Hidden answers remain recoverable without affecting active values or PDFs.
+- New applications and editable PDF drafts use captured alignment; older submitted
+  and signed applications are not converted. Document publication remains advisory.
+- Alignment field lists explain whether an input appears in the form or remains
+  necessary for signing/lending. No migration, new setting or provider call.
+
 ## 12 October 2026 - Clear signing acknowledgement and simpler emails
 
 - Signing now ends with a dedicated server-confirmed acknowledgement and a

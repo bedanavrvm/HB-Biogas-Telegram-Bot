@@ -34,12 +34,15 @@ test('Document editor loads and saves input rules without moving the PDF fields'
   const configuration = {document_type:'synthetic',version:1,
     field_overlay_manifest:{fields:{email:{context_key:field.key,page_number:1,box:{x:50,y:50,width:180,height:20}}}},
     signature_overlay_manifest:{slots:{}}, sample_context:{synthetic_email:'synthetic@example.test'}};
+  const fields = [field,
+    {key:'unplaced_notes',label:'Optional notes',type:'textarea',attached:true,source_type:'user_input'},
+    {key:'signer_phone',label:'Signer phone',type:'phone',attached:true,source_type:'user_input',form_essential_reason:'signing'}];
   let saved;
   await page.route('http://127.0.0.1:8124/**', route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/') return route.fulfill({contentType:'text/html',body:markup});
     if (url.pathname.endsWith('/calibration-state/')) return route.fulfill({json:{configuration,revision:1,schema_revision:1,
-      page_sizes:[{page_number:1,width:595,height:842}], context_keys:[field],form_sections:[{key:'applicant',label:'Applicant'}],
+      page_sizes:[{page_number:1,width:595,height:842}], context_keys:fields,form_sections:[{key:'applicant',label:'Applicant'}],
       details:{name:'Synthetic Main LAF',shared_values:false},readiness:{tasks:[],can_publish:false}}});
     if (url.pathname.endsWith('/calibration-page/')) return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/></svg>'});
     if (url.pathname.endsWith('/editor-readiness/')) return route.fulfill({json:{readiness:{tasks:[],can_publish:false},shared_review:{}}});
@@ -48,7 +51,7 @@ test('Document editor loads and saves input rules without moving the PDF fields'
     if (url.pathname.endsWith('/calibration-field/')) {
       saved = route.request().postDataJSON();
       Object.assign(field, saved.presentation);
-      return route.fulfill({json:{field,context_keys:[field],schema_revision:2,form_sections:[{key:'applicant',label:'Applicant'}]}});
+      return route.fulfill({json:{field,context_keys:fields,schema_revision:2,form_sections:[{key:'applicant',label:'Applicant'}]}});
     }
     return route.abort();
   });
@@ -56,8 +59,13 @@ test('Document editor loads and saves input rules without moving the PDF fields'
   await page.addStyleTag({content:'body{font:14px/1.4 Arial,sans-serif;margin:0;background:#f5f7fa}button,input{font:inherit}'});
   await page.addStyleTag({path:path.join(root,'origination/static/admin/origination_calibration.css')});
   await page.addScriptTag({path:path.join(root,'origination/static/admin/origination_calibration.js')});
-  await expect(page.locator('[data-nav-action=edit]')).toHaveCount(1);
-  await page.locator('[data-nav-action=edit]').click();
+  await expect(page.locator('[data-nav-action=edit]')).toHaveCount(3);
+  await expect(page.getByText('Shown in form',{exact:true})).toBeVisible();
+  await expect(page.getByText('Hidden from form',{exact:true})).toBeVisible();
+  await expect(page.getByText('Required for signing',{exact:true})).toBeVisible();
+  await page.locator('#document-signers').evaluate(node=>{node.open=false;});
+  await page.screenshot({path:info.outputPath('alignment-form-visibility.png')});
+  await page.locator('[data-nav-action=edit]').first().click();
   await page.locator('#cal-field-rules summary').first().click();
   await expect(page.locator('#cal-rule-format')).toHaveValue('email');
   await expect(page.locator('#cal-rule-max-length')).toHaveValue('40');

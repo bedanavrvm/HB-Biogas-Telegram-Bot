@@ -61,6 +61,14 @@ widens an allowlist.
 
 ## Publication boundary
 
+The Mini App uses placed fields from the published alignment captured on the
+application, not the entire field catalogue. Unplaced applicant/signing identity
+and necessary lending/calculation inputs remain in operational sections. Empty
+sections disappear. Removing a placement removes its non-essential required check;
+saved answers remain recoverable. New publication affects new applications only.
+Existing editable drafts use their own captured layout, never an unpublished
+editor draft or a newer document version. See ADR 0047 for this projection boundary.
+
 The Document editor remains human-owned. Missing fields, signers and placement
 are warnings, not publication blockers, in every environment. Publish saves the
 valid PDF/layout as an immutable version; it never publishes a product or makes

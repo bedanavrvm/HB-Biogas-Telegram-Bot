@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 const {test, expect} = require('playwright/test');
 const root = path.resolve(__dirname, '../..');
 const html = fs.readFileSync(path.join(root, 'origination/templates/loan_origination/app.html'), 'utf8')
@@ -40,6 +41,75 @@ async function boot(page, width, empty = false, native = false, locationCatalog 
   await page.addScriptTag({path:path.join(root,'origination/static/miniapp/origination_field_rules.js')});
   await page.addScriptTag({path:path.join(root,'origination/static/miniapp/loan_origination.js')});
   await expect(page.locator('.queue-tab')).toHaveCount(2);
+}
+
+function placedFormFixture() {
+  const script = `
+import os, json
+os.environ['DJANGO_SETTINGS_MODULE']='config.settings'
+import django
+django.setup()
+from origination.tests_form_projection import application, layout, N
+from origination.tests_value_contracts import field, schema
+from origination.services.origination_value_contracts import application_input_schema, application_document_schema
+main=schema(field('applicant_full_name', required=True), field('applicant_phone', type='phone', required=True), field('purpose'), field('unused', required=True))
+main['fields'][2].update(section_key='request',label='Loan purpose')
+main['sections'] += [{'key':'request','label':'Request'}, {'key':'unused_section','label':'Unused section'}]
+support=N(document_key='support',selected=True,applicable=True,document_role='supporting',signer_rules_snapshot=[],
+    schema_snapshot=schema(field('private_note',scope='document')),template_snapshot={'configuration':layout('private_note')})
+app=application(main, layout('purpose'),support)
+print(json.dumps({'form_schema':application_input_schema(app),'document_schema':application_document_schema(app,support)}))
+`;
+  return JSON.parse(execFileSync(path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'), ['-c',script], {
+    cwd:root,encoding:'utf8',env:{...process.env,DATABASE_URL:'sqlite:///:memory:',
+      DJANGO_SECRET_KEY:'synthetic-projection-browser-only-'.padEnd(64,'x'),ORIGINATION_LAF_BOOTSTRAP_ENABLED:'false'},
+  }));
+}
+
+for(const width of [320,430,1280]) for(const dark of [false,true]) {
+  test(`Placement-driven form stays compact at ${width}px ${dark?'dark':'light'}`,async({page},info)=>{
+    await boot(page,width);
+    if(dark) await page.evaluate(()=>{
+      document.documentElement.dataset.telegramTheme='dark';
+      document.documentElement.dataset.miniappColorScheme='dark';
+      for(const [key,value] of Object.entries({'bg-color':'#17201e','secondary-bg-color':'#111816','text-color':'#f4f7f5','hint-color':'#a7b5af'}))
+        document.documentElement.style.setProperty(`--tg-theme-${key}`,value);
+    });
+    const fixture=placedFormFixture(), id='00000000-0000-0000-0000-000000000001';
+    let lastPayload;
+    let app={id,officer_id:1,revision:1,status:'draft',product_name:'Training product',reference_number:'ORG-TRAINING-1',
+      branch:'Training',form_projection_version:1,value_contract_version:2,form_schema:fixture.form_schema,
+      // Simulate an older client retaining an inactive answer; it must not be posted.
+      form_payload:{applicant_full_name:'Synthetic Applicant',applicant_phone:'0700000000',unused:'Recoverable'},
+      product_terms:{},document_packet:{documents:[{key:'support',name:'Visit notes',role:'supporting',selected:true,applicable:true,
+        officer_selectable:true,inclusion_mode:'optional',schema:fixture.document_schema,field_payload:{}}]}};
+    await page.route(`**/applications/${id}/documents/selection/`,route=>route.fulfill({json:{ok:true,application:app}}));
+    await page.route(`**/applications/${id}/`,route=>{
+      if(route.request().method()==='PATCH') {
+        lastPayload=route.request().postDataJSON().form_payload;
+        app={...app,revision:app.revision+1,form_payload:{...app.form_payload,...lastPayload}};
+      }
+      return route.fulfill({json:{ok:true,application:app}});
+    });
+    await page.locator('.application-card').click();
+    await expect(page.locator('[data-field=unused]')).toHaveCount(0);
+    await expect(page.getByText('Unused section',{exact:true})).toHaveCount(0);
+    await expect(page.locator('[data-field=applicant_full_name]')).toHaveCount(1);
+    await expect(page.locator('[data-field=applicant_phone]')).toHaveCount(1);
+    await expect(page.getByRole('heading',{name:'Applicant',exact:true})).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`placed-form-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+    await page.locator('[data-field=applicant_full_name]').fill('Synthetic Applicant Updated');
+    await page.locator('#wizard-next').click();
+    await expect(page.locator('[data-field=purpose]')).toBeVisible();
+    expect(lastPayload).not.toHaveProperty('unused');
+    await page.locator('[data-field=purpose]').fill('Synthetic request');
+    await page.locator('#wizard-next').click();
+    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
+    await page.locator('#wizard-next').click();
+    await expect(page.locator('[data-document-field=private_note]')).toBeVisible();
+    await page.screenshot({path:info.outputPath(`placed-support-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+  });
 }
 
 for (const width of [320,360,390,430,1280]) {

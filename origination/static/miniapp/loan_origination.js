@@ -1145,14 +1145,15 @@
     const configured = current?.form_schema?.sections;
     let sections = Array.isArray(configured) && configured.length
       ? configured.map(item => ({ key: item.key, label: item.label || item.key, hint: item.help_text || '' }))
-      : LEGACY_SECTIONS;
+      : current?.form_projection_version === 1 ? [] : LEGACY_SECTIONS;
     const facilityKey = current?.form_schema?.commercial_section_key
       || (sections.some(item => item.key === 'loan_details') ? 'loan_details' : '')
       || (sections.some(item => item.key === 'invoice_details') ? 'invoice_details' : '')
       || 'commercial_terms';
-    if (facilityKey !== 'commercial_terms' && sections.some(item => item.key === 'commercial_terms')) {
+    if (!current?.form_projection_version && facilityKey !== 'commercial_terms' && sections.some(item => item.key === 'commercial_terms')) {
       sections = sections.filter(item => item.key !== 'commercial_terms');
     }
+    if (current?.form_projection_version === 1) sections = sections.filter(section => fieldsFor(section.key).length);
     const terms = current?.product_terms || {};
     const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
@@ -1170,7 +1171,9 @@
         key: 'document_selection', label: 'Supporting documents',
         hint: 'Choose the additional documents that apply after saving and previewing the main LAF.',
       });
-      supporting.filter(item => item.selected && (!current.signing_workspace || (item.schema?.fields || []).some(field => field.editable !== false))).forEach(item => sections.push({
+      supporting.filter(item => item.selected && (!current.form_projection_version || (item.schema?.fields || []).some(field =>
+        current.value_contract_version === 2 ? field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered' : field.source_type !== 'system'))
+        && (!current.signing_workspace || (item.schema?.fields || []).some(field => field.editable !== false))).forEach(item => sections.push({
         key: `document:${item.key}`, label: item.name,
         hint: 'Shared application values are filled automatically. Complete only the remaining document details.',
         document: item,
@@ -1187,7 +1190,7 @@
       || 'commercial_terms';
     return (current?.form_schema?.fields || []).filter(field => {
       const key = field.section_key || sectionFor(field.key);
-      return key === sectionKey || (sectionKey === facilityKey && key === 'commercial_terms');
+      return key === sectionKey || (!current?.form_projection_version && sectionKey === facilityKey && key === 'commercial_terms');
     });
   }
 
@@ -1201,7 +1204,7 @@
 
   function collectPayload() {
     const payload = { ...(current?.form_payload || {}) };
-    if (current?.value_contract_version === 2) {
+    if (current?.value_contract_version === 2 || current?.form_projection_version === 1) {
       const keys = new Set((current.form_schema?.fields || []).map(field => field.key));
       for (const key of Object.keys(payload)) {
         if (key !== '_person_role_bindings' && !keys.has(key)) delete payload[key];
@@ -2738,6 +2741,10 @@
 
   function collectSupportingDocumentPayload(document) {
     const payload = { ...(document?.field_payload || {}) };
+    if (current?.form_projection_version === 1) {
+      const active = new Set((document?.schema?.fields || []).filter(field => field.source_type !== 'system').map(field => field.key));
+      for (const key of Object.keys(payload)) if (!active.has(key)) delete payload[key];
+    }
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       payload[container.dataset.repeatableField] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
         const item = { row_id: row.dataset.rowId || newRowId() };

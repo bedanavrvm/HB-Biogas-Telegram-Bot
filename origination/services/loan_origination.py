@@ -922,6 +922,12 @@ def _record_event(
     application, action: str, *, actor, request_id: str = '', before=None,
     after=None, metadata=None,
 ) -> None:
+    metadata = dict(metadata or {})
+    if ('field_overlay_manifest' in (application.template_configuration_snapshot or {})
+            and (application.status == 'draft' or (before or {}).get('status') == 'draft')):
+        # Retain adoption after an existing draft is submitted, without changing
+        # its immutable schema/layout snapshots or older submitted applications.
+        metadata['form_projection_version'] = 1
     event = OriginationApplicationEvent.objects.create(
         application=application,
         action=action,
@@ -930,7 +936,7 @@ def _record_event(
         request_id=request_id,
         before_values=before or {},
         after_values=after or {},
-        metadata=metadata or {},
+        metadata=metadata,
     )
     from core.services.compliance_audit import record_event
     record_event(
@@ -999,6 +1005,11 @@ def apply_choice_display_values(
 
 
 def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
+    from origination.services.origination_value_contracts import form_projection_enabled, application_input_schema, entered_payload, enabled
+    if form_projection_enabled(application) and not enabled(application.schema_snapshot):
+        from copy import copy
+        application = copy(application)
+        application.form_payload = entered_payload(application.form_payload, schema=application_input_schema(application))
     terms = application.product_terms_snapshot or {}
     applicant_name = ' '.join(
         str(application.form_payload.get(key) or '').strip()
@@ -1187,7 +1198,8 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
     # Until a signing package is prepared this endpoint is a live preview, so
     # it must reflect the latest published Admin calibration.  The signing
     # package remains immutable and continues to use its captured snapshot.
-    if application.status in {
+    from origination.services.origination_value_contracts import form_projection_enabled
+    if not form_projection_enabled(application) and application.status in {
         LoanOriginationApplication.STATUS_DRAFT,
         LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
     }:
@@ -1354,6 +1366,8 @@ def create_application(
             else:
                 signer_rules_snapshot = definition.signer_rules
                 template_configuration_snapshot = _published_template_configuration(definition)
+            if 'field_overlay_manifest' in template_configuration_snapshot:
+                schema_snapshot['form_projection_version'] = 1
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
@@ -1493,9 +1507,11 @@ def restart_application_with_main_laf(
         for item in _schema_fields(source.schema_snapshot)
         if str(item.get('key') or '')
     }
+    from origination.services.origination_value_contracts import application_input_schema
+    target_schema = application_input_schema(replacement)
     target_fields = {
         str(item.get('key') or ''): item
-        for item in _schema_fields(replacement.schema_snapshot)
+        for item in _schema_fields(target_schema)
         if str(item.get('key') or '')
     }
     safe_values = {}
@@ -1512,8 +1528,8 @@ def restart_application_with_main_laf(
             continue
         safe_values[key] = deepcopy(source.form_payload[key])
         copied_keys.append(key)
-    normalized = normalize_form_payload(replacement.schema_snapshot, safe_values)
-    validation = validate_form_payload(replacement.schema_snapshot, normalized, require_complete=False)
+    normalized = normalize_form_payload(target_schema, safe_values)
+    validation = validate_form_payload(target_schema, normalized, require_complete=False)
     if not validation.valid:
         raise OriginationError('Matching draft values could not be safely transferred.', errors=validation.errors)
     replacement.form_payload = normalized
@@ -1561,14 +1577,30 @@ def save_application_fields(
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before saving again.')
     from origination.services.origination_value_contracts import enabled, packet_contract, normalize_changes, application_input_schema, ValueContractError
+    from origination.services.origination_value_contracts import form_projection_enabled, entered_payload, PERSON_LINKS_KEY
+    projected = form_projection_enabled(application)
     input_schema = application.schema_snapshot
     if enabled(application.schema_snapshot):
         try:
             contract = packet_contract(application)
             input_schema = application_input_schema(application)
-            payload, _ = normalize_changes(contract, payload, application.form_payload or {})
+            payload, _ = normalize_changes(contract, payload, application.form_payload or {}, preserve_inactive_links=projected)
         except ValueContractError as exc:
             raise OriginationError(str(exc), errors=exc.errors) from exc
+    elif projected and isinstance(payload, dict):
+        try:
+            input_schema = application_input_schema(application)
+        except ValueContractError as exc:
+            raise OriginationError(str(exc), errors=exc.errors) from exc
+        active_keys = {field['key'] for field in _schema_fields(input_schema)}
+        invalid = set(payload) - active_keys
+        if invalid:
+            raise OriginationError('These fields are not part of the current form.',
+                                   errors={key: 'This field is not active.' for key in invalid})
+        payload = {**entered_payload(application.form_payload or {}, schema=input_schema), **payload}
+    if projected and isinstance(payload, dict):
+        links = {PERSON_LINKS_KEY: payload[PERSON_LINKS_KEY]} if PERSON_LINKS_KEY in payload else {}
+        payload = {**entered_payload(payload, schema=input_schema), **links}
     correcting = application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
     targets = correction_targets(application) if correcting else None
     if correcting and not any(targets.values()):
@@ -1589,7 +1621,8 @@ def save_application_fields(
     if not result.valid:
         raise OriginationError(next(iter(result.errors.values())), errors=result.errors)
     if correcting:
-        disallowed_fields = _changed_keys(application.form_payload, payload) - targets['field']
+        comparison_payload = {**application.form_payload, **payload} if projected else payload
+        disallowed_fields = _changed_keys(application.form_payload, comparison_payload) - targets['field']
         if disallowed_fields:
             raise OriginationError(
                 'Only fields requested by the checker may be changed.',
@@ -1698,6 +1731,10 @@ def save_application_fields(
         actor=actor,
         request_id=request_id,
     )
+    if projected and not county_key:
+        county_record = application.county_ref
+    if projected and not sub_county_key and (not county_key or county_record == application.county_ref):
+        sub_county_record = application.sub_county_ref
     branch_key = location_keys.get('branch', '')
     if branch_key and str(payload.get(branch_key) or '').strip():
         from core.services.location_catalog import resolve_location
@@ -1709,7 +1746,7 @@ def save_application_fields(
         payload[county_key] = county_record.name
     if sub_county_key and sub_county_record:
         payload[sub_county_key] = sub_county_record.name
-    application.form_payload = payload
+    application.form_payload = {**(application.form_payload or {}), **payload} if projected else payload
     application.identity_snapshot = applicant_identity_snapshot(
         payload, schema=application.schema_snapshot,
         signer_rules=application.signer_rules_snapshot,
@@ -1835,8 +1872,8 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         input_schema = application_input_schema(application)
     except ValueContractError as exc:
         raise OriginationError(str(exc), errors=exc.errors) from exc
-    from origination.services.origination_value_contracts import enabled, entered_payload
-    result = validate_form_payload(input_schema, entered_payload(application.form_payload, schema=input_schema) if enabled(application.schema_snapshot) else application.form_payload, require_complete=True)
+    from origination.services.origination_value_contracts import enabled, entered_payload, form_projection_enabled
+    result = validate_form_payload(input_schema, entered_payload(application.form_payload, schema=input_schema) if enabled(application.schema_snapshot) or form_projection_enabled(application) else application.form_payload, require_complete=True)
     if not result.valid:
         raise OriginationError(
             'Complete all required application fields before review.', errors=result.errors,
@@ -1890,6 +1927,7 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         )
     if commercial_validation:
         application.product_quote_snapshot = commercial_quote_snapshot(commercial_validation)
+    before_status = application.status
     application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
     application.revision += 1
     application.submitted_at = timezone.now()
@@ -1902,6 +1940,7 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
     )
     _record_event(
         application, 'submitted_for_review', actor=actor, request_id=request_id,
+        before={'status': before_status},
         metadata=(
             {
                 'commercial_terms_sha256': commercial_validation['entered_terms_sha256'],
@@ -1966,9 +2005,10 @@ def review_application(
     if normalized == 'request_correction':
         if not isinstance(correction_items, list) or not correction_items:
             raise OriginationError('Select at least one field or requirement to correct.')
+        from origination.services.origination_value_contracts import application_input_schema
         field_labels = {
             str(item.get('key') or ''): str(item.get('label') or item.get('key') or '')
-            for item in _schema_fields(application.schema_snapshot)
+            for item in _schema_fields(application_input_schema(application))
         }
         requirement_labels = {
             str(item.get('key') or ''): str(item.get('label') or item.get('key') or '')
@@ -1977,8 +2017,9 @@ def review_application(
             and (not item.get('workflow') or item.get('workflow') == 'loan_origination')
         }
         document_field_labels = {}
+        from origination.services.origination_value_contracts import application_document_schema
         for document in application.packet_documents.filter(selected=True).exclude(document_role='primary'):
-            for item in (document.schema_snapshot or {}).get('fields', []):
+            for item in application_document_schema(application, document).get('fields', []):
                 if not isinstance(item, dict) or not item.get('key'):
                     continue
                 field_key = str(item['key'])
@@ -2816,12 +2857,20 @@ def serialize_application(
         })
         from origination.services.origination_documents import serialize_packet
         payload['document_packet'] = serialize_packet(application)
+        from origination.services.origination_value_contracts import form_projection_enabled, entered_payload, application_input_schema, PERSON_LINKS_KEY
+        if form_projection_enabled(application):
+            payload['form_projection_version'] = 1
+            payload['form_schema'] = application_input_schema(application)
+            payload['form_payload'] = entered_payload(payload['form_payload'], schema=payload['form_schema'])
+            if presentation != 'masked' and PERSON_LINKS_KEY in application.form_payload:
+                payload['form_payload'][PERSON_LINKS_KEY] = application.form_payload[PERSON_LINKS_KEY]
         from origination.services.origination_value_contracts import enabled, application_input_schema, packet_contract, person_fields
         if enabled(application.schema_snapshot):
             payload['value_contract_version'] = 2
             if presentation != 'masked':
                 context = preview_context(application)
-                payload['form_schema'] = application_input_schema(application)
+                if not payload.get('form_projection_version'):
+                    payload['form_schema'] = application_input_schema(application)
                 payload['resolved_values'] = {key: value for key, value in context.items() if not key.startswith('_')}
                 payload['value_availability'] = context.get('_value_availability', {})
                 payload['person_role_fields'] = person_fields(packet_contract(application))

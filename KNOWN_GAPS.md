@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Placement-driven Origination forms - 13 October 2026
+
+The form now follows valid captured PDF placements plus essential operational
+details (ADR 0047). Unpublished alignment edits do not alter forms. Existing
+editable drafts retain their own captured document version; use the existing
+Change Main LAF/replacement-draft flow to adopt a different published document.
+Submitted/signed records are not backfilled. No migration or new setting is needed.
+
+Synthetic PostgreSQL/browser coverage and screenshots are recorded under
+`test-results/form-projection-*`. No live Telegram, SMS, Sheets or Drive calls
+were performed. Full-repository tests were not run.
+Final checks: 154 focused PostgreSQL tests and 46 browser tests passed, with
+light/dark mobile and desktop screenshot inspection. JavaScript syntax (127
+first-party files), Node tests and migration drift checks passed.
+
+The broader legacy Origination test run exposed seven pre-existing failures:
+old Admin upload/wording expectations, a repeated-number validation-message
+expectation, and a template-activation fixture with a mismatched document type.
+They also fail with the original HEAD service implementations restored in memory;
+see `form-projection-baseline.txt`. They are not fixed by this bounded form change.
+
 ## Signing and email presentation refinement - 12 October 2026
 
 The current email is up to 900px wide, without an introductory verdict or app

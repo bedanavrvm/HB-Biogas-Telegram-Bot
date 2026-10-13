@@ -264,7 +264,8 @@ class PacketValueSaveTests(TestCase):
 
     def test_mapped_generated_values_use_frozen_quote_not_posted_values(self):
         self.application.template_configuration_snapshot = {'field_overlay_manifest': {'fields': {
-            'interest': {'context_key': 'total_interest_amount'}}}}
+            'interest': {'context_key': 'total_interest_amount', 'page_number': 1,
+                         'box': {'x': 10, 'y': 10, 'width': 100, 'height': 20}}}}}
         self.application.product_quote_snapshot = {'interest': '0'}
         self.assertEqual(preview_context(self.application)['total_interest_amount'], '0')
 
@@ -472,7 +473,9 @@ class SharedValueFreezeTests(TestCase):
         source = synthetic_pdf()
         configuration = {'field_overlay_manifest': {'fields': {'name': {
             'context_key': 'applicant_name', 'page_number': 1,
-            'box': {'x': 40, 'y': 40, 'width': 250, 'height': 25}}}},
+            'box': {'x': 40, 'y': 40, 'width': 250, 'height': 25}},
+            'interest': {'context_key': 'interest', 'page_number': 1,
+                         'box': {'x': 40, 'y': 70, 'width': 100, 'height': 20}}}},
             'signature_overlay_manifest': {'slots': {
                 f'{rule["role"]}.{rule["slots"][0]["key"]}': {
                     'page_number': 1, 'x': 40, 'y': 90 + index * 90, 'width': 200, 'height': 50}
@@ -488,7 +491,9 @@ class SharedValueFreezeTests(TestCase):
             schema_snapshot=primary_schema, signer_rules_snapshot=rules)
         support = OriginationApplicationDocument.objects.create(application=self.application, template=template,
             document_key='support', name='Synthetic support', document_role='supporting', selected=True,
-            template_snapshot={'sha256': template.source_sha256, 'configuration': {}},
+            template_snapshot={'sha256': template.source_sha256, 'configuration': {'field_overlay_manifest': {'fields': {
+                key: {'context_key': key, 'page_number': 1, 'box': {'x': 40, 'y': 40 + index * 30, 'width': 250, 'height': 25}}
+                for index, key in enumerate(['applicant_name', 'notes'])}}}},
             schema_snapshot=schema(field('applicant_name'), field('notes', scope='document')),
             field_payload={'notes': 'Frozen support notes'}, previewed_application_revision=1)
         with patch('origination.services.origination_templates.load_template_source', return_value=source):

@@ -493,7 +493,13 @@
   }
   function navigatorRowMarkup(item) {
     const selected = item.placed && item.kind === selectedKind && item.key === selectedKey;
-    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? ' is-placed' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>✓ Placed · Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
+    const field = item.kind === 'field' ? catalogueByKey(item.canonicalKey) : null;
+    const essential = field?.form_essential_reason;
+    const formHint = field ? (field.source_type === 'system' ? 'Automatic value' : item.placed ? 'Shown in form'
+      : essential === 'signing' ? 'Required for signing' : essential === 'lending' ? 'Required for lending'
+      : essential === 'calculation' ? 'Needed for calculation' : essential === 'dependency' ? 'Required detail'
+      : essential ? 'Applicant details' : 'Hidden from form') : '';
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? ' is-placed' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong>${formHint ? `<small>${escapeHtml(formHint)}</small>` : ''}</span><span class="calibration-nav-meta">${item.required && (item.placed || essential || !field) ? '<b>Required</b>' : ''}${item.page ? `<em>✓ Placed · Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
   }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();

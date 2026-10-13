@@ -2989,6 +2989,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         from origination.services.origination_templates import _expected_signature_slots
         order = {key: index for index, key in enumerate(presentations)}
         context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
+        from origination.services.origination_value_contracts import annotate_form_fields
+        from origination.services.origination_fields import template_form_contract
+        context_keys = annotate_form_fields(context_keys, *template_form_contract(obj), primary=obj.document_role == 'primary',
+                                           configuration=latest.configuration if latest else obj.placement_config)
         from origination.services.origination_setup_documents import shared_review
         from origination.services.document_editor import readiness, authoring_products
         from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
@@ -3177,7 +3181,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         # Preserve document order while leaving unattached global choices searchable.
         order = {key: index for index, key in enumerate(presentations)}
         context_keys.sort(key=lambda item: (order.get(item['key'], len(order)), item['label']))
+        from origination.services.origination_value_contracts import annotate_form_fields
         latest = obj.configuration_revisions.order_by('-revision').first()
+        context_keys = annotate_form_fields(context_keys, obj.form_schema, obj.signer_rules, primary=obj.document_role == 'primary',
+                                           configuration=latest.configuration if latest else obj.placement_config)
         return JsonResponse({'ok':True, 'context_keys':context_keys, 'schema_revision':template_schema_revision(obj),
             'form_sections':obj.form_schema.get('sections', []), 'shared_review':shared_review(obj),
             'field':next((item for item in context_keys if item['key'] == body['field_key']), None),

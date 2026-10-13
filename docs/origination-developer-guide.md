@@ -1,5 +1,35 @@
 # Loan Origination Mini App: Developer Guide
 
+## Placement-driven forms - 13 October 2026
+
+ADR 0047 defines the active form projection in `origination_value_contracts`.
+`context_key` links a valid captured PDF placement to its input. Unplaced fields
+and empty sections disappear unless needed for applicant identity, configured
+signers, commercial terms, an active allowlisted calculation or applicability.
+System-generated values remain automatic. Selected supporting documents contribute
+shared inputs once under the existing v2 contract and their own document-local
+inputs; legacy ownership is not silently converted.
+An already confirmed person-role link retains the source details needed by its
+active target. Inactive historical links remain recoverable without applying
+their values. No name/phone matching or new automatic person merge is introduced.
+
+Application responses add `form_projection_version: 1` and each projected field
+has a `form_visibility` reason. Existing endpoints return the effective schemas;
+the browser does not reconstruct visibility from live template records. Saving,
+required checks, document completeness, previews and signing preparation use the
+same projection. Retained inactive answers are recovery data, not current inputs
+or calculation values. Normal retry/revision and scoped authorization remain.
+
+New PDF applications capture the version in their existing schema JSON. Editable
+PDF drafts use their captured layout and record adoption in event metadata on a
+successful write. Old submitted applications, correction-only records and frozen
+contexts are unchanged; subsequent publication never replaces a captured layout.
+No schema migration, environment variable, backfill or external service is needed.
+Rollback restores the old form behaviour; it does not remove answers or signatures.
+
+Tests: `origination.tests_form_projection`, the value-contract, signing-plan,
+document-editor and field-rule suites, plus the Origination browser suites.
+
 ## Signing acknowledgement — 12 October 2026
 
 The public signing session adds `verified_at`. Staff signature responses add

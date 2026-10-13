@@ -190,7 +190,7 @@ def _application(application_id: str):
     return LoanOriginationApplication.objects.select_related(
         'product_definition', 'product_version__product', 'officer', 'recheck_assigned_to',
     ).prefetch_related(
-        'requirement_evidence_files', 'correction_requests__items',
+        'requirement_evidence_files', 'correction_requests__items', 'packet_documents',
     ).filter(pk=application_id).first()
 
 
