@@ -33,7 +33,8 @@ The sticky footer shows how many tasks remain and one **Publish** button.
 - Publish documents separately before selecting them for a usable product.
 - Product Publish atomically publishes its lending terms and Origination
   profile. A failure does not leave only the terms enabled.
-- Existing consent and final-approver checks remain mandatory.
+- Configured signers and final approval remain mandatory. New applications use
+  a short signing acknowledgement without a separate consent-policy setup task.
 - Incomplete drafts can be saved and reopened.
 - Publishing a product never publishes an unfinished PDF.
 

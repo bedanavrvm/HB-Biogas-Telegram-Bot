@@ -25,7 +25,7 @@ async function mount(page, options = {}) {
     if(url.pathname.endsWith('/packet/')) {
       packetReads++;
       return route.fulfill({contentType:'image/png',body:fs.readFileSync(asset('core','jawabu-logo.png')),
-        headers:{'X-Preview-Page-Count':'1','X-Signing-Packet-Version':'synthetic-v1'}});
+        headers:{'X-Preview-Page-Count':String(options.pages || 1),'X-Signing-Packet-Version':'synthetic-v1'}});
     }
     requests.push({path:url.pathname, key:route.request().headers()['idempotency-key']});
     if(url.pathname.endsWith('/consent/')) {
@@ -58,10 +58,39 @@ async function mount(page, options = {}) {
     if(telegram) window.Telegram={WebApp:{initData:'synthetic-init',close(){window.__closed++;},ready(){},expand(){},onEvent(){}}};
   }, options.telegram || false);
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('core','secure_media_viewer.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
-  if(!options.verified) await expect(page.locator('#signature-card')).toBeVisible();
+  if(!options.verified && !options.pages) await expect(page.locator('#signature-card')).toBeVisible();
   return {errors, requests, packetReads:()=>packetReads};
+}
+
+for (const width of [320,360,390,430,768,1280]) for (const dark of [false,true]) {
+  test(`recipient preview controls and gestures ${width} ${dark?'dark':'light'}`, async ({page}, info) => {
+    await page.setViewportSize({width,height:844});
+    await page.emulateMedia({colorScheme:dark?'dark':'light'});
+    const audit = await mount(page,{pages:2});
+    await expect(page.locator('#page-label')).toHaveText('1 / 2');
+    const labels = await page.locator('.page-controls button').evaluateAll(nodes => nodes.map(n => n.getAttribute('aria-label')));
+    expect(labels).toEqual(['Previous page','Zoom out','Reset zoom','Zoom in','Refresh preview','Next page']);
+    const stage = page.locator('.packet-preview');
+    await stage.dispatchEvent('pointerdown',{pointerId:41, clientX:220,clientY:160});
+    await stage.dispatchEvent('pointerup',{pointerId:41, clientX:100,clientY:160});
+    await expect(page.locator('#page-label')).toHaveText('2 / 2');
+    await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+    await expect(stage).toHaveAttribute('data-zoom','1.25');
+    // Pan to the image edge first; a subsequent outward swipe navigates.
+    await stage.dispatchEvent('pointerdown',{pointerId:42,clientX:100,clientY:160});
+    await stage.dispatchEvent('pointermove',{pointerId:42,clientX:1000,clientY:160});
+    await stage.dispatchEvent('pointerup',{pointerId:42,clientX:1000,clientY:160});
+    await stage.dispatchEvent('pointerdown',{pointerId:43,clientX:100,clientY:160});
+    await stage.dispatchEvent('pointerup',{pointerId:43,clientX:240,clientY:160});
+    await expect(page.locator('#page-label')).toHaveText('1 / 2');
+    await expect(stage).toHaveAttribute('data-zoom','1');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(audit.errors).toEqual([]);
+    await page.screenshot({path:info.outputPath(`recipient-preview-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+  });
 }
 async function save(page, assisted=false) {
   await page.getByRole('button',{name:'Type',exact:true}).click();

@@ -113,16 +113,17 @@ test('alignment warnings allow publication and placed items stay compact and gre
   const markup = '<!doctype html><meta charset="utf-8">' + render('editor');
   const fields = [
     {key:'synthetic_email',label:'Applicant email',type:'text',attached:true,required:true},
-    {key:'synthetic_address',label:'Applicant residential address',type:'text',attached:true,required:true},
+    {key:'synthetic_address',label:'Applicant phone',type:'phone',attached:true,required:true,
+      sample_value:'0712345678',sample_canonical_value:'0712345678'},
   ];
   const configuration = {document_type:'synthetic',version:1,
     field_overlay_manifest:{fields:{email:{context_key:fields[0].key,page_number:1,box:{x:50,y:50,width:180,height:20}}}},
     signature_overlay_manifest:{slots:{}},sample_context:{synthetic_email:'synthetic@example.test'}};
   const readiness = {can_publish:true,blockers:[],tasks:[
-    {key:'field:synthetic_address',label:'Place: Applicant residential address',section:'placement',blocking:false},
+    {key:'field:synthetic_address',label:'Place: Applicant phone',section:'placement',blocking:false},
     {key:'signature:borrower.signature',label:'Place: Borrower signature',section:'placement',blocking:false},
   ]};
-  let publishRequest;
+  let publishRequest, savedConfiguration;
   await page.route(/^https?:\/\//, route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://127.0.0.1:8124') return route.abort();
@@ -130,12 +131,15 @@ test('alignment warnings allow publication and placed items stay compact and gre
     if (url.pathname.endsWith('/calibration-state/')) return route.fulfill({json:{configuration,revision:1,schema_revision:1,
       page_sizes:[{page_number:1,width:595,height:842}],context_keys:fields,readiness,
       signers:[{role:'borrower',label:'Borrower',required:true}],signer_roles:[['borrower','Borrower'],['customer','Borrower (legacy compatibility role)']],
-      signature_slots:[{role:'borrower',slot_key:'signature',label:'Borrower signature',required:true}],
+      signature_slots:[{role:'borrower',slot_key:'signature',label:'Borrower signature',required:true,slot_type:'signature'},
+        {role:'borrower',slot_key:'signature_date',label:'Borrower date signed',required:true,slot_type:'date_signed',signature_key:'signature'}],
       details:{name:'Synthetic Main LAF',products:[],shared_values:false},shared_review:{required:false}}});
     if (url.pathname.endsWith('/calibration-page/')) return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/></svg>'});
     if (url.pathname.endsWith('/editor-readiness/')) return route.fulfill({json:{readiness,shared_review:{required:false}}});
-    if (url.pathname.endsWith('/calibration-save/')) return route.fulfill({json:{revision:2,
-      configuration:route.request().postDataJSON().configuration,readiness}});
+    if (url.pathname.endsWith('/calibration-save/')) {
+      savedConfiguration=route.request().postDataJSON().configuration;
+      return route.fulfill({json:{revision:2,configuration:savedConfiguration,readiness}});
+    }
     if (url.pathname.endsWith('/calibration-publish/')) {
       publishRequest = route.request().postDataJSON();
       return route.fulfill({json:{ok:true,revision:2}});
@@ -172,6 +176,18 @@ test('alignment warnings allow publication and placed items stay compact and gre
       }
     }
   }
+  await page.locator('[data-nav-action="place"][data-key="synthetic_address"]').click();
+  await page.locator('#calibration-canvas').click({position:{x:180,y:200}});
+  await expect.poll(()=>savedConfiguration?.sample_context?.synthetic_address).toBe('0712345678');
+  await page.locator('[data-nav-action="place"][data-key="borrower.signature"]').click();
+  await page.locator('#calibration-canvas').click({position:{x:300,y:400}});
+  await expect.poll(()=>Object.keys(savedConfiguration?.signature_overlay_manifest?.slots || {}).length).toBe(2);
+  const placed=savedConfiguration.signature_overlay_manifest.slots;
+  expect(placed['borrower.signature_date'].slot_type).toBe('date_signed');
+  expect(placed['borrower.signature_date'].box.y).toBeGreaterThanOrEqual(placed['borrower.signature'].box.y + placed['borrower.signature'].box.height);
+  await page.locator('[data-nav-action="select"][data-key="borrower.signature"]').click();
+  expect(Object.keys(savedConfiguration.signature_overlay_manifest.slots)).toHaveLength(2);
+  await page.screenshot({path:info.outputPath('alignment-paired-date-1280.png'),fullPage:true});
   await page.locator('#calibration-publish').click();
   await expect(page.locator('#calibration-status')).toContainText('Document published');
   expect(publishRequest.revision).toBe(2);

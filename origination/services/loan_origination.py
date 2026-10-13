@@ -334,21 +334,8 @@ def validate_product_definition(definition: OriginationProductDefinition) -> Non
         roles = {item['role'] for item in definition.signer_rules}
         if not roles.intersection({'borrower', 'customer'}) or not roles.intersection(STAFF_SIGNER_ROLES):
             raise OriginationError('Configure an applicant and at least one JBL signer in the document editor.')
-        from origination.services.origination_consent import active_consent_policy, OriginationConsentError
-        try:
-            active_consent_policy(signing_policy='all_required')
-        except OriginationConsentError as exc:
-            raise OriginationError(str(exc)) from exc
     elif len({item['role'] for item in definition.signer_rules}) != len(definition.signer_rules):
         raise OriginationError('Multiple people sharing a role require the configurable signing policy.')
-    if definition.approval_roles:
-        from origination.services.origination_consent import active_consent_policy, OriginationConsentError
-        try:
-            policy = active_consent_policy(approval_roles=definition.approval_roles)
-        except OriginationConsentError as exc:
-            raise OriginationError(str(exc)) from exc
-        if policy.approval_roles != definition.approval_roles:
-            raise OriginationError('Publish consent wording approved for this approval sequence first.')
     if (
         definition.lifecycle_status == definition.STATUS_PUBLISHED
         and not definition.product_version_id
@@ -1345,6 +1332,8 @@ def create_application(
             schema_snapshot = snapshot_form_schema(
                 selected_schema if catalogue_selection else definition.form_schema,
             )
+            from origination.services.origination_consent import ACKNOWLEDGEMENT_VERSION
+            schema_snapshot['acknowledgement_version'] = ACKNOWLEDGEMENT_VERSION
             initial_payload = {}
             if (
                 commercial_contract_enabled(schema_snapshot)
@@ -1763,6 +1752,9 @@ def save_application_fields(
     if custom_values is not None:
         application.product_custom_values = custom_values
     application.product_selected_fee_keys = selected_fee_keys
+    # Adopt only on a successful draft write, never for an existing signing package.
+    from origination.services.origination_consent import ACKNOWLEDGEMENT_VERSION
+    acknowledgement_adopted = not application.signing_packages.exclude(status='cancelled').exists()
     application.revision += 1
     application.status = (
         LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
@@ -1787,7 +1779,8 @@ def save_application_fields(
                 'commercial_findings': commercial_validation['findings'],
             }
             if commercial_validation else {}
-        ), **({'value_request_sha256': value_fingerprint} if value_fingerprint else {})},
+        ), **({'value_request_sha256': value_fingerprint} if value_fingerprint else {}),
+            **({'acknowledgement_version': ACKNOWLEDGEMENT_VERSION} if acknowledgement_adopted else {})},
     )
     return application
 
@@ -2223,7 +2216,11 @@ def prepare_review_package(
     consent_policy = None
     consent_snapshot = {}
     consent_delivery = ''
-    if conditional_approval:
+    from origination.services.origination_consent import short_acknowledgement, acknowledgement_snapshot
+    if short_acknowledgement(application):
+        consent_snapshot = acknowledgement_snapshot(application)
+        consent_delivery = 'signer_screen'
+    elif conditional_approval:
         from origination.services.origination_consent import (
             OriginationConsentError, active_consent_policy, apply_consent_notice,
             policy_snapshot,
@@ -2742,7 +2739,7 @@ def serialize_application(
         LoanOriginationApplication.STATUS_REVIEWED: 'Approved — awaiting signing dispatch',
         LoanOriginationApplication.STATUS_SIGNING_PENDING: 'Signing invitations can be dispatched',
         LoanOriginationApplication.STATUS_PARTIALLY_SIGNED: 'Some required signing actions remain',
-        LoanOriginationApplication.STATUS_FULLY_SIGNED: 'Final signed packet complete',
+        LoanOriginationApplication.STATUS_FULLY_SIGNED: 'Signatures complete',
         LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL: 'Signed — pending independent JBL approval',
         LoanOriginationApplication.STATUS_APPROVED: 'Approved and locked',
     }.get(application.status, application.get_status_display())
@@ -2751,7 +2748,7 @@ def serialize_application(
             f'Awaiting final review by {application.recheck_assigned_to.get_full_name() or application.recheck_assigned_to.get_username()}'
             if review_packet_ready and application.recheck_assigned_to_id
             else 'Awaiting final checker review'
-            if review_packet_ready else 'Awaiting Operations to prepare packet'
+            if review_packet_ready else 'Documents awaiting preparation'
         )
     payload = {
         'id': str(application.pk), 'reference_number': application.reference_number,
@@ -2786,6 +2783,8 @@ def serialize_application(
         'recall_requires_confirmation': bool(active_review_package),
         'review_packet_ready': review_packet_ready,
     }
+    from origination.services.origination_consent import short_acknowledgement
+    payload['short_acknowledgement'] = short_acknowledgement(application)
     from origination.services.origination_signing_plans import workspace
     signing_workspace = workspace(application, latest_package if application.status != 'draft' else None, actor) if presentation == 'full' else None
     if signing_workspace:
@@ -2799,7 +2798,12 @@ def serialize_application(
                 'signing_plan_configured': 'Signers configured', 'conditional_signing_started': 'Submitted for signing',
                 'staff_signer_verified': 'Staff signature completed', 'signer_session_created': 'Signing link created',
                 'signer_otp_verified': 'Signer verified', 'signatures_completed': 'Application approved',
-                'application_recalled': 'Withdrawn for changes'}
+                'application_recalled': 'Withdrawn for changes',
+                'review_packet_prepared': 'Documents prepared',
+                'application_copy_prepared': 'Application copy requested',
+                'signed_packet_accessed': 'Signed application opened',
+                'signed_packet_archived': 'Signed documents saved',
+                'fields_saved': 'Details saved'}
             payload['activity'] = [{'label': labels.get(event.action, event.action.replace('_', ' ').capitalize()),
                 'actor': event.actor.get_full_name() or event.actor.get_username() if event.actor_id else 'Signer',
                 'at': event.occurred_at.isoformat()} for event in application.events.exclude(action='signing_plan_confirmed').select_related('actor').order_by('-occurred_at')[:20]]
@@ -2878,6 +2882,10 @@ def serialize_application(
                 for document in payload['document_packet']['documents']:
                     document['resolved_values'] = {}
                     document['field_payload'] = {}
+        if presentation == 'full':
+            from origination.services.application_copies import copy_readiness
+            payload['download_ready'] = application.status == 'approved' or (
+                application.status not in {'declined','expired','cancelled'} and not copy_readiness(application))
         package = latest_package if not (application.signing_policy_snapshot == 'all_required' and application.status == 'draft') else None
         if package:
             from origination.services.origination_signing import active_test_stamps, serialize_test_signing

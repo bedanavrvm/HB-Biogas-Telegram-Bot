@@ -251,6 +251,25 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
         rule['label'] = str(rule.get('label') or known[role])[:120]
         rule['slots'] = rule.get('slots') or [{'key':'signature','type':'signature','required':bool(rule.get('required', True)),
                                              'label':rule['label']+' signature'}]
+        # Date slots are evidence of the same verified signing action, not inputs.
+        signature_slots = [slot for slot in rule['slots'] if isinstance(slot, dict) and slot.get('type', 'signature') == 'signature']
+        date_slots = [slot for slot in rule['slots'] if isinstance(slot, dict) and slot.get('type') == 'date_signed']
+        occupied = {slot.get('key') for slot in rule['slots'] if isinstance(slot, dict)}
+        for signature in signature_slots:
+            paired = next((slot for slot in date_slots if slot.get('signature_key') == signature['key']), None)
+            if paired:
+                continue
+            available_date = next((slot for slot in date_slots if not slot.get('signature_key')), None)
+            if available_date:
+                available_date['signature_key'] = signature['key']
+            else:
+                date_key = signature['key'] + '_date'
+                while date_key in occupied:
+                    date_key += '_signed'
+                occupied.add(date_key)
+                rule['slots'].append({'key': date_key, 'type': 'date_signed',
+                    'required': signature.get('required', rule['required']),
+                    'label': rule['label'] + ' date signed', 'signature_key': signature['key']})
         slot_keys = set()
         for slot in rule['slots']:
             if not isinstance(slot, dict) or not slot.get('key') or slot['key'] in slot_keys or slot.get('type', 'signature') not in {'signature','stamp','date_signed'}:

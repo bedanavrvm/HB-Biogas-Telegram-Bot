@@ -11,6 +11,14 @@ STATUS_LABELS = {
     'cancelled': 'Cancelled',
 }
 
+STATUS_GROUPS = {
+    'draft': ('Draft', ['draft']),
+    'changes': ('Needs changes', ['correction_required']),
+    'progress': ('In progress', ['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval']),
+    'completed': ('Completed', ['approved']),
+    'closed': ('Closed', ['declined', 'expired', 'cancelled']),
+}
+
 
 def actionable_applications(scoped, *, user, access):
     """Map each authorized application to one next action, not a slot count."""
@@ -27,9 +35,9 @@ def actionable_applications(scoped, *, user, access):
         officer=user, status__in=['draft', 'correction_required'],
     ):
         actions[str(row.pk)] = 'Make corrections' if row.status == 'correction_required' else 'Complete application'
-    from origination.services.origination_consent import conditional_approval_enabled
-    if conditional_approval_enabled():
-        for row in scope('origination.create').filter(officer=user, status__in=['ready_for_review', 'reviewed']):
+    from origination.services.origination_consent import conditional_approval_enabled, short_acknowledgement
+    for row in scope('origination.create').filter(officer=user, status__in=['ready_for_review', 'reviewed']):
+        if conditional_approval_enabled() or short_acknowledgement(row):
             actions[str(row.pk)] = 'Continue to signing'
 
     # Legacy packets still require preparation, independent review and dispatch.

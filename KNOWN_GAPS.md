@@ -1,5 +1,41 @@
 # Known Gaps and Verified Workarounds
 
+## Origination signing/copy verification - 13 October 2026
+
+Local PostgreSQL and intercepted Chromium checks cover short acknowledgement
+integrity/legacy retention, scoped copy preparation and current-access retrieval,
+expired/tampered/stale links, unsigned marking, exact signed bytes, grouped
+filters, OTP/staff dates (including Nairobi midnight), replay and date placement.
+Browser checks use the real templates/assets with synthetic API data, not an
+alternative UI. Mobile/desktop screenshots are under `test-results/playwright`.
+Text logs are retained as `test-results/origination-*.txt`.
+Final focused PostgreSQL run: 160 passed. Browser run: 90 passed, with widths
+320/360/390/430/768/1280 and light/dark examples. Main/remote previews, participant
+rows, completion screens and paired alignment were visually inspected. Node
+contracts and syntax checks pass; Django reports no model/migration changes.
+
+The unchanged HEAD was tested in an isolated baseline worktree against the same
+local PostgreSQL test database. Nineteen existing failures reproduce there:
+legacy role-policy fixtures, old product-owned template Admin assertions, and
+template calibration fixtures with unsupported field/type mappings. These are
+not evidence that this change fixes those separate workflows. The supported
+authoring route is the independent Document editor; seed current scoped access
+policies before operator testing. Do not loosen authorization to satisfy old
+fixtures. Focused affected-domain checks pass separately.
+The broader parity run recorded 232 tests and the same 19 baseline failures.
+The artifact audit also fails on existing logo/Portal screenshot hash pins; those
+files and their allowlist were not changed. Do not silently repin them. See
+`test-results/origination-artifacts.txt`. Local Python is 3.14; the pinned
+deployment runtime remains 3.12, which was not independently executed here.
+
+Real device Telegram download/keyboard behaviour, live Africa's Talking delivery,
+and production Drive retrieval remain unverified; no live SMS, customer data,
+provider changes, migrations or deployment were used. Existing published PDFs
+do not gain date fields automatically: create an editable copy, save its signers,
+review/place the date companions and publish for future applications. Signed
+historical PDFs retain their original bytes. This is a controlled application
+download/signing change, not a full-repository test certification.
+
 ## TAT usability/export verification - 13 October 2026
 
 Synthetic PostgreSQL checks verify canonical BRO corrections, current-access

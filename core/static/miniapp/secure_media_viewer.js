@@ -41,7 +41,10 @@
     on(stage, 'pointerdown', event => {
       pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
       try { stage.setPointerCapture?.(event.pointerId); } catch (_) {}
-      if (pointers.size === 1) { start = {x:event.clientX,y:event.clientY,panX,panY}; multiTouch = false; }
+      if (pointers.size === 1) {
+        const limitX = Math.max(0, (fittedWidth * scale - stage.getBoundingClientRect().width) / 2);
+        start = {x:event.clientX,y:event.clientY,panX,panY,limitX}; multiTouch = false;
+      }
       if (pointers.size === 2) {
         const [a,b] = [...pointers.values()], rect = stage.getBoundingClientRect();
         pinch = {distance:Math.hypot(a.x-b.x,a.y-b.y), scale,
@@ -65,8 +68,11 @@
       if (!pointers.has(event.pointerId)) return;
       pointers.delete(event.pointerId);
       if (!pointers.size) {
-        if (event.type === 'pointerup' && start && !multiTouch && scale === 1
-            && Math.abs(event.clientX-start.x)>60 && Math.abs(event.clientY-start.y)<40) options.onNavigate?.(event.clientX<start.x ? 1 : -1);
+        const dx = start ? event.clientX - start.x : 0;
+        const outward = options.navigateAtEdges && start &&
+          (dx < 0 ? start.panX <= -start.limitX + 1 : start.panX >= start.limitX - 1);
+        if (event.type === 'pointerup' && start && !multiTouch && (scale === 1 || outward)
+            && Math.abs(dx)>60 && Math.abs(event.clientY-start.y)<40) options.onNavigate?.(dx<0 ? 1 : -1);
         start = pinch = null;
       }
     }

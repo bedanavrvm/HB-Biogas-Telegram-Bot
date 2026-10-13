@@ -27,12 +27,14 @@ function application(approved = false) {
     signing_package:{id:packageId,status:approved?'fully_signed':'in_progress',verified_signing:{enabled:true,
       test_mode:false,archive_status:approved?'uploaded':'not_ready',production_stamps:[],packet_version:'synthetic-v1',
       participants:people.map((p,index)=>({role:p.role,participant_id:p.id,name:p.name,label:p.role.replaceAll('_',' '),
+        signed_at:p.complete?'2026-10-13T09:15:00Z':'',
         staff:p.staff,required:true,session_status:'',slots:[{key:`signature_${index}`,type:'signature',
           document_key:'primary',required:true,completed:p.complete}]}))}}};
 }
 
-async function mount(page, {approved=false,dark=false}={}) {
+async function mount(page, {approved=false,dark=false,download=''}={}) {
   const errors=[];
+  const queries=[];
   page.on('pageerror', error=>errors.push(error.message));
   let payload;
   await page.route('**/*', async route=>{
@@ -42,16 +44,32 @@ async function mount(page, {approved=false,dark=false}={}) {
     if(url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],
       capabilities:{user_id:2,can_create:false,can_review:false,can_start_signing:false,can_staff_sign:true,
         staff_signer_roles:['branch_manager']}}});
-    if(url.pathname.endsWith('/applications/')) return route.fulfill({json:{ok:true,applications:[application(approved)],
-      capabilities:{user_id:2,can_staff_sign:true,staff_signer_roles:['branch_manager']},pagination:{pages:1,page:1,total:1}}});
+    if(url.pathname.endsWith('/applications/')) {
+      queries.push(url.search);
+      return route.fulfill({json:{ok:true,applications:[application(approved)],
+        status_group_options:[{value:'draft',label:'Draft'},{value:'changes',label:'Needs changes'},
+          {value:'progress',label:'In progress'},{value:'completed',label:'Completed'},{value:'closed',label:'Closed'}],
+        capabilities:{user_id:2,can_staff_sign:true,staff_signer_roles:['branch_manager']},pagination:{pages:1,page:1,total:1}}});
+    }
     if(url.pathname.endsWith('/staff-signature/')) {
       payload=route.request().postDataJSON();
       return route.fulfill({json:{ok:true,application:application(true)}});
+    }
+    if(url.pathname.endsWith('/download/')) {
+      payload=route.request().postDataJSON();
+      return route.fulfill({json:{ok:true,download_url:'http://127.0.0.1/copy.pdf',
+        filename:`ORG-SYNTHETIC-PLAN-${approved?'SIGNED':'UNSIGNED'}.pdf`,copy_type:approved?'signed':'unsigned'}});
     }
     if(url.pathname.includes(`/applications/${applicationId}/`)) return route.fulfill({json:{ok:true,application:application(approved)}});
     return route.fulfill({json:{ok:true}});
   });
   await page.goto(`http://127.0.0.1/origination/?application=${applicationId}`);
+  if(download) await page.evaluate(mode=>{
+    window.__downloads=[];
+    window.Telegram={WebApp:{initData:'synthetic-download',ready(){},expand(){},onEvent(){},isVersionAtLeast(){return true},
+      downloadFile(parameters,callback){window.__downloads.push(parameters);if(mode==='throw')throw new Error('unsupported');callback(mode!=='cancel');}}};
+    if(mode==='browser') delete window.Telegram.WebApp.downloadFile;
+  }, download);
   await page.addStyleTag({path:asset('core','base.css')});
   await page.addStyleTag({content:fs.readFileSync(asset('core','workflow_standard.css'),'utf8').replace(/@import[^;]+;/g,'')});
   await page.addStyleTag({path:asset('origination','loan_origination.css')});
@@ -63,13 +81,60 @@ async function mount(page, {approved=false,dark=false}={}) {
       document.documentElement.style.setProperty(`--tg-theme-${key}`,value);
   });
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('core','secure_media_viewer.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','loan_origination.js')});
   await expect(page.locator('.signing-workspace')).toBeVisible();
-  return {errors,payload:()=>payload};
+  return {errors,payload:()=>payload,queries};
 }
 
-for(const width of [320,360,390,430,1280]) for(const dark of [false,true]) {
+test('grouped status filter uses five plain choices and the grouped API parameter', async({page})=>{
+  const audit=await mount(page);
+  await page.getByRole('button',{name:'Back to applications',exact:true}).click();
+  await page.getByRole('button',{name:'Filters',exact:true}).click();
+  await expect(page.getByLabel('Status')).toContainText('Needs changes');
+  await expect(page.getByLabel('Status').locator('option')).toHaveCount(6);
+  await page.getByLabel('Status').selectOption('completed');
+  await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await expect.poll(()=>audit.queries.some(query=>query.includes('status_group=completed') && !query.includes('&status='))).toBe(true);
+});
+
+for(const width of [320,390,768,1280]) test(`internal preview toolbar and zoomed edge swipe ${width}`, async({page},info)=>{
+  await page.setViewportSize({width,height:844});
+  await mount(page);
+  await page.route('**/current-signing-packet/**', route=>route.fulfill({contentType:'image/svg+xml',
+    body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/><text x="20" y="40">Synthetic document</text></svg>',
+    headers:{'X-Preview-Page-Count':'2','X-Signing-Packet-Version':'synthetic-v1'}}));
+  await page.getByRole('button',{name:'Review documents',exact:true}).click();
+  await expect(page.locator('#preview-page')).toHaveText('Page 1 of 2');
+  expect(await page.locator('.preview-toolbar button').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))))
+    .toEqual(['Previous page','Zoom out','Reset zoom','Zoom in','Refresh preview','Next page']);
+  const stage=page.locator('#document-preview-stage');
+  await stage.dispatchEvent('pointerdown',{pointerId:51,clientX:220,clientY:200});
+  await stage.dispatchEvent('pointerup',{pointerId:51,clientX:100,clientY:200});
+  await expect(page.locator('#preview-page')).toHaveText('Page 2 of 2');
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  await stage.dispatchEvent('pointerdown',{pointerId:52,clientX:100,clientY:200});
+  await stage.dispatchEvent('pointermove',{pointerId:52,clientX:1000,clientY:200});
+  await stage.dispatchEvent('pointerup',{pointerId:52,clientX:1000,clientY:200});
+  await stage.dispatchEvent('pointerdown',{pointerId:53,clientX:100,clientY:200});
+  await stage.dispatchEvent('pointerup',{pointerId:53,clientX:240,clientY:200});
+  await expect(page.locator('#preview-page')).toHaveText('Page 1 of 2');
+  await expect(stage).toHaveAttribute('data-zoom','1');
+  await page.screenshot({path:info.outputPath(`internal-preview-${width}.png`),fullPage:true});
+});
+
+for (const mode of ['native','cancel','throw','browser']) test(`application download ${mode} handoff names the copy without false success`, async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const audit=await mount(page,{download:mode});
+  await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await expect(page.locator('#origination-toast')).toContainText(mode==='cancel'?'Download cancelled.':'Download requested: ORG-SYNTHETIC-PLAN-UNSIGNED.pdf');
+  expect(audit.payload().revision).toBe(4);
+  await expect(page.getByRole('button',{name:'Download application',exact:true})).toBeEnabled();
+  expect(audit.errors).toEqual([]);
+});
+
+for(const width of [320,360,390,430,768,1280]) for(const dark of [false,true]) {
   test(`participant workspace ${width} ${dark?'dark':'light'}`,async({page},info)=>{
     await page.setViewportSize({width,height:844});
     const audit=await mount(page,{dark});

@@ -1,5 +1,49 @@
 # Loan Origination Mini App: Developer Guide
 
+## Short acknowledgement, copies and signing dates - 13 October 2026
+
+Read ADR 0048 before changing these boundaries. New application schemas capture
+`acknowledgement_version`; existing editable drafts adopt through an audited
+`fields_saved` event, without replacing their schema. Package snapshots contain
+the versioned text, completion policy, approval roles and digest. They participate
+in the existing review-scope hash. No notice page is appended and no active
+consent-policy record is required for this mode. Absent markers remain historical;
+old packages, links and signed bytes retain their original checks.
+
+`application_copies.prepare_copy` validates the saved revision and active form
+and supporting-document fields. Authorized POST preparation returns a fifteen-
+minute actor-bound download URL, filename and copy type. The GET/HEAD route uses
+the signed capability because native Telegram downloads cannot send initData;
+it rechecks the actor's current access and full application visibility. Unsigned
+copies bind captured render inputs and carry a mark on every page. Approved
+copies are byte-for-byte the signed PDF. An expired/stale/closed/tampered request
+is rejected. Copy preparation records one idempotent event; it does not generate
+review receipts, signatures, provider jobs or a new model.
+
+List responses retain `status_options` and raw `status` for old clients. New
+clients use `status_group_options` and `status_group`, applied before pagination.
+No permission or workflow-status enum is changed.
+
+Signer authoring pairs signature slots with `date_signed` slots in the same
+document/participant. Existing dates are reused once, then distinct companions
+are added as needed. The editor places a companion only within the page and
+outside other configured boxes. Publication remains advisory (ADR 0046).
+Verified staff actions capture one `verified_at`; external actions use OTP
+`verified_at`. Receipt, participant projection and PDF dates share that event.
+Invalidated actions do not provide an active date. Old actions fall back to
+their original timestamp. Samples are generated server-side by scalar type,
+active choice and captured bounds, including repeating rows.
+
+Both Origination previews use the shared image gesture controller. Edge
+navigation while zoomed is opt-in, leaving other Mini Apps unchanged. Pinches
+cannot change pages. Toolbar order is previous, minus, reset percentage, plus,
+refresh, next. Feedback uses visible toasts above dialogs; essential inline
+validation and verification state remain.
+
+No migration, new setting, role, dependency, scheduler or provider write is
+required. Updating existing published PDFs is an explicit editable-copy and
+publication operation, not an automatic backfill.
+
 ## Placement-driven forms - 13 October 2026
 
 ADR 0047 defines the active form projection in `origination_value_contracts`.

@@ -124,6 +124,8 @@ request can be approved.
 | Timeline annotation | An append-only authorised correction, artifact link, or redaction record. It never edits or deletes the source event. |
 | Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
 | Origination Applicant | Person or entity applying for a loan. Applicant is the standard operational label before execution. |
+| Origination signing acknowledgement | The short agreement confirmed by a signer for the exact application documents and required approval. Historical signing requests retain their original agreement. |
+| Origination application copy | A downloadable document bundle: clearly unsigned before approval, or the exact signed application after approval. Downloading never grants approval. |
 | Origination Customer | The canonical global customer identity optionally matched to an Origination Applicant; it is not a generic form-role synonym. |
 | Origination Borrower | Contractual obligor or signer named in legal documents. The role may refer to the same person as the Applicant but has a distinct legal meaning. |
 | Origination Party | Collective term for the Applicant, guarantors, spouse, and other document participants. |

@@ -196,16 +196,11 @@ def production_security_readiness_issues(
     if conditional_enabled and check_database:
         try:
             from django.db import OperationalError, ProgrammingError
-            from origination.models import OriginationConsentPolicyVersion, OriginationProductDefinition
+            from origination.models import OriginationConsentPolicyVersion, OriginationSigningPackage
 
             policies = list(OriginationConsentPolicyVersion.objects.filter(
                 status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
             ))
-            if not policies:
-                warning(
-                    'conditional-approval-consent-policy',
-                    'Publish compliance-approved Origination consent wording before enabling conditional approval.',
-                )
             for policy in policies:
                 if not (
                     str(policy.approval_reference or '').strip()
@@ -221,14 +216,14 @@ def production_security_readiness_issues(
                         'conditional-approval-consent-integrity',
                         'The active Origination consent policy failed its integrity check.',
                     )
-            covered_sequences = {tuple(policy.approval_roles) for policy in policies}
-            for sequence in OriginationProductDefinition.objects.filter(
-                is_active=True, lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
-            ).values_list('approval_roles', flat=True):
-                if tuple(sequence) not in covered_sequences:
-                    warning('conditional-approval-consent-sequence',
-                          'An active product has no compliance-approved consent for its approval sequence.')
-                    break
+            # New applications carry a short acknowledgement. Policy records
+            # remain relevant only to historical packages that captured them.
+            if OriginationSigningPackage.objects.filter(
+                conditional_approval=True, status__in=['pending', 'in_progress'],
+                consent_policy__isnull=True,
+            ).exclude(consent_policy_snapshot__version='acknowledgement-1').exists():
+                warning('conditional-approval-consent-policy',
+                        'A historical signing request has no saved acknowledgement. Ask IT to review it.')
         except (OperationalError, ProgrammingError):
             warning(
                 'conditional-approval-consent-readiness',

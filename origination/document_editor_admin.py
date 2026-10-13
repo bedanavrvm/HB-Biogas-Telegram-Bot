@@ -31,6 +31,8 @@ def editor_data(document):
     latest = document.configuration_revisions.order_by('-revision').first()
     catalogue = annotate_form_fields(catalogue, data['form_schema'], data['signers'], primary=document.document_role == 'primary',
                                     configuration=latest.configuration if latest else document.placement_config)
+    from origination.services.origination_templates import annotate_field_samples
+    catalogue = annotate_field_samples(catalogue)
     return {'ok':True, 'readiness':data, 'schema_revision':data['schema_revision'], 'revision':data['revision'],
         'signers':data['signers'], 'context_keys':catalogue,
         'signature_slots':list(_expected_signature_slots(document.product_definition, document).values()),

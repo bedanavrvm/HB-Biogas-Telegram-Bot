@@ -1,5 +1,41 @@
 # Loan Origination Mini App: Django Admin Guide
 
+## Signing and application copies - 13 October 2026
+
+New applications use a short acknowledgement on the signing screen. There is
+no additional policy page or separate consent-policy activation task. Required
+signers, approval order, OTP, access and document-integrity checks still apply.
+Existing prepared applications and signing links retain their saved consent.
+To adopt the shorter flow on an existing editable draft, save it successfully;
+an already prepared application must first use **Withdraw for changes**.
+
+The download icon beside the application heading prepares its document bundle.
+Before approval the filename includes **UNSIGNED** and every PDF page is marked
+**UNSIGNED - NOT FINAL**. After approval it downloads the exact signed application.
+Complete required main/supporting fields first. Telegram displays the filename
+in its download confirmation; older clients use a browser download. A download
+request does not approve or sign the application.
+
+The queue filter groups statuses into Draft, Needs changes, In progress,
+Completed and Closed. Each application still displays its precise status.
+Signing rows display each person's progress and verified Nairobi signing time.
+The success screen appears only after verification and offers a ten-second
+close/return countdown, with **Stay here** available.
+
+In a Document editor draft, saving signers pairs each signature with a
+**Date signed** field. Placing a new signature also places its date where there
+is clear space; otherwise place the date separately. Both remain independently
+adjustable. Missing placement stays a publication warning, but a required date
+must be placed before a new signing bundle can be prepared. Date values come
+from successful OTP verification or authenticated staff signing, never manual
+entry or the officer's computer clock.
+
+For a published document, create its editable copy, save its signer settings,
+place/check the date fields, preview realistic examples and publish normally.
+Existing alignment is retained. No historical application or signed PDF is
+rewritten. Samples use synthetic phones, IDs, valid numbers/dates and active
+choices; manually supplied examples are preserved.
+
 ## Configurable signing — 12 October 2026
 
 New product versions can use **All required signers complete approval**. Existing
@@ -14,11 +50,10 @@ automatically by the migration.
 2. In Product guided setup → Documents, choose the configurable completion rule
    and default signers. Document-required participants cannot be removed. Product
    setup selects documents and defaults; PDF changes stay in the Document editor.
-3. Record and activate a separate compliance-approved consent policy covering
-   this completion rule. A legacy empty approval sequence does not cover it.
-   Publish the new product version only after the compatible documents and consent
-   are ready. Existing conditional-approval and verified-signing environment gates
-   still apply.
+3. Publish the product once its compatible documents and signer defaults are
+   ready. New applications capture the short acknowledgement automatically;
+   no separate consent-policy record is needed. Verified-signing delivery
+   configuration still applies.
 4. For an exception, open Applications → application → **Configure signers**.
    An active Superuser may select optional participants and assign eligible staff
    while the application is a draft. Empty staff assignment means any currently
@@ -80,11 +115,11 @@ applications continue using the versions they started with.
 
 For a newly published product version:
 
-1. Apply the Origination migrations. Enable verified signing and conditional
-   approval using the existing signing-readiness checks.
-2. Create a compliance-reviewed consent version with **Approval roles** set to
-   `["branch_manager"]`. Its wording must explicitly identify BM approval and
-   signature as final approval. Activate it with its approval reference.
+1. Apply the Origination migrations and configure verified signing using the
+   existing signing-readiness checks.
+2. New applications use the built-in short acknowledgement. Keep previously
+   captured consent policies for historical signing requests; do not replace
+   them or modify already signed evidence.
 3. Create an editable next product version. Set **Final approval** to **BM
    approves and signs**. Keep Officer, Credit Analyst, applicants and BM as
    required signers and calibrate their signature/stamp positions.

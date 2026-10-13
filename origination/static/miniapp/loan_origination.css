@@ -348,6 +348,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 
 .origination-toast { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 1100; width: max-content; max-width: min(calc(100vw - 24px), 380px); transform: translateX(-50%); padding: 7px 10px; border-radius: 8px; background: #164e72; color: #fff; box-shadow: 0 5px 16px rgba(0,0,0,.2); font-size: .66rem; font-weight: 700; line-height: 1.3; }
 .origination-toast.success { background: #176044; }
+.origination-toast{top:calc(10px + env(safe-area-inset-top));bottom:auto;z-index:30000;font-size:.8rem}
+.preview-toolbar{display:flex;justify-content:center;gap:6px;flex-wrap:nowrap}
+.preview-toolbar button{width:40px;min-width:36px;height:40px;padding:6px;flex:0 1 40px}
+.preview-toolbar #preview-zoom{flex-basis:64px;width:64px}
+.preview-toolbar svg{width:18px;height:18px}
+.participant-date{font-variant-numeric:tabular-nums}
+.editor-context{flex-wrap:nowrap;align-items:flex-start}
+.editor-context strong,.editor-context small{white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+.editor-context .status-chip{justify-self:start;margin-top:4px;max-width:100%;white-space:normal}
 .origination-toast.warning { background: #7a5400; }
 .origination-toast.error { background: #9d2d20; }
 .feedback-banner { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 6px 8px 0; padding: 6px 8px; border: 1px solid #9fc8e0; border-radius: 7px; background: #eef8fe; color: #174d6a; font-size: .66rem; font-weight: 700; line-height: 1.3; }

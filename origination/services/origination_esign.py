@@ -95,11 +95,17 @@ class OriginationSigningProblem(OriginationError):
 
 
 def _require_approved_package(package: OriginationSigningPackage) -> None:
+    from origination.services.origination_consent import valid_acknowledgement
+    from origination.services.loan_origination import _package_review_scope_hash
+    short_consent = valid_acknowledgement(package)
+    if (package.consent_policy_snapshot or {}).get('version') == 'acknowledgement-1' and not short_consent:
+        raise OriginationError('The document acknowledgement changed. Prepare the documents again.')
+    if short_consent and _package_review_scope_hash(package) != package.review_scope_sha256:
+        raise OriginationError('The document bundle changed. Ask the officer to prepare it again.')
     if package.application.signing_policy_snapshot == 'all_required':
-        from origination.services.loan_origination import _package_review_scope_hash
         if ((package.context_snapshot or {}).get('_signing_plan', {}).get('policy') != 'all_required'
                 or package.consent_policy_snapshot.get('signing_policy') != 'all_required'
-                or not package.consent_policy_id or package.consent_policy.signing_policy != 'all_required'
+                or (not short_consent and (not package.consent_policy_id or package.consent_policy.signing_policy != 'all_required'))
                 or _package_review_scope_hash(package) != package.review_scope_sha256):
             raise OriginationError('The signing plan or approved consent failed its integrity check.')
     if package.application.status not in {
@@ -108,13 +114,15 @@ def _require_approved_package(package: OriginationSigningPackage) -> None:
         LoanOriginationApplication.STATUS_FULLY_SIGNED,
         LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
     }:
-        raise OriginationError('Operations must start the approved signing package first.')
+        raise OriginationError('Start signing this application first.')
     if package.conditional_approval:
         snapshot = package.consent_policy_snapshot or {}
         if (
-            not package.consent_policy_id
-            or snapshot.get('content_sha256') != package.consent_policy.content_sha256
-            or snapshot.get('version') != package.consent_policy.version
+            not short_consent and (
+                not package.consent_policy_id
+                or snapshot.get('content_sha256') != package.consent_policy.content_sha256
+                or snapshot.get('version') != package.consent_policy.version
+            )
         ):
             raise OriginationError('The conditional packet consent policy failed its integrity check.')
     elif (
@@ -191,7 +199,7 @@ def _binding(session: OriginationSignerSession) -> str:
 
 
 def _package_consent_version(package: OriginationSigningPackage) -> str:
-    if package.conditional_approval:
+    if package.conditional_approval or (package.consent_policy_snapshot or {}).get('version') == 'acknowledgement-1':
         return str((package.consent_policy_snapshot or {}).get('version') or '')
     return CONSENT_VERSION
 
@@ -967,7 +975,8 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
             'name': str((raw.get('identity') or {}).get('name') or ''),
             'staff_user_id': raw.get('staff_user_id'),
             'signature_actor_id': signature.actor_id if signature else None,
-            'signed_at': signature.created_at.isoformat() if signature else '',
+            'signed_at': ((session.verified_at.isoformat() if session and session.verified_at else
+                           (signature.metadata or {}).get('verified_at') or signature.created_at.isoformat()) if signature else ''),
             'label': str(raw.get('label') or role.replace('_', ' ').title()),
             'applicable': bool(raw.get('applicable', True)),
             'required': bool(raw.get('required')),
@@ -1071,7 +1080,8 @@ def complete_staff_signatures(
                     'consent_policy_sha256': str(
                         (package.consent_policy_snapshot or {}).get('content_sha256') or ''
                     ),
-                    'consented_at': timezone.now().isoformat(),
+                    'consented_at': signed_at.isoformat(),
+                    'verified_at': signed_at.isoformat(),
                     'staff_authenticated': True,
                     **({'signed_date': timezone.localdate(signed_at).isoformat()}
                        if action_type == OriginationSigningAction.TYPE_DATE_SIGNED else {}),

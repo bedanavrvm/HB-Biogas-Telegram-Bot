@@ -1223,7 +1223,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(template.drive_file_id, 'drive-integrated-laf')
         self.assertEqual(
             template.placement_config['sample_context']['customer_name'],
-            'Customer name',
+            'Sample Applicant',
         )
         self.assertEqual(
             list(template.events.values_list('action', flat=True)),

@@ -21,7 +21,7 @@
     validate: () => mode === 'drawn' && !strokes.some(stroke => stroke.length >= 2) ? {'signature-pad': 'Draw your signature, or choose Type to enter your name.'} : {},
     validators: {
     'typed-name': value => mode === 'typed' && !String(value).trim() ? 'Enter your full legal name.' : '',
-    'packet-consent': (value, input) => input.checked ? '' : 'Confirm that you reviewed and agree to the packet.',
+    'packet-consent': (value, input) => input.checked ? '' : 'Confirm that you reviewed and agree to sign the documents.',
     'assisted-consent': (value, input) => session?.access_mode !== 'assisted' || input.checked ? '' : 'Confirm that you are personally signing on this device.',
   }});
   const verificationForm = window.MiniAppUtils?.bindAccessibleForm?.(document.getElementById('otp-panel'), {validators: {
@@ -39,6 +39,13 @@
   let reviewedPages = new Set();
   let pageObjectUrl = '';
   let completion = null;
+  let pageLoading = false;
+  const pageGestures = window.SecureMediaViewer?.bindImageGestures(
+    document.querySelector('.packet-preview'), document.getElementById('packet-page'), {
+      navigateAtEdges: true,
+      onNavigate: direction => { if (page + direction >= 1 && page + direction <= pages) void navigatePage(page + direction); },
+      onZoom: scale => { document.getElementById('page-zoom').textContent = `${Math.round(scale * 100)}%`; },
+    });
   const pendingRequests = new Map();
 
   function syncSignatureProtection() {
@@ -59,6 +66,16 @@
     status.textContent = message;
     status.className = `notice ${kind}`;
     status.hidden = !message;
+    const toast = document.getElementById('sign-toast');
+    if (toast && message) {
+      toast.textContent = message;
+      toast.className = `sign-toast ${kind}`;
+      toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+      toast.hidden = false;
+      window.clearTimeout(show.timer);
+      show.timer = window.setTimeout(() => { toast.hidden = true; }, kind === 'error' ? 7000 : 4500);
+      window.MiniAppUtils?.haptic?.(kind);
+    }
   };
 
   async function api(path, options = {}) {
@@ -128,7 +145,7 @@
     document.getElementById('signing-mode-label').textContent = assisted ? 'Assisted signing' : 'Remote signing';
     document.getElementById('signing-mode-detail').textContent = assisted
       ? 'You are signing in person on a JBL officer’s device. Keep control of the device while entering your verification code.'
-      : 'You can review and sign this packet securely from your own phone, wherever you are.';
+      : 'Review and sign the documents on your phone.';
     document.getElementById('document-list').innerHTML = session.documents
       .map(item => `<span>${escapeHtml(item.name || item.key)} · ${item.page_count || 0} page(s)</span>`).join('');
     const consentText = document.getElementById('packet-consent-text');
@@ -177,7 +194,7 @@
     document.getElementById('packet-consent').disabled = reviewedPages.size < pages && !session.consented;
     render();
     if (packetChanged) {
-      show('The packet now includes a preceding verified signature. Your saved consent and verification step are unchanged.', 'info');
+      show('Another signature was saved. Your signing progress is unchanged.', 'info');
     }
   }
 
@@ -214,12 +231,20 @@
   document.getElementById('mode-drawn').onclick = () => setMode('drawn');
   document.getElementById('mode-typed').onclick = () => setMode('typed');
   async function navigatePage(next) {
+    if (pageLoading || next < 1 || next > pages) return;
     const previous = page;
+    pageLoading = true;
     page = next;
-    try { await loadPage(); } catch (error) { page = previous; show(error.message, 'error'); }
+    try { await loadPage(); pageGestures?.reset(); }
+    catch (error) { page = previous; document.getElementById('preview-loading').hidden = true; document.getElementById('packet-page').hidden = false; show(error.message, 'error'); }
+    finally { pageLoading = false; }
   }
   document.getElementById('page-prev').onclick = () => { if (page > 1) void navigatePage(page - 1); };
   document.getElementById('page-next').onclick = () => { if (page < pages) void navigatePage(page + 1); };
+  document.getElementById('page-zoom-out').onclick = () => pageGestures?.zoom(pageGestures.scale - .25);
+  document.getElementById('page-zoom').onclick = () => pageGestures?.reset();
+  document.getElementById('page-zoom-in').onclick = () => pageGestures?.zoom(pageGestures.scale + .25);
+  document.getElementById('page-refresh').onclick = () => void navigatePage(page);
 
   async function recoverSession(error) {
     if (!error.uncertain) return;
@@ -231,7 +256,7 @@
   }
 
   document.getElementById('save-signature').onclick = async event => {
-    if (signatureForm && !signatureForm.validate()) return;
+    if (signatureForm && !signatureForm.validate()) return show('Check the highlighted signing fields.', 'warning');
     const button = event.currentTarget;
     try {
       await window.MiniAppUtils.runButtonAction(button, async () => {
@@ -276,7 +301,7 @@
   };
 
   document.getElementById('verify-otp').onclick = async event => {
-    if (verificationForm && !verificationForm.validate()) return;
+    if (verificationForm && !verificationForm.validate()) return show('Enter the six-digit code sent to your phone.', 'warning');
     const button = event.currentTarget;
     try {
       await window.MiniAppUtils.runButtonAction(button, async () => {

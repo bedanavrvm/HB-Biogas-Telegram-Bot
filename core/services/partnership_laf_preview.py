@@ -242,7 +242,7 @@ def _signature_preview_page(width: float, height: float, slots: list[dict]) -> b
             }.get(str(spec.get('ink_color') or 'black'), (0.09, 0.14, 0.12))
             pdf.setFillColorRGB(*ink)
             font_name = str(spec.get('typed_font') or 'Helvetica-BoldOblique')
-            value = 'Signed date' if slot_type == 'date_signed' else 'Sample signature'
+            value = '13/10/2026' if slot_type == 'date_signed' else 'Sample signature'
             try:
                 font_size = float(spec.get('font_size') or 15)
                 text_width = max(1, pdf.stringWidth(value, font_name, font_size))

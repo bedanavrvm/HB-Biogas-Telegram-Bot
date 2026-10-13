@@ -259,7 +259,7 @@
     if (application.status_label) return application.status_label;
     if ((application.approval_roles || []).length) return application.status_text || 'Awaiting signatures';
     if (application?.status === 'ready_for_review') {
-      return application.review_packet_ready ? 'Final review' : 'Prepare packet';
+      return application.review_packet_ready ? 'Final review' : 'Prepare documents';
     }
     if (application?.status === 'signed_pending_approval') return 'Signed - pending JBL approval';
     if (application?.status === 'approved') return 'Approved and locked';
@@ -748,25 +748,25 @@
     const approving = verified && (current.approval_roles || []).includes(button.dataset.signerRole);
     openSheet({
       mode: 'test-signature', eyebrow: verified ? '' : 'Non-production simulator', title: verified ? 'Sign' : 'Capture TEST signature',
-      hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use one synthetic mark for this signer. It will be reused at every signature placement in the TEST packet. Do not enter or draw a real signature.', trigger: button,
+      hint: verified ? 'Review the document bundle. Your signature applies to your assigned fields.' : 'Use one synthetic mark for this signer. It will be reused at every signature placement in the TEST document bundle. Do not enter or draw a real signature.', trigger: button,
       body: `${verified ? '' : '<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>'}
         <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-type hidden><label class="test-signature-name"><span>Typed TEST signer name</span><input type="text" maxlength="120" autocomplete="off" data-test-signature-name placeholder="Synthetic Test Signer"></label><output class="test-signature-typed-preview" data-test-signature-typed-preview>Synthetic Test Signer</output></section>
         ${verified && current.signing_workspace ? `<label class="staff-signing-consent"><input type="checkbox" data-staff-consent><span>${escapeHtml(current.signing_package?.verified_signing?.consent_text || 'I reviewed these documents and agree to sign them.')}</span></label>` : ''}<p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
-      footer: `<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="${verified ? 'Sign packet' : 'Place TEST signature'}" data-test-signature-confirm>${verified ? 'Sign complete packet' : 'Place TEST signature'}</button>`,
+      footer: `<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="${verified ? 'Sign documents' : 'Place TEST signature'}" data-test-signature-confirm>${verified ? 'Sign documents' : 'Place TEST signature'}</button>`,
     });
     if (verified) {
-      document.getElementById('origination-sheet-title').textContent = approving ? 'Approve & sign' : 'Sign packet';
+      document.getElementById('origination-sheet-title').textContent = approving ? 'Approve & sign' : 'Sign documents';
       document.getElementById('origination-sheet-hint').textContent = approving
-        ? 'Your approval and signature apply to this exact reviewed packet. The final approver locks the application.'
+        ? 'Your approval and signature apply to these reviewed documents. The final approver locks the application.'
         : current.signing_workspace ? 'All required signers complete approval. Your signature applies to these documents.' : 'Your signature remains provisional until the configured final approver approves and signs.';
       document.querySelector('[data-test-signature-canvas]').setAttribute('aria-label', 'Draw your signature');
       document.querySelector('[data-test-signature-type] label span').textContent = 'Your full name';
       document.querySelector('[data-test-signature-name]').placeholder = 'Full name';
       document.querySelector('[data-test-signature-name]').autocomplete = 'name';
       document.querySelector('[data-test-signature-typed-preview]').textContent = '';
-      document.querySelector('[data-test-signature-confirm]').textContent = approving ? 'Approve & sign' : 'Sign packet';
+      document.querySelector('[data-test-signature-confirm]').textContent = approving ? 'Approve & sign' : 'Sign documents';
     }
     const canvas = document.querySelector('[data-test-signature-canvas]');
     const status = document.querySelector('[data-test-signature-status]');
@@ -816,7 +816,7 @@
     const typedPreview = document.querySelector('[data-test-signature-typed-preview]');
     typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || (verified ? '' : 'Synthetic Test Signer'); });
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction(verified ? 'Signing packet...' : 'Placing TEST signature...', async () => {
+    document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction(verified ? 'Saving signature...' : 'Placing TEST signature...', async () => {
       const drawn = document.querySelector('[data-test-signature-mode="drawn"]').getAttribute('aria-selected') === 'true';
       const capture = drawn
         ? { method: 'drawn', strokes: testSignatureStrokes }
@@ -1043,7 +1043,7 @@
 
   function applicationListParams() {
     const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '10' });
-    if (listState.status) params.set('status', listState.status);
+    if (listState.status) params.set(['draft', 'changes', 'progress', 'completed', 'closed'].includes(listState.status) ? 'status_group' : 'status', listState.status);
     if (listState.productKey) params.set('product_key', listState.productKey);
     if (listState.query) params.set('q', listState.query);
     if (listState.signatureOnly) params.set('signature_only', '1');
@@ -1840,6 +1840,7 @@
     syncCloseProtection();
     await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');
+    if (showError) showToast('Changes saved.', 'success');
     return true;
   }
 
@@ -1920,10 +1921,10 @@
   }
 
   function latestPreviewLabel(fallback) {
-    if (hasFinalSignedPacket()) return 'Preview signed packet';
-    if (hasCurrentSigningPacket()) return 'Preview current signed packet';
+    if (hasFinalSignedPacket()) return 'Preview signed application';
+    if (hasCurrentSigningPacket()) return 'Preview current documents';
     if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
-      return current.status === 'reviewed' ? 'Preview approved packet' : 'Preview frozen packet';
+      return current.status === 'reviewed' ? 'Preview documents' : 'Preview documents';
     }
     return fallback;
   }
@@ -1941,12 +1942,12 @@
     if (!['ready_for_review', 'reviewed'].includes(current?.status)) return '';
     const packageData = current?.signing_package || {};
     if (current.status === 'ready_for_review' && !current.review_packet_ready) {
-      return '<aside class="workflow-readiness is-waiting"><div><p class="eyebrow">Operations preparation</p><strong>Awaiting a frozen review packet</strong><span>Operations must freeze the application data, evidence, participants and complete document packet before a checker can review it.</span></div></aside>';
+      return '<aside class="workflow-readiness is-waiting"><div><p class="eyebrow">Operations preparation</p><strong>Documents awaiting preparation</strong><span>The documents need to be prepared before review.</span></div></aside>';
     }
     if (current.status === 'ready_for_review') {
-      return `<aside class="workflow-readiness is-ready"><div><p class="eyebrow">Checker final review</p><strong>Review the exact frozen packet</strong><span>This immutable PDF and review-scope hash are the only version that can be approved and sent for signing.</span></div><button type="button" class="btn btn-primary" id="origination-review-packet-preview">Preview frozen packet</button></aside>`;
+      return `<aside class="workflow-readiness is-ready"><div><p class="eyebrow">Checker final review</p><strong>Review the documents</strong><span>Review this saved copy before approving it for signing.</span></div><button type="button" class="btn btn-primary" id="origination-review-packet-preview">Preview documents</button></aside>`;
     }
-    return `<aside class="workflow-readiness is-approved"><div><p class="eyebrow">Approved frozen packet</p><strong>Approved by ${escapeHtml(packageData.reviewed_by_name || 'an authorized checker')}</strong><span>Operations may now start signing. Any officer recall cancels this packet and invalidates the approval.</span></div><button type="button" class="btn btn-secondary" id="origination-review-packet-preview">Preview approved packet</button></aside>`;
+    return `<aside class="workflow-readiness is-approved"><div><p class="eyebrow">Documents approved</p><strong>Approved by ${escapeHtml(packageData.reviewed_by_name || 'an authorized checker')}</strong><span>Operations may now start signing. Editing requires another review.</span></div><button type="button" class="btn btn-secondary" id="origination-review-packet-preview">Preview documents</button></aside>`;
   }
 
   function reviewMarkup(values) {
@@ -1973,7 +1974,7 @@
       const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
       return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
     }).join('')}</div>`;
-    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed packet' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'The application is immutable. View the final signed packet below.' : current?.approval_roles?.length && sectionAction === 'View' ? 'Check the application and current signatures before approving.' : current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
+    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed application' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'View the signed application below.' : current?.approval_roles?.length && sectionAction === 'View' ? 'Check the application and current signatures before approving.' : current?.review_packet_ready ? 'Review the documents and application details.' : 'Check the details, then preview the document bundle.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview document bundle' : 'Preview main LAF')}</button></div></div>
       ${reviewCards}${signingTestMarkup()}`;
   }
 
@@ -2003,8 +2004,8 @@
           ? isApprover && !canApprove
             ? '<span class="status-chip">Awaiting signatures</span>'
             : isApprover && !reviewed
-              ? '<button type="button" class="btn btn-primary" data-approval-preview>Review packet</button>'
-              : `<button type="button" class="btn ${isApprover ? 'btn-primary' : 'btn-secondary'}" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">${isApprover ? 'Approve &amp; sign' : 'Sign packet'}</button>`
+              ? '<button type="button" class="btn btn-primary" data-approval-preview>Review documents</button>'
+              : `<button type="button" class="btn ${isApprover ? 'btn-primary' : 'btn-secondary'}" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">${isApprover ? 'Approve &amp; sign' : 'Sign documents'}</button>`
           : participant.staff
             ? '<span class="status-chip">Awaiting authorized staff</span>'
           : current.approval_roles?.length && !canDispatch
@@ -2019,23 +2020,24 @@
             `${participant.label} holistic signature`, 'Flag signature for correction',
           )
           : '';
-        const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small>${signatureCorrections}</span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
+        const signatureDate = signaturesComplete && participant.signed_at ? `<small>${escapeHtml(new Date(participant.signed_at).toLocaleString('en-KE', {timeZone:'Africa/Nairobi', day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}))}</small>` : '';
+        const signatureRow = signatures.length ? `<div class="signing-test-slot participant-row ${signaturesComplete ? 'is-complete' : ''}"><span class="participant-person"><strong>${escapeHtml(participant.name || participant.label)}</strong>${participant.name ? `<small>${escapeHtml(participant.label)}</small>` : ''}${participant.phone_mapped || participant.staff ? '' : '<small>Phone number needed</small>'}${signatureDate}${signatureCorrections}</span><div class="participant-actions">${signaturesComplete ? '<span class="status-chip completed">Signed</span>' : externalAction}</div></div>` : '';
         const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : !canStamp ? '<span class="status-chip">Awaiting stamp</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
         return signatureRow + stampRows;
       }).join('');
       const archive = ['fully_signed', 'approved'].includes(current.status) && verified.archive_status !== 'uploaded'
-        ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Automatic archival needs attention' : 'Automatic archival in progress'}</strong><span>${escapeHtml(verified.archive_error || 'The immutable signed PDF is being stored in restricted Drive automatically.')}</span>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry archival</button>` : ''}</aside>` : '';
+        ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Documents need saving' : 'Saving documents'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry saving</button>` : ''}</aside>` : '';
       const signedPacket = verified.signed_packet_available
-        ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view while automatic archival completes.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-open-signed-pdf" data-package-id="${escapeHtml(packageData.id)}">Open PDF</button></div></aside>`
+        ? `<aside class="signed-packet-access"><div><strong>Signed application</strong><span>${verified.archive_status === 'uploaded' ? 'Documents saved.' : 'Ready to view.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View documents</button><button type="button" class="btn btn-primary" id="origination-open-signed-pdf" data-package-id="${escapeHtml(packageData.id)}">Open PDF</button></div></aside>`
         : '';
       const signingComplete = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current.status);
       const signingHeading = current.status === 'signed_pending_approval' ? 'Signed — pending JBL approval' : current.status === 'approved' ? 'Approved and locked' : signingComplete ? 'Signing complete' : current.approval_roles?.length ? 'Signatures and approval' : 'Send each signer their secure link';
       const signingDetail = current.status === 'signed_pending_approval'
-        ? 'Every required signature is present. An independent checker must approve these exact signed bytes before the application is final.'
+        ? 'Signatures complete. Final approval is still needed.'
         : current.status === 'approved'
-          ? 'Approved and locked. The signed packet is retained with this application.'
-          : signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : current.approval_roles?.length ? 'Staff and applicants sign first. The final approver reviews and signs to lock the application.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.';
-      return `<section class="signing-verified-panel"><div class="signing-panel-heading"><div><p class="eyebrow">Verified packet signing</p><h3>${signingHeading}</h3></div><button type="button" class="icon-button" id="origination-refresh-signing" aria-label="Refresh signing progress" title="Refresh signing progress">${iconSvg('refresh')}</button></div><p>${signingDetail}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
+          ? 'Signed application ready.'
+          : signingComplete ? 'All required signatures and stamps are saved.' : current.approval_roles?.length ? 'The final approver signs after the other participants.' : 'Each signer reviews the documents and verifies the code sent to their phone.';
+      return `<section class="signing-verified-panel"><div class="signing-panel-heading"><div><h3>${signingHeading}</h3></div><button type="button" class="icon-button" id="origination-refresh-signing" aria-label="Refresh signing progress" title="Refresh signing progress">${iconSvg('refresh')}</button></div><p>${signingDetail}</p>${participants || '<div class="empty-state">No signers were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const slots = test.slots || [];
@@ -2084,19 +2086,19 @@
         if (assignedElsewhere) return '<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>';
         return '<button class="btn btn-secondary" data-final-review="request_correction">Request correction</button><button class="btn btn-danger" data-final-review="decline">Decline</button><button class="btn btn-primary" data-final-review="approve">Approve and lock</button>';
       }
-      if (capabilities.can_confirm_signing && officerOwnsApplication && ['ready_for_review', 'reviewed'].includes(current.status)) {
+      if ((capabilities.can_confirm_signing || current.short_acknowledgement && capabilities.can_create) && officerOwnsApplication && ['ready_for_review', 'reviewed'].includes(current.status)) {
         return `${recall}<button class="btn btn-primary" id="origination-confirm-signing">Continue to signing</button>`;
       }
       if (current.status === 'ready_for_review' && !current.review_packet_ready) {
         const prepare = capabilities.can_start_signing
-          ? '<button class="btn btn-primary" id="origination-prepare-review" data-primary-action="Prepare review packet">Prepare review packet</button>' : '';
+          ? '<button class="btn btn-primary" id="origination-prepare-review" data-primary-action="Prepare documents">Prepare documents</button>' : '';
         return `${recall}${prepare}`;
       }
       if (current.status === 'ready_for_review' && current.review_packet_ready && capabilities.can_review) {
         const assignedElsewhere = current.recheck_assigned_to_id
           && String(current.recheck_assigned_to_id) !== String(capabilities.user_id);
         if (assignedElsewhere) return `${recall}<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>`;
-        return `${recall}<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve frozen packet</button>`;
+        return `${recall}<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve documents</button>`;
       }
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
@@ -2105,7 +2107,7 @@
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Submit for signing">Submit for signing</button>'
       : capabilities.can_confirm_signing
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
-      : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for packet preparation">Submit for packet preparation</button>';
+      : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit application">Submit application</button>';
     return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : finalAction}`;
   }
 
@@ -2138,7 +2140,7 @@
 
   function persistentStateFeedbackMarkup() {
     if (current?.status === 'signed_pending_approval') {
-      return '<aside class="notice feedback-banner success" role="status"><strong>Signed — pending JBL approval</strong><span>All required signatures are present. The packet becomes final only after independent checker approval.</span></aside>';
+      return '<aside class="notice feedback-banner success" role="status"><strong>Signed — pending JBL approval</strong><span>All required signatures are present. The application still needs final approval.</span></aside>';
     }
     return '';
   }
@@ -2169,11 +2171,12 @@
           : `<button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="self_service" ${attributes}>Send link</button><details class="signer-assistance"><summary>In person</summary><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" ${attributes}>Assisted signing</button></details>`;
       }
       const stamps = permitted?.can_sign ? (participant.slots || []).filter(slot => slot.type === 'stamp' && !slot.completed).map(slot => `<div class="signer-stamp"><label><span>Required stamp</span><select data-production-stamp-select><option value="">Choose stamp</option>${stampOptions}</select></label><button type="button" class="btn btn-secondary" data-production-stamp ${attributes} data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}">Apply</button></div>`).join('') : '';
-      return `<div class="participant-row"><div class="participant-person"><strong>${escapeHtml(participant.name || participant.label)}</strong>${participant.name ? `<small>${escapeHtml(participant.label)}</small>` : ''}</div><div class="participant-actions">${action}</div>${stamps}</div>`;
+      const date = participant.signed_at ? `<small class="participant-date">${escapeHtml(new Date(participant.signed_at).toLocaleString('en-KE', {timeZone:'Africa/Nairobi', day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}))}</small>` : '';
+      return `<div class="participant-row"><div class="participant-person"><strong>${escapeHtml(participant.name || participant.label)}</strong>${participant.name ? `<small>${escapeHtml(participant.label)}</small>` : ''}${date}</div><div class="participant-actions">${action}</div>${stamps}</div>`;
     }).sort((a,b) => Number(b.includes('data-staff-sign')) - Number(a.includes('data-staff-sign'))).join('');
     const approved = current.status === 'approved';
     const preview = approved ? `<button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed documents</button>` : '<button type="button" class="btn btn-secondary" data-approval-preview>Review documents</button>';
-    const archive = approved && verified.archive_status !== 'uploaded' ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Archive needs retry' : 'Archiving in background'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-secondary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry archive</button>` : ''}</aside>` : '';
+    const archive = approved && verified.archive_status !== 'uploaded' ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Documents need saving' : 'Saving documents'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-secondary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry saving</button>` : ''}</aside>` : '';
     const details = (current.form_schema?.sections || []).map(section => `<details><summary>${escapeHtml(section.label)}</summary>${sectionFieldsMarkup(section.key, current.form_payload || {}, false)}</details>`).join('');
     const history = (current.activity || []).map(event => `<p><strong>${escapeHtml(event.label)}</strong><small>${escapeHtml(event.actor)} · ${escapeHtml(new Date(event.at).toLocaleString('en-KE'))}</small></p>`).join('') || '<p>No activity yet.</p>';
     return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div>${preview}</header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
@@ -2219,9 +2222,29 @@
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = application.status === 'draft'
       ? '<button type="button" class="btn btn-secondary" id="origination-restart-laf">Change Main LAF</button>' : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextStatus}</div>${contextChip}</div>${restartAction ? `<div class="draft-document-action">${restartAction}</div>` : ''}${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div></div>${restartAction ? `<div class="draft-document-action">${restartAction}</div>` : ''}${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    if (!['declined', 'expired', 'cancelled'].includes(application.status)) {
+      const context = root().querySelector('.editor-context');
+      const download = document.createElement('button');
+      download.type = 'button'; download.className = 'icon-button';
+      download.id = 'origination-download'; download.setAttribute('aria-label', 'Download application');
+      download.title = application.status === 'approved' ? 'Download signed application' : 'Download unsigned application';
+      if (application.download_ready === false && !editable) {
+        download.disabled = true; download.title = 'Complete the required fields to download';
+      }
+      download.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      context?.appendChild(download);
+      download.onclick = async () => {
+        if (download.disabled) return;
+        download.disabled = true; download.setAttribute('aria-busy', 'true');
+        showToast('Preparing application copy…', 'info');
+        try { await downloadApplication(); }
+        catch (_) { showToast('Could not prepare this application. Please try again.', 'error'); }
+        finally { download.disabled = false; download.removeAttribute('aria-busy'); }
+      };
+    }
     window.MiniAppUtils?.bindAccessibleForm?.(root());
     document.getElementById('origination-restart-laf')?.addEventListener('click', event => openRestartSheet(event.currentTarget));
     syncTelegramControls();
@@ -2236,7 +2259,7 @@
       const locked = item.inclusion_mode !== 'optional';
       return `<label class="packet-document-option${item.selected ? ' selected' : ''}"><input type="checkbox" data-document-select="${escapeHtml(item.key)}"${item.selected ? ' checked' : ''}${locked || !editable ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${locked ? 'Required for this application' : 'Optional supporting document'}</small></span><span class="status-chip">${item.selected ? 'Included' : 'Not included'}</span></label>`;
     }).join('');
-    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Add or remove optional documents until submission; one full-packet preview at the final check verifies the selected set together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents are available.</div>'}</div>`;
+    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Add or remove optional documents until submission; preview the selected documents together before submission.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents are available.</div>'}</div>`;
   }
 
   function repeatableItemLabel(field) {
@@ -2375,7 +2398,7 @@
     reviewDialogMode = mode;
     reviewReturnFocus = document.activeElement;
     const overlay = document.getElementById('origination-review-overlay');
-    document.getElementById('review-dialog-eyebrow').textContent = 'Maker-checker review';
+    document.getElementById('review-dialog-eyebrow').textContent = 'Application review';
     const title = document.getElementById('review-dialog-title');
     const hint = document.getElementById('review-dialog-hint');
     const targets = document.getElementById('review-dialog-targets');
@@ -2525,17 +2548,17 @@
       const details = result.data;
       openSheet({
         mode: 'recall-confirmation',
-        eyebrow: details.approval_invalidated ? 'Approval will be invalidated' : 'Frozen packet will be cancelled',
+        eyebrow: details.approval_invalidated ? 'Approval will be invalidated' : 'Documents will be replaced',
         title: 'Return this application to Draft?',
         hint: details.approval_invalidated
-          ? 'Editing will cancel the checker-approved packet. The application must be prepared and fully reviewed again before signing.'
-          : 'Editing will cancel the prepared review packet. Operations must prepare a new frozen packet before review.',
-        body: current?.approval_roles?.length ? '<aside class="notice warning"><strong>Previous packet retained</strong><span>It stays in history and cannot be signed or approved.</span></aside>' : '<aside class="notice warning"><strong>This action is audited</strong><span>Existing frozen hashes remain in history, but they can no longer be approved or signed.</span></aside>',
-        footer: '<button type="button" class="btn btn-secondary" id="origination-recall-cancel">Keep current packet</button><button type="button" class="btn btn-danger" id="origination-recall-confirm">Cancel packet and edit</button>',
+          ? 'Editing replaces the approved documents. They will need another review before signing.'
+          : 'Editing replaces the prepared documents. They will need to be prepared again before review.',
+        body: current?.approval_roles?.length ? '<aside class="notice warning"><strong>Previous documents kept</strong><span>It stays in history and cannot be signed or approved.</span></aside>' : '<aside class="notice warning"><strong>This action is audited</strong><span>Previous documents stay in history and cannot be signed or approved.</span></aside>',
+        footer: '<button type="button" class="btn btn-secondary" id="origination-recall-cancel">Keep current documents</button><button type="button" class="btn btn-danger" id="origination-recall-confirm">Withdraw and edit</button>',
         trigger: document.getElementById('origination-recall'),
       });
       if ((current.approval_roles || []).length) {
-        document.getElementById('origination-sheet-hint').textContent = 'The old links and signatures will be cancelled. Your fields and evidence stay saved. Everyone must sign the new packet after you resubmit.';
+        document.getElementById('origination-sheet-hint').textContent = 'The old links and signatures will be cancelled. Your fields and evidence stay saved. Everyone must sign again after you resubmit.';
       }
       document.getElementById('origination-recall-cancel').onclick = () => closeSheet();
       document.getElementById('origination-recall-confirm').onclick = () => runPrimaryAction('Recalling...', async () => {
@@ -2553,7 +2576,7 @@
     }
     closeSheet({ restoreFocus: false });
     current = result.data.application;
-    showToast('Application returned to Draft. Previous packet and approval are no longer valid.');
+    showToast('Application returned to Draft. Previous documents and approval are no longer valid.');
     renderEditor(current, 0);
     return true;
   }
@@ -2968,18 +2991,18 @@
       return openPreview();
     });
     document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
-    document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Confirming and freezing...', async () => {
+    document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Preparing documents...', async () => {
       if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
       if (['draft', 'correction_required'].includes(current.status) && previewedRevision !== current.revision) {
-        return showToast('Preview the complete packet for this saved revision before confirming.', true);
+        return showToast('Preview the saved document bundle before continuing.', true);
       }
       const result = await postJson(`/applications/${current.id}/confirm-signing/`, { revision: current.revision });
       if (!result.ok) {
         if (result.data?.errors) showServerErrors(result.data.errors);
-        return showToast(result.data?.error || 'Could not confirm and freeze the signing packet.', true);
+        return showToast(result.data?.error || 'Could not prepare the documents for signing.', true);
       }
       current = result.data.application;
-      showToast('Packet frozen. Signing can begin.');
+      showToast('Documents ready. Signing can begin.');
       renderEditor(current, wizardSections().length - 1);
     }));
     document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
@@ -3001,7 +3024,7 @@
           ...reviewPacketPayload(), decision, reason: '',
         });
         if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
-        showToast('Frozen packet approved. Operations can now start signing.');
+        showToast('Documents approved. Signing can begin.');
         await load();
       });
     });
@@ -3013,21 +3036,21 @@
         const result = await postJson(`/applications/${current.id}/final-review/`, {
           ...finalReviewPayload(), decision: 'approve', reason: '', correction_items: [],
         });
-        if (!result.ok) return showToast(result.data?.error || 'Could not approve the signed packet.', true);
-        showToast('Signed packet approved and locked.');
+        if (!result.ok) return showToast(result.data?.error || 'Could not approve the signed application.', true);
+        showToast('Signed application approved.');
         await load();
       });
     });
     document.getElementById('origination-takeover-review')?.addEventListener('click', () => openReviewDialog('takeover'));
-    document.getElementById('origination-prepare-review')?.addEventListener('click', () => runPrimaryAction('Freezing packet...', async () => {
+    document.getElementById('origination-prepare-review')?.addEventListener('click', () => runPrimaryAction('Preparing documents...', async () => {
       if (!(await saveSigningRequirements())) return;
       const result = await postJson(`/applications/${current.id}/prepare-review-packet/`, { revision: current.revision });
       if (!result.ok) {
         if (result.data?.errors) showServerErrors(result.data.errors);
-        return showToast(result.data?.error || 'Could not prepare the frozen review packet.', true);
+        return showToast(result.data?.error || 'Could not prepare the documents for review.', true);
       }
       current = result.data.application;
-      showToast('Frozen review packet prepared for the checker.');
+      showToast('Documents ready for review.');
       renderEditor(current, wizardSections().length - 1);
     }));
     document.getElementById('origination-start-signing')?.addEventListener('click', () => runPrimaryAction('Starting signing...', async () => {
@@ -3036,7 +3059,7 @@
       });
       if (!result.ok) return showToast(result.data?.error || 'Could not start signing.', true);
       current = result.data.application;
-      showToast('Approved packet is ready for signer dispatch.');
+      showToast('Documents ready for signing links.');
       renderEditor(current, wizardSections().length - 1);
     }));
     document.getElementById('origination-review-packet-preview')?.addEventListener('click', () => openPreview('__review_packet__'));
@@ -3138,10 +3161,10 @@
       if (!result.ok) return showToast(result.data?.error || 'Could not apply the production stamp.', true);
       await load(); showToast('Production stamp applied.');
     })));
-    document.getElementById('origination-archive-signed')?.addEventListener('click', event => runPrimaryAction('Archiving signed packet...', async () => {
+    document.getElementById('origination-archive-signed')?.addEventListener('click', event => runPrimaryAction('Saving signed documents...', async () => {
       const result = await postJson(`/applications/${current.id}/archive-signed/`, {package_id:event.currentTarget.dataset.packageId});
-      if (!result.ok) return showToast(result.data?.error || 'Could not archive the signed packet.', true);
-      await load(); showToast('Signed packet archived in restricted Drive.');
+      if (!result.ok) return showToast(result.data?.error || 'Could not save the signed documents.', true);
+      await load(); showToast('Signed documents saved.');
     }));
     document.getElementById('origination-view-signed')?.addEventListener('click', () => openPreview('__signed_packet__'));
     document.getElementById('origination-open-signed-pdf')?.addEventListener('click', event => openSignedPacketPdf(event.currentTarget.dataset.packageId));
@@ -3156,7 +3179,7 @@
     });
     if (!result.ok || !result.blob) {
       try { viewer?.close?.(); } catch (_) { /* Ignore a browser-owned viewer failure. */ }
-      return showToast(result.data?.error || 'Could not open the signed packet.', true);
+      return showToast(result.data?.error || 'Could not open the signed application.', true);
     }
     const url = URL.createObjectURL(result.blob);
     if (viewer && !viewer.closed) viewer.location.replace(url);
@@ -3171,6 +3194,30 @@
     }
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     showToast('Opening the signed PDF.');
+  }
+
+  async function downloadApplication() {
+    if (!await saveDraft(true)) return;
+    const result = await postJson(`/applications/${current.id}/download/`, {revision:current.revision});
+    if (!result.ok) {
+      if (result.data?.errors) showServerErrors(result.data.errors);
+      return showToast(result.data?.error || 'Could not prepare this application.', 'error');
+    }
+    const {download_url:url, filename} = result.data;
+    if (!url || !filename) return showToast('The download is unavailable. Please try again.', 'error');
+    const fallback = () => {
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename;
+      anchor.rel = 'noopener'; anchor.target = '_blank'; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      showToast(`Download requested: ${filename}`, 'info');
+    };
+    const tg = window.Telegram?.WebApp;
+    if (typeof tg?.downloadFile === 'function' && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+      try {
+        tg.downloadFile({url, file_name:filename}, accepted => {
+          showToast(accepted ? `Download requested: ${filename}` : 'Download cancelled.', 'info');
+        });
+      } catch (_) { fallback(); }
+    } else fallback();
   }
 
   async function openPreview(documentKey = '') {
@@ -3189,11 +3236,11 @@
     const overlay = document.getElementById('document-preview-overlay');
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
-      ? (current?.signing_package?.verified_signing?.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet')
-      : documentKey === '__signing_packet__' ? 'Current signing packet'
-      : documentKey === '__review_packet__' ? (current?.status === 'reviewed' ? 'Checker-approved frozen packet' : 'Frozen packet for final review')
-      : documentKey === '__packet__' ? 'Filled document packet'
-      : documentKey === '__test_signing__' ? 'TEST signed packet'
+      ? 'Signed application'
+      : documentKey === '__signing_packet__' ? 'Document bundle'
+      : documentKey === '__review_packet__' ? 'Document bundle for review'
+      : documentKey === '__packet__' ? 'Document bundle'
+      : documentKey === '__test_signing__' ? 'TEST signed application'
       : 'Filled loan document';
     previewReturnFocus = document.activeElement;
     overlay.hidden = false;
@@ -3282,7 +3329,7 @@
     const wasCached = previewPageUrls.has(requestedPage);
     if (!wasCached) showToast('Generating filled PDF…');
     const entry = await fetchPreviewPage(requestedPage);
-    if (entry?.error) { closePreview(); return showToast(entry.error, true); }
+    if (entry?.error) { return showToast(entry.error + ' Use Refresh to try again.', true); }
     if (!entry || entry.stale || requestedPage !== previewPage) return;
     previewUrl = entry.url;
     previewPageCount = entry.pageCount;
@@ -3329,6 +3376,7 @@
     const image = document.getElementById('document-preview-image');
     if (!stage || !image || previewGestures) return;
     previewGestures = window.SecureMediaViewer?.bindImageGestures(stage, image, {
+      navigateAtEdges: true,
       onNavigate: direction => { if (!evidencePreviewUrl) void navigatePreviewPage(direction); },
       onZoom: scale => {
         previewZoom = Math.round(scale * 100);
@@ -3392,7 +3440,11 @@
       ? presentation : { tone: presentation === true ? 'error' : String(presentation || 'success') };
     const tone = ['info', 'success', 'warning', 'error'].includes(settings.tone) ? settings.tone : 'info';
     if (window.MiniAppRuntime?.showToast) {
-      window.MiniAppRuntime.showToast(message, { tone, timeout: settings.timeout });
+      const shared = window.MiniAppRuntime.showToast(message, { tone, timeout: settings.timeout });
+      if (shared) {
+        shared.style.zIndex = '30000'; shared.style.bottom = 'auto';
+        shared.style.top = 'calc(10px + env(safe-area-inset-top))';
+      }
       window.MiniAppUtils?.haptic?.(tone);
       return tone !== 'error';
     }
@@ -3554,7 +3606,7 @@
     if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
     applications = (result.data.applications || []).map(item => ({...item, status_text: item.next_action || item.status_text}));
     tabCounts = result.data.tab_counts || {};
-    statusOptions = result.data.status_options || statusOptions;
+    statusOptions = result.data.status_group_options || result.data.status_options || statusOptions;
     applicationsLabel = result.data.applications_label || 'Applications';
     reviewerAlerts = result.data.reviewer_alerts || [];
     capabilities = result.data.capabilities || capabilities;
@@ -3618,6 +3670,7 @@
   };
   document.getElementById('preview-zoom-out').onclick = () => setPreviewZoom(previewZoom - 25);
   document.getElementById('preview-zoom-in').onclick = () => setPreviewZoom(previewZoom + 25);
+  document.getElementById('preview-zoom').onclick = () => setPreviewZoom(100);
   document.getElementById('origination-review-dialog').onsubmit = event => { event.preventDefault(); submitReviewDialog(); };
   document.getElementById('review-dialog-close').onclick = closeReviewDialog;
   document.getElementById('review-dialog-cancel').onclick = closeReviewDialog;

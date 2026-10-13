@@ -1,5 +1,30 @@
 # Changelog
 
+## 13 October 2026 - Clearer Origination signing and application copies
+
+- Added application downloads: visibly unsigned before approval, exact signed
+  PDF afterwards. Telegram confirmation names the file; cancelled requests are
+  not reported as successful downloads. Expiring links recheck current scope,
+  form completeness and revision; copy requests never create review evidence.
+- Replaced the separate policy-page/activation requirement for new applications
+  with a short, server-versioned signing acknowledgement. Draft adoption is
+  audited. Existing packages, signing requirements and signed files are retained.
+- Reduced filter noise to five status groups while preserving precise card
+  statuses and the raw API for older clients. Signing rows are compact, show
+  verified Nairobi dates and use plain-language document labels.
+- Both previews share pinch, pan and page-swipe behaviour with compact controls
+  in the requested order. Errors keep the preview open for retry. Toast feedback
+  remains visible above dialogs and mobile keyboards.
+- Alignment examples use realistic synthetic values and active choices. New
+  signer settings pair signatures with Date signed fields; placement creates a
+  non-overlapping companion where space permits. Missing placement is advisory
+  at publication. Successful OTP/staff verification supplies the date to both
+  the UI and PDF; retries retain the original timestamp.
+- No schema migration, dependency, permission change, automatic republishing or
+  production/provider operation. Published documents need an explicit editable
+  copy to add date placements. Verification details and baseline limitations are
+  recorded in `KNOWN_GAPS.md`.
+
 ## 13 October 2026 - TAT forms, personal tasks and trustworthy exports
 
 - Removed routine queue freshness text/spacing without changing live timing or

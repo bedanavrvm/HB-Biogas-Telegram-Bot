@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+import hashlib
+import json
 from typing import Any
 
 from django.conf import settings
@@ -16,6 +18,40 @@ from origination.models import LoanOriginationApplication, OriginationConsentPol
 
 class OriginationConsentError(ValueError):
     pass
+
+
+ACKNOWLEDGEMENT_VERSION = 'acknowledgement-1'
+
+
+def short_acknowledgement(application) -> bool:
+    """Absent markers retain historical consent; reads never adopt a new policy."""
+    if (application.schema_snapshot or {}).get('acknowledgement_version') == ACKNOWLEDGEMENT_VERSION:
+        return True
+    events = getattr(application, 'events', None)
+    return bool(events is not None and events.filter(metadata__acknowledgement_version=ACKNOWLEDGEMENT_VERSION).exists())
+
+
+def acknowledgement_snapshot(application) -> dict[str, Any]:
+    snapshot = {
+        'version': ACKNOWLEDGEMENT_VERSION,
+        'signing_policy': application.signing_policy_snapshot,
+        'approval_roles': application.approval_roles_snapshot,
+        'signer_consent_text': 'I have reviewed the documents and agree to sign them. '
+                               'The application is complete only after its required approval.',
+        'signer_completion_text': 'Your signature has been verified and saved.',
+        'resigning_text': 'The documents changed. Please review and sign the updated copy.',
+        'delivery': 'signer_screen',
+    }
+    snapshot['content_sha256'] = hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(',', ':')).encode(),
+    ).hexdigest()
+    return snapshot
+
+
+def valid_acknowledgement(package) -> bool:
+    return (short_acknowledgement(package.application)
+            and package.consent_policy_id is None
+            and package.consent_policy_snapshot == acknowledgement_snapshot(package.application))
 
 
 def conditional_approval_enabled() -> bool:

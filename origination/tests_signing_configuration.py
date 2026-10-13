@@ -58,7 +58,7 @@ class ConsentReadinessSeverityTests(TestCase):
         from django.utils import timezone
         from origination.models import OriginationConsentPolicyVersion
         issues = production_security_readiness_issues(settings, check_database=True)
-        self.assertEqual(next(i for i in issues if i.code == 'conditional-approval-consent-policy').severity, 'warning')
+        self.assertFalse(any(i.code == 'conditional-approval-consent-policy' for i in issues))
         actor = get_user_model().objects.create_superuser('consent-readiness-test', password='synthetic')
         policy = OriginationConsentPolicyVersion.objects.create(
             version='synthetic-readiness', status='active', packet_clause='Synthetic approved wording',

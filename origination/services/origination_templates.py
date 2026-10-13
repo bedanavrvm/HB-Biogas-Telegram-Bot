@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from decimal import Decimal, ROUND_CEILING
 from io import BytesIO
 from typing import Any
 
@@ -108,26 +109,55 @@ def _sample_value_for_field(field: dict[str, Any]) -> tuple[Any, Any | None]:
     if field_type == 'boolean':
         return 'Yes', True
     if field_type in {'money', 'number'}:
-        return '12,500', None
+        rules = {**field, **(field.get('validation') or {})}
+        value = Decimal('12500' if field_type == 'money' else '3')
+        if rules.get('min') not in (None, ''):
+            value = max(value, Decimal(str(rules['min'])))
+        if rules.get('max') not in (None, ''):
+            value = min(value, Decimal(str(rules['max'])))
+        if field_type == 'money' or rules.get('integer'):
+            value = value.to_integral_value(rounding=ROUND_CEILING)
+            if rules.get('max') not in (None, '') and value > Decimal(str(rules['max'])):
+                return '', None
+        return format(value, 'f'), format(value, 'f')
     if field_type == 'date':
-        return '2026-08-13', None
+        rules = field.get('validation') or {}
+        value = '2000-01-15' if any(part in key for part in ('birth', 'dob')) else timezone.localdate().isoformat()
+        if rules.get('min_date'):
+            value = max(value, rules['min_date'])
+        if rules.get('max_date'):
+            value = min(value, rules['max_date'])
+        return value, value
+    if field_type == 'phone':
+        return '0712345678', '0712345678'
+    if field_type == 'national_id':
+        return '99000001', '99000001'
+    if (field.get('validation') or {}).get('format') == 'email':
+        return 'applicant@example.invalid', 'applicant@example.invalid'
+    if field_type in {'branch', 'county', 'sub_county'}:
+        from core.models import OperationalLocation
+        value = OperationalLocation.objects.filter(location_type=field_type, active=True).order_by('name').values_list('name', flat=True).first()
+        return value or '', value or ''
     if field_type == 'choice':
-        options = [item for item in (field.get('options') or []) if isinstance(item, dict) and item.get('code') and item.get('active', True)]
+        options = [item for item in (field.get('options') or field.get('choice_options') or []) if isinstance(item, dict) and item.get('code') and item.get('active', True)]
         if options:
             option = options[0]
             code = str(option['code'])
             return str(option.get('label') or code), code
+        return '', None
     if field_type == 'repeating_group':
-        return [{
-            str(column.get('key') or ''): (
-                '12,500' if str(column.get('type') or '') == 'money'
-                else '2026-08-13' if str(column.get('type') or '') == 'date'
-                else str(column.get('label') or column.get('key') or 'Sample')
-            )
-            for column in ((field.get('structure') or {}).get('columns') or [])
-            if isinstance(column, dict) and column.get('key')
-        }], None
-    return field.get('label') or key.replace('_', ' ').title(), None
+        row = {}
+        for column in ((field.get('structure') or field.get('structure_schema') or {}).get('columns') or []):
+            if isinstance(column, dict) and column.get('key'):
+                display, canonical = _sample_value_for_field(column)
+                row[str(column['key'])] = canonical if canonical is not None else display
+        return [row], [row]
+    value = ('Sample Applicant' if 'name' in key else 'Example information')
+    rules = field.get('validation') or {}
+    value = value.ljust(int(rules.get('min_length') or 0), 'x')
+    if rules.get('max_length') is not None:
+        value = value[:int(rules['max_length'])]
+    return value, value
 
 
 def sample_context_for_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
@@ -151,6 +181,13 @@ def sample_context_for_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(field, dict) and str(field.get('type') or '') == 'date'
     ]
     return sample_context
+
+
+def annotate_field_samples(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One source for editor state, newly added fields and signer-save responses."""
+    for field in fields:
+        field['sample_value'], field['sample_canonical_value'] = _sample_value_for_field(field)
+    return fields
 
 
 def initial_template_configuration(
@@ -273,6 +310,7 @@ def _expected_signature_slots(
                 'label': str(slot.get('label') or slot_key.replace('_', ' ').title()),
                 'slot_type': str(slot.get('type') or rule.get('slot_type') or 'signature'),
                 'required': bool(slot.get('required', rule.get('required', False))),
+                'signature_key': str(slot.get('signature_key') or ''),
             }
     return expected
 

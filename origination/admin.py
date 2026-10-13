@@ -2993,6 +2993,20 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         from origination.services.origination_fields import template_form_contract
         context_keys = annotate_form_fields(context_keys, *template_form_contract(obj), primary=obj.document_role == 'primary',
                                            configuration=latest.configuration if latest else obj.placement_config)
+        from origination.services.origination_templates import annotate_field_samples
+        context_keys = annotate_field_samples(context_keys)
+        samples = config.setdefault('sample_context', {})
+        for field in context_keys:
+            key = field['key']
+            old = samples.get(key)
+            # Repair recognizable old generated labels, not human examples.
+            label_sample = old == field.get('label') or old == key.replace('_', ' ').title()
+            typed_sample = field.get('type') not in {'text','textarea'} or (field.get('validation') or {}).get('format') == 'email'
+            if old is None or label_sample and typed_sample or (
+                field.get('type') in {'money','number'} and old == '12,500'
+            ):
+                samples[key] = field['sample_value']
+                samples.setdefault('_canonical_values', {})[key] = field['sample_canonical_value']
         from origination.services.origination_setup_documents import shared_review
         from origination.services.document_editor import readiness, authoring_products
         from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
@@ -3149,9 +3163,11 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             item['section_key'] = str(presentation.get('section_key') or '')
             if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
                 item['choice_options'] = list(presentation['options'])
-            for metadata_key in ('value_contract', 'source_type'):
+            for metadata_key in ('value_contract', 'source_type', 'validation'):
                 if metadata_key in presentation:
                     item[metadata_key] = presentation[metadata_key]
+        from origination.services.origination_templates import annotate_field_samples
+        context_keys = annotate_field_samples(context_keys)
         return JsonResponse({
             'ok': True, 'field': next(
                 item for item in context_keys if item['key'] == data_field.key
@@ -3185,6 +3201,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         latest = obj.configuration_revisions.order_by('-revision').first()
         context_keys = annotate_form_fields(context_keys, obj.form_schema, obj.signer_rules, primary=obj.document_role == 'primary',
                                            configuration=latest.configuration if latest else obj.placement_config)
+        from origination.services.origination_templates import annotate_field_samples
+        context_keys = annotate_field_samples(context_keys)
         return JsonResponse({'ok':True, 'context_keys':context_keys, 'schema_revision':template_schema_revision(obj),
             'form_sections':obj.form_schema.get('sections', []), 'shared_review':shared_review(obj),
             'field':next((item for item in context_keys if item['key'] == body['field_key']), None),

@@ -70,6 +70,66 @@ from origination.services.origination_signing import (
 logger = logging.getLogger(__name__)
 
 
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_prepare_download(request, application_id):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'origination.view', application)) is not None:
+        return error
+    if (error := _application_access_error(request, application)) is not None:
+        return error
+    try:
+        from django.urls import reverse
+        from origination.services.application_copies import prepare_copy
+        body = _body(request)
+        token, kind = prepare_copy(application_id=application.pk, actor=request.origination_user,
+            revision=body.get('revision'), request_id=_request_id(request, body))
+        url = request.build_absolute_uri(reverse('loan_origination_download') + '?token=' + token)
+        return JsonResponse({'ok': True, 'download_url': url,
+            'filename': f'{application.reference_number}-{kind}.pdf', 'copy_type': kind.lower()})
+    except OriginationConflict as exc:
+        return JsonResponse(_safe_error(exc), status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+
+
+@require_http_methods(['GET', 'HEAD'])
+def portal_origination_download(request):
+    """Native downloads cannot supply initData headers. The expiring capability
+    identifies its actor; every retrieval rechecks live authorization.
+    """
+    from django.core.signing import BadSignature
+    from django.contrib.auth import get_user_model
+    from core.services.telegram_identity import user_access
+    from origination.services.application_copies import read_copy_token, retrieve_copy
+    try:
+        payload = read_copy_token(request.GET.get('token', ''))
+        actor = get_user_model().objects.filter(pk=payload['actor'], is_active=True).first()
+        application = _application(payload['application'])
+        if not actor or not application:
+            return JsonResponse({'ok': False, 'error': 'This download is no longer available.'}, status=403)
+        request.origination_user = actor
+        request.origination_access = user_access(actor, 'loan_origination')
+        if (error := _capability_error(request, 'origination.view', application)) is not None:
+            return error
+        if (error := _application_access_error(request, application)) is not None:
+            return error
+        content, filename = retrieve_copy(payload)
+    except OriginationError as exc:
+        return JsonResponse(_safe_error(exc), status=409)
+    except (BadSignature, KeyError, TypeError, ValueError, LoanOriginationApplication.DoesNotExist):
+        return JsonResponse({'ok': False, 'error': 'Download link expired. Request a new copy.'}, status=403)
+    response = HttpResponse(b'' if request.method == 'HEAD' else content, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Content-Length'] = str(len(content))
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Referrer-Policy'] = 'no-referrer'
+    return response
+
+
 def _pending_staff_signature_application_ids(scoped, signer_roles: list[str]) -> list[str]:
     """Return case IDs, not slot counts, awaiting one of this actor's exact roles."""
     roles = {str(item or '') for item in signer_roles}
@@ -208,7 +268,20 @@ def _application_access_error(request, application, *, require_full: bool = True
 
 
 def _safe_error(exc: Exception) -> dict:
-    payload = {'ok': False, 'error': str(exc)}
+    message = str(exc)
+    for technical, plain in (
+        ('archived signed packet', 'signed application'),
+        ('frozen unsigned packet', 'saved document bundle'),
+        ('frozen review packet', 'saved document bundle'),
+        ('frozen packet', 'saved document bundle'),
+        ('signing package', 'document bundle'),
+        ('signed packet', 'signed application'),
+        ('review packet', 'document bundle'),
+        ('packet preparation', 'document preparation'),
+        ('packet', 'document bundle'),
+    ):
+        message = message.replace(technical, plain)
+    payload = {'ok': False, 'error': message}
     code = str(getattr(exc, 'code', '') or '').strip()
     if code:
         payload['code'] = code
@@ -462,6 +535,12 @@ def portal_origination_applications(request):
                     status=LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
                 )
         status_filter = str(request.GET.get('status') or '').strip()
+        from origination.services.origination_queues import STATUS_GROUPS
+        status_group = str(request.GET.get('status_group') or '').strip()
+        if status_group:
+            if status_group not in STATUS_GROUPS:
+                return JsonResponse({'ok': False, 'error': 'Choose a valid application status.'}, status=400)
+            queryset = queryset.filter(status__in=STATUS_GROUPS[status_group][1])
         if status_filter:
             allowed_statuses = {key for key, _label in LoanOriginationApplication.STATUS_CHOICES}
             if status_filter not in allowed_statuses:
@@ -528,6 +607,7 @@ def portal_origination_applications(request):
             'tab_counts': tab_counts,
             'applications_label': 'My applications' if officer_only else 'Applications',
             'status_options': [{'value': value, 'label': label} for value, label in STATUS_LABELS.items()],
+            'status_group_options': [{'value': value, 'label': item[0]} for value, item in STATUS_GROUPS.items()],
             'counts': status_counts,
             'capabilities': capabilities,
             'reviewer_alerts': reviewer_alerts,
@@ -1512,7 +1592,7 @@ def portal_origination_staff_signature(request, application_id: str):
         signatures = signatures.filter(participant_id=body['participant_id'])
     signature = signatures.order_by('-created_at').first()
     return JsonResponse({'ok': True, 'application': serialize_application(package.application, actor=request.origination_user),
-                         'signature_receipt': {'signed_at': signature.created_at.isoformat() if signature else ''}})
+                         'signature_receipt': {'signed_at': ((signature.metadata or {}).get('verified_at') or signature.created_at.isoformat()) if signature else ''}})
 
 
 @csrf_exempt

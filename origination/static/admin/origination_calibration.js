@@ -73,6 +73,7 @@
   const signatureFormatting = slotType => ({
     ...copy(baseSignatureFormatting),
     ...(slotType === 'stamp' ? { padding: { x: 2, y: 2 } } : {}),
+    ...(slotType === 'date_signed' ? { padding:{x:2,y:2}, typed_font:'Helvetica', font_size:9 } : {}),
   });
   const globalFieldFormatting = () => {
     const stored = configuration?.field_overlay_manifest?.defaults || {};
@@ -647,13 +648,16 @@
     if (armedPlacement && event.isPrimary !== false) {
       const task = armedPlacement; armedPlacement = null;
       const point = screenPointToPage(event.clientX,event.clientY,event.currentTarget.getBoundingClientRect());
-      if(task.kind === 'signature') placeSignatureOverlay(task.item_key); else addFieldOverlay(task.item_key);
+      if(task.kind === 'signature') placeSignatureOverlay(task.item_key, point); else addFieldOverlay(task.item_key);
       const spec = currentSpec(), size = pageSize();
       if(spec && size) {
         const box = boxFor(spec);
         setBox(spec,{...box,x:Math.max(0,Math.min(point.x-box.width/2,size.width-box.width)),y:Math.max(0,Math.min(point.y-box.height/2,size.height-box.height))});
         markDirty(); inspect(); renderOverlays();
-        $('calibration-status').hidden = true;
+        const needsDate = task.kind === 'signature' && signatureCatalog.some(item => item.role === spec.role &&
+          item.slot_type === 'date_signed' && item.signature_key === spec.slot_key && !signatures()[`${item.role}.${item.slot_key}`]);
+        if (needsDate) status('Signature placed. Place its Date signed field in a clear space.');
+        else $('calibration-status').hidden = true;
       }
       event.preventDefault(); return;
     }
@@ -1322,9 +1326,7 @@
         x_ratio: index / Math.max(columns.length, 1),
         value_format: column.type === 'money' ? 'money' : column.type === 'date' ? 'date_dmy_short' : '',
       }));
-      configuration.sample_context[context] ||= [
-        Object.fromEntries(columns.map(column => [column.key, column.type === 'money' ? '12,500' : column.label || column.key])),
-      ];
+      configuration.sample_context[context] ??= copy(catalogueField.sample_canonical_value ?? catalogueField.sample_value ?? []);
     } else {
       const options = checkboxOptions({ context_key: context });
       if (options.length) {
@@ -1333,7 +1335,11 @@
           optionForValue(options, configuration.sample_context?._canonical_values?.[context]) || options[0],
         );
       } else {
-        configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
+        configuration.sample_context[context] ??= catalogueField?.sample_value ?? '';
+        configuration.sample_context._canonical_values ||= {};
+        const sample = configuration.sample_context[context];
+        configuration.sample_context._canonical_values[context] ??= sample === catalogueField?.sample_value
+          ? catalogueField?.sample_canonical_value ?? sample : sample;
       }
     }
     select('field', key); markDirty(); recordHistory('Place field', before);
@@ -1419,7 +1425,7 @@
   $('cal-field-cancel').onclick = closeFieldDialog;
   $('cal-field-dismiss').onclick = closeFieldDialog;
 
-  function placeSignatureOverlay(identity = '') {
+  function placeSignatureOverlay(identity = '', point = null) {
     if (operationState === 'publishing' || published) return;
     const slot = identity ? signatureByKey(identity) : signatureCatalog.find(item => !signatures()[`${item.role}.${item.slot_key}`]);
     if (!slot && !signatureCatalog.length) {
@@ -1432,6 +1438,11 @@
     if (signatures()[key]) return selectAndReveal('signature', key);
     const box = centeredBox(140, slot.slot_type === 'stamp' ? 55 : 28);
     if (!box) return status('The current PDF page is not ready yet.', true);
+    if (point) {
+      const size = pageSize();
+      box.x = Math.max(0, Math.min(point.x - box.width / 2, size.width - box.width));
+      box.y = Math.max(0, Math.min(point.y - box.height / 2, size.height - box.height));
+    }
     const before = configurationHash(configuration);
     signatures()[key] = {
       role: slot.role, slot_key: slot.slot_key, label: slot.label, slot_type: slot.slot_type,
@@ -1439,6 +1450,23 @@
       box: copy(box), allowed_area: copy(box),
       ...signatureFormatting(slot.slot_type),
     };
+    if (slot.slot_type === 'signature') {
+      const date = signatureCatalog.find(item => item.role === slot.role && item.slot_type === 'date_signed' &&
+        (item.signature_key === slot.slot_key || !item.signature_key));
+      const dateKey = date ? `${date.role}.${date.slot_key}` : '';
+      if (date && !signatures()[dateKey]) {
+        const dimensions = pageSizes[page - 1];
+        const dateBox = {...box, y: box.y + box.height + 5, height: 18};
+        const overlaps = [...Object.values(signatures()), ...Object.values(fields())].some(item => {
+          const other = item.box || item.allowed_area;
+          return Number(item.page_number || item.page || 1) === page && other && dateBox.x < other.x + other.width && dateBox.x + dateBox.width > other.x && dateBox.y < other.y + other.height && dateBox.y + dateBox.height > other.y;
+        });
+        if (dimensions && dateBox.y + dateBox.height <= dimensions.height && !overlaps) {
+          signatures()[dateKey] = {role:date.role, slot_key:date.slot_key, label:date.label, slot_type:'date_signed',
+            units:'pt', page_number:page, box:copy(dateBox), allowed_area:copy(dateBox), ...signatureFormatting('date_signed')};
+        } else status('Signature placed. Place its Date signed field in a clear space.');
+      }
+    }
     select('signature', key); markDirty(); recordHistory('Place signer slot', before);
   }
   $('calibration-add-signature').onclick = () => placeSignatureOverlay();

@@ -7,11 +7,11 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f2f4f3">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="Review and sign a JBL loan document packet">
+  <meta name="description" content="Review and sign a JBL loan application">
   <title>JBL Loan Signing</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=13">
-  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20261012-2">
+  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20261013-2">
   <link rel="stylesheet" href="{% static 'miniapp/origination_signing_completion.css' %}?v=1">
   <link rel="stylesheet" href="{% static 'miniapp/origination_signing_feedback.css' %}?v=20260828-2">
 </head>
@@ -25,16 +25,16 @@
       <div id="shared-phone-warning" class="warning" hidden>Important: this phone number is also linked to another signer on this application. Check that the name and signing role above are yours before continuing.</div>
       <details class="card" id="review-card" open>
         <summary>Documents</summary>
-        <header><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><span id="page-label"></span><button id="page-next" type="button" aria-label="Next page">›</button></div></header>
+        <header><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><button id="page-zoom-out" type="button" aria-label="Zoom out">−</button><button id="page-zoom" type="button" aria-label="Reset zoom">100%</button><button id="page-zoom-in" type="button" aria-label="Zoom in">+</button><button id="page-refresh" type="button" aria-label="Refresh preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button><button id="page-next" type="button" aria-label="Next page">›</button></div><span id="page-label" role="status"></span></header>
         <div id="document-list" class="document-list"></div>
-        <div class="packet-preview"><div id="preview-loading">Loading page…</div><img id="packet-page" alt="Loan document page"></div>
+        <div class="packet-preview" tabindex="0" aria-label="Document preview. Pinch to zoom; swipe to change page."><div id="preview-loading">Loading page…</div><img id="packet-page" alt="Loan document page"></div>
       </details>
       <section class="card" id="signature-card" hidden>
         <header><div><h2>Sign</h2></div></header>
         <div class="signature-tabs" role="tablist"><button class="active" id="mode-drawn" type="button">Draw</button><button id="mode-typed" type="button">Type</button></div>
         <div id="draw-panel"><canvas id="signature-pad" width="800" height="260" tabindex="0" aria-label="Draw your signature, or use the Type button"></canvas><button id="signature-clear" class="link-button" type="button">Clear signature</button></div>
         <label id="type-panel" hidden><span>Type your full legal name</span><input id="typed-name" autocomplete="name" maxlength="120"></label>
-        <label class="consent"><input id="packet-consent" type="checkbox"><span id="packet-consent-text">I have reviewed every document shown in this packet. I agree to sign the packet as one atomic loan application and understand that I cannot accept only some documents.</span></label>
+        <label class="consent"><input id="packet-consent" type="checkbox"><span id="packet-consent-text">I have reviewed the documents and agree to sign them.</span></label>
         <label id="assisted-confirmation" class="consent" hidden><input id="assisted-consent" type="checkbox"><span>I am personally signing on a JBL officer’s device and will enter the OTP sent to my phone.</span></label>
         <button id="save-signature" class="primary" type="button">Save &amp; send code</button>
       </section>
@@ -47,8 +47,10 @@
     </section>
     <div id="sign-completion" hidden></div>
   </main>
+  <div id="sign-toast" class="sign-toast" role="status" aria-live="polite" hidden></div>
   <script src="{% static 'miniapp/utils.js' %}?v=27"></script>
+  <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=5"></script>
   <script src="{% static 'miniapp/origination_signing_completion.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/origination_signing.js' %}?v=20261012-2"></script>
+  <script src="{% static 'miniapp/origination_signing.js' %}?v=20261013-2"></script>
 </body>
 </html>
