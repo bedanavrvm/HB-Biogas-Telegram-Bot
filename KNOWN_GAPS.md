@@ -1,5 +1,47 @@
 # Known Gaps and Verified Workarounds
 
+## TAT usability/export verification - 13 October 2026
+
+Synthetic PostgreSQL checks verify canonical BRO corrections, current-access
+download links, expiration/tampering, exact calendar capture and personal inbox
+paging. XLSX checks inspect values, formats, colours and sample notes rather
+than relying on download success text. Browser checks cover 320/360/390/430/768/
+1280px, light/dark forms, notifications and native download handoff/cancel/error/
+unsupported paths. Screenshots are under `test-results/tat-final-ui` and
+`test-results/tat-layout-final`; mobile and desktop examples were inspected.
+
+The reported account-specific empty BRO list has not been reproduced: an IT
+actor with active BRO roster fixtures receives the options. Empty/missing helper
+states now explain the problem and offer Retry. Check current explicit active
+TAT BRO grants and reopen the refreshed app; IT alone is not a BRO assignment.
+Actual Telegram native confirmation/device downloads, current customer-account
+roster data, Google Sheet formatting and real email-client headers remain
+unverified. No real provider call or production data was used.
+
+The first PostgreSQL run reused a database whose migration-seeded catalogue/
+audit rows had been flushed by earlier transaction tests. On a fresh isolated
+test database, 235/247 TAT checks passed. The remaining six failures/six errors
+were reproduced in an unchanged HEAD worktree (12/12): stale asset/copy
+assertions, identifier validation expectations and legacy stage-order fixtures.
+Focused new tests pass. An existing unrelated Origination signer browser test
+still expects old `#sign-status` text instead of the current acknowledgement;
+it was excluded from the subsequent TAT/shared-form acceptance run.
+The write-route inventory already reports 32 uninventoried existing POST routes;
+this change adds no unsafe-method route. Ruff is unavailable locally. These
+limitations are not reasons to weaken operational validation or access rules.
+
+Verification records: `test-results/tat-fixes-fresh-django.txt` (247 TAT checks,
+12 baseline failures), `tat-baseline-django.txt` (same 12 reproduced at HEAD),
+`tat-focused-final.txt` (43 PostgreSQL checks passed),
+`tat-report-delivery-final.txt` (128 passed), `tat-presentation-final.txt`
+(35 final presentation/audit checks passed), `tat-ui-acceptance.txt` (175 passed),
+`tat-final-ui.txt` (66 passed after additional tests/layout refinement), and
+`tat-layout-final.txt` (7 passed after the final empty-status alignment fix).
+Django check/migration drift, JavaScript syntax, Node tests and whitespace
+checks pass. The full repository test suite was not run. Provider/device/inbox
+verification must use an explicitly approved target; synthetic browser previews
+do not establish delivery or native Telegram behaviour on a real device.
+
 ## Complaint email presentation - 13 October 2026
 
 The report layout now keeps the 900px desktop width, compact mobile tiles,

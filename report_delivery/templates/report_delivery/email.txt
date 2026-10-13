@@ -1,4 +1,4 @@
-JBL BOT — {{ title }}
+{{ bot_name }} | {{ miniapp_name }} | {{ title }} - {{ frequency }}
 {{ period }}
 Generated {{ generated }}
 {% if summary_sentence %}

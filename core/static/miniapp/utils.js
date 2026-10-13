@@ -1020,7 +1020,8 @@
       }
       const warning = await settings.restore?.(payload);
       formControllers.get(form)?.clear();
-      text(warning || 'Draft restored. Reselect any files before submitting.');
+      const hasFiles = Array.from(form.elements).some(control => control.type === 'file');
+      text(warning || (hasFiles ? 'Draft restored. Reselect any files before submitting.' : 'Draft restored.'));
       setCloseProtection(`creation-draft:${settings.workflow}`, false);
     };
     async function load() {

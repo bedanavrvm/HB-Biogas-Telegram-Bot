@@ -892,7 +892,7 @@ def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     return detail
 
 
-def record_tat_event(**values) -> TatTrackerEvent:
+def record_tat_event(*, selected_bro_user_id=None, **values) -> TatTrackerEvent:
     """Create one native TAT event and its idempotent compliance projection."""
     event = TatTrackerEvent.objects.create(**values)
     from core.services.compliance_audit import record_event
@@ -917,6 +917,7 @@ def record_tat_event(**values) -> TatTrackerEvent:
         before_values={'value': event.old_value} if event.old_value else {},
         after_values={'value': event.new_value} if event.new_value else {},
         metadata={
+            **({'selected_bro_user_id': str(selected_bro_user_id)} if selected_bro_user_id is not None else {}),
             'stage_key': event.stage_key,
             'stage_label': event.stage_label,
             'source': source,
@@ -1662,6 +1663,8 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             for index, case in enumerate(new_cases):
                 if start_row:
                     case.row_number = start_row + index
+                    format_tat_sheet_case_row(group_config, sheet, case.row_number,
+                                              case, product_for_case(case), headers=headers)
                 case.sheet_name = projection_sheet
                 case.last_synced_at = now
                 case.sync_error = ''
@@ -1764,7 +1767,7 @@ def update_case(
     correction_dates = []
     for item in updates:
         field = str(item.get('field') or '').strip()
-        if not item.get('correction') or field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'remarks'}:
+        if not item.get('correction') or field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'bro_user_id', 'amount', 'remarks'}:
             continue
         for raw in ((case.stage_values or {}).get(field), item.get('value')):
             parsed = parse_iso_datetime(raw)
@@ -1874,7 +1877,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         return
     if field == 'amount':
         raise ValueError('Requested amount is frozen because it determines the TAT workflow path.')
-    if field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'}:
+    if field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'bro_user_id'}:
         if not correction:
             raise ValueError('Case detail changes must be submitted as corrections.')
         if not can_user_correct_case_details(user, case):
@@ -1882,7 +1885,8 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
                 'Only a scoped BRO, Business Administrator, IT user, or Superuser '
                 'can correct case details.'
             )
-        old = getattr(case, field)
+        canonical_field = 'bro_name' if field == 'bro_user_id' else field
+        old = getattr(case, canonical_field)
         raw_value = str(item.get('value') or '').strip()
         if field == 'client_name':
             new_value = raw_value.upper()
@@ -1902,15 +1906,19 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             )
             if not new_value:
                 raise ValueError('Select a valid branch.')
-        elif field == 'bro_name':
-            new_value = raw_value
-            if not new_value:
-                raise ValueError('BRO name is required.')
+        elif field in {'bro_name', 'bro_user_id'}:
+            roster = configured_bro_users(workflow or {}, include_all_scopes=True)
+            matches = [person for person in roster if
+                       (str(person['id']) == raw_value if field == 'bro_user_id'
+                        else person['name'].casefold() == raw_value.casefold())]
+            if len(matches) != 1:
+                raise ValueError('Select an active TAT BRO from the current list.')
+            new_value = matches[0]['name']
         if str(old or '') == str(new_value or ''):
             raise ValueError(f'{field.replace("_", " ").title()} is already set to that value.')
-        setattr(case, field, new_value)
+        setattr(case, canonical_field, new_value)
         stage_key = 'case_details'
-        event_label = f'Corrected {field.replace("_", " ").title()}'
+        event_label = 'Corrected BRO' if canonical_field == 'bro_name' else f'Corrected {field.replace("_", " ").title()}'
         record_tat_event(
             case=case,
             group_id=case.group_id,
@@ -1926,6 +1934,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             source='admin_correction',
             sheet_name=case.sheet_name,
             row_number=case.row_number,
+            selected_bro_user_id=matches[0]['id'] if canonical_field == 'bro_name' else None,
         )
         return
     product = product_for_case(case)
@@ -2122,7 +2131,7 @@ def _format_tat_sheet_cells(sheet, formats: list[dict[str, Any]], *, case_id: st
         logger.warning('Could not apply TAT sheet highlighting for %s.', case_id, exc_info=True)
 
 
-def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCase, product: ProductConfig) -> None:
+def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCase, product: ProductConfig, *, headers=None) -> None:
     """Colour the displayed status and applicable stage cells for one case row.
 
     The Register is only a projection.  Formatting is deliberately best-effort
@@ -2131,6 +2140,10 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
     now = timezone.now()
     workflow = getattr(group_config, 'workflow', None) or {}
     formats: list[dict[str, Any]] = []
+    if headers is not None:
+        for column in set(resolve_tat_sheet_columns(product, headers).values()):
+            formats.append({'range': f'{column_letter(column)}{int(row)}',
+                            'format': {'numberFormat': {'type': 'NUMBER', 'pattern': '0.00'}}})
     # Keep the colour aligned with the value written to the Register.  The
     # reporting projection can derive a different status (for example,
     # ``Stalled`` from elapsed time) but it must not make the Sheet visually
@@ -2234,7 +2247,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
             )
         else:
             row = append_case_row(sheet, row_data)
-        format_tat_sheet_case_row(group_config, sheet, row, case, product)
+        format_tat_sheet_case_row(group_config, sheet, row, case, product, headers=headers)
         case.row_number = row
         case.sheet_name = projection_sheet
         synced_at = timezone.now()
@@ -3659,6 +3672,7 @@ def serialize_case_detail(
         'escalation': latest_escalation('tat_tracker', str(case.pk)),
         'can_correct_details': can_correct_details,
         'correction_branches': _allowed_branches(workflow or {}, user) if can_correct_details else [],
+        'correction_bro_users': configured_bro_users(workflow or {}, include_all_scopes=True) if can_correct_details else [],
         'product_terms': case.product_terms_snapshot,
         'product_quote': case.product_quote_snapshot,
         'product_requirements': requirements,

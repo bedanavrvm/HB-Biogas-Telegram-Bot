@@ -159,12 +159,29 @@ test('Creation recovery prompts before restoring and never saves files, tokens o
   });
   await expect(page.locator('[name=client_name]')).toHaveValue('');
   await page.getByRole('button', {name:'Restore', exact:true}).click();
+  await expect(page.locator('#draft-status')).toHaveText('Draft restored. Reselect any files before submitting.');
   await expect(page.locator('[name=client_name]')).toHaveValue('Restored customer');
   await page.locator('[name=client_name]').fill('Updated customer');
   await expect.poll(() => page.evaluate(() => window.draftWrites.length)).toBe(1);
   expect(await page.evaluate(() => window.draftWrites[0])).toEqual({revision:1,payload:{client_name:'Updated customer'}});
   await page.evaluate(() => window.recovery.clear());
   await expect(page.locator('.miniapp-draft-prompt')).toHaveCount(0);
+});
+
+test('file-free recovery uses a short message and equal full-width actions', async ({page}) => {
+  await page.setViewportSize({width:320,height:700});
+  await mount(page, '<form><label>Name<input name="name"></label><p id="draft-status"></p></form>');
+  await page.evaluate(async()=>{
+    window.fetch=async()=>new Response(JSON.stringify({ok:true,draft:{revision:1,payload:{name:'Saved name'}}}));
+    window.recovery=MiniAppUtils.bindCreationDraft(document.querySelector('form'),{workflow:'tat_create',contextKey:'synthetic-group',status:document.getElementById('draft-status')});
+    await recovery.load();
+  });
+  const restore=await page.getByRole('button',{name:'Restore',exact:true}).boundingBox();
+  const discard=await page.getByRole('button',{name:'Discard',exact:true}).boundingBox();
+  expect(Math.abs(restore.width-discard.width)).toBeLessThan(1);
+  expect(restore.y).toBe(discard.y);expect(discard.x+discard.width-restore.x).toBeGreaterThan(295);
+  await page.getByRole('button',{name:'Restore',exact:true}).click();
+  await expect(page.locator('#draft-status')).toHaveText('Draft restored.');
 });
 
 test('Non-field server failures remain one concise notice without duplicating field errors', async ({page}) => {

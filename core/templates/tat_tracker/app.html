@@ -6,20 +6,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TAT Tracker</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=26"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=27"></script>
   <script src="{% static 'miniapp/activity_changes.js' %}?v=5"></script>
   <link rel="stylesheet" href="{% static 'miniapp/activity_changes.css' %}?v=3">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=12">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=13">
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=6">
   <script src="{% static 'miniapp/components.js' %}?v=7"></script>
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=77">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=78">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -49,6 +49,8 @@
         <button id="closePrivateTasks" type="button" class="ghost-btn" aria-label="Close notifications">&times;</button>
       </div>
       <div id="privateTaskList" class="task-inbox-list"></div>
+      <p id="privateTaskStatus" class="task-inbox-status" role="status"></p>
+      <button id="privateTaskMore" type="button" class="load-more-btn" hidden>Load more</button>
     </section>
     <div id="loadingBrand" class="loading-brand" role="status" aria-live="polite">
       <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
@@ -76,6 +78,7 @@
       <div class="report-title-row">
         <div class="dashboard-heading"><p class="eyebrow">Operational Data</p><h2>TAT Reports</h2><p id="tatReportPeriod">Current workload</p></div>
         <div class="report-email-actions"><button id="tatReportExport" type="button" class="secondary compact-btn">Download Excel</button><button id="tatReportEmail" type="button" class="report-email-icon" aria-label="Email report"></button></div>
+        <p id="tatReportDownloadStatus" role="status" class="tat-download-status"></p>
       </div>
       <nav class="report-mode-tabs" aria-label="TAT report type">
         <button type="button" class="active" data-report-view="current" aria-pressed="true">Current Workload</button>
@@ -167,7 +170,7 @@
         <button type="button" data-home-queue="all" aria-pressed="false"><span>All cases</span><strong id="allTabCount">0</strong></button>
       </nav>
 
-      <p id="queueFreshness" class="queue-freshness" role="status" aria-live="polite">Updating queue…</p>
+      <p id="queueFreshness" class="queue-freshness" role="status" aria-live="polite" hidden></p>
       <div class="tat-queue-search-row">
         <label class="tat-queue-search" data-required-capability="tat.case.search" hidden><input id="queueSearchInput" aria-label="Search cases" type="search" maxlength="120" autocomplete="off" placeholder="Search name, reference, ID or phone"></label>
         <button id="openQueueFiltersBtn" type="button" class="queue-filter-btn" aria-label="Filter cases" aria-haspopup="dialog">
@@ -201,7 +204,7 @@
           <label class="new-case-full">Client Name<input class="tat-paste-field" name="client_name" autocomplete="off" autocapitalize="words" spellcheck="false" required placeholder="Customer name"></label>
           <label>National ID<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{1,9}" placeholder="1 to 9 digits"></label>
           <label>Primary Mobile Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
-          <label>BRO Name<select name="bro_user_id" required></select></label>
+          <label>BRO<select name="bro_user_id" required aria-describedby="newCaseBroStatus"><option value="">Loading BROs…</option></select><small id="newCaseBroStatus" role="status"></small></label>
           <label>Requested amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0" aria-describedby="newCaseAmountHelp"></label>
           <small id="newCaseAmountHelp" class="amount-range-help new-case-amount-help" aria-live="polite">Select a product to see its allowed amount range.</small>
           <div id="newCaseProductConfiguration" class="product-configuration-panel" hidden></div>
@@ -342,7 +345,7 @@
             <label>National ID<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{1,9}"></label>
             <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required></label>
             <label>Branch<select name="branch" required></select></label>
-            <label>BRO Name<input class="tat-paste-field" name="bro_name" autocomplete="name" autocapitalize="words" spellcheck="false" required></label>
+            <label>BRO<select name="bro_user_id" required aria-describedby="correctionBroStatus"><option value="">Loading BROs…</option></select><small id="correctionBroStatus" role="status"></small></label>
             <div class="form-actions correction-actions">
               <button id="saveCaseCorrectionBtn" type="submit" class="primary">Save correction</button>
             </div>
@@ -486,6 +489,6 @@
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=8"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=125"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=126"></script>
 </body>
 </html>

@@ -20,6 +20,13 @@ troubleshooting, read the
 
 - **Ready for my role** contains actionable in-scope work. **All cases** is a
   broader viewing queue, not organization-wide access.
+- The bell shows personal assigned cases, not every case in Ready for my role.
+  Its badge counts unread cases. The panel lists ten at a time; use Load more.
+- Create and Correct case details use the same active TAT BRO list. IT access
+  does not make someone a BRO. If the list is empty, retry or ask IT to check
+  active TAT BRO grants. Unrelated corrections keep a historical BRO name.
+- Restore and Discard share one full-width row. File-free forms say only
+  "Draft restored"; attachments, where used, still need reselection.
 - A matching ID or phone during creation is prior-loan context, not automatic
   permission to duplicate or merge a loan.
 - If another user changed a case, refresh and review before submitting again.
@@ -42,6 +49,15 @@ troubleshooting, read the
 - Use **?** for a short explanation of what is counted and how to read it.
   Select a graph point or heatmap cell to narrow the table when case links
   exist; historical queue totals may not have individual case links.
+- Download Excel offers filtered or all authorized records. Telegram's file
+  dialog names the workbook. "Download requested" is not proof it finished;
+  check device downloads or use the visible browser-download link. Cancellation
+  does not start a second download. Old Telegram versions use the browser link.
+- TAT Excel uses Current stage, Case created, Case finished and Target result;
+  Status remains separate. Responsible Person is omitted from TAT workbooks.
+  Percentage heatmaps retain numeric percentages, target colours and sample
+  notes. Durations remain numeric minutes. Sheet minutes display two decimals,
+  without changing their calculation.
 
 ## Getting help
 

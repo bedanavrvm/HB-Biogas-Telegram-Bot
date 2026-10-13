@@ -18,6 +18,32 @@ from .views import report_export_response
 
 
 class EmailPresentationTests(SimpleTestCase):
+    def test_scheduled_tat_workbook_keeps_numeric_minutes_and_staff_headers(self):
+        from core.services.portal_reporting import curated_snapshot_xlsx
+        snapshot = {'preset': 'tat', 'applied_filters': {}, 'period': None,
+                    'run_at': '2026-10-13T09:00:00+03:00', 'total_rows': 1,
+                    'rows': [{'current_stage': 'Visit', 'elapsed_minutes': 1.25}],
+                    'columns': [{'key': 'current_stage', 'label': 'Current stage', 'type': 'text'},
+                                {'key': 'elapsed_minutes', 'label': 'TAT (minutes)', 'type': 'number', 'number_format': '0.00'}]}
+        workbook = load_workbook(BytesIO(curated_snapshot_xlsx(snapshot)))
+        self.assertEqual(workbook['Data']['B2'].value, 1.25)
+        self.assertEqual(workbook['Data']['B2'].number_format, '0.00')
+        self.assertEqual(workbook['Data']['A1'].value, 'Current stage')
+
+    @override_settings(TELEGRAM_BOT_DISPLAY_NAME='JBL BOT')
+    def test_subject_has_app_report_frequency_period_and_safe_scope(self):
+        for preset, app in [('complaints', 'Complaints'), ('tat', 'TAT Tracker'), ('pipeline', 'Portal')]:
+            for cadence, label in [('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'),
+                                   ('quarterly', 'Quarterly'), ('yearly', 'Yearly'), ('', 'On demand')]:
+                snapshot = self.snapshot(preset=preset, applied_filters={
+                    'branch': 'Training', 'search': 'private search', 'group_id': '-100-secret'})
+                payload = build_payload(snapshot, 'recipient@example.invalid', {'frequency': cadence})
+                self.assertTrue(payload['subject'].startswith(f'JBL BOT | {app} | '))
+                self.assertIn(f' - {label} | 1 Oct - 5 Oct 2026 / Training', payload['subject'])
+                for secret in ('private search', '-100-secret'):
+                    self.assertNotIn(secret, payload['subject'])
+                self.assertIn(app, payload['html'])
+
     def snapshot(self, **changes):
         return {'preset': 'complaints', 'summary': {'Complaints reported': 12, 'Open': 6, 'Resolved': 6, 'Needs details': 0},
                 'charts': [], 'rows': [], 'exported_rows': 12, 'total_rows': 12,

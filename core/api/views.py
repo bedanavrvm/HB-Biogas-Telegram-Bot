@@ -526,6 +526,7 @@ def tat_tracker_bootstrap(request):
         data['task_inbox'] = inbox_payload(
             actor,
             group=database_group_configuration(group_config),
+            limit=10,
         )
     return JsonResponse({'ok': True, 'data': data})
 
@@ -615,8 +616,13 @@ def tat_tracker_tasks(request):
     from core.services.tat_notifications import connection_payload, inbox_payload
     from core.services.telegram_identity import database_group_configuration
     actor = user.get('_canonical_user')
+    try:
+        limit = max(1, min(100, int(payload.get('limit', 10))))
+        offset = max(0, int(payload.get('offset', 0)))
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'message': 'Choose a valid task page.'}, status=400)
     return JsonResponse({'ok': True, 'data': {
-        **inbox_payload(actor, group=database_group_configuration(group_config)),
+        **inbox_payload(actor, group=database_group_configuration(group_config), limit=limit, offset=offset),
         'private_alerts': connection_payload(actor),
     }})
 
@@ -875,6 +881,29 @@ def tat_tracker_reports_export(request):
     if capability_error:
         return capability_error
     from core.services.tat_reporting import export_report_xlsx
+    if payload.get('prepare_download') is True:
+        from core.services.tat_reporting import _filters, encode_report_download
+        from django.urls import reverse
+        try:
+            filters = _filters(payload)
+            # Freeze calendar dates; do not recalculate a selected month on GET.
+            if filters['date_mode'] != 'all':
+                filters['date_mode'] = 'custom'
+            scope = str(payload.get('export_scope') or 'filtered')
+            if scope not in {'filtered', 'all'}:
+                raise ValueError('Choose filtered records or all records.')
+            filters['export_scope'] = scope
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+        token = encode_report_download({
+            'user_id': user.get('user_id'), 'group_id': _group_id, 'filters': filters,
+            'request_id': str(getattr(request, 'miniapp_request_id', '') or ''),
+            'filename': f'tat-report-{timezone.localdate():%d-%m-%y}.xlsx',
+        })
+        return JsonResponse({'ok': True, 'data': {
+            'download_url': request.build_absolute_uri(reverse('tat_tracker_reports_download', args=[token])),
+            'filename': f'tat-report-{timezone.localdate():%d-%m-%y}.xlsx',
+        }})
     try:
         workbook, _count = export_report_xlsx(
             user.get('_canonical_user'), payload,
@@ -893,6 +922,42 @@ def tat_tracker_reports_export(request):
     )
     response['Content-Disposition'] = f'attachment; filename="tat-report-{timezone.localdate():%d-%m-%y}.xlsx"'
     response['Cache-Control'] = 'no-store'
+    return response
+
+
+@require_http_methods(['GET', 'HEAD'])
+def tat_tracker_reports_download(request, token):
+    """Recheck the original actor's current scope for each native download."""
+    from django.contrib.auth import get_user_model
+    from django.core.signing import BadSignature
+    from core.services.group_config import GroupRegistry
+    from core.services.tat_reporting import decode_report_download, export_report_xlsx
+    from core.services.tat_tracker import is_tat_tracker_workflow
+    from core.services.telegram_identity import database_group_configuration, user_access
+    try:
+        payload = decode_report_download(token)
+        actor = get_user_model().objects.filter(pk=payload['user_id'], is_active=True).first()
+        group = GroupRegistry.get_instance().get_group(payload['group_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'message': 'Download link expired. Reopen Reports and try again.'}, status=404)
+    if actor is None or not group or not is_tat_tracker_workflow(group):
+        return JsonResponse({'ok': False, 'message': 'This report is no longer available.'}, status=403)
+    access = user_access(actor, 'tat_tracker', group_configuration=database_group_configuration(group))
+    user = {'_canonical_user': actor, '_access': access, 'user_id': actor.pk}
+    if not access.get('authorized') or not _tat_has_capability(user, 'tat.reports.view', group):
+        return JsonResponse({'ok': False, 'message': 'You no longer have access to this report.'}, status=403)
+    try:
+        workbook, _ = export_report_xlsx(actor, payload['filters'],
+            include_people=_tat_has_capability(user, 'tat.reports.people.view', group),
+            request_id=payload['request_id'])
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+    response = HttpResponse(b'' if request.method == 'HEAD' else workbook,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+    response['Content-Length'] = str(len(workbook))
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 

@@ -50,8 +50,8 @@ def capture_workflow_report(schedule, configuration):
             if len(rows) >= total:
                 break
         columns = [('case_id', 'Reference'), ('client_name', 'Customer'), ('branch', 'Branch'),
-                   ('product_label', 'Product'), ('status', 'Status'), ('current_stage', 'Stage'),
-                   ('created_at', 'Created'), ('finished_at', 'Completed'), ('elapsed_minutes', 'TAT (minutes)'), ('sla_state', 'Target result')]
+                   ('product_label', 'Product'), ('status', 'Status'), ('current_stage', 'Current stage'),
+                   ('created_at', 'Case created'), ('finished_at', 'Case finished'), ('elapsed_minutes', 'TAT (minutes)'), ('sla_state', 'Target result')]
     else:
         from core.services.complaint_register import _report_queryset, _apply_report_filters, serialize_report_case
         from .complaint_reports import complaint_email_projection
@@ -77,7 +77,8 @@ def capture_workflow_report(schedule, configuration):
                    ('resolution_comments', 'HB comments'), ('date_resolved', 'Resolved')]
     result = {'preset': schedule.preset, 'period': period, 'summary': summary, 'charts': charts,
             'rows': rows, 'total_rows': total, 'export_limit': 2000,
-            'columns': [{'key': key, 'label': label, 'type': 'text'} for key, label in columns],
+            'columns': [{'key': key, 'label': label, 'type': 'number' if key == 'elapsed_minutes' else 'text',
+                         **({'number_format': '0.00'} if key == 'elapsed_minutes' else {})} for key, label in columns],
             'applied_filters': filters, 'run_at': timezone.now().isoformat()}
     if schedule.workflow == 'complaint_cases':
         result.update(projection)

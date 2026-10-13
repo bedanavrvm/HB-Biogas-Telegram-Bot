@@ -1,7 +1,7 @@
 (function () {
   const utils = window.MiniAppUtils || {};
   const tatApi = window.TatMiniAppApi || {};
-  const broAssignment = window.TatBroAssignment || {};
+  let broAssignment = window.TatBroAssignment || {};
   const caseValidation = window.TatCaseValidation || {};
   const tatFormatters = window.TatMiniAppFormatters || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
@@ -763,11 +763,13 @@
     if (!panel || !list) return;
     const items = data.items || [];
     const unread = Number(data.unread_count || 0);
-    $('privateTaskCount').textContent = unread || data.total || items.length;
-    $('privateTaskCount').hidden = !items.length;
+    $('privateTaskCount').textContent = unread;
+    $('privateTaskCount').hidden = unread === 0;
+    $('privateTaskHeading').textContent = `Needs your input (${Number(data.total || 0)})`;
+    $('privateTaskMore').hidden = !data.pagination?.has_more;
     list.replaceChildren();
     if (!items.length) {
-      list.innerHTML = '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
+      list.innerHTML = '<div class="empty-state"><div class="es-title">No tasks assigned to you.</div></div>';
       return;
     }
     items.forEach((item) => {
@@ -1243,11 +1245,35 @@
     refresh({ background: true }).catch(() => {});
   }
 
-  async function loadTaskInbox() {
-    const result = await api('/api/tat-tracker/tasks/', {});
-    renderTaskInbox(result.data || {});
-    renderPrivateAlertConnection((result.data || {}).private_alerts || {});
-    return result.data || {};
+  let taskInboxLoading = false;
+  async function loadTaskInbox({ more = false } = {}) {
+    if (taskInboxLoading) return;
+    taskInboxLoading = true;
+    const status = $('privateTaskStatus');
+    status.textContent = 'Loading…';
+    $('privateTaskMore').disabled = true;
+    try {
+      const offset = more ? (state.taskInbox.items || []).length : 0;
+      const result = await api('/api/tat-tracker/tasks/', { offset, limit: 10 });
+      const data = result.data || {};
+      if (more) {
+        const items = [...(state.taskInbox.items || []), ...(data.items || [])];
+        data.items = [...new Map(items.map(item => [item.case_id, item])).values()];
+      }
+      renderTaskInbox(data);
+      renderPrivateAlertConnection(data.private_alerts || {});
+      status.textContent = '';
+      return data;
+    } catch (error) {
+      status.textContent = 'Could not refresh your tasks. ';
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.textContent = 'Retry';
+      retry.onclick = () => { void loadTaskInbox({ more }).catch(() => {}); };
+      status.append(retry);
+      throw error;
+    } finally {
+      taskInboxLoading = false; $('privateTaskMore').disabled = false;
+    }
   }
 
   function snapshotHome() {
@@ -1353,10 +1379,11 @@
     if (!indicator) return;
     const age = relativeRefreshAge(refreshAgeSeconds());
     const failing = state.consecutiveRefreshFailures >= 2;
+    indicator.hidden = !failing;
     indicator.classList.toggle('refresh-failing', failing);
     indicator.textContent = failing
       ? `Couldn’t refresh — showing data from ${age}`
-      : `Updated ${age}`;
+      : '';
   }
 
   function homeHasItems(home) {
@@ -1806,12 +1833,7 @@
     renderFilterCheckboxes($('queueProductFilters'), data.products, 'key', 'label', 'product_keys');
     renderFilterCheckboxes($('queueBranchFilters'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'branches');
     renderFilterCheckboxes($('queueStatusFilters'), (data.statuses || []).map((value) => ({ value, label: value })), 'value', 'label', 'statuses');
-    const broInput = $('newCaseForm')?.elements.bro_user_id;
-    state.broUsers = broAssignment.normalizeUsers
-      ? broAssignment.normalizeUsers(data.bro_users, data.bro_names)
-      : [];
-    state.defaultBroUserId = String(data.default_bro_user_id || '');
-    broAssignment.populateSelect?.(broInput, state.broUsers, state.defaultBroUserId);
+    applyBroRoster(data);
     const initialQueue = 'role';
     state.homeQueue = initialQueue;
     state.homePages[initialQueue] = 1;
@@ -2291,7 +2313,7 @@
     const correctionButton = $('correctCaseDetailsBtn');
     if (correctionButton) {
       correctionButton.classList.toggle('hidden', !detail.can_correct_details);
-      fillCaseCorrectionForm(summary, detail.correction_branches || []);
+      fillCaseCorrectionForm(summary, detail.correction_branches || [], detail.correction_bro_users);
     }
     $('detailSummary').innerHTML = `
       <div class="detail-header-block">
@@ -2522,10 +2544,55 @@
     }
   }
 
-  function fillCaseCorrectionForm(summary, branches) {
+  function renderBroSelect(select, users, selectedId, statusId) {
+    if (!select) return;
+    const status = $(statusId);
+    if (typeof broAssignment.populateSelect === 'function') {
+      broAssignment.populateSelect(select, users, selectedId);
+      select.disabled = users.length === 0;
+      status.replaceChildren();
+      if (users.length) return;
+      status.textContent = 'No active TAT BROs available. Ask IT to check BRO grants. ';
+    } else {
+      select.disabled = true;
+      status.textContent = 'The BRO selector could not load. Reopen the app or retry. ';
+    }
+    const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry';
+    retry.onclick = async () => {
+      retry.disabled = true;
+      try {
+        broAssignment = window.TatBroAssignment || broAssignment;
+        const result = await api('/api/tat-tracker/bootstrap/', {});
+        applyBroRoster(result.data || {}, true);
+        if (state.detail) {
+          const form = $('caseCorrectionForm');
+          const entered = Object.fromEntries(new FormData(form));
+          fillCaseCorrectionForm(state.detail.summary, state.detail.correction_branches, state.broUsers);
+          Object.entries(entered).forEach(([key, value]) => {
+            if (key !== 'bro_user_id') form.elements[key].value = value;
+          });
+          if ([...form.elements.bro_user_id.options].some(option => option.value === entered.bro_user_id)) {
+            form.elements.bro_user_id.value = entered.bro_user_id;
+          }
+        }
+      } catch (_) { status.firstChild.textContent = 'Could not load BROs. Try again. '; }
+      finally { retry.disabled = false; }
+    };
+    status.append(retry);
+  }
+
+  function applyBroRoster(data, preserve = false) {
+    const select = $('newCaseForm')?.elements.bro_user_id;
+    const selection = preserve ? select?.value : String(data.default_bro_user_id || '');
+    state.broUsers = broAssignment.normalizeUsers?.(data.bro_users, data.bro_names) || [];
+    state.defaultBroUserId = String(data.default_bro_user_id || '');
+    renderBroSelect(select, state.broUsers, selection, 'newCaseBroStatus');
+  }
+
+  function fillCaseCorrectionForm(summary, branches, roster) {
     const form = $('caseCorrectionForm');
     if (!form || !summary) return;
-    ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'].forEach((field) => {
+    ['client_name', 'national_id', 'primary_phone', 'branch'].forEach((field) => {
       const input = form.elements[field];
       if (!input) return;
       if (field === 'branch' && input.tagName === 'SELECT') {
@@ -2533,6 +2600,17 @@
       }
       input.value = summary[field] || '';
     });
+    const users = Array.isArray(roster) ? broAssignment.normalizeUsers?.(roster, []) || [] : state.broUsers;
+    state.correctionBroUsers = users;
+    const matches = users.filter(user => user.name === summary.bro_name);
+    const input = form.elements.bro_user_id;
+    renderBroSelect(input, users, matches.length === 1 ? matches[0].id : '', 'correctionBroStatus');
+    // An unrelated correction must not replace a historical/ambiguous name.
+    if (matches.length !== 1 && summary.bro_name) {
+      const option = document.createElement('option'); option.value = 'unchanged';
+      option.textContent = `${summary.bro_name} (current)`; input.append(option); input.value = 'unchanged';
+      input.disabled = false;
+    }
   }
 
   function renderExistingLoanContext(context) {
@@ -2697,11 +2775,17 @@
     event.preventDefault();
     if (!state.detail || !state.detail.can_correct_details) return;
     const form = event.currentTarget;
-    const fields = ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'];
+    const fields = ['client_name', 'national_id', 'primary_phone', 'branch'];
     const current = state.detail.summary || {};
     const updates = fields
       .map((field) => ({ field, value: String(form.elements[field]?.value || '').trim(), correction: true }))
       .filter((item) => String(current[item.field] || '').trim() !== item.value);
+    const selected = form.elements.bro_user_id.value;
+    const bro = broAssignment.selectionPayload?.(state.correctionBroUsers || [], selected);
+    if (selected !== 'unchanged' && bro?.bro_name !== current.bro_name) {
+      if (!bro?.bro_user_id) { setStatus('Select an active TAT BRO.', 'error'); return; }
+      updates.push({ field: 'bro_user_id', value: bro.bro_user_id, correction: true });
+    }
     if (!updates.length) {
       setStatus('No case detail changes were entered.', 'error');
       return;
@@ -3277,14 +3361,14 @@
       { headerName: 'Branch', field: 'branch', width: 96, minWidth: 76, tooltipField: 'branch' },
       { headerName: 'Product', field: 'product_label', width: 115, minWidth: 90, tooltipField: 'product_label' },
       { headerName: 'Status', field: 'status', width: 88, minWidth: 74, cellClass: p => `tat-status tat-status-${String(p.value || '').toLowerCase()}` },
-      { headerName: 'Stage', field: 'current_stage', width: 150, minWidth: 112, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
+      { headerName: 'Current stage', field: 'current_stage', width: 150, minWidth: 112, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
       { headerName: 'Role', field: 'responsible_role', width: 92, minWidth: 74, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
-      { headerName: 'Created', field: 'created_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
-      { headerName: 'Finished', field: 'finished_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
+      { headerName: 'Case created', field: 'created_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
+      { headerName: 'Case finished', field: 'finished_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
       { headerName: 'Elapsed', field: 'elapsed_minutes', width: 78, minWidth: 68, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
       { headerName: 'Target', field: 'target_minutes', width: 74, minWidth: 66, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
       { headerName: 'Variance', field: 'variance_minutes', width: 80, minWidth: 70, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
-      { headerName: 'SLA', field: 'sla_state', width: 104, minWidth: 86, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
+      { headerName: 'Target result', field: 'sla_state', width: 104, minWidth: 86, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
     ];
     if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 135, minWidth: 105, sortable: false, tooltipField: 'responsible_person' });
     return columns.concat(stageTatColumns(stages));
@@ -4049,7 +4133,7 @@
     const scope = await window.MiniAppReportControls.chooseExcelExport({ trigger: $('tatReportExport') });
     if (!scope) return;
     const button = $('tatReportExport'); setButtonLoading(button, true, 'Preparing XLSX');
-    const requestId = newRequestId(); const payload = reportPayload({ request_id: requestId, client_request_id: requestId, export_scope: scope });
+    const requestId = newRequestId(); const payload = reportPayload({ request_id: requestId, client_request_id: requestId, export_scope: scope, prepare_download: true });
     try {
       const response = await fetch('/api/tat-tracker/reports/export/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId, 'Idempotency-Key': requestId, 'X-MiniApp-Message-Contract': '2' }, body: JSON.stringify(payload) });
       if (!response.ok) {
@@ -4060,8 +4144,30 @@
         error.supportReference = data.support_reference || utils.displaySupportReference?.(error.requestId) || '';
         throw error;
       }
-      const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `tat-report-${new Date().toISOString().slice(0, 10)}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
-      setStatus('TAT report downloaded.', 'ok');
+      const raw = await response.json();
+      if (!raw.ok || !raw.data?.download_url || !raw.data?.filename) throw new Error(raw.message || 'The download link was not returned.');
+      const { download_url: url, filename } = raw.data;
+      const feedback = $('tatReportDownloadStatus');
+      const browserFallback = message => {
+        feedback.replaceChildren(document.createTextNode(message + ' '));
+        const link = document.createElement('a'); link.href = url; link.download = filename;
+        link.textContent = `Download ${filename}`; link.target = '_blank'; link.rel = 'noopener';
+        link.onclick = event => {
+          if (typeof tg?.openLink === 'function') { event.preventDefault(); tg.openLink(url); }
+        };
+        feedback.append(link);
+      };
+      if (typeof tg?.downloadFile === 'function' && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+        feedback.textContent = `Confirm ${filename} in Telegram.`;
+        try {
+          tg.downloadFile({ url, file_name: filename }, accepted => {
+            if (accepted === false) feedback.textContent = 'Download cancelled. Tap Download Excel to try again.';
+            else browserFallback('Download requested. Check your device downloads. If it does not appear:');
+          });
+        } catch (_) { browserFallback('Telegram could not open the download.'); }
+      } else {
+        browserFallback('Your Telegram version does not support the download dialog.');
+      }
     } catch (error) {
       setStatus(contextualReportError('The TAT report could not be downloaded', error), 'error');
     } finally { setButtonLoading(button, false); }
@@ -4323,6 +4429,7 @@
       loadTaskInbox().catch(presentTatError);
     }
   });
+  $('privateTaskMore').addEventListener('click', () => { void loadTaskInbox({ more: true }).catch(() => {}); });
   $('closePrivateTasks').addEventListener('click', () => {
     closePrivateTasks();
   });
@@ -4331,7 +4438,10 @@
   });
   document.addEventListener('click', (event) => {
     const panel = $('privateTaskPanel');
-    if (!panel.hidden && !panel.contains(event.target) && !$('privateTaskButton').contains(event.target)) {
+    // Refresh can replace the clicked Retry/Load more node before bubbling.
+    // The original event path still proves this was an inside-panel click.
+    const path = event.composedPath();
+    if (!panel.hidden && !path.includes(panel) && !path.includes($('privateTaskButton'))) {
       closePrivateTasks({ restoreFocus: false });
     }
   });

@@ -1,5 +1,27 @@
 # Changelog
 
+## 13 October 2026 - TAT forms, personal tasks and trustworthy exports
+
+- Removed routine queue freshness text/spacing without changing live timing or
+  safe refresh. Added distinct create-form surfaces and aligned paired controls.
+- Create/correction BRO selectors share the active roster, distinguish matching
+  names, explain empty/error states and retry without losing entered corrections.
+  Corrections resolve staff IDs server-side and preserve historical names.
+- Personal task badges count unread assignments only. The panel has a right-
+  aligned close button, ten initial entries, Load more and recoverable failures.
+- Telegram Excel handoff names the file and reports requested/cancelled states,
+  not false download completion. Older/failed native clients have a browser link.
+  Download capabilities expire after 15 minutes and recheck current access.
+- TAT workbooks omit Responsible Person, clarify stage/date/target headers and
+  retain numeric heatmap percentages, colour and measurement context. Sheet
+  minute formatting keeps the existing two-decimal values on normal/batch/repair
+  publication. Cosmetic formatting failure never rejects the canonical save.
+- Shared draft actions fill one row with green/red icons; file-free forms no
+  longer request file reselection. New report subjects identify bot, Mini App,
+  report, cadence and period/scope. Frozen email retries remain unchanged.
+- No migration, new setting/dependency, production deployment or provider write.
+  Test evidence and remaining real-device/account checks are in KNOWN_GAPS.md.
+
 ## 13 October 2026 - Compact, clearer complaint email reports
 
 - Retained the 900px layout with short factual summaries, consistent mobile KPI

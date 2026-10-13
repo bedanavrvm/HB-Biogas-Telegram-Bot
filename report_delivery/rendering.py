@@ -212,7 +212,7 @@ def build_payload(snapshot, email, configuration):
         sender = f'JBL BOT <{sender}>'
     payload = {
         'from': sender, 'to': [email],
-        'subject': f'JBL · {context["title"]} · {context["period"]}',
+        'subject': context['subject'],
         'html': render_to_string('report_delivery/email.html', context),
         'text': render_to_string('report_delivery/email.txt', context),
         'attachments': [
@@ -312,6 +312,30 @@ def email_context(snapshot, configuration=None):
             'remaining_rows': [metrics[i:i + 3] for i in range(4, len(metrics), 3)],
             'breakdown_groups': breakdown_groups, 'logo_src': 'cid:' + BRAND_LOGO_ID,
             'total': snapshot['total_rows'], 'exported': exported, 'truncated': exported < snapshot['total_rows']}
+    configuration = configuration or {}
+    workflow = configuration.get('workflow') or (
+        'tat_tracker' if snapshot['preset'] == 'tat' else
+        'complaint_cases' if snapshot['preset'] in {'complaints', 'cmp_tat', 'cmp_open'} else 'jawabu_portal')
+    context['bot_name'] = ' '.join(str(settings.TELEGRAM_BOT_DISPLAY_NAME).split())
+    context['miniapp_name'] = {'tat_tracker': 'TAT Tracker', 'complaint_cases': 'Complaints',
+                               'jawabu_portal': 'Portal'}.get(workflow, 'Reports')
+    context['frequency'] = {'daily': 'Daily', 'weekly': 'Weekly', 'monthly': 'Monthly',
+                            'quarterly': 'Quarterly', 'yearly': 'Yearly'}.get(configuration.get('frequency'), 'On demand')
+    friendly_scope = []
+    for key in ('branch', 'county', 'product'):
+        value = filters.get(key)
+        if not value:
+            continue
+        if key == 'product':
+            matching = [row.get('product_label') for row in snapshot.get('rows', [])
+                        if str(row.get('product_key', '')).casefold() == str(value).casefold()
+                        and row.get('product_label')]
+            value = matching[0] if matching else 'Selected product'
+        friendly_scope.append(' '.join(str(value).split()))
+    context['report_scope'] = ', '.join(friendly_scope) or 'All approved cases'
+    context['subject'] = (f'{context["bot_name"]} | {context["miniapp_name"]} | '
+                          f'{context["title"]} - {context["frequency"]} | '
+                          f'{period_text} / {context["report_scope"]}')
     present(snapshot, context)
     return context
 

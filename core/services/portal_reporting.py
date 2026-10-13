@@ -873,6 +873,9 @@ def curated_snapshot_xlsx(snapshot) -> bytes:
         for cell in data_sheet[data_sheet.max_row]:
             if isinstance(cell.value, str):
                 cell.data_type = 's'
+        for index, field in enumerate(selected, start=1):
+            if field.get('number_format') and isinstance(data_sheet.cell(data_sheet.max_row, index).value, (int, float)):
+                data_sheet.cell(data_sheet.max_row, index).number_format = field['number_format']
     for cell in data_sheet[1]:
         cell.font = Font(bold=True)
     output = BytesIO()

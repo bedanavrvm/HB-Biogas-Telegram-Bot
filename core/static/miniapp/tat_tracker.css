@@ -855,6 +855,13 @@ body.tat-sheet-open { overflow: hidden; }
   display: grid;
   gap: 8px;
 }
+#newCaseForm { background:var(--tat-surface); border-top:3px solid var(--tat-accent); }
+#newCaseForm .new-case-grid { background:var(--tat-bg); border:1px solid var(--tat-line); border-radius:var(--radius); padding:8px; }
+#newCaseForm .new-case-grid > label { display:flex; flex-direction:column; justify-content:flex-end; }
+#newCaseForm :is(input,select) { background:var(--tat-surface); border-color:color-mix(in srgb,var(--tat-muted) 30%,transparent); }
+.tat-download-status:empty, .task-inbox-status:empty, #newCaseBroStatus:empty, #correctionBroStatus:empty { display:none; }
+.tat-download-status { margin:0; font-size:11px; overflow-wrap:anywhere; }
+.task-inbox-status { padding:6px 10px; margin:0; }
 
 /* Telegram's mobile WebView can otherwise treat dynamically rendered form
    controls as non-selectable. Keep clipboard interaction explicit for the
@@ -1480,9 +1487,10 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 }
 .task-inbox-panel[hidden] { display: none; }
 .task-inbox-panel-heading { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--tat-line); background: var(--tat-surface); }
-.task-inbox-panel-heading h2 { margin: 0; font-size: 13px; }
-.task-inbox-panel-heading button { width: 32px; min-width: 32px; min-height: 32px; padding: 0; font-size: 20px; }
+.task-inbox-panel-heading h2 { margin: 0; font-size: 13px; flex:1; min-width:0; }
+.task-inbox-panel-heading button { flex:0 0 36px; margin-left:auto; width:36px; min-width:36px; height:36px; min-height:36px; padding:0; font-size:20px; }
 .task-inbox-list { display: grid; gap: 6px; padding: 8px; }
+#privateTaskMore[hidden], #privateTaskCount[hidden] { display:none; }
 .recognition-view { gap: 10px; }
 .recognition-empty-score{margin:0;color:var(--tat-muted);font-size:12px}
 .recognition-period-controls{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;min-width:0}.recognition-period-controls label[hidden]{display:none}.recognition-period-controls .recognition-period{min-width:100px}.recognition-period-controls select,.recognition-period-controls input[type="number"]{width:100%;min-height:36px;padding:5px 7px;border:1px solid var(--tat-line);border-radius:8px;background:var(--tat-surface);color:var(--tat-text);font-size:12px}.recognition-overall{display:grid}.recognition-overall .recognition-result-card{border-color:var(--tat-accent)}.recognition-filter-button{width:100%;text-align:left}.recognition-filter-button .tat-report-filter-summary{min-width:0}.recognition-context-controls{padding:9px;border:1px solid var(--tat-line);border-radius:10px;background:var(--tat-surface)}.recognition-context-controls>button{align-self:end;min-height:36px}.recognition-result-card header small{display:block;margin-top:3px;color:var(--tat-muted);font-size:11px;line-height:1.3}.recognition-personal-best,.recognition-breakdown-note{margin:0;color:var(--tat-muted);font-size:12px;line-height:1.4}.recognition-stage-insights{display:grid;gap:5px;padding:9px;border:1px solid var(--tat-line);border-radius:10px;background:var(--tat-surface)}.recognition-stage-insights h3,.recognition-breakdown h3{margin:0;font-size:13px}.recognition-insight-row{display:flex;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;padding:5px 0;border-top:1px solid var(--tat-line);font-size:11px}.recognition-insight-row span{color:var(--tat-muted)}.recognition-breakdown{display:grid;gap:8px;padding:10px;border:1px solid var(--tat-line);border-radius:10px;background:var(--tat-surface)}.recognition-breakdown-group{display:grid;gap:5px}.recognition-breakdown-group h4{margin:0;font-size:12px}.recognition-breakdown-group p{margin:0;color:var(--tat-muted);font-size:11px}.recognition-breakdown .recognition-data-checks{margin:0}.recognition-breakdown .recognition-data-checks small{color:var(--tat-muted);font-weight:500}

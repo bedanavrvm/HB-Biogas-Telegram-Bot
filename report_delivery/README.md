@@ -9,6 +9,16 @@ you can explicitly set `REPORT_EMAIL_FROM=JBL BOT <it@your-verified-domain>`.
 Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
+New subjects use `{TELEGRAM_BOT_DISPLAY_NAME} | {Mini App} | {Report name} -
+{Frequency} | {Timeframe / scope}`. The header identifies the same app/cadence
+without a long heading. Scheduled cadence is captured in delivery configuration;
+one-off exports say On demand. Only readable branch/county/product scope is
+included, never search/customer values, auth data or numeric group identifiers.
+Already frozen subjects/payloads do not change on retry. TAT attachments omit
+Responsible Person and use Current stage, Case created, Case finished and
+Target result. Native TAT exports retain heatmap percentages/colour/sample
+comments; scheduled duration cells retain numeric two-decimal minute formatting.
+
 The shared fluid email uses up to 900px on desktop: title and date stamp,
 a short factual summary for Complaints overview/Open-case follow-up, attachment
 note, three or four KPIs, Needs attention, up to three complementary complaint

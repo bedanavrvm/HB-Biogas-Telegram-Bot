@@ -2166,6 +2166,38 @@ def report_cases(actor, payload, *, include_people=False):
     }
 
 
+def encode_report_download(payload):
+    """Opaque, expiring download capability; never put searches/auth in URL logs."""
+    import base64
+    import hashlib
+    import json
+    from cryptography.fernet import Fernet
+    from django.conf import settings
+    from django.core.signing import TimestampSigner
+    key = base64.urlsafe_b64encode(hashlib.sha256(
+        ('tat-report-download:' + settings.SECRET_KEY).encode()).digest())
+    encrypted = Fernet(key).encrypt(json.dumps(payload, default=str).encode()).decode()
+    return TimestampSigner(salt='tat-report-download').sign(encrypted)
+
+
+def decode_report_download(token):
+    import base64
+    import hashlib
+    import json
+    from cryptography.fernet import Fernet, InvalidToken
+    from django.conf import settings
+    from django.core.signing import TimestampSigner
+    encrypted = TimestampSigner(salt='tat-report-download').unsign(token, max_age=900)
+    for secret in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+        key = base64.urlsafe_b64encode(hashlib.sha256(
+            ('tat-report-download:' + secret).encode()).digest())
+        try:
+            return json.loads(Fernet(key).decrypt(encrypted.encode()))
+        except InvalidToken:
+            continue
+    raise ValueError('Download link expired. Reopen Reports and try again.')
+
+
 def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     # Exports are allowed to exceed the API page cap, while retaining a hard operational limit.
     export_scope = str(payload.get('export_scope') or 'filtered')
@@ -2189,10 +2221,8 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     def xlsx_safe(value):
         return "'" + value if isinstance(value, str) and value[:1] in {'=', '+', '-', '@'} else value
 
-    headers = ['Reference', 'Customer', 'TAT Group', 'Branch', 'Product', 'Status', 'Stage', 'Responsible Role', 'Created', 'Finished', 'Elapsed Minutes', 'Target Minutes', 'Variance Minutes', 'SLA State']
+    headers = ['Reference', 'Customer', 'TAT Group', 'Branch', 'Product', 'Status', 'Current stage', 'Responsible Role', 'Case created', 'Case finished', 'Elapsed Minutes', 'Target Minutes', 'Variance Minutes', 'Target result']
     keys = ['case_id', 'client_name', 'group', 'branch', 'product_label', 'status', 'current_stage', 'responsible_role', 'created_at', 'finished_at', 'elapsed_minutes', 'target_minutes', 'variance_minutes', 'sla_state']
-    if include_people:
-        headers.append('Responsible Person'); keys.append('responsible_person')
     stage_columns = _stage_columns_for_rows(rows)
     stage_start_column = len(headers) + 1
     headers.extend(f"{item['label']} TAT (minutes)" for item in stage_columns)
@@ -2223,6 +2253,9 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
             values.append(value)
         sheet.append(values)
         sheet_row = sheet.max_row
+        for index, key in enumerate(keys, start=1):
+            if key.endswith('_minutes') and sheet.cell(sheet_row, index).value is not None:
+                sheet.cell(sheet_row, index).number_format = '0.00'
         for offset, item in enumerate(stage_columns):
             detail = stage_values.get(item['key']) or {}
             cell = sheet.cell(row=sheet_row, column=stage_start_column + offset)
@@ -2250,6 +2283,15 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
             xlsx_safe(label),
             *[item.get('values', [])[index] if index < len(item.get('values', [])) else None for item in explorer.get('series', [])],
         ])
+        for column, series in enumerate(explorer.get('series', []), start=2):
+            cell = insight_sheet.cell(insight_sheet.max_row, column)
+            if isinstance(cell.value, (int, float)):
+                unit = series.get('unit') or explorer.get('unit', '')
+                if unit in {'percent', 'percentage', '%'}:
+                    cell.value /= 100
+                    cell.number_format = '0.0%'
+                elif unit == 'minutes':
+                    cell.number_format = '0.00 "min"'
     for cell in insight_sheet[5]:
         cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245B8A')
 
@@ -2261,9 +2303,34 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     heatmap_sheet.append([])
     heatmap_sheet.append([heatmap['row_dimension'], *[xlsx_safe(value) for value in heatmap['columns']]])
     lookup = {(item['row'], item['column']): item for item in heatmap['cells']}
+    metric = heatmap['metric']
+    numeric = [item['value'] for item in heatmap['cells'] if item.get('value') is not None]
+    minimum, maximum = min(numeric, default=0), max(numeric, default=0)
     for row_label in heatmap['rows']:
         values = [lookup.get((row_label, column), {}).get('value') for column in heatmap['columns']]
         heatmap_sheet.append([xlsx_safe(row_label), *values])
+        for index, column in enumerate(heatmap['columns'], start=2):
+            item = lookup.get((row_label, column), {})
+            cell = heatmap_sheet.cell(heatmap_sheet.max_row, index)
+            value = item.get('value')
+            cell.comment = Comment(
+                f"Measured records: {item.get('sample_count', 0)}; excluded: {item.get('excluded_count', 0)}. "
+                + heatmap.get('exclusion_reason', 'Missing target or timing') + '.', 'JBL TAT Report',
+            )
+            if value is None:
+                continue
+            if metric in {'sla_met', 'target_usage'}:
+                cell.value = value / 100
+                cell.number_format = '0.0%'
+            else:
+                cell.number_format = '0' if metric == 'workload' else '0.00 "min"'
+            if metric == 'sla_met':
+                style = stage_fills['within_target' if value >= 80 else 'near_target' if value >= 60 else 'overdue']
+                cell.fill, cell.font = style[0], Font(color=style[1], bold=True)
+            else:
+                intensity = (value - minimum) / (maximum - minimum) if maximum > minimum else .55
+                # Neutral navy intensity is magnitude, not a good/bad judgement.
+                cell.fill = PatternFill('solid', fgColor='D5E3F0' if intensity >= .5 else 'EDF3F8')
     for cell in heatmap_sheet[5]:
         cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245B8A')
     output = BytesIO(); workbook.save(output)

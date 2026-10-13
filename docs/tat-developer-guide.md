@@ -30,6 +30,29 @@ canonical when Google publication fails.
 
 ## Safe extension and validation
 
+The export POST accepts `prepare_download: true` for an opaque 15-minute link
+and filename; legacy clients still receive XLSX bytes. GET/HEAD on
+`/api/tat-tracker/reports/download/<token>/` rechecks the original active actor's
+current group/capability and report scopes. Encrypted filter contents omit
+Telegram credentials and keep search values out of URL logs; calendar dates
+are frozen at preparation. The same audited exporter and 10,000-case cap apply.
+Native Telegram acceptance is a handoff, never a completed-download receipt.
+
+Both BRO selects use the organisation-wide active explicit TAT BRO roster.
+Corrections submit user IDs; the server resolves the current display name and
+retains selected identity in compliance metadata. Legacy name-only corrections
+must uniquely match the active roster. A historical name can remain unchanged
+when correcting another field. This does not change responsibility routing.
+
+Task bootstrap/API pages default to ten personal assigned cases. The unread
+badge never falls back to total assignments. Paging retains the current rows
+on failure and exposes Retry. Refresh sequencing, dirty-form protection and
+server-anchored timing remain intact; only the routine freshness label is hidden.
+
+Sheet number formatting is best-effort, after value writes, for ordinary,
+batch and repair publication. It must never change stored Decimal minutes or
+turn a cosmetic provider failure into an unsuccessful canonical save.
+
 Add business rules to services, not templates or client JavaScript. Add an
 allowed and denied/failure test to `docs/business_rule_test_map.md`. Run focused
 TAT suites first, then the complete Django suite, Django checks, migration drift,

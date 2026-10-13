@@ -6,6 +6,9 @@ or retry rule; code coverage alone is not sufficient evidence.
 
 | Rule | Allowed-path test | Denied/failure-path test |
 |---|---|---|
+| TAT native export keeps current access and frozen period | `core.tests_tat_tracker.TatTrackerWorkflowTest.test_native_report_download_preserves_period_rechecks_actor_and_keeps_binary_clients` | Same test checks revoked access/tampering; `core.tests_tat_report_presentation.TatReportPresentationPolicyTests.test_download_token_hides_filters_and_rejects_expiry_and_tampering` |
+| BRO corrections use current explicit roster without rewriting history | `core.tests_tat_tracker.TatTrackerWorkflowTest.test_bro_correction_resolves_identity_and_preserves_history` | Same test rejects removed/unknown BROs; `test_it_bootstrap_keeps_explicit_bro_roster_without_inventing_it_assignment` |
+| Personal task counts and paging | `core.tests_tat_notifications.TatPrivateTaskTests.test_personal_inbox_api_pages_ten_and_read_count_is_not_total` | Same test checks invalid paging; browser `personal inbox pages ten, preserves rows on failure and hides a zero unread badge` |
 | Mini App retry key compatibility | `core.tests_reliability.MiniAppRequestIdentityTests.test_header_key_is_bound` | `test_strict_mode_rejects_missing_key` |
 | TAT state update replay identity | `core.tests_reliability.MiniAppWritePolicyTests.test_tat_update_accepts_header_retry_key` | `test_tat_update_rejects_invalid_retry_key` |
 | TAT private delivery is idempotent | `core.tests_tat_notifications.TatPrivateTaskTests.test_concurrent_safe_dispatch_does_not_repeat_a_delivered_prompt` | `test_revoked_primary_scope_hides_task_and_soft_escalates_delivery` |

@@ -2916,6 +2916,76 @@ class TatTrackerWorkflowTest(TestCase):
             }],
         )
 
+    def test_it_bootstrap_keeps_explicit_bro_roster_without_inventing_it_assignment(self):
+        AccessGrant.objects.create(user=self.admin_user, workflow='tat_tracker', role='IT',
+                                   group_configuration=self.config)
+        data = bootstrap(self.config, {'id': 222, 'username': 'admin_user'})
+        self.assertEqual([row['id'] for row in data['bro_users']], [self.bro_user.pk])
+        self.assertIsNone(data['default_bro_user_id'])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_native_report_download_preserves_period_rechecks_actor_and_keeps_binary_clients(self):
+        from urllib.parse import urlparse
+        from core.services.tat_reporting import decode_report_download
+        AccessGrant.objects.create(user=self.admin_user, workflow='tat_tracker', role='IT', group_configuration=self.config)
+        body = {'group_id': self.config.group_id, 'init_data': self.signed_init_data('222', 'admin_user'),
+                'prepare_download': True, 'date_mode': 'quarter', 'quarter': 1, 'year': 2026,
+                'granularity': 'month', 'search': 'Synthetic private filter', 'export_scope': 'filtered',
+                'client_request_id': 'synthetic-native-download'}
+        response = self.client.post(reverse('tat_tracker_reports_export'), data=json.dumps(body), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()['data']
+        path = urlparse(data['download_url']).path
+        token = path.rstrip('/').split('/')[-1]
+        captured = decode_report_download(token)
+        self.assertEqual(captured['filters']['date_from'], '2026-01-01')
+        self.assertEqual(captured['filters']['date_to'], '2026-03-31')
+        self.assertEqual(captured['filters']['date_mode'], 'custom')
+        self.assertNotIn('init_data', captured['filters'])
+        self.assertNotIn('Synthetic private filter', path)
+        with patch('core.services.tat_reporting.export_report_xlsx', return_value=(b'synthetic-xlsx', 1)) as export:
+            for method in ('get', 'head', 'get'):
+                download = getattr(self.client, method)(path)
+                self.assertEqual(download.status_code, 200, download.content)
+                self.assertIn(data['filename'], download['Content-Disposition'])
+                self.assertEqual(download['Content-Length'], '14')
+                self.assertEqual(download.content, b'' if method == 'head' else b'synthetic-xlsx')
+            self.assertEqual(export.call_args.args[0].pk, self.admin_user.pk)
+            self.assertEqual(export.call_args.args[1]['search'], 'Synthetic private filter')
+            binary = self.client.post(reverse('tat_tracker_reports_export'),
+                data=json.dumps({**body, 'prepare_download': False}), content_type='application/json')
+            self.assertEqual(binary.content, b'synthetic-xlsx')
+        self.assertEqual(self.client.get(path.replace(token, token + 'tamper')).status_code, 404)
+        AccessGrant.objects.filter(user=self.admin_user, workflow='tat_tracker').update(active=False)
+        with patch('core.services.tat_reporting.export_report_xlsx') as export:
+            self.assertEqual(self.client.get(path).status_code, 403)
+            export.assert_not_called()
+
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_bro_correction_resolves_identity_and_preserves_history(self, sync):
+        sync.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        detail = create_case(self.config, bro, {'product_key': 'business', 'branch': 'Nakuru',
+            'client_name': 'Synthetic', 'national_id': '12345678', 'primary_phone': '0712345678',
+            'bro_user_id': self.bro_user.pk, 'amount': '10000'})
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(detail['correction_bro_users'][0]['id'], self.bro_user.pk)
+        case.bro_name = 'Historical BRO'; case.save(update_fields=['bro_name'])
+        update_case(self.config, bro, case.case_id, [{'field': 'client_name', 'value': 'Changed', 'correction': True}])
+        case.refresh_from_db(); self.assertEqual(case.bro_name, 'Historical BRO')
+        for value in ('999999', ''):
+            with self.assertRaisesMessage(ValueError, 'Select an active TAT BRO'):
+                update_case(self.config, bro, case.case_id, [{'field': 'bro_user_id', 'value': value, 'correction': True}])
+        update_case(self.config, bro, case.case_id, [{'field': 'bro_user_id', 'value': str(self.bro_user.pk), 'correction': True}])
+        case.refresh_from_db(); self.assertEqual(case.bro_name, 'BRO User')
+        self.assertTrue(case.events.filter(old_value='Historical BRO', new_value='BRO User').exists())
+        AccessGrant.objects.filter(user=self.bro_user, workflow='tat_tracker', role='BRO').update(active=False)
+        admin = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        with self.assertRaisesMessage(ValueError, 'Select an active TAT BRO'):
+            update_case(self.config, admin, case.case_id, [{'field': 'bro_user_id', 'value': str(self.bro_user.pk), 'correction': True}])
+
+
     def test_bootstrap_lists_active_bros_across_scopes_for_every_creator(self):
         User = get_user_model()
         other_group = GroupSheetConfiguration.objects.create(

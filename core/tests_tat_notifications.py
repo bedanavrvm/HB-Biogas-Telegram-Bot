@@ -968,6 +968,31 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(backup['unread_count'], 1)
         self.assertEqual(primary['items'][0]['task_id'], str(task.pk))
 
+    @override_settings(SECURE_SSL_REDIRECT=False)
+    def test_personal_inbox_api_pages_ten_and_read_count_is_not_total(self):
+        from core.services.tat_notifications import mark_task_read
+        for index in range(12):
+            synchronize_case_task(self.group, self._case(f'SYNTHETIC-PAGE-{index}'))
+        body = {'group_id': self.group.group_id, 'init_data': self._signed_init_data()}
+        first = self.client.post(reverse('tat_tracker_tasks'), data=json.dumps(body), content_type='application/json')
+        self.assertEqual(first.status_code, 200, first.content)
+        data = first.json()['data']
+        self.assertEqual(len(data['items']), 10)
+        self.assertEqual(data['total'], 12)
+        self.assertTrue(data['pagination']['has_more'])
+        second = self.client.post(reverse('tat_tracker_tasks'), data=json.dumps({**body, 'offset': 10}), content_type='application/json').json()['data']
+        self.assertEqual(len(second['items']), 2)
+        self.assertFalse(second['pagination']['has_more'])
+        self.assertFalse({row['case_id'] for row in data['items']} & {row['case_id'] for row in second['items']})
+        for task in TatActionTask.objects.filter(case__case_id__startswith='SYNTHETIC-PAGE-'):
+            mark_task_read(task, self.primary)
+        read = inbox_payload(self.primary, group=self.group)
+        self.assertEqual(read['total'], 12)
+        self.assertEqual(read['unread_count'], 0)
+        self.assertEqual(inbox_payload(self.primary, group=self.group, offset=999)['items'], [])
+        invalid = self.client.post(reverse('tat_tracker_tasks'), data=json.dumps({**body, 'offset': 'bad'}), content_type='application/json')
+        self.assertEqual(invalid.status_code, 400)
+
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 80})
     def test_revoked_primary_scope_hides_task_and_soft_escalates_delivery(self, telegram):
         task = synchronize_case_task(self.group, self.case)

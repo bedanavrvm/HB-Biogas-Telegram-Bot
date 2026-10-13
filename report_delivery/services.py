@@ -159,7 +159,7 @@ def _configuration(schedule, recipient, occurrence):
     return {
         'revision': schedule.revision, 'group': schedule.group_configuration_id, 'workflow': schedule.workflow,
         'approved_by': schedule.authorized_by_id, 'recipient_approved_by': recipient.authorized_by_id,
-        'preset': schedule.preset, 'filters': filters, 'period': period,
+        'preset': schedule.preset, 'frequency': schedule.frequency, 'filters': filters, 'period': period,
         'due_at': occurrence.isoformat(), 'recipient_stamp': recipient_stamp(recipient),
     }
 

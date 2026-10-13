@@ -73,7 +73,7 @@ def queue_export(actor, workflow, payload):
     filters = {k: v for k, v in filters.items() if k in allowed}
     configuration = {'workflow': workflow, 'preset': payload.get('preset') or
                      {'jawabu_portal': 'pipeline', 'tat_tracker': 'tat', 'complaint_cases': 'complaints'}[workflow],
-                     'filters': filters, 'access_stamp': access_stamp(actor, workflow)}
+                     'frequency': 'on_demand', 'filters': filters, 'access_stamp': access_stamp(actor, workflow)}
     from .sources import PRESETS
     if configuration['preset'] not in PRESETS[workflow]:
         raise ValidationError('Choose a report belonging to this app.')
@@ -82,7 +82,7 @@ def queue_export(actor, workflow, payload):
     delivery, created = ReportDelivery.objects.get_or_create(requested_by=actor, schedule=None,
         occurrence='export:' + key, defaults={'destination': email, 'configuration': configuration})
     if not created and (delivery.destination.casefold() != email.casefold()
-                        or delivery.configuration != configuration):
+                        or {**delivery.configuration, 'frequency': delivery.configuration.get('frequency', 'on_demand')} != configuration):
         raise ValidationError('This send request changed. Reopen Email report to send a different report.')
     if suppressed(email):
         raise ValidationError('This address cannot receive reports after a bounce or complaint. Ask IT to review it.')

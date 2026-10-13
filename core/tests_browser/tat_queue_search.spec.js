@@ -10,7 +10,9 @@ const markup = source.slice(source.indexOf('<main class="tat-app"'), source.last
   .replace(/{%[\s\S]*?%}|{{[\s\S]*?}}/g, '').replace(/<img[^>]*>/g, '');
 
 async function mount(page, reports = false, native = false) {
-  await page.route(/^https?:\/\//, route => route.abort());
+  await page.route(/^https?:\/\//, route => route.request().url()==='http://miniapp.test/'
+    ? route.fulfill({contentType:'text/html',body:'<!doctype html><html></html>'}) : route.abort());
+  if(native)await page.goto('http://miniapp.test/');
   await page.setContent(`<body>${markup}</body>`);
   for (const name of ['base.css','components.css','tat_tracker.css']) await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
   await page.evaluate(({reports,native,reportPanelViews}) => {
@@ -20,17 +22,24 @@ async function mount(page, reports = false, native = false) {
       window.Telegram={WebApp:{initData:'synthetic-only',ready(){},expand(){},onEvent(){},MainButton:__native,BackButton:{show(){},hide(){},onClick(){}}}};
     }
     window.__calls = [];
-    const summary = {case_id:'JBL-TEST-1',client_name:'Synthetic Applicant',national_id:'12345678',primary_phone:'712345678',branch:'Training',product:'Training product',status:'Active',amount:'10000',next_stage:'Visit',next_role:'BRO'};
+    const summary = {case_id:'JBL-TEST-1',client_name:'Synthetic Applicant',national_id:'12345678',primary_phone:'712345678',branch:'Training',bro_name:'Synthetic BRO',product:'Training product',status:'Active',amount:'10000',next_stage:'Visit',next_role:'BRO'};
+    const roster = [{id:7,name:'Synthetic BRO',username:'synthetic-bro'}, {id:8,name:'Synthetic BRO',username:'synthetic-other'}];
     const home = body => ({queue:body.queue||'role',items:[{...summary,client_name:body.query||summary.client_name}],metrics:{role:1,total:1},pagination:{page:body.page||1,pages:1,total:1,page_size:10},visibility:{}});
     window.TatMiniAppApi = {postJson:async (url, body) => {
       window.__calls.push({url,body});
-      if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['BRO'],capabilities:['tat.home.view','tat.case.search', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[],branches:[],statuses:[],...home({})}};
+      if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['IT'],capabilities:['tat.home.view','tat.case.search','tat.case.create', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[{key:'business',label:'Training product'}],branches:['Training'],bro_users:window.__emptyRoster?[]:roster,statuses:[],...home({})}};
       if(url.includes('/home/')) { if(body.query==='slow') await new Promise(resolve=>setTimeout(resolve,650)); return {ok:true,data:home(body)}; }
-      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],fields:[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/tasks/')) {
+        if(window.__taskError)throw new Error('Synthetic network failure');
+        const all=Array.from({length:23},(_,i)=>({task_id:String(i),case_id:'TASK-'+i,client_name:'Training '+i,stage_label:'Visit',role:'BRO',unread:window.__unread!==false}));
+        const offset=body.offset||0; return {ok:true,data:{items:all.slice(offset,offset+10),total:all.length,unread_count:window.__unread===false?0:23,pagination:{offset,page_size:10,has_more:offset+10<all.length}}};
+      }
       return {ok:true,data:{}};
     }};
     if (reports) window.fetch = async (url, options) => {
       const body = JSON.parse(options.body); __calls.push({url,body});
+      if(url.includes('/export/'))return new Response(JSON.stringify({ok:true,data:{download_url:'https://miniapp.test/synthetic-download',filename:'tat-report-13-10-26.xlsx'}}));
       const chart = {id:'trend',title:'Completed actions',basis:'completed_stage_actions',sample_count:2,labels:['2026-10-01','2026-10-02'],
         series:window.__multiTrend ? [{key:'created',label:'Created',values:[1,1]},{key:'disbursed',label:'Disbursed',values:[3,4]}] : [{key:'completed_actions',label:'Actions',values:[1,1]}],drilldown:{available:!window.__historical,reason:'Individual cases aren’t available for this historical total.'}};
       const key=body.insight||'trend';chart.id=key;
@@ -68,6 +77,110 @@ test('real TAT queue searches the selected queue, ignores stale responses and pr
   await expect(page.locator('#queueSearchInput')).toHaveValue('Current');
   await page.locator('#queueSearchInput').fill('');
   await expect(page.locator('#queueList')).toContainText('Synthetic Applicant');
+});
+
+test('IT creation and corrections use the complete BRO selector with empty-state retry',async({page})=>{
+  await mount(page);
+  await page.locator('[data-view="new"]').click();
+  await expect(page.locator('#newCaseForm [name=bro_user_id] option')).toHaveCount(3);
+  await expect(page.locator('#newCaseForm [name=bro_user_id]')).toHaveValue('');
+  await expect(page.locator('#newCaseForm [name=bro_user_id] option').nth(1)).toHaveText('Synthetic BRO (synthetic-bro)');
+  await page.locator('[data-view="queue"]').click();
+  await page.locator('#queueList .case-name').first().click();
+  await page.locator('#correctCaseDetailsBtn').click();
+  await expect(page.locator('#caseCorrectionForm [name=bro_name]')).toHaveCount(0);
+  await expect(page.locator('#caseCorrectionForm [name=bro_user_id]')).toHaveValue('unchanged');
+  await expect(page.locator('#caseCorrectionForm [name=bro_user_id] option')).toHaveCount(4);
+});
+
+test('personal inbox pages ten, preserves rows on failure and hides a zero unread badge',async({page})=>{
+  await mount(page); await page.locator('#privateTaskButton').click();
+  await expect(page.locator('#privateTaskCount')).toHaveText('23');
+  await expect(page.locator('#privateTaskHeading')).toHaveText('Needs your input (23)');
+  await expect(page.locator('.task-inbox-card')).toHaveCount(10);
+  await page.locator('#privateTaskMore').click();
+  await expect(page.locator('.task-inbox-card')).toHaveCount(20);
+  await page.evaluate(()=>{window.__taskError=true;});
+  await page.locator('#privateTaskMore').click();
+  await expect(page.locator('.task-inbox-card')).toHaveCount(20);
+  await expect(page.locator('#privateTaskStatus')).toContainText('Could not refresh');
+  await page.evaluate(()=>{window.__taskError=false;});
+  await page.locator('#privateTaskStatus button').click();
+  await expect(page.locator('.task-inbox-card')).toHaveCount(23);
+  await expect(page.locator('#privateTaskMore')).toBeHidden();
+  await page.locator('#closePrivateTasks').click();
+  await page.evaluate(()=>{window.__unread=false;});
+  await page.locator('#privateTaskButton').click();
+  await expect(page.locator('#privateTaskCount')).toBeHidden();
+  await expect(page.locator('.task-inbox-card')).toHaveCount(10);
+});
+
+for(const width of [320,360,390,430,768,1280])test(`compact create and right-aligned inbox ${width}px`,async({page},info)=>{
+  await page.setViewportSize({width,height:850});await mount(page);
+  await expect(page.locator('#queueFreshness')).toBeHidden();
+  for(const theme of ['light','dark']){
+    await page.evaluate(t=>document.documentElement.dataset.miniappColorScheme=t,theme);
+    await page.locator('[data-view="new"]').click();
+    const id=await page.locator('#newCaseForm [name=national_id]').boundingBox(),phone=await page.locator('#newCaseForm [name=primary_phone]').boundingBox();
+    expect(Math.abs(id.y-phone.y)).toBeLessThan(1);
+    const bro=await page.locator('#newCaseForm [name=bro_user_id]').boundingBox(),amount=await page.locator('#newCaseForm [name=amount]').boundingBox();
+    expect(Math.abs(bro.y-amount.y)).toBeLessThan(1);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`tat-create-${width}-${theme}.png`),fullPage:true});
+    await page.locator('#privateTaskButton').click();
+    await expect(page.locator('.task-inbox-card')).toHaveCount(10);
+    const head=await page.locator('.task-inbox-panel-heading').boundingBox(),close=await page.locator('#closePrivateTasks').boundingBox();
+    expect(Math.abs(head.x+head.width-close.x-close.width-10)).toBeLessThan(2);
+    expect(close.y).toBeLessThan(head.y+15);
+    expect(close.width).toBe(36);
+    await page.screenshot({path:info.outputPath(`tat-inbox-${width}-${theme}.png`),fullPage:true});
+    await page.locator('#closePrivateTasks').click();
+  }
+});
+
+for(const result of ['accepted','cancelled','throws','unsupported'])test(`native TAT workbook download ${result}`,async({page})=>{
+  await mount(page,true,true);
+  await page.evaluate(result=>{
+    window.__downloads=[];
+    if(result!=='unsupported')Telegram.WebApp.downloadFile=(options,callback)=>{
+      __downloads.push(options);if(result==='throws')throw new Error('Synthetic native failure');callback(result!=='cancelled');
+    };
+  },result);
+  await page.locator('#dashboardWorkspaceBtn').click();
+  await expect(page.locator('#tatReportPage')).toHaveText('Page 1 of 2');
+  await page.locator('#tatReportExport').click();
+  await page.getByRole('button',{name:'Download filtered',exact:true}).click();
+  const status=page.locator('#tatReportDownloadStatus');
+  if(result==='cancelled'){
+    await expect(status).toContainText('Download cancelled');await expect(status.locator('a')).toHaveCount(0);
+  }else await expect(status.locator('a')).toHaveText('Download tat-report-13-10-26.xlsx');
+  if(result==='accepted')await expect(status).toContainText('Download requested');
+  expect(await page.evaluate(()=>__downloads.length)).toBe(result==='unsupported'?0:1);
+  expect(await page.evaluate(()=>__calls.find(c=>c.url.includes('/export/')).body.prepare_download)).toBe(true);
+  await expect(status).not.toContainText('report downloaded');
+});
+
+test('an empty BRO roster is explained and Retry preserves entered form values',async({page})=>{
+  await mount(page);await page.locator('[data-view="new"]').click();
+  // Simulate a refreshed bootstrap with no active BROs, through the real retry path.
+  await page.evaluate(()=>{window.__emptyRoster=true;});
+  await page.locator('[data-view="queue"]').click();await page.locator('#queueList .case-name').first().click();
+  await page.locator('#correctCaseDetailsBtn').click();
+  await page.locator('#caseCorrectionForm [name=client_name]').fill('Unsaved correction');
+  await page.evaluate(()=>{
+    // The real bootstrap uses the same select renderer. Drive its visible retry
+    // using an empty correction roster returned by the detail endpoint.
+    const original=TatMiniAppApi.postJson;
+    TatMiniAppApi.postJson=async(url,body)=>{const response=await original(url,body);if(url.includes('/detail/'))response.data.correction_bro_users=[];return response;};
+  });
+  await page.locator('#cancelCaseCorrectionBtn').click();await page.locator('#backBtn').click();
+  await page.locator('#queueList .case-name').first().click();await page.locator('#correctCaseDetailsBtn').click();
+  await page.locator('#caseCorrectionForm [name=client_name]').fill('Keep this correction');
+  await expect(page.locator('#correctionBroStatus')).toContainText('No active TAT BROs');
+  await page.evaluate(()=>{window.__emptyRoster=false;});
+  await page.locator('#correctionBroStatus button').click();
+  await expect(page.locator('#caseCorrectionForm [name=client_name]')).toHaveValue('Keep this correction');
+  await expect(page.locator('#caseCorrectionForm [name=bro_user_id] option')).toHaveCount(4);
 });
 
 for (const width of [320,360,390,430,768,1280]) test(`TAT queue identifiers align and search has no heading at ${width}px`, async ({page}, info) => {

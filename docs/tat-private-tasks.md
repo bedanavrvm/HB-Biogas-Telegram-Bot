@@ -14,8 +14,11 @@ Telegram buttons never stamp a case directly. They open the exact pending stage,
 The Mini App uses **Ready for my role** as its operational queue. It is the live
 work pool calculated from the user's current capabilities and branch/product
 scope, including work whose first private alert went to a colleague. Durable
-recipient rows still drive private Telegram delivery, escalation, and audit;
-they do not create a separate personal queue in the Mini App.
+recipient rows still drive private Telegram delivery, escalation, and audit.
+The bell's **Needs your input** panel is personal: it lists only assigned
+recipient cases. It does not replace the shared Ready for my role queue.
+The badge counts unread assigned cases; the panel heading gives the full
+assigned count, with ten entries initially and Load more for the rest.
 
 A DM locator is consumed after its first successful resolution. Returning to the queue or refreshing the current view must not resolve and focus the same locator again.
 
