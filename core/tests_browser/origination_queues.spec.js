@@ -9,7 +9,7 @@ const html = fs.readFileSync(path.join(root, 'origination/templates/loan_origina
 const options = [{value:'draft',label:'Draft'}, {value:'correction_required',label:'Changes requested'},
   {value:'signing_pending',label:'Awaiting signatures'}, {value:'approved',label:'Approved'}];
 
-async function boot(page, width, empty = false, native = false, locationCatalog = {}) {
+async function boot(page, width, empty = false, native = false, locationCatalog = {}, filterOptions = null) {
   await page.setViewportSize({width,height:850});
   await page.route('http://127.0.0.1:8123/**', route => {
     const url = new URL(route.request().url());
@@ -18,12 +18,12 @@ async function boot(page, width, empty = false, native = false, locationCatalog 
     if (url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],location_catalog:locationCatalog,capabilities:{can_create:true,user_id:1}}});
     if (url.pathname.endsWith('/applications/')) {
       const filtered = url.searchParams.has('status') || url.searchParams.has('q');
-      const app = {id:'00000000-0000-0000-0000-000000000001',applicant_summary:{name:'Synthetic applicant with a long name'},
+      const app = {id:'00000000-0000-0000-0000-000000000001',applicant_summary:{name:'Synthetic applicant with a long name',national_id:'••••0001',phone:'••••0002'},
         product_name:'Training product',branch:'Embu',reference_number:'ORG-TRAINING-1',status:'correction_required',
         status_label:'Changes requested',next_action:'Make corrections',review_alert:'Please check the repayment details.'};
       const apps = empty || filtered ? [] : [app];
       return route.fulfill({json:{ok:true,applications:apps,tab_counts:{action:1,applications:2},
-        status_options:options,applications_label:'My applications',capabilities:{can_create:true,user_id:1},
+        status_options:options,...(filterOptions?{filter_options:filterOptions}:{}),applications_label:'My applications',capabilities:{can_create:true,user_id:1},
         pagination:{page:1,pages:1,total:apps.length}}});
     }
     return route.abort();
@@ -169,14 +169,31 @@ test('Origination native editor action keeps section validation and input intact
     form_payload:{},form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_name',label:'Applicant name',type:'text',section:'applicant',required:true}]},
   }}}));
   await page.locator('.application-card').click();
+  const strip = await page.locator('.wizard-actions').boundingBox();
   await page.locator('#section-next').click();
   await expect.poll(()=>page.evaluate(()=>__native.visible&&__handlers.size===1)).toBe(true);
+  expect((await page.locator('.wizard-actions').boundingBox()).height).toBe(strip.height);
+  expect((await page.locator('.wizard-submit-actions').boundingBox()).height).toBe(0);
   await page.evaluate(()=>[...__handlers][0]());
   await expect(page.locator('[data-field=applicant_name]')).toHaveAttribute('aria-invalid','true');
   await page.locator('[data-field=applicant_name]').fill('Synthetic Applicant');
   await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Synthetic Applicant');
   await page.evaluate(()=>{document.getElementById('document-preview-overlay').hidden=false;});
   await expect.poll(()=>page.evaluate(()=>__native.visible)).toBe(false);
+});
+
+test('application filter choices come from the queue even without available new products',async({page},info)=>{
+  const queries=[];page.on('request',request=>queries.push(request.url()));
+  await boot(page,390,false,false,{}, {products:[{product_key:'retired-training',name:'Training Loan'}],
+    statuses:[{value:'draft',label:'Draft'},{value:'changes',label:'Needs changes'},{value:'progress',label:'In progress'},{value:'completed',label:'Completed'},{value:'closed',label:'Closed'}]});
+  await page.getByRole('button',{name:'Filters',exact:true}).click();
+  await expect(page.getByLabel('Product')).toContainText('Training Loan');
+  await expect(page.getByLabel('Status').locator('option')).toHaveCount(6);
+  await page.getByLabel('Product').selectOption('retired-training');
+  await page.getByLabel('Status').selectOption('completed');
+  await page.screenshot({path:info.outputPath('application-filters-390.png')});
+  await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await expect.poll(()=>queries.some(url=>url.includes('product_key=retired-training')&&url.includes('status_group=completed'))).toBe(true);
 });
 
 for (const width of [320, 430]) {
@@ -338,7 +355,7 @@ for(const width of [320,390,430,1280]) test(`optional ID pair preserves photos a
   await page.locator('[data-id-image="front"]').click();
   await expect(page.locator('.identity-photo-preview')).toBeVisible();
   await page.getByRole('button',{name:'Next photo',exact:true}).click();
-  await expect(page.locator('.identity-photo-preview header span')).toHaveText('Back');
+  await expect(page.locator('.identity-photo-controls span')).toHaveText('Back');
   await page.getByRole('button',{name:'Close photo preview',exact:true}).click();
   await page.locator('[data-id-upload]').click();
   await expect(page.locator('[data-id-status]')).toContainText('Could not save');
@@ -365,4 +382,22 @@ test('Main LAF radio is a circle with document version and no rectangular input 
   await radio.check();
   await expect(radio).toHaveCSS('outline-style','none');
   await page.screenshot({path:info.outputPath('main-laf-radio-390.png'),fullPage:true});
+});
+
+test('native Start application removes its duplicate footer gap',async({page},info)=>{
+  await boot(page,390,false,true);
+  await page.route('**/products/**',route=>route.fulfill({json:{ok:true,branches:['Synthetic'],products:[
+    {product_key:'training',name:'Training',template_ready:true,document_catalogue:{ready:true,main_lafs:[{id:'synthetic-template',name:'Training LAF',version:3}],supporting_documents:[]}}]}}));
+  await page.getByRole('button',{name:'Start application',exact:true}).click();
+  await page.locator('#origination-create-branch').evaluate(node=>node.add(new Option('Synthetic','Synthetic')));
+  await page.locator('#origination-create-branch').selectOption('Synthetic');
+  await page.locator('#origination-create-product').selectOption('training');
+  await page.locator('.packet-document-option input[type=radio]').check();
+  await expect.poll(()=>page.evaluate(()=>__native.visible&&__handlers.size===1)).toBe(true);
+  const footer=await page.locator('#origination-sheet-footer').boundingBox();
+  expect(footer.height).toBe(0);
+  const content=await page.locator('#origination-create-documents').boundingBox();
+  const sheet=await page.locator('#origination-sheet').boundingBox();
+  expect(sheet.y+sheet.height-content.y-content.height).toBeLessThan(18);
+  await page.screenshot({path:info.outputPath('create-application-native-390.png'),fullPage:true});
 });

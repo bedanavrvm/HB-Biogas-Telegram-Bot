@@ -87,6 +87,31 @@ test('Email report link does not grant report access',async({page})=>{
   expect(await page.evaluate(()=>window.__reportQueries.length)).toBe(0);
 });
 
+test('graph drill-down reveals only the winning successful table request',async({page})=>{
+  await openReport(page);
+  await page.evaluate(()=>{
+    const original=ComplaintCasesMiniAppApi.getJson;
+    window.__reveals=[];
+    document.getElementById('complaintReportGrid').scrollIntoView=options=>__reveals.push(options);
+    window.__pendingTables=[];
+    ComplaintCasesMiniAppApi.getJson=(route,...args)=>route==='reports/data/'
+      ? new Promise((resolve,reject)=>__pendingTables.push({resolve:async()=>resolve(await original(route,...args)),reject}))
+      : original(route,...args);
+  });
+  const selection=page.locator('select[aria-label="Activity type"]');
+  await selection.selectOption('1');
+  await page.locator('[data-complaint-chart="activity"] select').last().selectOption('0');
+  await expect.poll(()=>page.evaluate(()=>__pendingTables.length)).toBe(1);
+  expect(await page.evaluate(()=>__reveals.length)).toBe(0);
+  await selection.selectOption('0');
+  await expect.poll(()=>page.evaluate(()=>__pendingTables.length)).toBe(2);
+  await page.evaluate(()=>__pendingTables[0].resolve());
+  expect(await page.evaluate(()=>__reveals.length)).toBe(0);
+  await page.evaluate(()=>__pendingTables[1].resolve());
+  await expect.poll(()=>page.evaluate(()=>__reveals.length)).toBe(1);
+  await expect(page.locator('#complaintReportGrid')).toBeFocused();
+});
+
 for (const width of [320, 360, 390, 430, 768, 1280]) {
   test(`complaint reports fit ${width}px, carousel and drill-down stay aligned`, async ({ page }, testInfo) => {
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -116,6 +141,7 @@ for (const width of [320, 360, 390, 430, 768, 1280]) {
     const pill=await page.locator('#complaintChartSelection').boundingBox(), search=await page.locator('.report-search').boundingBox();
     expect(pill.y+pill.height).toBeLessThanOrEqual(search.y);
     await expect(page.locator('#globalResultCount')).toHaveText('4 complaints found');
+    await expect(page.locator('#complaintReportGrid')).toBeFocused();
     expect(await page.evaluate(()=>window.__reportQueries.filter(x=>x.route==='reports/data/').at(-1).params)).toMatchObject({date_basis:'closures',metric:'closures',date_from:'2026-09-01',date_to:'2026-09-30'});
     await page.locator('#exportResultsBtn').click();
     await expect(page.locator('#miniapp-excel-dialog')).toBeVisible();

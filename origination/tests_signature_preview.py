@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -16,6 +17,19 @@ class SignaturePreviewBoundaryTests(TestCase):
 
     def session(self):
         return tests_origination_esign.OriginationVerifiedSigningTests._session(self)
+
+    def test_missing_font_asset_returns_clear_503_without_losing_session(self):
+        from origination.services.signature_appearance import SignatureAssetsUnavailable
+        session, token, _ = self.session()
+        with patch('origination.services.signature_appearance.preview_capture', side_effect=SignatureAssetsUnavailable()):
+            response = self.client.post(reverse('loan_origination_signer_signature_preview'),
+                json.dumps({'name':'Synthetic Signer','font':'caveat'}), content_type='application/json',
+                HTTP_AUTHORIZATION=f'Bearer {token}', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2')
+        self.assertEqual(response.status_code,503)
+        self.assertEqual(response.json()['code'],'signature_styles_unavailable')
+        self.assertIn('Signature styles are unavailable',response.json()['message'])
+        session.refresh_from_db()
+        self.assertFalse(session.signature_capture)
 
     def test_public_preview_is_token_bound_private_and_does_not_sign(self):
         session,token,_ = self.session()

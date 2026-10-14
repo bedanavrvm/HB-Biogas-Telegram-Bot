@@ -9,6 +9,7 @@ echo "Installing dependencies..."
 # directory read-only. Do not mutate OS packages during an application build;
 # the PDF preflight below verifies that the base image can render WeasyPrint.
 pip install -r requirements.txt
+python -m origination.services.signature_appearance
 python -c "from weasyprint import HTML; assert HTML(string='<p>PDF preflight</p>').write_pdf().startswith(b'%PDF')"
 
 echo "Checking Django configuration and migrations..."

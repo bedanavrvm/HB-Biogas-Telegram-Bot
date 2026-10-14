@@ -1,0 +1,26 @@
+{
+  "upstream": "https://github.com/google/fonts",
+  "commit": "66928797f271fed5ee428544e7229685e2d90127",
+  "fonts": {
+    "caveat": {
+      "source": "ofl/caveat/Caveat[wght].ttf",
+      "licence": "OFL-1.1",
+      "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988"
+    },
+    "yellowtail": {
+      "source": "apache/yellowtail/Yellowtail-Regular.ttf",
+      "licence": "Apache-2.0",
+      "sha256": "3e06841b13000975f3cc38aa84e326e601a4378a4c52d50b5e9fee3598c5d236"
+    },
+    "dancing_script": {
+      "source": "ofl/dancingscript/DancingScript[wght].ttf",
+      "licence": "OFL-1.1",
+      "sha256": "21808625578fe8d8cd10cb684be546dca077b27cd03a53a2f1ec11dc743c924c"
+    },
+    "nothing_you_could_do": {
+      "source": "ofl/nothingyoucoulddo/NothingYouCouldDo.ttf",
+      "licence": "OFL-1.1",
+      "sha256": "1daf8cf79076bf59c5a9117b5efd6ecea35e57a05ef127fe4f95b072b8a5245d"
+    }
+  }
+}

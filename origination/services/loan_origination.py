@@ -2895,8 +2895,9 @@ def serialize_application(
                 payload['product_terms'] = {**payload['product_terms'], 'requirements': [
                     item for item in payload['product_terms'].get('requirements', []) if item.get('key') not in ID_KEYS]}
             from origination.services.application_copies import copy_readiness
-            payload['download_ready'] = application.status == 'approved' or (
-                application.status not in {'declined','expired','cancelled'} and not copy_readiness(application))
+            payload['download_ready'] = application.status not in {'declined','expired','cancelled'}
+            payload['download_requires_confirmation'] = (
+                payload['download_ready'] and application.status != 'approved' and bool(copy_readiness(application)))
         package = latest_package if not (application.signing_policy_snapshot == 'all_required' and application.status == 'draft') else None
         if package:
             from origination.services.origination_signing import active_test_stamps, serialize_test_signing

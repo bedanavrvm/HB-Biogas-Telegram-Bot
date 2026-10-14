@@ -1,0 +1,12 @@
+:root{color-scheme:light dark;--apps-bg:var(--tg-theme-secondary-bg-color,#f3f6f5);--apps-surface:var(--tg-theme-bg-color,#fff);--apps-text:var(--tg-theme-text-color,#172d25);--apps-muted:var(--tg-theme-hint-color,#65756f);--apps-line:var(--tg-theme-section-separator-color,#d8e2de);--apps-accent:var(--tg-theme-button-color,#126448)}
+*{box-sizing:border-box}body{margin:0;background:var(--apps-bg);color:var(--apps-text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.apps-shell{max-width:600px;margin:auto;padding:max(12px,env(safe-area-inset-top)) 12px max(16px,env(safe-area-inset-bottom))}
+.apps-shell>header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;text-align:left;gap:10px;margin-bottom:16px}.apps-shell>header img{width:40px;height:40px;object-fit:contain}.apps-shell h1{font-size:20px;margin:0;flex:1}
+.apps-shell button{flex:0 0 44px;width:44px;max-width:44px;height:44px;padding:10px;border:0;border-radius:8px;background:transparent;color:inherit;box-shadow:none;cursor:pointer}.apps-shell svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#apps-status{font-size:14px;color:var(--apps-muted)}#apps-list{display:grid;gap:10px}
+.app-choice{background:var(--apps-surface);border:1px solid var(--apps-line);border-radius:10px;overflow:hidden}
+.app-link,.app-choice>summary{display:grid;grid-template-columns:32px minmax(0,1fr) 20px;align-items:center;gap:10px;padding:14px 12px;text-decoration:none;color:inherit;cursor:pointer;list-style:none}
+.app-choice>summary::-webkit-details-marker{display:none}.app-link strong,.app-choice summary strong{display:block;font-size:16px}.app-link small,.app-choice summary small{display:block;color:var(--apps-muted);font-size:13px;margin-top:2px}
+.app-groups{display:grid;margin:0 12px 8px 54px}.app-groups a{display:flex;align-items:center;justify-content:space-between;min-height:44px;gap:10px;color:inherit;text-decoration:none;border-top:1px solid var(--apps-line)}
+.apps-shell :focus-visible{outline:2px solid var(--apps-accent);outline-offset:-3px;border-radius:6px}.app-choice[open]>summary>svg:last-child{transform:rotate(90deg)}
+@media(prefers-color-scheme:dark){:root{--apps-bg:var(--tg-theme-secondary-bg-color,#111816);--apps-surface:var(--tg-theme-bg-color,#17201e);--apps-text:var(--tg-theme-text-color,#f4f7f5);--apps-muted:var(--tg-theme-hint-color,#a7b5af);--apps-line:var(--tg-theme-section-separator-color,#35413c)}}

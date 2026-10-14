@@ -1508,7 +1508,7 @@
     state.reportDrill = { filters, label };
     const chip = $('complaintChartSelection'); chip.hidden = false; chip.textContent = label + ' ×';
     state.globalPage = 1;
-    loadGlobalCases(currentTableFilters());
+    loadGlobalCases(currentTableFilters(), {reveal: true});
   }
   function syncComplaintGridTheme() {
     const dark = document.documentElement.dataset.miniappColorScheme === 'dark';
@@ -1791,7 +1791,7 @@
     bindReportGridCopy();
     state.reportGridZoom?.refresh();
   }
-  async function loadGlobalCases(filters) {
+  async function loadGlobalCases(filters, {reveal = false} = {}) {
     const sequence = ++state.reportTableSequence;
     state.reportTableAbortController?.abort();
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -1821,6 +1821,12 @@
       $('globalPagination').hidden = state.globalPages <= 1;
       $('globalPageLabel').textContent = `Page ${state.globalPage} of ${state.globalPages}`;
       $('globalPreviousBtn').disabled = state.globalPage <= 1; $('globalNextBtn').disabled = state.globalPage >= state.globalPages;
+      if (reveal) {
+        const table = $('complaintReportGrid');
+        table.setAttribute('tabindex', '-1');
+        table.focus({preventScroll: true});
+        table.scrollIntoView({block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+      }
     } catch (error) {
       if (sequence === state.reportTableSequence) {
         state.reportGridApi?.hideOverlay(); state.reportGridApi?.showNoRowsOverlay();

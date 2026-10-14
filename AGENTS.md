@@ -190,6 +190,7 @@ Key modules:
 - `locations.py` — compatibility helpers exposing active branch and county labels
 - `location_catalog.py` — governed branch/county/sub-county resolution, aliases, branch service areas, mapping review, readiness, and strict-policy publication
 - `miniapp_drafts.py` — short-lived, user-owned field-only recovery drafts for eligible Mini App forms; current Portal JBL Visit recovery uses the shared service and never persists attachments
+- `miniapp_launcher.py` — read-only JBL Apps discovery; every destination uses its own current workflow grants. BotFather's Main Mini App URL is configured separately from group launchers; see `docs/runbooks/origination-ui-and-downloads.md` for cutover and download verification.
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing
 - `product_catalog.py` — canonical product resolution, effective-dated Superuser publication, availability assignments, mapping review, requirements, and typed custom attributes

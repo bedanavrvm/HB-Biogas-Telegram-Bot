@@ -46,6 +46,7 @@ credentials.json
 !package.json
 !package-lock.json
 !origination/reference_data/countries.json
+!origination/assets/signature_fonts/manifest.json
 *.pem
 *.key
 *.p12

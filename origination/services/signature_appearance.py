@@ -17,6 +17,13 @@ ASSETS = Path(__file__).resolve().parents[1] / 'assets' / 'signature_fonts'
 RENDERER_VERSION = 'typed-mark-2'
 
 
+class SignatureAssetsUnavailable(Exception):
+    """A deployment defect, never a reason to substitute a different mark."""
+
+    def __init__(self):
+        super().__init__('Signature styles are unavailable. Please try again later or contact IT.')
+
+
 def _error(message):
     from origination.services.loan_origination import OriginationError
     return OriginationError(message)
@@ -26,10 +33,15 @@ def _error(message):
 def _font_bytes(font: str) -> bytes:
     if font not in FONTS:
         raise _error('Choose one of the signature styles.')
-    manifest = json.loads((ASSETS / 'manifest.json').read_text(encoding='utf-8'))
-    content = (ASSETS / f'{font}.ttf').read_bytes()
-    if hashlib.sha256(content).hexdigest() != manifest['fonts'][font]['sha256']:
-        raise _error('Signature styles are unavailable. Please contact IT.')
+    try:
+        manifest = json.loads((ASSETS / 'manifest.json').read_text(encoding='utf-8'))
+        content = (ASSETS / f'{font}.ttf').read_bytes()
+        if hashlib.sha256(content).hexdigest() != manifest['fonts'][font]['sha256']:
+            raise SignatureAssetsUnavailable()
+        # Catch broken font files at the same deployment boundary as hashes.
+        ImageFont.truetype(BytesIO(content), size=32)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SignatureAssetsUnavailable() from exc
     return content
 
 
@@ -80,3 +92,15 @@ def freeze_capture(value: dict) -> dict:
     if value.get('preview_sha256') != digest:
         raise _error('Your signature changed. Check the preview before saving again.')
     return {**profile, 'image_png': base64.b64encode(content).decode('ascii'), 'image_sha256': digest}
+
+
+def verify_assets():
+    """Build preflight: verify all styles, not only the first cached font."""
+    _font_bytes.cache_clear()
+    for font in FONTS:
+        render_mark("Wanjiku O'Kamau-Mwangi", font)
+
+
+if __name__ == '__main__':
+    verify_assets()
+    print('Signature font bundle verified: 4 styles.')

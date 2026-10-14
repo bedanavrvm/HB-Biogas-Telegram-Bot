@@ -1,5 +1,9 @@
 from io import BytesIO
 from types import SimpleNamespace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+import subprocess
 
 from django.test import SimpleTestCase
 from PIL import Image
@@ -11,6 +15,20 @@ from origination.services.loan_origination import OriginationError
 
 
 class SignatureAppearanceTests(SimpleTestCase):
+    def test_manifest_is_not_excluded_from_deployments(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(['git', 'check-ignore', '--no-index', '-q',
+            'origination/assets/signature_fonts/manifest.json'], cwd=root, capture_output=True)
+        self.assertEqual(result.returncode, 1, 'The signature manifest must ship with the fonts.')
+
+    def test_missing_or_invalid_bundle_has_a_clear_error(self):
+        from origination.services import signature_appearance as appearance
+        with TemporaryDirectory() as directory, patch.object(appearance, 'ASSETS', Path(directory)):
+            appearance._font_bytes.cache_clear()
+            with self.assertRaisesRegex(appearance.SignatureAssetsUnavailable, 'Signature styles are unavailable'):
+                appearance.preview_capture('Synthetic Signer')
+        appearance._font_bytes.cache_clear()
+
     def test_each_font_renders_full_long_names_without_clipping(self):
         for font in FONTS:
             for name in ["Wanjiku Mwangi-Kamau", "Njeri O'Kamau", 'W M K N', 'Wanjiku ' * 14]:

@@ -4,6 +4,25 @@ const {test, expect} = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const {mountPortalShell} = require('./fixtures/portal_shell');
 
+for(const width of [320,390,768])test(`shared viewer navigation stays at opposite ends ${width}`,async({page},info)=>{
+  await page.setViewportSize({width,height:844});
+  await page.setContent('<div id="preview"></div>');
+  await page.addStyleTag({path:asset('base.css')});
+  await page.addStyleTag({path:asset('portal.css')});
+  await page.addScriptTag({path:asset('secure_media_viewer.js')});
+  await page.evaluate(()=>{
+    const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII=';
+    SecureMediaViewer.renderBlob(document.getElementById('preview'),new Blob([`<html><figure><img src="${png}"></figure><figure><img src="${png}"></figure></html>`],{type:'text/html'}));
+  });
+  const bar=await page.locator('.secure-media-controls').boundingBox();
+  const previous=await page.getByRole('button',{name:'Previous page'}).boundingBox();
+  const next=await page.getByRole('button',{name:'Next page'}).boundingBox();
+  expect(previous.x-bar.x).toBeLessThanOrEqual(7);
+  expect(bar.x+bar.width-next.x-next.width).toBeLessThanOrEqual(7);
+  expect(previous.y).toBe(next.y);
+  await page.screenshot({path:info.outputPath(`viewer-toolbar-${width}.png`)});
+});
+
 test('rendered PDF pages use the same zoomable image viewer, not a native PDF frame', async ({page}) => {
   await page.setContent('<div id="preview"></div>');
   await page.addScriptTag({path:asset('secure_media_viewer.js')});

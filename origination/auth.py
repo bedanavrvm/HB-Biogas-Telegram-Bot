@@ -67,6 +67,13 @@ def origination_auth_required(view):
         try:
             response = view(request, *args, **kwargs)
         except Exception as exc:
+            from origination.services.signature_appearance import SignatureAssetsUnavailable
+            if isinstance(exc, SignatureAssetsUnavailable):
+                logger.error('Origination signature assets unavailable')
+                from core.services.miniapp_messages import miniapp_error_response
+                return attach_miniapp_request_metadata(request, miniapp_error_response(
+                    request, 'signature_styles_unavailable', workflow='loan_origination',
+                    status=503, user_message=str(exc)))
             logger.exception('Origination request failed: method=%s path=%s', request.method, request.path)
             response = unexpected_miniapp_error(request, exc, workflow='loan_origination')
         return attach_miniapp_request_metadata(request, response)

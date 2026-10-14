@@ -4,6 +4,7 @@ URL routing for the core API.
 from django.urls import include, path
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
+from .miniapp_launcher_views import miniapp_available
 from report_delivery.views import resend_webhook, tat_report_settings, complaint_report_settings, tat_report_email, complaint_report_email
 from .miniapp_diagnostic_views import (
     miniapp_diagnostic_session_start,
@@ -251,6 +252,7 @@ from .complaint_case_views import (
 )
 
 urlpatterns = [
+    path('miniapps/available/', miniapp_available, name='miniapp_available'),
     path('report-delivery/resend/webhook/', resend_webhook, name='report_resend_webhook'),
     path('tat-tracker/settings/reports/', tat_report_settings, name='tat_report_settings'),
     path('tat-tracker/reports/email/', tat_report_email, name='tat_report_email'),

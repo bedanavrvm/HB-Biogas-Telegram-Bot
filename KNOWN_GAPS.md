@@ -1,5 +1,29 @@
 # Known Gaps and Verified Workarounds
 
+## Origination usability and JBL Apps - 14 October 2026
+
+Signature-font packaging, incomplete application copies, queue/filter layout,
+signing actions, opposite-end preview navigation and Complaints table reveal
+are implemented. The read-only `/apps/` chooser uses each Mini App's current
+grants. No production deployment, role-policy change or Telegram configuration
+was performed. See `docs/runbooks/origination-ui-and-downloads.md` for BotFather
+cutover and real-device checks.
+
+Focused isolated SQLite checks: 85 passed, one PostgreSQL-only concurrent signing
+test skipped. Browser checks: 185 passed, plus four final dark-mode/toolbar
+rechecks after visual refinement. Checks use synthetic/intercepted data and screenshots
+were inspected in light/dark mobile layouts. Actual Telegram Android downloaded
+file opening still requires verification after deployment; the app cannot
+control Telegram's viewer or the device's file associations.
+
+The tracked-artifact audit remains red on 19 pre-existing allowlist hash
+mismatches: the logo and older Portal inbox/recognition screenshot baselines.
+Comparing the committed HEAD bytes against the committed allowlist reproduces
+all 19 mismatches. These files and their allowlist entries were not changed.
+Ruff is unavailable in the local environment; Python/JavaScript syntax checks,
+Django checks, migration drift and whitespace checks were run instead. The full
+repository suite was not run.
+
 ## Complaints email layout and reconciled counts - 14 October 2026
 
 Needs attention is now full-width, followed by two matched chart panels. New

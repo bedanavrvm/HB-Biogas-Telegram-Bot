@@ -1,4 +1,5 @@
 /* Scoped Origination refinements; shared form sizing remains unchanged. */
+:root[data-telegram-theme=dark]{--laf-line:var(--tg-theme-section-separator-color,color-mix(in srgb,var(--laf-dark) 16%,var(--laf-surface)))}
 body.origination-editor-open .origination-header{display:none!important}
 .editor-context{display:flex;gap:6px;align-items:center;padding:8px 0}
 .editor-identity{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -11,25 +12,25 @@ body.origination-editor-open .origination-header{display:none!important}
 .wizard-section-row .wizard-progress-trigger{min-width:0!important;width:100%!important;padding:6px;justify-content:space-between}
 .wizard-section-row .wizard-progress-trigger strong{white-space:normal;overflow:visible;text-overflow:clip}
 .wizard-progress-compact{margin:4px 0 8px}
-.wizard-actions{min-height:0;padding:5px 12px calc(5px + env(safe-area-inset-bottom));gap:6px}
+.wizard-actions{min-height:0;padding:5px 12px calc(5px + env(safe-area-inset-bottom));gap:6px;box-shadow:none;border-radius:0;border-inline:0}
 .wizard-actions>span{font-size:.75rem}
 .wizard-actions:has(#origination-save-status)>div:empty{display:none}
 .wizard-card{padding:12px}
 .packet-document-option input[type=radio]{appearance:auto;width:18px!important;height:18px!important;min-height:0!important;min-width:18px;margin:0;padding:0;box-shadow:none;border:0;background:transparent;outline:none}
 .packet-document-option input[type=radio]:focus,.packet-document-option input[type=radio]:focus-visible{outline:none!important;box-shadow:none!important}
-.packet-document-option:focus-within{outline:2px solid var(--accent,#397444);outline-offset:2px}
+.packet-document-option input[type=radio]:focus-visible{outline:2px solid var(--laf-green)!important;outline-offset:3px}
 .packet-document-option .miniapp-required-mark{display:none}
 .recovery-conflict{padding:10px;gap:6px}
 .recovery-conflict>div{display:flex;gap:8px}
 .recovery-conflict>div button{flex:1}
 .test-signature-typed-preview{font-family:inherit;font-style:normal;font-size:inherit;padding:0;display:block;background:transparent;border:0;color:inherit}
-.signing-workspace>header{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.signing-workspace>header{display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
 .signing-workspace>header>div:first-child{flex:1;min-width:0}
-.participant-row{padding:10px;gap:8px;border-left:3px solid var(--laf-green,#397444);background:var(--laf-surface,#fff);border-radius:8px;margin:6px 0}
+.participant-row{padding:12px 0;gap:8px;border:0;border-bottom:1px solid var(--laf-line);background:transparent;border-radius:0;margin:0}
 .workspace-details>summary,.signer-assistance>summary{min-height:44px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:600}
 .workspace-details>summary::after,.signer-assistance>summary::after{content:'›';font-size:22px}
 .workspace-details[open]>summary::after,.signer-assistance[open]>summary::after{transform:rotate(90deg)}
-.workspace-details:focus-within{outline:2px solid var(--accent,#397444);outline-offset:2px}
+.workspace-details>summary:focus-visible,.signer-assistance>summary:focus-visible{outline:2px solid var(--laf-green);outline-offset:2px;border-radius:4px}
 #review-card>summary{min-height:44px;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
 #review-card>summary::after{content:'›';font-size:22px;transform:rotate(90deg)}
 #review-card:not([open])>summary::after{transform:none}
@@ -41,10 +42,50 @@ body.origination-editor-open .origination-header{display:none!important}
 .identity-photo-preview{padding:8px;width:min(96vw,800px);height:85vh;background:var(--laf-surface,#fff);color:var(--laf-dark,#17231e);border:0;border-radius:12px}
 .identity-photo-preview::backdrop{background:#000b}
 .identity-photo-preview header{display:flex;gap:8px;align-items:center}
-.identity-photo-preview header span{flex:1}
+.identity-photo-preview header strong{flex:1}
+.identity-photo-controls{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;text-align:center;gap:4px;margin-block:4px}
 .identity-photo-preview button{min-width:44px;min-height:44px;border:0;border-radius:6px;font-size:22px}
-.identity-photo-preview>div{height:calc(100% - 55px);position:relative;overflow:hidden;display:grid;place-items:center;touch-action:none}
+.identity-photo-preview>div{height:calc(100% - 100px);position:relative;overflow:hidden;display:grid;place-items:center;touch-action:none}
 .identity-photo-preview img{max-width:100%;max-height:100%;object-fit:contain}
 .sign-shell .summary-card{padding:10px;gap:8px}
 .sign-shell .card{padding:12px;margin:10px 0}
+.signing-tools{display:flex;flex:none;gap:2px}
+.signing-tools .icon-button{width:44px;height:44px;max-width:none;min-width:44px;padding:10px;border:0!important;background:transparent!important}
+.signing-workspace>header>nav{flex:0 0 auto}
+.signing-workspace>header button{max-width:none}
+.participant-person strong{font-size:.87rem;line-height:1.35}
+.participant-person small{font-size:.75rem;line-height:1.4}
+.participant-actions{align-items:flex-end;gap:4px}
+.participant-actions .btn{min-height:40px;padding:7px 12px;font-size:.8rem}
+.signer-assistance>summary{font-size:.75rem;font-weight:500;min-height:36px}
+.workspace-details>summary{padding:8px 0;font-size:.85rem}
+.origination-app .miniapp-native-action{position:absolute!important;width:1px!important;min-width:0!important;height:1px!important;min-height:0!important;padding:0!important;border:0!important;margin:0!important;overflow:hidden!important}
+.origination-sheet-footer:has(>.miniapp-native-action){padding:0;border:0;min-height:0}
+.wizard-submit-actions{display:flex;justify-content:flex-end;margin:10px 0 38px;gap:6px}
+.wizard-submit-actions:has(>.miniapp-native-action){height:0;margin:0;padding:0}
+.preview-toolbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;justify-content:normal;gap:4px;overflow:visible}
+.preview-zoom-controls{display:flex;justify-content:center;align-items:center;gap:4px;min-width:0}
+.preview-toolbar button{min-height:44px!important;min-width:44px;padding:5px!important}
+.preview-toolbar #preview-zoom{min-width:50px}
+.preview-toolbar>button:first-child{justify-self:start}
+.preview-toolbar>button:last-child{justify-self:end}
+.application-card{display:grid!important;gap:7px!important;padding:11px 12px!important;text-align:left;border:1px solid var(--laf-line)!important;border-radius:10px!important;background:var(--laf-surface)!important}
+.application-card .application-card-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+.application-card-header strong{font-size:.9rem;line-height:1.35;white-space:normal;overflow-wrap:anywhere}
+.application-card-header .status-chip{max-width:125px;white-space:normal;line-height:1.3;text-align:center;font-size:.65rem}
+.application-card-meta{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--laf-muted);font-size:.75rem}
+.application-card-identifiers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:7px 0;border-block:1px solid var(--laf-line)}
+.application-card-identifiers>span{display:flex;gap:6px;align-items:baseline;min-width:0;font-size:.8rem}
+.application-card-identifiers small{font-size:.65rem;color:var(--laf-muted)}
+.application-card-footer{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.application-card-footer small{font-size:.68rem;white-space:normal;overflow-wrap:anywhere}
+.application-card-state{min-width:0;justify-content:flex-end;text-align:right}
+.application-card-state .application-status-text{margin:0;font-weight:600;color:var(--laf-muted)}
+.application-reference{color:var(--laf-green)!important}
+.application-officer{font-size:.7rem!important}
+.application-card:focus-visible{outline:2px solid var(--laf-green);outline-offset:2px}
+.sign-preview-header{display:block!important}
+.sign-preview-header .page-controls{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;gap:4px;width:100%}
+.sign-preview-header .page-controls button{min-width:40px;height:44px;padding:4px}
+.sign-preview-header #page-label{display:block;text-align:center;font-size:.75rem;color:var(--muted);margin-top:4px}
 @media(max-width:360px){.editor-context{flex-wrap:wrap}.editor-document-actions{margin-left:auto}.editor-identity{flex-basis:calc(100% - 56px)}.editor-document-actions .icon-button{height:36px}}

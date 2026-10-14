@@ -24,6 +24,7 @@
   let tabCounts = {};
   let applicationsLabel = 'Applications';
   let statusOptions = [];
+  let filterProducts = [];
   let reviewerAlerts = [];
   let listTotal = 0;
   let listScrollY = 0;
@@ -278,6 +279,8 @@
       plus: '<path d="M12 5v14M5 12h14"/>',
       refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
+      review: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12M14 2v6h6L14 2Z"/><circle cx="15" cy="15" r="4"/><path d="m18 18 3 3"/>',
+      undo: '<path d="M3 7v6h6M3 13l4-4a7 7 0 1 1 1 10"/>',
     };
     return `<svg class="${escapeHtml(className)}" aria-hidden="true" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
   }
@@ -977,10 +980,10 @@
   }
 
   function openFilterSheet(trigger) {
-    const productOptions = allProducts.map(item => `<option value="${escapeHtml(item.product_key)}"${listState.productKey === item.product_key ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+    const productOptions = filterProducts.map(item => `<option value="${escapeHtml(item.product_key)}"${listState.productKey === item.product_key ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
     openSheet({
       mode: 'filter', eyebrow: 'Application queue', title: 'Filter applications',
-      hint: 'Narrow this queue without changing your access scope.', trigger,
+      hint: '', trigger,
       body: `<form id="origination-filter-sheet" class="sheet-form"><label><span>Product</span><select name="product_key"><option value="">All products</option>${productOptions}</select></label><label><span>Status</span><select name="status"><option value="">All statuses</option>${filterStatusOptions()}</select></label></form>`,
       footer: '<button type="button" class="btn btn-secondary" id="origination-filter-reset">Reset</button><button type="submit" form="origination-filter-sheet" class="btn btn-primary">Apply filters</button>',
     });
@@ -2222,11 +2225,11 @@
       return `<div class="participant-row"><div class="participant-person"><strong>${escapeHtml(participant.name || participant.label)}</strong>${participant.name ? `<small>${escapeHtml(participant.label)}</small>` : ''}${date}</div><div class="participant-actions">${action}</div>${stamps}</div>`;
     }).sort((a,b) => Number(b.includes('data-staff-sign')) - Number(a.includes('data-staff-sign'))).join('');
     const approved = current.status === 'approved';
-    const preview = approved ? `<button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed documents</button>` : '<button type="button" class="btn btn-secondary" data-approval-preview>Review documents</button>';
+    const preview = approved ? `<button type="button" class="icon-button" aria-label="View signed documents" title="View signed documents" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">${iconSvg('review')}</button>` : `<button type="button" class="icon-button" aria-label="Review documents" title="Review documents" data-approval-preview>${iconSvg('review')}</button>`;
     const archive = approved && verified.archive_status !== 'uploaded' ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Documents need saving' : 'Saving documents'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-secondary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry saving</button>` : ''}</aside>` : '';
     const details = (current.form_schema?.sections || []).map(section => `<details><summary>${escapeHtml(section.label)}</summary>${sectionFieldsMarkup(section.key, current.form_payload || {}, false)}</details>`).join('');
     const history = (current.activity || []).map(event => `<p><strong>${escapeHtml(event.label)}</strong><small>${escapeHtml(event.actor)} · ${escapeHtml(new Date(event.at).toLocaleString('en-KE'))}</small></p>`).join('') || '<p>No activity yet.</p>';
-    return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div>${preview}${workspace.can_recall ? '<button type="button" class="btn btn-secondary" id="origination-recall">Withdraw for changes</button>' : ''}</header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
+    return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div><nav class="signing-tools" aria-label="Application actions">${preview}${workspace.can_recall ? `<button type="button" class="icon-button" id="origination-recall" aria-label="Withdraw for changes" title="Withdraw for changes">${iconSvg('undo')}</button>` : ''}</nav></header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
   }
 
   function renderEditor(application, requestedStep) {
@@ -2259,9 +2262,8 @@
     }
     const recoveryState = syncConflict ? ['Choose draft', 'offline'] : dirty ? ['Not saved', 'offline'] : ['Saved', 'saved'];
     const actions = actionMarkup(editable);
-    const actionFooter = editable || actions
-      ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
-      : '';
+    const actionFooter = (editable ? `<footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span></footer>` : '')
+      + (actions ? `<div class="wizard-submit-actions">${actions}</div>` : '');
     const statusHasPersistentBanner = application.status === 'signed_pending_approval';
     const contextStatus = statusHasPersistentBanner || application.signing_workspace
       ? '' : `<small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small>`;
@@ -2284,9 +2286,6 @@
       download.type = 'button'; download.className = 'icon-button';
       download.id = 'origination-download'; download.setAttribute('aria-label', 'Download application');
       download.title = application.status === 'approved' ? 'Download signed application' : 'Download unsigned application';
-      if (application.download_ready === false && !editable) {
-        download.disabled = true; download.title = 'Complete the required fields to download';
-      }
       download.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       context?.querySelector('.editor-document-actions')?.appendChild(download);
       download.onclick = async () => {
@@ -2708,7 +2707,7 @@
       image.src = urls[side];image.hidden = false;
       image.onclick = () => {
         const dialog = document.createElement('dialog');dialog.className = 'identity-photo-preview';
-        dialog.innerHTML = '<header><button type="button" aria-label="Previous photo">‹</button><span></span><button type="button" aria-label="Next photo">›</button><button type="button" aria-label="Close photo preview">×</button></header><div tabindex="0"><img alt="ID photo preview"></div>';
+        dialog.innerHTML = '<header><strong>ID photo</strong><button type="button" aria-label="Close photo preview">×</button></header><nav class="identity-photo-controls" aria-label="Photo navigation"><button type="button" aria-label="Previous photo">‹</button><span></span><button type="button" aria-label="Next photo">›</button></nav><div tabindex="0"><img alt="ID photo preview"></div>';
         document.body.append(dialog);
         let active = side;
         const stage = dialog.querySelector('div'), preview = dialog.querySelector('img');
@@ -3303,7 +3302,18 @@
 
   async function downloadApplication() {
     if (!await saveDraft(true)) return;
-    const result = await postJson(`/applications/${current.id}/download/`, {revision:current.revision});
+    const revision = current.revision;
+    let result = await postJson(`/applications/${current.id}/download/`, {revision});
+    if (result.data?.code === 'incomplete_copy_confirmation_required') {
+      const message = result.data.error;
+      const telegram = window.Telegram?.WebApp;
+      const confirmed = typeof telegram?.showPopup === 'function'
+        ? await new Promise(resolve => telegram.showPopup({title:'Download application', message,
+          buttons:[{id:'download',type:'default',text:'Download'},{type:'cancel'}]}, id => resolve(id === 'download')))
+        : window.confirm(message);
+      if (!confirmed) return;
+      result = await postJson(`/applications/${current.id}/download/`, {revision, allow_incomplete:true});
+    }
     if (!result.ok) {
       if (result.data?.errors) showServerErrors(result.data.errors);
       return showToast(result.data?.error || 'Could not prepare this application.', 'error');
@@ -3583,8 +3593,8 @@
     const cards = applications.map(item => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = [identity.national_id ? `ID ${escapeHtml(identity.national_id)}` : '', identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : ''].filter(Boolean).join(' · ');
-      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${identifiers || 'ID and telephone pending'}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.next_action || '')}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
+      const identifiers = [identity.national_id ? `<span><small>ID</small><span>${escapeHtml(identity.national_id)}</span></span>` : '', identity.phone ? `<span><small>Phone</small><span data-miniapp-phone>${escapeHtml(identity.phone)}</span></span>` : ''].filter(Boolean).join('');
+      return `<button type="button" class="application-card" data-application-id="${escapeHtml(item.id)}"><span class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></span><span class="application-card-meta"><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span></span>${identifiers ? `<span class="application-card-identifiers">${identifiers}</span>` : ''}<span class="application-card-footer"><small class="application-reference">${escapeHtml(item.reference_number)}</small><span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || '')}</small>${iconSvg('arrowRight')}</span></span>${capabilities.can_review && item.officer_name ? `<small class="application-officer">${escapeHtml(item.officer_name)}</small>` : ''}</button>`;
     }).join('');
     const alerts = ''; // Alerts belong to their application card, never a duplicate list.
     const queueTabs = [
@@ -3595,7 +3605,7 @@
     }).join('');
     const activeChips = [
       ...(listState.signatureOnly ? [{key:'signatureOnly',label:'Awaiting my signature'}] : []),
-      ...(listState.productKey ? [{ key: 'productKey', label: allProducts.find(item => item.product_key === listState.productKey)?.name || listState.productKey }] : []),
+      ...(listState.productKey ? [{ key: 'productKey', label: filterProducts.find(item => item.product_key === listState.productKey)?.name || listState.productKey }] : []),
       ...(listState.status ? [{ key: 'status', label: statusOptions.find(item => item.value === listState.status)?.label || listState.status }] : []),
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
@@ -3712,6 +3722,13 @@
     applications = (result.data.applications || []).map(item => ({...item, status_text: item.next_action || item.status_text}));
     tabCounts = result.data.tab_counts || {};
     statusOptions = result.data.status_group_options || result.data.status_options || statusOptions;
+    if (result.data.filter_options) {
+      filterProducts = result.data.filter_options.products || [];
+      statusOptions = result.data.filter_options.statuses || statusOptions;
+    } else filterProducts = allProducts;
+    if (!statusOptions.length) statusOptions = [
+      {value:'draft',label:'Draft'}, {value:'changes',label:'Needs changes'},
+      {value:'progress',label:'In progress'}, {value:'completed',label:'Completed'}, {value:'closed',label:'Closed'}];
     applicationsLabel = result.data.applications_label || 'Applications';
     reviewerAlerts = result.data.reviewer_alerts || [];
     capabilities = result.data.capabilities || capabilities;

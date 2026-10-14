@@ -113,11 +113,11 @@
     stage.appendChild(img);
     const controls = document.createElement('div');
     controls.className = 'secure-media-controls';
-    function button(label, symbol, handler) {
+    function button(label, symbol, handler, parent = controls) {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'miniapp-icon-button';
       node.setAttribute('aria-label', label); node.title = label; node.textContent = symbol;
-      node.addEventListener('click', handler); controls.appendChild(node); return node;
+      node.addEventListener('click', handler); parent.appendChild(node); return node;
     }
     let index = 0;
     const controller = bindImageGestures(stage, img, {onNavigate:navigate});
@@ -126,11 +126,14 @@
       else if (offset > 0) settings.onNext?.(); else settings.onPrevious?.();
     }
     const previous = button('Previous page', '‹', () => navigate(-1));
-    const count = document.createElement('span'); count.setAttribute('role', 'status'); controls.appendChild(count);
+    previous.classList.add('secure-media-previous');
+    const center = document.createElement('div'); center.className = 'secure-media-zoom-controls'; controls.appendChild(center);
+    const count = document.createElement('span'); count.setAttribute('role', 'status'); center.appendChild(count);
+    button('Zoom out', '−', () => controller.zoom(controller.scale - .5), center);
+    button('Reset zoom', '↺', () => controller.reset(), center);
+    button('Zoom in', '+', () => controller.zoom(controller.scale + .5), center);
     const next = button('Next page', '›', () => navigate(1));
-    button('Zoom out', '−', () => controller.zoom(controller.scale - .5));
-    button('Zoom in', '+', () => controller.zoom(controller.scale + .5));
-    button('Reset zoom', '↺', () => controller.reset());
+    next.classList.add('secure-media-next');
     function render() {
       controller.reset();
       img.src = pages[index].src; img.alt = pages[index].alt || settings.name || 'Evidence preview';

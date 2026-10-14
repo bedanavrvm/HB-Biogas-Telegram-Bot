@@ -118,6 +118,11 @@ for(const width of [320,390,768,1280]) test(`internal preview toolbar and zoomed
   await expect(page.locator('#preview-page')).toHaveText('Page 1 of 2');
   expect(await page.locator('.preview-toolbar button').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))))
     .toEqual(['Previous page','Zoom out','Reset zoom','Zoom in','Refresh preview','Next page']);
+  const toolbar = await page.locator('.preview-toolbar').boundingBox();
+  const previous = await page.locator('#preview-previous').boundingBox();
+  const next = await page.locator('#preview-next').boundingBox();
+  expect(previous.x-toolbar.x).toBeLessThanOrEqual(8);
+  expect(toolbar.x+toolbar.width-next.x-next.width).toBeLessThanOrEqual(8);
   const stage=page.locator('#document-preview-stage');
   await stage.dispatchEvent('pointerdown',{pointerId:51,clientX:220,clientY:200});
   await stage.dispatchEvent('pointerup',{pointerId:51,clientX:100,clientY:200});
@@ -149,6 +154,11 @@ for(const width of [320,360,390,430,768,1280]) for(const dark of [false,true]) {
     const audit=await mount(page,{dark});
     await expect(page.locator('.signing-workspace header p')).toHaveText('1 of 4 signers complete');
     await expect(page.locator('.participant-row')).toHaveCount(4);
+    await expect(page.locator('[data-approval-preview] svg')).toBeVisible();
+    await expect(page.locator('.participant-row').first()).toHaveCSS('border-left-width','0px');
+    await page.locator('.workspace-details').first().locator(':scope > summary').focus();
+    await expect(page.locator('.workspace-details').first()).toHaveCSS('outline-style','none');
+    await page.locator('.signing-workspace h3').click();
     const sign=page.getByRole('button',{name:'Sign',exact:true});
     const bounds=await sign.boundingBox();
     expect(bounds.y+bounds.height).toBeLessThan(844);
@@ -186,6 +196,21 @@ test('staff action addresses the individual and approved view is read-only',asyn
   await page.screenshot({path:info.outputPath('staff-signing-390.png'),fullPage:true});
   await page.getByRole('button',{name:'Back to application',exact:true}).click();
   await expect(page.locator('.signing-workspace header p')).toHaveText('4 of 4 signers complete');
+});
+
+test('incomplete application download asks before native handoff',async({page})=>{
+  await mount(page,{download:'native'});
+  let count=0;
+  await page.route('**/applications/*/download/', route=>{
+    const body=route.request().postDataJSON();count++;
+    return route.fulfill({json:body.allow_incomplete ? {ok:true,download_url:'http://127.0.0.1/copy.pdf',filename:'Synthetic Applicant Loan KES 100000 14-10-2026 12-30-00.pdf'}
+      : {ok:false,code:'incomplete_copy_confirmation_required',error:'Some required details are missing. Download this copy anyway?'}});
+  });
+  page.once('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
+  expect(count).toBe(2);
+  expect(await page.evaluate(()=>window.__downloads[0].file_name)).toContain('Synthetic Applicant Loan KES 100000');
 });
 
 test('approved applications expose signed documents without workflow buttons',async({page},info)=>{
@@ -364,6 +389,19 @@ async function mountRecipient(page,{verified=false}={}) {
   if(!verified) await expect(page.locator('#packet-page')).toBeVisible();
   else await expect(page.locator('#sign-completion')).toBeVisible();
 }
+
+for(const width of [320,390,768])test(`recipient toolbar separates navigation from zoom ${width}`,async({page},info)=>{
+  await page.setViewportSize({width,height:844});
+  await mountRecipient(page);
+  await page.addStyleTag({path:asset('origination','origination_compact.css')});
+  const bar=await page.locator('.page-controls').boundingBox();
+  const previous=await page.locator('#page-prev').boundingBox(), next=await page.locator('#page-next').boundingBox();
+  expect(previous.x-bar.x).toBeLessThan(1);
+  expect(bar.x+bar.width-next.x-next.width).toBeLessThan(1);
+  expect(previous.y).toBe(next.y);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`recipient-toolbar-${width}.png`),fullPage:true});
+});
 
 test('recipient keeps saved signature when SMS fails and resumes on refresh',async({page},info)=>{
   await page.setViewportSize({width:390,height:844});

@@ -23,6 +23,16 @@ def blank_pdf():
 
 
 class SampleTests(SimpleTestCase):
+    def test_download_name_uses_requested_amount_and_nairobi_time(self):
+        from datetime import datetime, timezone
+        from origination.services.application_copies import copy_filename
+        app = SimpleNamespace(form_payload={'applicant_full_name':'Synthetic / Applicant', 'loan_amount':'1234.50',
+                                            'approval_amount':'999'}, schema_snapshot={'fields':[{'key':'applicant_full_name','type':'text'}]},
+            signer_rules_snapshot=[], reference_number='ORG-TEST', product_terms_snapshot={},
+            product_definition=SimpleNamespace(name='Training: Loan'))
+        filename = copy_filename(app, datetime(2026,10,14,21,1,tzinfo=timezone.utc))
+        self.assertEqual(filename, 'Synthetic Applicant Training Loan KES 1234.50 15-10-2026 00-01-00.pdf')
+
     def test_realistic_scalar_and_repeating_samples(self):
         fields = [({'type': 'phone'}, '0712345678'), ({'type': 'national_id'}, '99000001'),
                   ({'type': 'text', 'validation': {'format': 'email'}}, 'applicant@example.invalid'),
@@ -130,7 +140,8 @@ class ApplicationPresentationTests(TestCase):
         self.assertEqual(kind, 'UNSIGNED')
         content, filename = retrieve_copy(read_copy_token(token))
         self.assertNotIn('UNSIGNED - NOT FINAL', PdfReader(BytesIO(content)).pages[0].extract_text())
-        self.assertTrue(filename.endswith('-UNSIGNED.pdf'))
+        self.assertTrue(filename.endswith('.pdf'))
+        self.assertEqual(filename, read_copy_token(token)['filename'])
         prepare_copy(application_id=self.application.pk, actor=self.officer, revision=self.application.revision, request_id='copy')
         self.assertEqual(self.application.events.filter(action='application_copy_prepared').count(), 1)
         self.application.revision += 1; self.application.save(update_fields=['revision'])
@@ -152,13 +163,49 @@ class ApplicationPresentationTests(TestCase):
         self.officer.is_active = False; self.officer.save(update_fields=['is_active'])
         self.assertEqual(portal_origination_download(request).status_code, 403)
 
-    def test_closed_and_incomplete_copies_are_rejected(self):
+    def test_closed_copies_are_rejected_and_incomplete_copies_require_confirmation(self):
         from origination.services.application_copies import copy_content
         self.application.status = 'cancelled'
         with self.assertRaises(OriginationError): copy_content(self.application)
         self.application.status = 'draft'
         self.application.schema_snapshot = {'fields':[{'key':'name','type':'text','required':True}]}
         with self.assertRaises(OriginationError): copy_content(self.application)
+        with patch('origination.services.origination_documents.render_packet', return_value=(blank_pdf(), [])):
+            content, kind = copy_content(self.application, allow_incomplete=True)
+        self.assertEqual(kind, 'UNSIGNED')
+        self.assertTrue(content.startswith(b'%PDF'))
+
+    @patch('origination.services.origination_documents.render_packet', return_value=(blank_pdf(), []))
+    def test_download_warning_then_confirmation_and_stable_filename(self, render):
+        import json
+        from origination.views import portal_origination_prepare_download, portal_origination_download
+        from core.services.telegram_identity import user_access
+        self.application.schema_snapshot = {'fields': [{'key': 'applicant_full_name', 'type': 'text', 'required': True}]}
+        self.application.save(update_fields=['schema_snapshot'])
+        def prepare(confirmed):
+            request = RequestFactory().post('/download/', {'revision': self.application.revision,
+                'client_request_id': 'incomplete-copy', 'allow_incomplete': confirmed}, content_type='application/json')
+            request.origination_user = self.officer
+            request.origination_access = user_access(self.officer, 'loan_origination')
+            return portal_origination_prepare_download(request, str(self.application.pk))
+        warning = prepare(False)
+        self.assertEqual(warning.status_code, 200)
+        self.assertEqual(json.loads(warning.content)['code'], 'incomplete_copy_confirmation_required')
+        self.assertFalse(self.application.events.filter(action='application_copy_prepared').exists())
+        first = json.loads(prepare(True).content)
+        second = json.loads(prepare(True).content)
+        self.assertEqual(first['filename'], second['filename'])
+        response = portal_origination_download(RequestFactory().get(first['download_url']))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Access-Control-Allow-Origin'], 'https://web.telegram.org')
+        self.assertIn(first['filename'], response['Content-Disposition'])
+
+    def test_confirmation_does_not_bypass_invalid_values(self):
+        from origination.services.application_copies import copy_content
+        self.application.schema_snapshot={'fields':[{'key':'applicant_phone','type':'phone'}]}
+        self.application.form_payload={'applicant_phone':'not-a-number'}
+        with self.assertRaises(OriginationError):
+            copy_content(self.application, allow_incomplete=True)
 
     def test_approved_copy_preserves_exact_signed_bytes(self):
         from origination.services.application_copies import copy_content
@@ -200,6 +247,28 @@ class ApplicationPresentationTests(TestCase):
             response=self.client.post(reverse('loan_origination_prepare_download', args=[self.application.pk]),
                 {'revision':self.application.revision,'client_request_id':'unauthorized-copy'}, content_type='application/json')
         self.assertEqual(response.status_code, 403)
+
+    def test_signature_asset_failure_returns_retryable_503(self):
+        from origination.services.signature_appearance import SignatureAssetsUnavailable
+        package = self.package()
+        with override_settings(ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=False), patch(
+                'origination.services.signature_appearance.preview_capture', side_effect=SignatureAssetsUnavailable()):
+            self.client.force_login(self.officer)
+            response = self.client.post(reverse('loan_origination_signature_preview', args=[self.application.pk]),
+                {'revision':self.application.revision,'package_id':str(package.pk),'signer_role':'officer',
+                 'name':'Synthetic Officer', 'client_request_id':'missing-font-preview'}, content_type='application/json')
+        self.assertEqual(response.status_code, 503, response.content)
+
+    def test_queue_filters_include_existing_inactive_products(self):
+        import json
+        from origination.views import portal_origination_applications
+        from core.services.telegram_identity import user_access
+        self.definition.is_active = False; self.definition.save(update_fields=['is_active'])
+        request = RequestFactory().get('/applications/', {'queue':'applications','status_group':'draft'})
+        request.origination_user = self.officer; request.origination_access = user_access(self.officer, 'loan_origination')
+        data = json.loads(portal_origination_applications(request).content)
+        self.assertEqual(data['filter_options']['products'], [{'product_key':self.definition.product_key, 'name':self.definition.name}])
+        self.assertEqual([row['value'] for row in data['filter_options']['statuses']], ['draft','changes','progress','completed','closed'])
 
     def test_staff_date_uses_one_verified_timestamp_in_nairobi(self):
         from datetime import datetime, timezone as dt_timezone

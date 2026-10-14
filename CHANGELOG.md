@@ -1,5 +1,22 @@
 # Changelog
 
+## 14 October 2026 - Origination usability, signature assets and JBL Apps
+
+- Signature fonts now ship with their hash manifest; the build verifies and
+  renders all four styles. Missing assets return clear retryable feedback.
+- Application PDFs support incomplete copies after confirmation, while invalid
+  values, signing requirements, current access and signed bytes stay protected.
+  Filenames use applicant, product, requested amount and Nairobi time.
+- Origination queue cards use aligned identity/status/detail rows; queue filters
+  include existing applications even when their product is no longer available
+  for new applications. Saved status remains narrow beside native actions.
+- Signing rows use compact actions without decorative side stripes or
+  section-wide click outlines. Preview navigation occupies opposite ends.
+- Complaints graph selections reveal the successfully filtered table, matching
+  the existing TAT/Portal behaviour and ignoring superseded requests.
+- Added a permission-filtered JBL Apps chooser at `/apps/`. BotFather cutover and
+  real-device download verification are documented in the deployment runbook.
+
 ## 14 October 2026 - Complaints email layout and reconciled figures
 
 - Needs attention has its own full-width row; two complementary graphs share

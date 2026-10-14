@@ -617,7 +617,10 @@ tr.row-review textarea {
 .miniapp-draft-prompt button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:4px 8px; min-width:0; width:calc(50% - 4px); flex:1 1 calc(50% - 4px); }
 .miniapp-draft-prompt button svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; flex:none; }
 .secure-media-stage { position:relative; width:100%; height:calc(100dvh - 180px); min-height:180px; overflow:hidden; touch-action:none; }
-.secure-media-controls { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; }
+.secure-media-controls { display:grid; grid-template-columns:44px minmax(0,1fr) 44px; align-items:center; gap:4px; width:100%; padding:6px; }
+.secure-media-zoom-controls { display:flex; grid-column:2; justify-content:center; align-items:center; gap:4px; min-width:0; }
+.secure-media-previous { grid-column:1; grid-row:1; }
+.secure-media-next { grid-column:3; grid-row:1; }
 .secure-media-controls button { min-width:44px; min-height:44px; }
 .secure-media-pages { display:flex !important; flex-direction:column; overflow:hidden !important; align-self:stretch; width:100%; min-width:0; }
 .secure-media-pages > .secure-media-stage { flex:1 1 auto; min-height:180px; }

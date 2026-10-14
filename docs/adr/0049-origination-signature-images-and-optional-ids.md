@@ -25,8 +25,14 @@ retain the subject binding; changed identity makes the old copy informationally
 stale, not a submission blocker.
 
 Ordinary unsigned downloads no longer receive a red page overlay (amending ADR
-0048). Their copy kind remains explicit in the UI and filename. TEST watermarks,
+0048). Their copy kind remains explicit in the UI. TEST watermarks,
 authorization, revisions, consent, OTP and approval rules remain unchanged.
+
+Amendment, 14 October 2026: application-copy filenames use applicant, product,
+requested amount and Nairobi preparation time. Missing required details need
+confirmation rather than blocking an unsigned copy; invalid supplied values and
+signing/submission requirements remain enforced. The signed copy is still the
+exact approved document. A copy never advances the workflow.
 
 ## Consequences
 

@@ -1,6 +1,7 @@
 """Intentional root-level browser and Telegram Mini App entry points."""
 
 from django.urls import path
+from .miniapp_launcher_views import miniapp_launcher
 
 from .complaint_case_views import complaint_cases_app
 from origination.views import origination_app, origination_signing_app
@@ -27,6 +28,7 @@ from .views import (
 
 
 urlpatterns = [
+    path('apps/', miniapp_launcher, name='miniapp_launcher'),
     path('health/', health_check, name='root_health_check'),
     path('staff/activate/', staff_telegram_activation_page, name='staff_telegram_activation_page'),
     path('origination/', origination_app, name='loan_origination_app'),

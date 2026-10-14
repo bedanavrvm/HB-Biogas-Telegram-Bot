@@ -82,13 +82,18 @@ def portal_origination_prepare_download(request, application_id):
         return error
     try:
         from django.urls import reverse
-        from origination.services.application_copies import prepare_copy
+        from origination.services.application_copies import prepare_copy, read_copy_token, IncompleteCopyConfirmation
         body = _body(request)
         token, kind = prepare_copy(application_id=application.pk, actor=request.origination_user,
-            revision=body.get('revision'), request_id=_request_id(request, body))
+            revision=body.get('revision'), request_id=_request_id(request, body),
+            allow_incomplete=body.get('allow_incomplete', False))
         url = request.build_absolute_uri(reverse('loan_origination_download') + '?token=' + token)
         return JsonResponse({'ok': True, 'download_url': url,
-            'filename': f'{application.reference_number}-{kind}.pdf', 'copy_type': kind.lower()})
+            'filename': read_copy_token(token).get('filename') or f'{application.reference_number}-{kind}.pdf',
+            'copy_type': kind.lower()})
+    except IncompleteCopyConfirmation as exc:
+        return JsonResponse({'ok': False, 'code': 'incomplete_copy_confirmation_required',
+                             'error': str(exc), 'confirmation_required': True})
     except OriginationConflict as exc:
         return JsonResponse(_safe_error(exc), status=409)
     except (OriginationError, TypeError, ValueError) as exc:
@@ -122,7 +127,9 @@ def portal_origination_download(request):
     except (BadSignature, KeyError, TypeError, ValueError, LoanOriginationApplication.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'Download link expired. Request a new copy.'}, status=403)
     response = HttpResponse(b'' if request.method == 'HEAD' else content, content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    from django.utils.http import content_disposition_header
+    response['Content-Disposition'] = content_disposition_header(True, filename)
+    response['Access-Control-Allow-Origin'] = 'https://web.telegram.org'
     response['Content-Length'] = str(len(content))
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
@@ -536,6 +543,11 @@ def portal_origination_applications(request):
                 )
         status_filter = str(request.GET.get('status') or '').strip()
         from origination.services.origination_queues import STATUS_GROUPS
+        filter_products = [
+            {'product_key': key, 'name': name}
+            for key, name in application_rows.order_by('product_definition__name').values_list(
+                'product_definition__product_key', 'product_definition__name').distinct()
+        ]
         status_group = str(request.GET.get('status_group') or '').strip()
         if status_group:
             if status_group not in STATUS_GROUPS:
@@ -608,6 +620,8 @@ def portal_origination_applications(request):
             'applications_label': 'My applications' if officer_only else 'Applications',
             'status_options': [{'value': value, 'label': label} for value, label in STATUS_LABELS.items()],
             'status_group_options': [{'value': value, 'label': item[0]} for value, item in STATUS_GROUPS.items()],
+            'filter_options': {'products': filter_products,
+                'statuses': [{'value': value, 'label': item[0]} for value, item in STATUS_GROUPS.items()]},
             'counts': status_counts,
             'capabilities': capabilities,
             'reviewer_alerts': reviewer_alerts,
@@ -1383,7 +1397,7 @@ def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'inva
 @require_http_methods(['POST'])
 def origination_signer_signature_preview(request):
     from origination.services.origination_esign import resolve_session
-    from origination.services.signature_appearance import preview_capture
+    from origination.services.signature_appearance import preview_capture, SignatureAssetsUnavailable
     if response := _public_signing_throttle(request):
         return response
     try:
@@ -1392,6 +1406,12 @@ def origination_signer_signature_preview(request):
             raise OriginationError('This application has already been signed.')
         body = _body(request)
         data = preview_capture(body.get('name'), body.get('font') or 'caveat')
+    except SignatureAssetsUnavailable as exc:
+        logger.error('Origination signer signature assets unavailable')
+        from core.services.miniapp_messages import miniapp_error_response
+        return _public_signing_response(request, miniapp_error_response(
+            request, 'signature_styles_unavailable', workflow='loan_origination',
+            status=503, user_message=str(exc)))
     except (OriginationError, TypeError, ValueError) as exc:
         return _public_signing_error(request, exc)
     response = JsonResponse({'ok': True, **data})
@@ -1435,6 +1455,7 @@ def portal_origination_signature_preview(request, application_id: str):
 @csrf_exempt  # Opaque signer token is the non-cookie credential.
 @require_http_methods(['POST'])
 def origination_signer_consent(request):
+    from origination.services.signature_appearance import SignatureAssetsUnavailable
     from origination.services.origination_esign import (
         client_ip_hash, record_consent_and_signature, serialize_public_session,
     )
@@ -1449,6 +1470,11 @@ def origination_signer_consent(request):
             reviewed_pages=body.get('reviewed_pages'),
             request_id=_request_id(request, body),
         )
+    except SignatureAssetsUnavailable as exc:
+        from core.services.miniapp_messages import miniapp_error_response
+        return _public_signing_response(request, miniapp_error_response(
+            request, 'signature_styles_unavailable', workflow='loan_origination',
+            status=503, user_message=str(exc)))
     except (OriginationError, TypeError, ValueError) as exc:
         return _public_signing_error(request, exc)
     return _public_signing_response(request, JsonResponse({'ok': True, 'session': serialize_public_session(session)}))
