@@ -7,6 +7,9 @@ TEST_LABELS = sys.argv[1:]
 CHECK_ONLY = '--check-only' in TEST_LABELS
 if CHECK_ONLY:
     TEST_LABELS.remove('--check-only')
+FRESH_DATABASE = '--fresh-database' in TEST_LABELS
+if FRESH_DATABASE:
+    TEST_LABELS.remove('--fresh-database')
 sys.argv = [sys.argv[0], 'test', *TEST_LABELS]
 
 ROOT = Path(os.environ.get('NAMED_SHEET_TEST_ROOT') or Path(__file__).resolve().parents[1]).resolve()
@@ -53,4 +56,4 @@ if CHECK_ONLY:
     call_command('check')
     call_command('makemigrations', check=True, dry_run=True, interactive=False)
 else:
-    call_command('test', *(TEST_LABELS or ['core.tests_sheet_columns']), keepdb=True, interactive=False, verbosity=1)
+    call_command('test', *(TEST_LABELS or ['core.tests_sheet_columns']), keepdb=not FRESH_DATABASE, interactive=False, verbosity=1)

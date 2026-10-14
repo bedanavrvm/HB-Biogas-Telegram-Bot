@@ -1,0 +1,141 @@
+TAT remarks and Telegram Web delivery
+14 October 2026 | Workspace implementation, not deployed
+Baseline: e8ea2c65
+
+CONTINUATION: Latest customer-name/BM permission fixes and deployment migration
+0204 are documented in tat-bm-access-2026-10-14.txt. The final continuation run
+passed 64 backend tests, including the latest canonical-note/first-row/batch
+literal-publication safeguards. Earlier test results below retain their actual
+run scope; they are not a claim that the whole repository is green.
+
+WHAT CHANGED
+
+1. Stage rows separate elapsed time, target and result with visible separators.
+   Complete items wrap together. Existing live counters, sizes and layout remain.
+2. Ordinary timestamp activity displays the recorded time once. Dropdown outcomes
+   retain their value row; actual date corrections remain under Date correction.
+   Source audit evidence is unchanged. Other Mini Apps' timeline behavior is unchanged.
+3. All authorized staff who can view an in-scope TAT case may append a remark,
+   including after Declined or Disbursed. Deleted/unresolved/closed-Pilot cases
+   remain read-only. Actor, applicable roles and Nairobi server time are retained.
+   Existing notes survive. Text, actor/time footer and a line separate comments.
+4. The composer starts empty and retains failed input. Its request key survives a
+   lost response. Same-key/same-actor/same-text retries return the existing event;
+   a changed actor or text conflicts. Input is 1-5,000 trimmed characters.
+5. A comment changes only the notes projection, not workflow revision, update
+   time, stages, targets, completion, responsibility, notifications or signatures.
+   The old replace-remarks update is rejected instead of overwriting history.
+6. Event-keyed IntegrationOperations use the existing TAT processor. Sheet writes
+   locate one immutable Case ID in its named column and update only literal notes
+   text. Reordered columns and the explicit legacy Remarks alias are supported;
+   ambiguous headers, duplicate IDs or missing rows stop the write. Stage
+   publishers use current locked notes rather than their stale object copy.
+7. Active Superusers can requeue failed remarks using Retry selected TAT remark
+   Sheet updates in Integration Operations Admin. The retry is audited, makes no
+   provider call and leaves other operation types untouched.
+8. Only allowlisted Mini App HTML controllers permit self and
+   https://web.telegram.org as ancestors. TAT, Complaints, Portal, Origination
+   and the reviewed older Mini App controllers are covered, including deep links.
+   Admin, unrelated pages and JSON retain protection. Authentication is unchanged.
+9. TAT download GET and HEAD expose the same filename, content disposition, type,
+   length and private/no-store policy, plus Telegram Web CORS. The SDK receives
+   file_name, not an alternate spelling. A named fallback handles unsupported,
+   cancelled, failed or unanswered download requests; requested is not downloaded.
+
+KEY FILES
+
+core/services/tat_comments.py
+core/services/workflow_timeline.py
+core/services/tat_tracker.py and tat_sheet_schema.py
+core/api/views.py and urls.py
+core/static/miniapp/tat_tracker.js and tat_tracker.css
+core/templates/tat_tracker/app.html
+core/miniapp_security.py and config/settings.py
+core/admin.py and management/commands/process_tat_notifications.py
+core/models.py and migrations/0203_tat_event_role_attribution.py
+core/tests_tat_remarks_delivery.py
+core/tests_activity_changes.py and tests_browser/tat_queue_search.spec.js
+core/miniapp_write_inventory.py
+scripts/test_named_sheets.py
+docs/adr/0051-tat-remarks-and-telegram-web-delivery.md
+AGENTS.md, docs/glossary.md, named-column runbook, CHANGELOG.md, KNOWN_GAPS.md
+
+VERIFICATION
+
+PASS: Local PostgreSQL 18, 75 focused tests, zero skips. Real row-locking
+      concurrency checks cover simultaneous duplicate retries and distinct notes.
+PASS: Final SQLite focused run, 76 tests: 74 passed, 2 PostgreSQL-only skips.
+      Includes the later Admin retry control and framing error responses.
+PASS: Additional final activity run, 12 tests, including saved-name retention.
+PASS: Chromium, 65 browser tests over the actual template and assets with
+      synthetic APIs. Screenshots include light/dark themes and 320, 390,
+      768 and 1280px detail views, with Activity expanded and long actor names.
+      Images were opened and visually inspected, not just captured.
+PASS: All Node contract suites and 129 first-party JavaScript syntax checks.
+PASS: Ruff on changed Python, Django checks, migration drift, 265-migration
+      graph validation and git diff --check.
+
+NOT GREEN: Broader SQLite, 272 tests: 258 passed, 7 failures, 5 errors, 2 skips.
+Unchanged HEAD e8ea2c65 in its own worktree/cwd: 249 tests, 237 passed, the same
+7 failures and 5 errors. Failing names match exactly. Existing failures:
+
+test_admin_case_detail_correction_is_normalized_and_audited
+test_bro_may_adjust_final_amount_only_before_downstream_work_starts
+test_bro_records_lower_final_amount_without_changing_hocc_path
+test_create_case_normalizes_and_stores_customer_identifiers
+test_register_approval_records_a_completion_timestamp_for_its_tat
+test_compact_home_has_filter_sheet_metrics_and_explicit_pagination
+test_create_case_rejects_invalid_customer_identifiers
+test_dm_task_launch_is_consumed_and_queue_navigation_does_not_reload_it
+test_recognition_uses_plain_mobile_contract_and_existing_failure_boundary
+test_sme_bm_certificate_blocks_the_next_stage_until_signed
+test_sme_bm_certificate_does_not_block_when_signatures_are_disabled
+test_miniapp_private_alert_button_is_a_persistent_toggle
+
+NOT GREEN: The write-route inventory has 33 identical pre-existing missing
+entries on both revisions. The new comments endpoint is registered correctly.
+
+Logs: test-results/tat-remarks-*.txt
+Screenshots: test-results/tat-remarks-browser-final/
+Baseline worktree: test-results/tat-remarks-baseline/ (retained for reproduction)
+
+Intermediate harness failures came from reused test databases flushed of seeded
+configuration by transaction tests. Clean runs removed them. --fresh-database
+now provides a repeatable isolated run. Only disposable local test databases
+were recreated. The task-owned PostgreSQL server was stopped afterward.
+
+RELEASE / ROLLBACK
+
+Apply migrations as part of the approved deployment:
+  python manage.py migrate
+
+The new migration widens TatTrackerEvent.actor_role from 80 to 255 characters.
+There is no backfill, new persistent model, setting, dependency or cron.
+Continue the existing runner:
+  python manage.py process_tat_notifications
+
+Keep a unique Case ID and Remarks / Delays header (or the explicit Remarks alias,
+not both). Never use a numeric/letter fallback. Disable structural Sheet edits
+while publication runs because Google has no atomic schema compare-and-write.
+
+Before rolling back, verify no actor_role exceeds 80 characters. Then:
+  python manage.py migrate core 0202_jawabufarmermaster_requisition_batch_and_more
+
+Review appended-note compatibility before restoring the older release. Existing
+native/compliance audit rows and note text are retained.
+
+UNVERIFIED / LIMITS
+
+No production database, deployment, Google Sheet, Drive file or Telegram account
+was mutated. Physical Telegram Web launch and its real download dialog require
+post-deployment checking; browser SDK mocks are not proof of device behavior.
+The header fix follows Telegram's current DownloadFileParams contract:
+  https://core.telegram.org/bots/webapps#downloadfileparams
+
+Per-case publication locking prevents stale note overwrites but may briefly
+delay a simultaneous canonical write on that same case. Provider failure never
+undoes an already committed note. Schema repair and exhausted-retry recovery are
+explicit Admin actions, not automatic configuration repair.
+
+Local Python 3.14 differs from deployed Python 3.12. The full repository suite
+and production providers were not run. See KNOWN_GAPS.md for the evidence scope.

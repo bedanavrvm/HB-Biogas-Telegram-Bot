@@ -151,6 +151,7 @@
       '/api/tat-tracker/home/': 'Refreshing the TAT queue',
       '/api/tat-tracker/detail/': 'Opening the case',
       '/api/tat-tracker/update/': 'Saving the case update',
+      '/api/tat-tracker/comments/': 'Saving the remark',
       '/api/tat-tracker/create/': 'Creating the loan case',
       '/api/tat-tracker/search/': 'Searching TAT cases',
       '/api/tat-tracker/identity-context/': 'Loading staff choices',
@@ -1315,7 +1316,7 @@
     const remarksDirty = Boolean(
       state.detail
       && $('remarksInput')
-      && $('remarksInput').value !== String(state.detail.remarks || ''),
+      && $('remarksInput').value.trim(),
     );
     return !state.pendingStageUpdate
       && !state.pendingCorrection
@@ -2368,7 +2369,13 @@
       state.creditAssessmentLoadedFor = '';
     }
 
-    $('remarksInput').value = detail.remarks || '';
+    const remarkInput = $('remarksInput');
+    if (remarkInput.dataset.caseId !== summary.case_id) {
+      remarkInput.value = '';
+      remarkInput.dataset.caseId = summary.case_id;
+    }
+    remarkInput.disabled = detail.can_comment !== true;
+    $('saveRemarksBtn').disabled = detail.can_comment !== true;
     const fields = $('stageFields');
     fields.innerHTML = '';
     detail.fields.forEach((field) => {
@@ -2393,9 +2400,9 @@
       const hasTat = (hasElapsed && Number.isFinite(Number(field.elapsed_seconds))) || Boolean(formatMinutes(field.wall_clock_minutes || field.tat_minutes));
       const tatMeta = hasTat ? `
         <div class="stage-tat-row">
-          <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${tatCounterMarkup(field, `stage:${summary.case_id}:${field.key}`)}</span>
-          ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
-          ${slaText ? `<span class="tat-target live-tat-sla-label">${escapeHtml(slaText)}</span>` : ''}
+          <span class="tat-badge ${escapeHtml(field.sla_status || '')}"><span>Elapsed</span>${tatCounterMarkup(field, `stage:${summary.case_id}:${field.key}`)}</span>
+          ${targetText ? `<span class="stage-tat-item"><span class="stage-tat-separator" aria-hidden="true">·</span><span class="tat-target">Target ${escapeHtml(targetText)}</span></span>` : ''}
+          ${slaText ? `<span class="stage-tat-item"><span class="stage-tat-separator" aria-hidden="true">·</span><span class="tat-target live-tat-sla-label">${escapeHtml(slaText)}</span></span>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
@@ -2521,11 +2528,11 @@
     } else {
       timelineEvents.forEach((event) => {
         const eventTitle = event.stage || event.title || 'Case event';
-        const eventValue = event.detail || event.value || '';
+        const eventValue = event.detail || (event.value_kind ? '' : event.value) || '';
         const eventAt = formatTatDateTime(event.occurred_at || event.at);
         // Authority ordinarily repeats the human actor. Show one clear
         // attribution; retain authority only for system-originated entries.
-        const eventActorDisplay = event.actor || event.authority || 'System';
+        const eventActorDisplay = [event.actor || event.authority || (event.occurred_at || event.at ? 'System' : ''), event.actor_roles].filter(Boolean).join(' · ');
         const row = document.createElement('div');
         row.className = 'event-item';
         row.innerHTML = `
@@ -2535,12 +2542,21 @@
               <strong class="event-stage">${escapeHtml(eventTitle)}</strong>
             </div>
             ${eventValue ? `<div class="event-detail">${window.MiniAppActivityChanges?.textHtml(eventValue) || escapeHtml(eventValue)}</div>` : ''}
-            <div class="event-meta">${escapeHtml(eventActorDisplay)} &middot; ${escapeHtml(eventAt || '')}</div>
+            ${eventActorDisplay || eventAt ? `<div class="event-meta">${escapeHtml([eventActorDisplay, eventAt].filter(Boolean).join(' · '))}</div>` : ''}
+            ${event.outcome ? `<span class="event-outcome">${escapeHtml(event.outcome)}</span>` : ''}
             ${event.artifact?.url ? `<a class="event-artifact-link" href="${escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}
           </div>
         `;
         events.appendChild(row);
-        if (!event.redacted) window.MiniAppActivityChanges?.append(row.querySelector('.event-body'), event.changes, {title: eventTitle, detail: eventValue});
+        if (!event.redacted && !['comment', 'timestamp', 'outcome'].includes(event.value_kind)) {
+          let target = row.querySelector('.event-body');
+          if (event.value_kind === 'timestamp_correction') {
+            const details = document.createElement('details'); details.className = 'event-date-details';
+            const summary = document.createElement('summary'); summary.textContent = 'Date correction';
+            details.append(summary); target.append(details); target = details;
+          }
+          window.MiniAppActivityChanges?.append(target, event.changes, {title: eventTitle, detail: eventValue});
+        }
       });
     }
   }
@@ -3685,7 +3701,7 @@
       target.innerHTML = '<p class="chart-empty-static">No active cases match these filters.</p>';
       return;
     }
-    target.innerHTML = rows.map((row, index) => `<button type="button" class="tat-oldest-case" data-oldest-case="${escapeHtml(row.case_id)}"><span class="tat-oldest-rank">${index + 1}</span><span><strong>${escapeHtml(row.case_id)}</strong><small>${escapeHtml(row.client_name || 'Customer not provided')} - ${escapeHtml(compactTatReportLabel(row.current_stage || 'Stage not set'))}</small></span><span class="${row.sla_state === 'overdue' ? 'bad' : row.sla_state === 'near_target' ? 'warn' : 'good'}">${escapeHtml(formatMinutes(row.elapsed_minutes))}</span></button>`).join('');
+    target.innerHTML = rows.map((row, index) => `<button type="button" class="tat-oldest-case" data-oldest-case="${escapeHtml(row.case_id)}"><span class="tat-oldest-rank">${index + 1}</span><span><strong>${escapeHtml(row.client_name || 'Customer not provided')}</strong><small>${escapeHtml(compactTatReportLabel(row.current_stage || 'Stage not set'))}</small></span><span class="${row.sla_state === 'overdue' ? 'bad' : row.sla_state === 'near_target' ? 'warn' : 'good'}">${escapeHtml(formatMinutes(row.elapsed_minutes))}</span></button>`).join('');
   }
 
   function visibleTatChartSlides() {
@@ -4155,7 +4171,9 @@
       }
       const raw = await response.json();
       if (!raw.ok || !raw.data?.download_url || !raw.data?.filename) throw new Error(raw.message || 'The download link was not returned.');
-      const { download_url: url, filename } = raw.data;
+      const url = String(raw.data.download_url).trim();
+      const filename = String(raw.data.filename).trim();
+      if (!filename || !/\.xlsx$/i.test(filename) || /[\\/\r\n]/.test(filename)) throw new Error('The workbook filename is missing or invalid. Try again.');
       const feedback = $('tatReportDownloadStatus');
       const browserFallback = message => {
         feedback.replaceChildren(document.createTextNode(message + ' '));
@@ -4168,12 +4186,14 @@
       };
       if (typeof tg?.downloadFile === 'function' && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
         feedback.textContent = `Confirm ${filename} in Telegram.`;
+        const timeout = setTimeout(() => browserFallback(`Still waiting for Telegram to confirm ${filename}.`), 12000);
         try {
           tg.downloadFile({ url, file_name: filename }, accepted => {
+            clearTimeout(timeout);
             if (accepted === false) feedback.textContent = 'Download cancelled. Tap Download Excel to try again.';
             else browserFallback('Download requested. Check your device downloads. If it does not appear:');
           });
-        } catch (_) { browserFallback('Telegram could not open the download.'); }
+        } catch (_) { clearTimeout(timeout); browserFallback('Telegram could not open the download.'); }
       } else {
         browserFallback('Your Telegram version does not support the download dialog.');
       }
@@ -4474,15 +4494,32 @@
     ['queueProductFilters', 'queueBranchFilters', 'queueStatusFilters'].forEach((id) => setCheckedFilterValues(id, []));
     applyQueueFilters().catch(presentTatError);
   });
+  let pendingRemark = null;
   $('saveRemarksBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
+    const input = $('remarksInput');
+    const text = input.value.trim();
+    if (button.disabled || !state.detail?.can_comment) return;
+    if (!text) { setStatus('Enter a remark before saving.', 'error'); input.focus(); return; }
+    const caseId = state.detail.summary.case_id;
+    if (!pendingRemark || pendingRemark.caseId !== caseId || pendingRemark.text !== text) pendingRemark = {caseId, text, requestId: newRequestId()};
+    const submitted = pendingRemark;
     try {
       setButtonLoading(button, true, 'Saving');
-      await submitUpdate([{ field: 'remarks', value: $('remarksInput').value }]);
+      const result = await api('/api/tat-tracker/comments/', {case_id: caseId, comment_text: text, request_id: submitted.requestId, client_request_id: submitted.requestId});
+      if (state.detail?.summary?.case_id === caseId) {
+        if (input.value.trim() === text) input.value = '';
+        state.detail = result.data;
+        renderDetail(result.data);
+      }
+      if (pendingRemark === submitted) pendingRemark = null;
+      setStatus(result.sheet_projection?.pending ? 'Remark saved. Sheet update pending.' : 'Remark saved.', 'ok');
+      utils.haptic?.('success');
     } catch (error) {
       presentTatError(error);
     } finally {
       setButtonLoading(button, false);
+      button.disabled = state.detail?.can_comment !== true;
     }
   });
   $('correctCaseDetailsBtn').addEventListener('click', () => {

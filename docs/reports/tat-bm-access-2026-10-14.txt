@@ -1,0 +1,88 @@
+TAT BM ACTION ACCESS AND OLDEST-CASE NAMES
+14 October 2026 | Workspace implementation; not deployed
+
+FINDINGS
+
+1. Oldest Active Cases already receives customer names, but its renderer put
+   the reference in the headline and the name on a secondary line.
+2. The missing BM permission was provisioned only by the optional product rollout
+   command. Normal deployment/guided publication could leave BM unable to act.
+3. Stage capability discovery depended on the currently available product
+   catalogue. An older cached catalogue, or an unavailable product whose case
+   already captured the new stage, could hide the capability even from TAT IT.
+4. These are TAT authorization/provisioning defects, not Origination signing
+   requirements. Identical role names across Mini Apps do not share authority.
+
+CHANGES
+
+- Oldest-case headlines show customer names, then the current stage. References
+  remain internal click targets. Equal customer names still open distinct cases;
+  displayed names are escaped, and missing names use a plain customer fallback.
+- The new built-in TAT action is a stable capability, independent of product
+  availability. Dynamic custom-stage discovery remains unchanged.
+- Deployment migration 0204 installs missing TAT BM and IT policy defaults only.
+  It preserves existing explicit denials and all other Mini App policies, records
+  the policy change, and increments the policy version only when rows are added.
+  Repeated execution is a no-op. Existing case/product/application bytes survive.
+- A current TAT grant still needs the correct group, branch and product scope.
+  Other workflows' BM/IT grants cannot grant TAT access. TAT BM analysis uses
+  Approved/Declined and an automatic server timestamp; it adds no signing gate.
+- AGENTS.md Quick reference item 12 records Mini App role independence. A small
+  explicitly requested memory update records the same user decision.
+- TAT JavaScript asset version is now 130 so the new name renderer is fetched.
+
+VERIFICATION
+
+Before the fix, all three focused reproduction tests failed with the reported
+denial: absent built-in definition, denied ordinary BM, and denied scoped IT.
+Log: test-results/tat-bm-access-red.txt
+
+PASS: 64 focused backend tests on an isolated SQLite database. Includes BM access
+without rollout publication, unavailable-product IT access, branch-scope checks,
+explicit denial preservation, independent Origination grants, idempotent migration
+policy/audit changes, no new signature gate, earlier remark/timeline tests, and
+literal remark publication on first-row/batch retries.
+Log: test-results/tat-bm-access-final.txt
+
+PASS: Two initial real-template Chromium checks at 390px and 1280px. Customer names,
+same-name navigation, escaping and no page-width overflow were checked. Both
+screenshots were opened and visually inspected.
+Log: test-results/tat-oldest-names-browser.txt
+Screenshots: test-results/tat-oldest-names/
+
+PASS: All 67 real-template Chromium checks on the final assets, including queue
+search, BM stage layout, form alignment, stage/activity rows, remarks, named native
+downloads and report controls at 320/360/390/430/768/1280px.
+Log: test-results/tat-final-continuation-browser.txt
+
+PASS: Django system check and no migration drift; Ruff on the new Python changes;
+JavaScript syntax; git diff whitespace check.
+Log: test-results/tat-bm-deployment-checks.txt
+
+DEPLOYMENT / BOUNDARIES
+
+No separate BM permission rollout command is required after the normal release
+applies migration 0204. Existing release.sh already calls release_production,
+which applies pending checked-in migrations. Builds/restarts deliberately do not
+mutate the database. The live Render pre-deploy configuration was not accessible
+or changed here; a Git push alone is not proof that database migrations ran.
+
+This repair enables the action on cases whose captured path includes the stage.
+It does not insert new stages into older case snapshots, rewrite published terms,
+alter Origination roles/documents, create staff grants or invent a BM target.
+Authoring a successor for an older product configuration remains a separate,
+explicit Admin operation; the optional shell tool is not required for access.
+
+If BM was explicitly denied this capability, preserve that policy and review it
+in the governed TAT capability matrix. IT retains its existing scoped override.
+No Google, Drive, Telegram or production database writes were performed.
+
+Migration reversal retains policy/audit evidence. Operational permission rollback
+uses the existing governed matrix; it does not delete evidence or alter case paths.
+
+EARLIER IMPLEMENTATION
+
+The previous remarks, stage/time-row cleanup, Telegram Web frame protection and
+named native download changes remain in this worktree. Their PostgreSQL/browser
+evidence, baseline failures and device/deployment limitations are recorded in:
+docs/reports/tat-remarks-telegram-web-2026-10-14.txt

@@ -150,6 +150,10 @@ class BMAnalysisStageTests(TestCase):
 
     def test_publish_adds_only_bm_capability_and_bumps_policy(self):
         from core.models import WorkflowRoleCapability, AccessControlPolicyState
+        # Exercise repair on an installation where the deployed permission is
+        # missing; current clean installations receive it through migration 0204.
+        WorkflowRoleCapability.objects.filter(workflow='tat_tracker', role='BM',
+                                              capability_key='tat.stage.bm_analysis_approval.update').delete()
         before = set(WorkflowRoleCapability.objects.filter(workflow='tat_tracker', role='BM', effect='allow')
                      .values_list('capability_key', flat=True))
         policy = AccessControlPolicyState.current().version
@@ -166,6 +170,56 @@ class BMAnalysisStageTests(TestCase):
         stage = stage_by_key(self.product, 'bm_analysis_approval')
         self.assertTrue(can_user_edit_stage({'roles': ['BM']}, self.case, stage))
         self.assertFalse(can_user_edit_stage({'roles': ['BUSINESS_ADMIN']}, self.case, stage))
+
+    def test_builtin_bm_action_survives_an_empty_product_catalogue(self):
+        from core.services.workflow_capabilities import capability_definition, capability_definitions
+        capability_definitions.cache_clear()
+        with patch('core.services.tat_tracker.configured_products', return_value=[]):
+            definition = capability_definition('tat_tracker', 'tat.stage.bm_analysis_approval.update')
+        self.assertIsNotNone(definition)
+        self.assertEqual(set(definition.default_roles), {'BM', 'IT'})
+
+    def test_deployed_bm_permission_needs_no_rollout_command(self):
+        from core.models import AccessGrant, GroupSheetConfiguration, UserProfile
+        from core.services.access_control import governed_access_grant_mutation
+        from core.services.tat_tracker import can_user_edit_stage, staff_user_for_payload
+        group = GroupSheetConfiguration.objects.create(
+            group_id=self.case.group_id, workflow={'type': 'tat_tracker'},
+        )
+        actor = get_user_model().objects.create_user('ordinary-tat-bm')
+        UserProfile.objects.create(user=actor, telegram_id='989899')
+        with governed_access_grant_mutation('Synthetic TAT BM access check'):
+            AccessGrant.objects.create(user=actor, workflow='tat_tracker', role='BM',
+                                       branch='Nakuru', product='business', group_configuration=group)
+        user = staff_user_for_payload(group, {'id': 989899})
+        stage = stage_by_key(self.product, 'bm_analysis_approval')
+        self.assertTrue(can_user_edit_stage(user, self.case, stage))
+        from core.services.tat_tracker import serialize_case_detail
+        self.assertTrue(next(row for row in serialize_case_detail(self.case, user)['fields']
+                             if row['key'] == stage.key)['editable'])
+        # This is an outcome with its own server timestamp, not an Origination
+        # signature, even when the independent TAT signature feature is enabled.
+        with override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True):
+            apply_update(self.case, user, {'field': stage.key, 'value': 'Approved'})
+        self.assertTrue(self.case.stage_values['bm_analysis_approval_ts'])
+        self.assertFalse(self.case.approval_certificates.exists())
+
+    def test_tat_it_can_update_captured_bm_stage_even_when_product_is_unavailable(self):
+        from core.models import AccessGrant, GroupSheetConfiguration, UserProfile
+        from core.services.access_control import governed_access_grant_mutation
+        from core.services.tat_tracker import can_user_edit_stage, staff_user_for_payload
+        from core.services.workflow_capabilities import capability_definitions
+        group = GroupSheetConfiguration.objects.create(group_id=self.case.group_id, workflow={'type': 'tat_tracker'})
+        actor = get_user_model().objects.create_user('ordinary-tat-it')
+        UserProfile.objects.create(user=actor, telegram_id='989900')
+        with governed_access_grant_mutation('Synthetic TAT IT access check'):
+            AccessGrant.objects.create(user=actor, workflow='tat_tracker', role='IT',
+                                       branch='Nakuru', product='business', group_configuration=group)
+        capability_definitions.cache_clear()
+        with patch('core.services.tat_tracker.configured_products', return_value=[]):
+            user = staff_user_for_payload(group, {'id': 989900})
+            stage = stage_by_key(self.product, 'bm_analysis_approval')
+            self.assertTrue(can_user_edit_stage(user, self.case, stage))
 
     def tearDown(self):
         from core.services.workflow_capabilities import capability_definitions
@@ -252,3 +306,53 @@ class BMAnalysisStageTests(TestCase):
         from django.core.management.base import CommandError
         with self.assertRaises(CommandError):
             call_command('rollout_tat_bm_analysis', product=['synthetic-missing'])
+
+
+class BMAnalysisDeploymentTests(TestCase):
+    def provision(self):
+        from importlib import import_module
+        from types import SimpleNamespace
+        from django.apps import apps
+        from django.db import connection
+        import_module('core.migrations.0204_tat_bm_analysis_capability').provision_bm_action(
+            apps, SimpleNamespace(connection=connection),
+        )
+
+    def test_deployment_provisions_only_tat_and_is_idempotent(self):
+        from core.models import AccessControlPolicyState, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent
+        key = 'tat.stage.bm_analysis_approval.update'
+        WorkflowRoleCapability.objects.filter(workflow='tat_tracker', capability_key=key).delete()
+        other = list(WorkflowRoleCapability.objects.exclude(workflow='tat_tracker').order_by('pk').values())
+        version = AccessControlPolicyState.current().version
+        audits = WorkflowRoleCapabilityAuditEvent.objects.count()
+        self.provision()
+        self.assertEqual(set(WorkflowRoleCapability.objects.filter(workflow='tat_tracker',
+                         capability_key=key, effect='allow').values_list('role', flat=True)), {'BM', 'IT'})
+        self.assertEqual(AccessControlPolicyState.current().version, version + 1)
+        self.assertEqual(WorkflowRoleCapabilityAuditEvent.objects.count(), audits + 2)
+        self.provision()
+        self.assertEqual(AccessControlPolicyState.current().version, version + 1)
+        self.assertEqual(WorkflowRoleCapabilityAuditEvent.objects.count(), audits + 2)
+        self.assertEqual(list(WorkflowRoleCapability.objects.exclude(workflow='tat_tracker').order_by('pk').values()), other)
+
+    def test_deployment_preserves_explicit_bm_denial(self):
+        from core.models import WorkflowRoleCapability
+        row = WorkflowRoleCapability.objects.get(workflow='tat_tracker', role='BM',
+                    capability_key='tat.stage.bm_analysis_approval.update')
+        row.enabled = False
+        row.save(update_fields=['enabled'])
+        self.provision()
+        row.refresh_from_db()
+        self.assertEqual(row.effect, 'deny')
+
+    def test_origination_bm_and_it_do_not_grant_tat_access(self):
+        from core.models import AccessGrant, GroupSheetConfiguration, UserProfile
+        from core.services.access_grant_governance import governed_access_grant_mutation
+        from core.services.tat_tracker import staff_user_for_payload
+        group = GroupSheetConfiguration.objects.create(group_id='-100-independent-tat', workflow={'type': 'tat_tracker'})
+        actor = get_user_model().objects.create_user('origination-only-roles')
+        UserProfile.objects.create(user=actor, telegram_id='989901')
+        with governed_access_grant_mutation('Synthetic independent Mini App roles'):
+            for role in ('BM', 'IT'):
+                AccessGrant.objects.create(user=actor, workflow='loan_origination', role=role)
+        self.assertFalse(staff_user_for_payload(group, {'id': 989901})['authorized'])

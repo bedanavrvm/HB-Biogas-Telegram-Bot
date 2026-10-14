@@ -6971,7 +6971,7 @@ class ComplianceAuditCheckpointAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(IntegrationOperation)
 class IntegrationOperationAdmin(ReadOnlyAuditAdmin):
-    actions = ('retry_selected_sheet_cleanup',)
+    actions = ('retry_selected_sheet_cleanup', 'retry_selected_tat_remarks')
     list_display = ('integration', 'operation_type', 'source_model', 'source_id', 'status', 'attempts', 'next_retry_at', 'updated_at')
     list_filter = ('integration', 'operation_type', 'status')
     search_fields = ('source_model', 'source_id', 'request_id', 'deduplication_key')
@@ -6981,6 +6981,7 @@ class IntegrationOperationAdmin(ReadOnlyAuditAdmin):
         actions = super().get_actions(request)
         if not (request.user.is_active and request.user.is_superuser):
             actions.pop('retry_selected_sheet_cleanup', None)
+            actions.pop('retry_selected_tat_remarks', None)
         return actions
 
     @admin.action(description='Retry selected deletion Sheet cleanup')
@@ -6993,6 +6994,21 @@ class IntegrationOperationAdmin(ReadOnlyAuditAdmin):
         for operation_id in selected.values_list('pk', flat=True):
             retry_cleanup(operation_id=operation_id, actor=request.user)
         self.message_user(request, f'{count} Sheet cleanup task(s) checked for retry. Other operations were untouched.')
+
+    @admin.action(description='Retry selected TAT remark Sheet updates')
+    def retry_selected_tat_remarks(self, request, queryset):
+        from django.core.exceptions import ObjectDoesNotExist
+        from core.services.tat_comments import OPERATION_TYPE, retry_remark_publication
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        count = 0
+        skipped = 0
+        for operation_id in queryset.filter(operation_type=OPERATION_TYPE).values_list('pk', flat=True):
+            try:
+                count += int(retry_remark_publication(operation_id, actor=request.user))
+            except (ValueError, ObjectDoesNotExist):
+                skipped += 1
+        self.message_user(request, f'{count} TAT remark update(s) queued for retry; {skipped} need their case or settings checked. Other operations were untouched.')
 
 
 @admin.register(IntegrationCircuitState)

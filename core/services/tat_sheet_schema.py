@@ -1,6 +1,8 @@
 """Named bindings for current and historical TAT register projections."""
 from core.services.sheet_columns import NamedColumns
 
+REMARK_HEADERS = ('Remarks / Delays', 'Remarks')
+
 
 STAGE_HEADERS = {
     'mpesa_to_admin': ('MPESA Sent to Admin',),
@@ -109,7 +111,7 @@ def case_row(case, product, headers, existing_values=None):
             if stage.auto_timestamp_key:
                 put('', *timestamp_names(stage), required=False)
     put(case.status, 'Status')
-    put(case.remarks, 'Remarks / Delays', 'Remarks')
+    put(case.remarks, *REMARK_HEADERS)
     minutes = calculated_tat_minutes(case)
     put(float(calculated_tat_hours(case)) if minutes is not None else '', 'TAT Hours')
     put(float(calculated_tat_days(case)) if minutes is not None else '', 'TAT Days')

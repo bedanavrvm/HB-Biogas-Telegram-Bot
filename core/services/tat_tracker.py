@@ -1658,6 +1658,13 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             # A retry may reach this function after Google accepted the
             # append but before Django recorded row numbers. Reconcile those
             # IDs in place instead of appending duplicate rows.
+            # Cases with appended staff comments also use the locked, literal
+            # notes publisher rather than the legacy USER_ENTERED bulk append.
+            comment_case_ids = set(TatTrackerEvent.objects.filter(
+                case_id__in=[case.pk for case in new_cases], transition_code='comment.add',
+            ).values_list('case_id', flat=True))
+            existing_cases.extend(case for case in new_cases if case.pk in comment_case_ids)
+            new_cases = [case for case in new_cases if case.pk not in comment_case_ids]
             for case in existing_cases:
                 sync_case_to_sheet(group_config, case)
                 result['synced'] += 1
@@ -1949,11 +1956,10 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         return
     product = product_for_case(case)
     if field == 'remarks':
-        old = case.remarks
-        case.remarks = str(item.get('value') or '').strip()
-        stage_key = 'remarks'
-        event_label = 'Remarks / Delays'
-        new = case.remarks
+        raise TatUpdateValidationError(
+            'tat_update_validation_failed',
+            'Reopen the case and use Add a remark. Existing remarks cannot be replaced.',
+        )
     else:
         stage = stage_by_key(product, field)
         if not stage:
@@ -2189,6 +2195,23 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
 
 @guarded_publication
 def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
+    try:
+        return _sync_case_to_sheet_with_lock(group_config, case)
+    except Exception as exc:
+        # Failure evidence must commit after the publication transaction rolls
+        # back; retaining the case lock must not erase existing retry metadata.
+        case.sync_error = str(exc)
+        case.save(update_fields=['sync_error', 'updated_at'])
+        mark_case_events_sync_failed(case, case.sync_error)
+        raise
+
+
+@transaction.atomic
+def _sync_case_to_sheet_with_lock(group_config, case: TatTrackerCase) -> bool:
+    # Share the comment publisher's lock so a delayed stage dispatch cannot
+    # replace newer remarks with the text on its stale case instance.
+    latest = TatTrackerCase.objects.select_for_update().get(pk=case.pk)
+    case.remarks = latest.remarks
     if not bool(getattr(group_config, 'tat_sheet_projection_enabled', True)):
         if case.sync_error:
             case.sync_error = ''
@@ -2244,13 +2267,35 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
                     current = sheet.row_values(row)
                     if str(columns.value(current, 'Case ID')).strip() != case.case_id:
                         raise ValueError('The selected Sheet row moved before publication; retry.')
-                    return sheet.batch_update(updates, value_input_option='USER_ENTERED')
+                    from core.services.tat_sheet_schema import REMARK_HEADERS
+                    remarks_cell = f'{column_letter(columns.column(*REMARK_HEADERS))}{row}'
+                    other_updates = [item for item in updates if item['range'] != remarks_cell]
+                    if other_updates:
+                        sheet.batch_update(other_updates, value_input_option='USER_ENTERED')
+                    remark_updates = [item for item in updates if item['range'] == remarks_cell]
+                    if remark_updates:
+                        # Staff text is literal, never a spreadsheet formula.
+                        sheet.batch_update(remark_updates, value_input_option='RAW')
                 _tat_sheet_call(
                     write_cells,
                     description=f'update named cells for {case.case_id}',
                 )
         else:
-            row = append_case_row(sheet, row_data, headers=headers)
+            from core.services.tat_sheet_schema import REMARK_HEADERS
+            remarks_column = columns.column(*REMARK_HEADERS)
+            append_data = list(row_data)
+            # USER_ENTERED remains necessary for stage dates/numbers, but notes
+            # must never be interpreted as formulas on the first publication.
+            append_data[remarks_column - 1] = ''
+            row = append_case_row(sheet, append_data, headers=headers)
+            if case.remarks:
+                assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
+                if str(columns.value(sheet.row_values(row), 'Case ID')).strip() != case.case_id:
+                    raise ValueError('The new Sheet row moved before remarks publication; retry.')
+                _tat_sheet_call(lambda: sheet.batch_update(
+                    [{'range': f'{column_letter(remarks_column)}{row}', 'values': [[case.remarks]]}],
+                    value_input_option='RAW',
+                ), description=f'publish literal remarks for {case.case_id}')
         format_tat_sheet_case_row(group_config, sheet, row, case, product, headers=headers)
         case.row_number = row
         case.sheet_name = projection_sheet
@@ -2265,10 +2310,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
             except Exception as exc:
                 logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
         return True
-    except Exception as exc:
-        case.sync_error = str(exc)
-        case.save(update_fields=['sync_error', 'updated_at'])
-        mark_case_events_sync_failed(case, case.sync_error)
+    except Exception:
         logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
         raise
 
@@ -3555,6 +3597,7 @@ def serialize_case_detail(
     case: TatTrackerCase, user: dict, workflow: dict | None = None,
     include_business_time: bool | None = None,
 ) -> dict:
+    from core.services.tat_comments import can_add_remark
     if include_business_time is None:
         from core.services.tat_presentation import business_time_enabled
         include_business_time = business_time_enabled()
@@ -3626,6 +3669,7 @@ def serialize_case_detail(
         'business_time_enabled': bool(include_business_time),
         'fields': fields,
         'remarks': case.remarks,
+        'can_comment': can_add_remark(user.get('_group_configuration'), user, case),
         'events': legacy_events,
         'timeline': timeline['entries'],
         'escalation': latest_escalation('tat_tracker', str(case.pk)),

@@ -1258,9 +1258,16 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   gap: 4px;
   margin-top: 2px;
 }
+.stage-tat-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.stage-tat-separator { color: var(--tat-muted); font-weight: 600; }
+.event-outcome { display: inline-flex; justify-self: start; padding: 2px 7px; border-radius: var(--radius-sm); background: var(--tat-surface-2); font-weight: 600; font-size: 12px; }
+.event-date-details { margin-top: 4px; font-size: 12px; }
+.event-date-details > summary { cursor: pointer; color: var(--tat-muted); }
+.event-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
 .tat-badge {
   display: inline-flex;
   align-items: center;
+  gap: 3px;
   min-height: 18px;
   border-radius: var(--radius-sm);
   padding: 0 5px;

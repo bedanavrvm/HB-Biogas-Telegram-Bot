@@ -121,6 +121,7 @@ request can be approved.
 | Wall-clock time | Actual elapsed time between two timestamps. It remains visible as supporting context and does not replace official SLA time. |
 | Responsible actor | The explicitly recorded staff member responsible for a stage when the source workflow has that information. Blank attribution means a metric remains role/branch-level and must not be read as an individual performance score. |
 | Unified timeline | A read-only case-history projection joining immutable events, field provenance, decisions, documents, and append-only annotations in chronological order. |
+| TAT remark | An append-only staff note with actor, applicable TAT roles and saved time. It may be added to a finished case but never advances stages, changes timing or contributes a scored action. |
 | Timeline annotation | An append-only authorised correction, artifact link, or redaction record. It never edits or deletes the source event. |
 | Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
 | Origination Applicant | Person or entity applying for a loan. Applicant is the standard operational label before execution. |

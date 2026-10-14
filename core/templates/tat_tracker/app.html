@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=80">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=81">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -360,8 +360,8 @@
           </section>
 
           <aside class="side-panel">
-            <label class="remarks-box">Remarks / Delays<textarea id="remarksInput" placeholder="Add context for delays, missing documents, or follow-up notes."></textarea></label>
-            <button id="saveRemarksBtn" type="button" class="secondary full-width">Save Remarks</button>
+            <label class="remarks-box" for="remarksInput">Add a remark<textarea id="remarksInput" maxlength="5000" placeholder="Write a follow-up note…"></textarea></label>
+            <button id="saveRemarksBtn" type="button" class="secondary full-width">Save remark</button>
             <details class="activity-panel">
               <summary><span>Activity</span><strong id="activityCount">0</strong></summary>
               <div id="eventList" class="event-list" aria-live="polite"></div>
@@ -484,6 +484,6 @@
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=8"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=128"></script>
+<script src="{% static 'miniapp/tat_tracker.js' %}?v=130"></script>
 </body>
 </html>

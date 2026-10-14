@@ -99,6 +99,15 @@ _add(
 )
 
 
+_add(
+    'tat_tracker_comments',
+    authentication='Canonical signed Telegram identity through _tat_context',
+    capability='tat.home.view, rechecked against current grants',
+    scope='Exact in-scope case; deleted, unresolved and closed Pilot cases denied',
+    request_key_binding='miniapp_write_response plus required canonical key',
+    domain_replay='Unique case/request event, actor/text conflict check, event-keyed Sheet operation',
+)
+
 _ORIGINATION_AUTH = 'Canonical Telegram identity through portal_auth_required'
 _ORIGINATION_SCOPE = 'Origination AccessGrant capability plus application branch/ownership scope'
 _ORIGINATION_KEY = 'origination_auth_required -> canonical request identity'

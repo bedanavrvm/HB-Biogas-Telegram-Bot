@@ -427,6 +427,13 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
     redactions, annotations = _annotations('tat_tracker', str(case.pk))
     entries = []
     operations = {}
+    from core.services.tat_tracker import product_for_case, role_display_name
+    try:
+        stage_kinds = {stage.key: stage.kind for stage in product_for_case(case).stages}
+    except ValueError:
+        stage_kinds = {}
+    earlier_remarks = None
+    legacy_values = set()
     for event in case.events.select_related('actor_user', 'authority_user').order_by('-created_at'):
         # These two rows are idempotency/transition receipts created alongside
         # the actual staff event. Keep them in the immutable audit store while
@@ -438,20 +445,33 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
         ):
             continue
         source_id = f'tat:{event.id}'
+        if event.stage_key == 'remarks':
+            # Existing attributed notes (including redacted ones) must not
+            # reappear as a second, unattributed copy of the same content.
+            legacy_values.add(event.new_value)
+        comment = event.transition_code == 'comment.add'
+        timestamp = stage_kinds.get(event.stage_key) == 'timestamp' or event.stage_key == 'created'
+        value_kind = ('comment' if comment else 'timestamp_correction' if timestamp and event.source == 'admin_correction'
+                      else 'timestamp' if timestamp else 'outcome' if stage_kinds.get(event.stage_key) == 'dropdown' else 'changes')
         entry = _entry(
             source_id=source_id,
             action=event.transition_code or event.stage_key or 'case_updated',
             occurred_at=event.created_at,
-            actor=_actor_name(event.actor_user, event.actor_name),
+            actor=(event.actor_name or _actor_name(event.actor_user)) if comment else _actor_name(event.actor_user, event.actor_name),
             authority=_actor_name(event.authority_user),
             source=event.source,
             stage=event.stage_label or event.stage_key,
-            detail=event.reason,
-            changes=recorded_changes({'value': event.old_value}, {'value': event.new_value},
+            detail=event.new_value if comment else event.reason,
+            changes=[] if comment or value_kind == 'timestamp' else recorded_changes({'value': event.old_value}, {'value': event.new_value},
                                      labels={'value': event.stage_label or event.stage_key or 'Value'}),
             redaction=redactions.get(source_id),
             operation_id=str(getattr(event, 'request_id', '') or ''),
         )
+        entry['value_kind'] = value_kind
+        entry['outcome'] = event.new_value if value_kind == 'outcome' and not entry['redacted'] else ''
+        entry['actor_roles'] = ', '.join(role_display_name(role) for role in event.actor_role.split(',') if role) if comment else ''
+        if comment and event.old_value and not entry['redacted']:
+            earlier_remarks = event.old_value
         request_id = entry['operation_id']
         # Only explicit request/revision linkage can group staff changes.
         # Identical stage names or neighboring timestamps are not evidence.
@@ -469,10 +489,19 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
                 parent['detail'] = '\n'.join(filter(None, [parent['detail'], entry['detail']]))
             if parent['stage'] != entry['stage']:
                 parent['stage'] = 'Case details updated'
+                parent['value_kind'] = 'changes'
+                parent['outcome'] = ''
         else:
             entries.append(entry)
             if groupable:
                 operations[key] = entry
     entries.extend(_annotation_entries(annotations))
     entries.sort(key=lambda item: item['occurred_at'], reverse=True)
+    if earlier_remarks is None and not case.events.filter(transition_code='comment.add').exists():
+        # Legacy text has no known author/time. Do not invent either.
+        earlier_remarks = case.remarks
+    if earlier_remarks and earlier_remarks not in legacy_values:
+        entries.append({'id': f'legacy-remarks:{case.pk}', 'stage': 'Earlier remarks', 'detail': earlier_remarks,
+                        'value_kind': 'comment', 'actor': '', 'actor_roles': '', 'occurred_at': '',
+                        'changes': [], 'redacted': False})
     return {'entries': entries, 'related_cases': []}

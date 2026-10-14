@@ -958,6 +958,8 @@ def tat_tracker_reports_download(request, token):
     response['Content-Length'] = str(len(workbook))
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
+    response['Access-Control-Allow-Origin'] = 'https://web.telegram.org'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition, Content-Length, Content-Type'
     return response
 
 
@@ -1331,6 +1333,50 @@ def tat_tracker_detail(request):
         return JsonResponse({'ok': True, 'data': get_case_detail(group_config, user, payload.get('case_id', ''))})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+    except Exception as exc:
+        from core.services.miniapp_messages import unexpected_miniapp_error
+        return unexpected_miniapp_error(request, exc, workflow='tat_tracker')
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_comments(request):
+    """Signed Telegram staff may append notes, not replace or transition a case."""
+    if request.content_type != 'application/json':
+        return JsonResponse({'ok': False, 'error': 'Reopen TAT Tracker and save the remark again.'}, status=415)
+    payload = _tat_json_body(request)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'The remark request is invalid.'}, status=400)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from django.core.exceptions import PermissionDenied
+    from core.models import TatTrackerCase, IntegrationOperation
+    from core.services.tat_comments import add_remark, RemarkConflict
+    from core.services.tat_tracker import serialize_case_detail
+    from core.services.workflow_data_mode import WorkflowModeChanged
+    try:
+        event, operation = add_remark(
+            group_config, user, payload.get('case_id', ''), payload.get('comment_text'),
+            request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
+            expected_mode_version=_workflow_mode_version(payload),
+        )
+        case = TatTrackerCase.objects.get(pk=event.case_id)
+        return JsonResponse({'ok': True, 'data': serialize_case_detail(case, user, workflow=group_config.workflow),
+                             'sheet_projection': {'status': operation.status if operation else 'disabled',
+                                                  'pending': bool(operation and operation.status != IntegrationOperation.STATUS_SUCCEEDED)}})
+    except PermissionDenied as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'permission_denied'}, status=403)
+    except TatTrackerCase.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'This case is no longer available.'}, status=404)
+    except (RemarkConflict, WorkflowModeChanged) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': getattr(exc, 'code', 'tat_comment_conflict')}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'tat_comment_invalid'}, status=400)
     except Exception as exc:
         from core.services.miniapp_messages import unexpected_miniapp_error
         return unexpected_miniapp_error(request, exc, workflow='tat_tracker')

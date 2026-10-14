@@ -11,6 +11,22 @@ from payments.services import _payment_activity_changes
 
 class ActivityChangesTests(SimpleTestCase):
     @patch('core.services.workflow_timeline._annotations', return_value=({}, []))
+    def test_tat_comment_retains_saved_actor_name_after_profile_changes(self, annotations):
+        events = MagicMock()
+        events.select_related.return_value.order_by.return_value = [SimpleNamespace(
+            id='comment', source='mini_app', stage_key='remarks_comment', stage_label='Comment added',
+            transition_code='comment.add', created_at=datetime.now(timezone.utc),
+            actor_user=SimpleNamespace(get_full_name=lambda: 'Changed profile name'), authority_user=None,
+            actor_name='Saved actor name', actor_role='BRO', old_value='', new_value='Follow-up note', reason='',
+        )]
+        case = SimpleNamespace(pk='case', events=events, product_key='business', tat_configuration_snapshot={},
+                               configuration_binding_status='legacy_assumed', remarks='')
+        row = tat_case_timeline(case)['entries'][0]
+        self.assertEqual(row['actor'], 'Saved actor name')
+        self.assertEqual(row['actor_roles'], 'BRO')
+        self.assertEqual(row['changes'], [])
+
+    @patch('core.services.workflow_timeline._annotations', return_value=({}, []))
     def test_tat_groups_explicit_requests_without_merging_later_corrections(self, annotations):
         events = MagicMock()
         def event(key, stage, request):
@@ -19,7 +35,8 @@ class ActivityChangesTests(SimpleTestCase):
                 authority_user=None, actor_name='Training officer', old_value='Before', new_value='After',
                 request_id=request, reason='Updated details', revision_before=1, revision_after=2)
         events.select_related.return_value.order_by.return_value = [event('a','Phone','one'),event('b','Branch','one'),event('c','Phone','two')]
-        rows = tat_case_timeline(SimpleNamespace(pk='case',events=events))['entries']
+        rows = tat_case_timeline(SimpleNamespace(pk='case', events=events, product_key='business',
+                                                tat_configuration_snapshot={}, configuration_binding_status='legacy_assumed', remarks=''))['entries']
         self.assertEqual(len(rows),2)
         grouped = next(row for row in rows if row['operation_id']=='one')
         self.assertEqual(grouped['detail'],'Updated details')
@@ -109,7 +126,8 @@ class ActivityChangesTests(SimpleTestCase):
             transition_code='', created_at=datetime.now(timezone.utc), actor_user=None,
             authority_user=None, actor_name='Training officer', old_value='Pending',
             new_value='Approved', reason='')]
-        rows = tat_case_timeline(SimpleNamespace(pk='case', events=events))['entries']
+        rows = tat_case_timeline(SimpleNamespace(pk='case', events=events, product_key='business',
+                                                tat_configuration_snapshot={}, configuration_binding_status='legacy_assumed', remarks=''))['entries']
         self.assertEqual(rows[0]['detail'], '')
         self.assertEqual(rows[0]['changes'][0]['old_value'], 'Pending')
         self.assertEqual(rows[0]['changes'][0]['new_value'], 'Approved')

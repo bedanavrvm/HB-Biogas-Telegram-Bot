@@ -39,6 +39,7 @@ If you read nothing else, follow these:
 9. **One bounded change per PR.** Don't mix architecture refactors with business-rule changes.
 10. Unsure which workflow owns something? Check the [Workflow ownership guide](#workflow-ownership-guide) before guessing.
 11. **New persistent models require a bounded-domain app and database-catalogue metadata.** Do not add new models to the legacy `core` app. Use the predictable `<domain>_<entity>_<role>` table convention and declare purpose, lifecycle, retention, source-of-truth status, PostgreSQL table/column comments, intentional reverse relationship names, and a reason for every explicit index. Never change production schema outside a checked-in Django migration.
+12. **Mini App roles are independent.** Resolve every role and capability within its own workflow (`tat_tracker`, `complaint_cases`, `jawabu_portal`, or `loan_origination`). A BM, CA, officer, HB or IT grant in one Mini App supplies no authority in another. TAT BM stage changes belong to TAT; they must not change Origination roles, signers or application requirements. Ship approved built-in permission additions in checked-in deployment migrations rather than requiring a separate staff shell command.
 
 ---
 
@@ -59,6 +60,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **TAT loan-cycle path** | The immutable Standard, Standard + Valuation, HOCC, or HOCC + Valuation path selected from the product version and original requested amount when a case is created. A later BRO-entered final loan amount may be lower but never changes the frozen path. |
 | **TAT Recognition final snapshot** | The immutable group-wide stage facts captured on the first authorized view more than 30 days after a month, quarter, or year ends. Current staff grants still determine which facts a viewer can see; subsequent workflow corrections do not rewrite the final snapshot. |
 | **TAT Recognition live standing** | An expiring, per-viewer rank checkpoint for one live period, authorized scope, view, and filter. It supports up/down movement across sessions, is not an authoritative score, and is never used for final snapshots. |
+| **TAT remark** | An append-only, request-keyed staff comment on an accessible case, including finished cases. Saved actor, applicable TAT roles and Nairobi time accompany it. Remarks never change workflow revision, update/completion times, stages, scores, tasks or signatures. Event-keyed Sheet projections use the existing TAT processor; read ADR 0051 before changing this boundary. |
 | **SPIN** | Credit/CRB-report-linked request workflow handled by `spin_credit.py`, completed by credit analysts. |
 | **TAT credit assessment** | The governed appraisal evidence and decision workflow linked one-to-one to a TAT case. It matches a forwarded M-PESA statement, retains the pre-appraisal and signed-LAF consent reference, freezes analyst reports/questions, records BRO responses and analyst validation, and binds Branch Manager decisions to exact evidence revisions. TAT owns timing/routing; `credit_assessments` owns evidence and decisions. |
 | **Workflow data mode** | The immutable Pilot or Production classification captured when a SPIN/TAT operational record is created. Production records remain operational; while a workflow is in Pilot mode, normal reads also include only its currently active Pilot cycle. |
@@ -207,6 +209,7 @@ Key modules:
 - `credit_assessments/` — bounded TAT credit-assessment domain, Gmail statement intake, evidence versions, questions/responses, decisions, and dormant future engine boundary
 - `storage.py` — media/file storage abstraction
 - `tat_tracker.py` — TAT workflow configuration and transitions
+- `tat_comments.py` — append-only TAT remarks and event-keyed named-cell Sheet publication; canonical saves never call a provider
 - `tat_reporting.py` — capability-scoped TAT workload/performance reports, server-filtered paging, audited XLSX export, and bounded historical-metric rebuilds
 - `tat_notifications.py` — TAT responsibility routing, durable private task inboxes, Telegram deep links, delivery retries, backup escalation, and cumulative privacy-safe group exceptions
 - `tat_responsibilities.py` — canonical TAT stage/role ownership, roster validation, configuration health, and responsibility audit snapshots; it routes work but never grants access

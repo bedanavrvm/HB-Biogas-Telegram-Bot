@@ -14,7 +14,7 @@ async function mount(page, reports = false, native = false) {
     ? route.fulfill({contentType:'text/html',body:'<!doctype html><html></html>'}) : route.abort());
   if(native)await page.goto('http://miniapp.test/');
   await page.setContent(`<!doctype html><html lang="en-KE"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${markup}</body></html>`);
-  for (const name of ['base.css','components.css','tat_tracker.css']) await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
+  for (const name of ['base.css','components.css','activity_changes.css','tat_tracker.css']) await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
   await page.evaluate(({reports,native,reportPanelViews}) => {
     if (native) {
       window.__handlers=new Set(); window.__native={show(){this.visible=true;},hide(){this.visible=false;},setText(){},enable(){},disable(){},hideProgress(){},
@@ -29,7 +29,13 @@ async function mount(page, reports = false, native = false) {
       window.__calls.push({url,body});
       if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['IT'],capabilities:['tat.home.view','tat.case.search','tat.case.create', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[{key:'business',label:'Training product'}],branches:['Training'],bro_users:window.__emptyRoster?[]:roster,statuses:[],...home({})}};
       if(url.includes('/home/')) { if(body.query==='slow') await new Promise(resolve=>setTimeout(resolve,650)); return {ok:true,data:home(body)}; }
-      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,next_stage:window.__nextStage||summary.next_stage,primary_phone:window.__phone??summary.primary_phone},credit_assessment_enabled:false,can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:window.__fields||[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,next_stage:window.__nextStage||summary.next_stage,primary_phone:window.__phone??summary.primary_phone},credit_assessment_enabled:false,can_comment:window.__canComment!==false,remarks:'Earlier notes must not prefill the new remark.',can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:window.__fields||[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/comments/')) {
+        if(window.__remarkFailure)throw new Error('Synthetic lost response');
+        window.__timeline=[{stage:'Comment added',value_kind:'comment',detail:body.comment_text,actor:'Synthetic Officer',actor_roles:'BRO',occurred_at:'2026-10-14T13:30:00Z',changes:[]}];
+        const response=await TatMiniAppApi.postJson('/api/tat-tracker/detail/',{case_id:body.case_id});
+        return {...response,sheet_projection:{pending:true}};
+      }
       if(url.includes('/tasks/')) {
         if(window.__taskError)throw new Error('Synthetic network failure');
         const all=Array.from({length:23},(_,i)=>({task_id:String(i),case_id:'TASK-'+i,client_name:'Training '+i,stage_label:'Visit',role:'BRO',unread:window.__unread!==false}));
@@ -49,6 +55,7 @@ async function mount(page, reports = false, native = false) {
       const visiblePanelKeys=Object.keys(reportPanelViews).filter(k=>reportPanelViews[k]===(body.view||'current')&&(reports==='all'||k==='trend'));
       const result = url.includes('/summary/') ? {response_mode:'focused_v1',metrics:{},filters:{stages:[['training','Training stage']]},visible_panel_keys:visiblePanelKeys,charts:{[key]:chart}}
         : {results:[{case_id:body.drill_bucket?'TAT-SELECTED':'TAT-ALL',client_name:'Synthetic Applicant'}],count:body.drill_bucket?1:30,stage_columns:[]};
+      if(url.includes('/summary/') && window.__oldestCases) result.oldest_cases = {id:'oldest_cases',items:window.__oldestCases};
       return new Response(JSON.stringify({ok:true,data:result}));
     };
   }, {reports,native,reportPanelViews});
@@ -295,6 +302,7 @@ for(const result of ['accepted','cancelled','throws','unsupported'])test(`native
   }else await expect(status.locator('a')).toHaveText('Download tat-report-13-10-26.xlsx');
   if(result==='accepted')await expect(status).toContainText('Download requested');
   expect(await page.evaluate(()=>__downloads.length)).toBe(result==='unsupported'?0:1);
+  if(result!=='unsupported')expect(await page.evaluate(()=>__downloads[0])).toEqual({url:'https://miniapp.test/synthetic-download',file_name:'tat-report-13-10-26.xlsx'});
   expect(await page.evaluate(()=>__calls.find(c=>c.url.includes('/export/')).body.prepare_download)).toBe(true);
   await expect(status).not.toContainText('report downloaded');
 });
@@ -433,6 +441,60 @@ test('TAT report calendar controls use the shared period calculation',async({pag
   await expect(page.locator('#tatReportFilters label[data-report-filter="granularity"]')).toHaveCount(0);
 });
 
+for (const width of [320,390,768,1280]) test(`TAT stage timing and activity are distinct and compact ${width}px`,async({page},info)=>{
+  await page.setViewportSize({width,height:850});await mount(page);
+  await page.evaluate(()=>{
+    window.__fields=[{key:'mpesa_to_admin',label:'M-PESA sent to Admin',role:'BRO',kind:'timestamp',value:'14-10-26 09:30',elapsed_seconds:3600,target_minutes:30,sla_status:'over',running:false,editable:false}];
+    window.__timeline=[
+      {stage:'M-PESA sent to Admin',actor:'Synthetic Officer',occurred_at:'2026-10-14T06:30:00Z',value_kind:'timestamp',changes:[]},
+      {stage:'BM analysis approval',actor:'Synthetic Manager',occurred_at:'2026-10-14T07:30:00Z',value_kind:'outcome',outcome:'Approved',changes:[{label:'BM analysis approval',new_value:'Approved'}]},
+      {stage:'Comment added',actor:'Synthetic Officer with a long but readable name',actor_roles:'BRO, Branch Manager',occurred_at:'2026-10-14T13:30:00Z',value_kind:'comment',detail:'Please follow up with the applicant. This longer note should wrap and remain readable without widening the card.',changes:[]},
+      {stage:'M-PESA sent to Admin (Correction)',actor:'Synthetic IT',occurred_at:'2026-10-14T14:30:00Z',value_kind:'timestamp_correction',changes:[{key:'value',label:'M-PESA sent to Admin',before:'14-10-26 09:30',after:'14-10-26 09:20'}]},
+    ];
+  });
+  await page.locator('#queueList .case-name').click();
+  await expect(page.locator('#remarksInput')).toHaveValue('');
+  await page.locator('#eventList').evaluate(node=>node.closest('details').open=true);
+  await expect(page.locator('.stage-tat-separator')).toHaveCount(2);
+  await expect(page.locator('.stage-tat-row').first()).toContainText('Target 30m');
+  const activity=page.locator('#eventList .event-item');
+  await expect(activity.nth(0).locator('.activity-changes')).toHaveCount(0);
+  await expect(activity.nth(1).locator('.event-outcome')).toHaveText('Approved');
+  expect(['inline-flex','flex']).toContain(await activity.nth(1).locator('.event-outcome').evaluate(node=>getComputedStyle(node).display));
+  expect(await page.locator('.tat-badge').first().evaluate(node=>getComputedStyle(node).gap)).toBe('3px');
+  await expect(activity.nth(1)).toContainText('BM analysis approval');
+  await expect(activity.nth(2).locator('.event-meta')).toContainText('BRO, Branch Manager');
+  await expect(activity.nth(3).locator('details')).not.toHaveAttribute('open','');
+  for(const theme of ['light','dark']) {
+    await page.evaluate(t=>document.documentElement.dataset.miniappColorScheme=t,theme);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`tat-detail-remarks-${width}-${theme}.png`),fullPage:true});
+  }
+});
+
+test('TAT remark saves preserve text and request identity after a lost response',async({page})=>{
+  await mount(page);await page.locator('#queueList .case-name').click();
+  await page.locator('#remarksInput').fill('Synthetic follow-up note');
+  await page.evaluate(()=>window.__remarkFailure=true);
+  await page.locator('#saveRemarksBtn').click();
+  await expect(page.locator('#saveRemarksBtn')).toBeEnabled();
+  await expect(page.locator('#remarksInput')).toHaveValue('Synthetic follow-up note');
+  await page.evaluate(()=>window.__remarkFailure=false);
+  await page.locator('#saveRemarksBtn').click();
+  await expect(page.locator('#remarksInput')).toHaveValue('');
+  await expect(page.locator('#eventList')).toContainText('Synthetic follow-up note');
+  const requests=await page.evaluate(()=>__calls.filter(c=>c.url.includes('/comments/')).map(c=>c.body));
+  expect(requests).toHaveLength(2);expect(requests[0].client_request_id).toBe(requests[1].client_request_id);
+  expect(requests[0]).not.toHaveProperty('workflow_revision');
+  expect(await page.evaluate(()=>__calls.some(c=>c.url.includes('/update/')))).toBe(false);
+});
+
+test('TAT read-only cases do not offer a writable remark composer',async({page})=>{
+  await mount(page);await page.evaluate(()=>window.__canComment=false);
+  await page.locator('#queueList .case-name').click();
+  await expect(page.locator('#remarksInput')).toBeDisabled();await expect(page.locator('#saveRemarksBtn')).toBeDisabled();
+});
+
 test('TAT detail does not make missing or masked contacts dialable',async({page})=>{
   await mount(page);
   for(const phone of ['', '07******78', 'not a phone']) {
@@ -465,6 +527,24 @@ test('TAT graph help stays inside the question control without repeating its tit
   await expect(help).not.toContainText('Question:');
   await expect(help).not.toContainText(await panel.locator('h3').innerText());
   await page.screenshot({path:info.outputPath('tat-graph-help-390.png'),fullPage:true});
+});
+
+for (const width of [390,1280]) test(`TAT oldest active cases lead with customer names and retain case navigation ${width}px`, async({page},info)=>{
+  await page.setViewportSize({width,height:850});await mount(page,'all');
+  await page.evaluate(()=>window.__oldestCases=[
+    {case_id:'SYNTHETIC-REF-1',client_name:'Wanjiku Mwangi-Kamau',current_stage:'BM analysis approval',elapsed_minutes:720,sla_state:'overdue'},
+    {case_id:'SYNTHETIC-REF-2',client_name:'Wanjiku Mwangi-Kamau',current_stage:'Credit analysis sent',elapsed_minutes:480,sla_state:'near_target'},
+    {case_id:'SYNTHETIC-REF-3',client_name:'<Training & Customer>',current_stage:'BRO response to CA',elapsed_minutes:120,sla_state:'within_target'},
+  ]);
+  await page.locator('#dashboardWorkspaceBtn').click();
+  for(let index=0;index<4;index++)await page.locator('#tatChartNext').click();
+  await expect(page.locator('#tatOldestPanel')).toBeVisible();
+  await expect(page.locator('#tatOldestCases .tat-oldest-case strong')).toHaveText(['Wanjiku Mwangi-Kamau','Wanjiku Mwangi-Kamau','<Training & Customer>']);
+  await expect(page.locator('#tatOldestCases')).not.toContainText('SYNTHETIC-REF');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`tat-oldest-names-${width}.png`),fullPage:true});
+  await page.locator('[data-oldest-case="SYNTHETIC-REF-2"]').click();
+  await expect.poll(()=>page.evaluate(()=>__calls.filter(row=>row.url.includes('/detail/')).at(-1)?.body.case_id)).toBe('SYNTHETIC-REF-2');
 });
 
 for (const width of [320,360,390,430,768,1280]) test(`TAT report tabs and icon/grouping controls fit ${width}px`,async({page},info)=>{

@@ -1157,7 +1157,7 @@ class TatTrackerEvent(models.Model):
     group_id = models.CharField(max_length=100, db_index=True)
     actor_name = models.CharField(max_length=255, blank=True, default='')
     actor_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
-    actor_role = models.CharField(max_length=80, blank=True, default='')
+    actor_role = models.CharField(max_length=255, blank=True, default='')
     actor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='tat_tracker_actions',

@@ -1,5 +1,37 @@
 # Changelog
 
+## 14 October 2026 - TAT BM action access and oldest-case names
+
+- Oldest Active Cases leads with the customer's name rather than the reference;
+  case-specific navigation remains accurate when names are duplicated.
+- The built-in BM analysis capability no longer depends on currently available
+  products or a cached catalogue. Migration `0204_tat_bm_analysis_capability`
+  provisions missing TAT BM/IT defaults in the normal deployment release, retaining
+  explicit denials, scoped grants and policy audit evidence.
+- Recorded Mini App role independence in AGENTS.md. Origination grants, signing
+  requirements and application history are unchanged. Existing TAT stage snapshots
+  are not retrofitted; the stage remains an Approved/Declined decision with an
+  automatic timestamp, not a signing prerequisite.
+
+## 14 October 2026 - TAT remarks, clearer history and Telegram Web
+
+- Remarks now append with the staff member, applicable TAT roles, Nairobi time
+  and a clear separator. Accessible finished cases accept notes without changing
+  their clock, stage, score or task state. Retries retain the same note once.
+- The empty Add a remark composer retains failed input. Remarks use existing
+  Activity; timestamp actions show one time, dropdown outcomes keep a compact
+  value, and date corrections remain available under details.
+- Stage rows separate elapsed time, target and result, with whole items wrapping.
+- Reviewed Mini App HTML pages permit Telegram Web framing; Admin and unrelated
+  pages remain protected. Authentication and scoped grants are unchanged.
+- Native TAT Excel downloads supply a matching filename, attachment metadata and
+  Telegram Web CORS, with named fallback and cancellation/pending feedback.
+- Migration `0203_tat_event_role_attribution` widens saved role attribution only.
+  After deployment use the existing `process_tat_notifications` runner for Sheet
+  remarks. No new cron, environment variable or dependency is required.
+  Rollback after checking actor-role lengths: `python manage.py migrate core
+  0202_jawabufarmermaster_requisition_batch_and_more`. See ADR 0051.
+
 ## 14 October 2026 - Named Sheet columns and BM analysis approval
 
 - Added the distinct BM decision after M-PESA submission for new TAT

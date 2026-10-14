@@ -6,6 +6,24 @@ Django owns TAT decisions, timestamps, attribution and timers. The new BM stage
 is not the draft credit-assessment feature and has no new signing gate.
 Existing cases keep their captured path; this rollout changes future cases only.
 
+## BM action access after deployment
+
+Migration `0204_tat_bm_analysis_capability` supplies the missing default TAT BM
+permission during the normal deployment release. No separate rollout command is
+needed to repair action access on a case that already includes the BM stage.
+The built-in capability stays discoverable even when a product is unavailable or
+the worker's product catalogue was cached before publication. A current in-scope
+TAT BM or IT grant is still required; deliberate BM denials remain unchanged.
+Select Approved or Declined; Django records the decision time automatically.
+This action does not require an Origination role, signature or signing setup.
+
+TAT, Complaints, Portal and Origination grants are independent. The optional
+product-successor procedure below is configuration authoring, not a prerequisite
+for this permission repair. It preserves existing captured case paths. The normal
+release runs checked-in migrations through `release.sh`; the build/start scripts
+remain free of database mutation. The hosted pre-deploy configuration must still
+be verified by the deployment owner.
+
 Every live field is resolved by a unique named header. Names are normalized for
 Unicode, case and whitespace. Known aliases are explicit, not guesses. Two
 matching aliases, duplicate normalized names, missing required names, populated
@@ -54,10 +72,11 @@ Preview first; repeat `--product` for the exact selected product codes:
 
 Use `--actor <active-superuser-username> --apply` to prepare an editable successor.
 Review it in Product setup. The source is not rewritten. Use the same command
-with `--apply --publish` for explicit activation and the audited BM capability
-update. Repeating an unchanged completed command does not create another version.
+with `--apply --publish` for explicit activation. Repeating an unchanged completed
+command does not create another version. BM defaults are already provisioned by
+deployment migration 0204; the command is not required to grant the new action.
 Edited prepared drafts are not silently published by this command; publish them
-through the normal reviewed Product setup and confirm the BM capability there.
+through the normal reviewed Product setup.
 
 Unrelated drafts and scheduled versions need review. A published Origination
 definition bound to the shared source version blocks automatic replacement,
@@ -101,6 +120,35 @@ FarmUp CSVs with two `Sign Date` headings must be corrected: label the visit dat
 synthetic suffixes to resolve an ambiguous import or merge different dates.
 
 ## Verification and recovery
+
+### Saved remarks
+
+All authorized staff who can view an in-scope TAT case may add a remark, including
+on Declined and Disbursed cases. Deleted, unresolved and closed-Pilot records
+remain read-only. Earlier text is retained; new comments append their saved time,
+name and applicable TAT roles at the end, separated by a line. Remarks appear
+in Activity and never change stages, targets, completion clocks or scores.
+
+The canonical save returns without calling Google. The existing
+`process_tat_notifications` command now also drains event-keyed remark operations.
+No second runner or new schedule is needed. Enable the existing group's TAT Sheet
+projection to publish notes; the required unique headers are `Case ID` and
+`Remarks / Delays` (the explicit legacy alias `Remarks` remains supported; keep
+only one of these headers). The publisher locates the current row by Case ID and writes
+literal text only to the remarks cell. It does not write stage/time cells or
+append a new row when the case's normal publication has not arrived yet.
+
+For a provider failure, the saved note remains in Django. Repair unsafe names
+or duplicate Case IDs, then an active Superuser selects the affected
+IntegrationOperation and uses **Retry selected TAT remark Sheet updates** in
+Django Admin. This requeues only failed remark projections, records the retry
+and leaves unrelated operations untouched. Never recreate or resubmit a comment to repair
+its Sheet delivery. Disabled or replaced group configurations, deleted cases
+and closed Pilot scopes cannot publish stale pending notes. See ADR 0051.
+
+The isolated test runner supports `--fresh-database` to recreate only its named
+local test database. Use it after transaction suites have flushed migration
+fixtures; it never targets the normal configured application database.
 
 Test outputs are written under `test-results/` as `.txt`; only synthetic data and
 mock providers are used. PostgreSQL locking is checked on a task-owned local

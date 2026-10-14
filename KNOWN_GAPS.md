@@ -1,5 +1,68 @@
 # Known Gaps and Verified Workarounds
 
+## TAT BM action access and oldest-case names - 14 October 2026
+
+Three focused tests reproduced the BM/IT denial before the fix. The built-in BM
+capability no longer depends on available products or a cached product catalogue.
+Migration 0204 provisions missing TAT defaults during normal release migrations,
+preserving explicit BM denials, scoped grants and other Mini Apps' policies.
+No special BM access command is required. Existing case snapshots are unchanged.
+
+Final focused backend: 64 passed. Final real-template Chromium: 67 passed.
+Customer-name screenshots at 390px and 1280px were opened and inspected; duplicate
+names still open distinct cases. Django checks, migration drift, Ruff, JavaScript
+syntax and diff whitespace checks pass. This is local verification, not a deployed
+or authenticated Telegram smoke check; Render's actual pre-deploy configuration
+was not inspected. The older baseline failures documented below remain open.
+Handoff: docs/reports/tat-bm-access-2026-10-14.txt.
+
+## TAT remarks and Telegram Web delivery - 14 October 2026
+
+Implemented append-only remarks, scoped/current staff authorization, attributed
+Sheet text, clear stage timing/activity, reviewed Mini App framing and named
+native XLSX response headers. No workflow clock, completion state or score is
+changed by a remark. Failed Sheet delivery is durable; an active Superuser can
+requeue selected failed remark operations in Integration Operations Admin.
+
+Verification: 75 focused local PostgreSQL tests passed, including real concurrent
+same-key and different-comment saves. Final focused SQLite: 76 tests, 74 passed,
+2 PostgreSQL-only skips; this includes the later Admin retry control. A subsequent
+12-test activity pass verifies saved-name retention and unchanged grouping.
+Chromium real-template interception: 65 passed, with light/dark screenshots at
+320/360/390/430/768/1280px; the changed detail/activity layouts were visually
+inspected at 320, 390, 768 and 1280px. Native SDK acceptance, cancellation, thrown
+errors, unsupported clients and exact filename parameters are synthetic tests.
+
+Broader SQLite: 272 tests, 258 passed, 7 failures, 5 errors, 2 skips. Unchanged
+HEAD e8ea2c65, in its own worktree/cwd: 249 tests, 237 passed, the same 7 failures
+and 5 errors. Exact failing test names match. These cover older creation,
+correction/final-amount and signature fixtures and stale static UI assertions.
+The route inventory has the same 33 pre-existing gaps on both revisions; the
+new comments endpoint is inventoried. No access or workflow guard was weakened.
+Ruff, all Node contract suites, 129 first-party JS syntax checks, Django checks,
+migration drift, migration graph and diff whitespace checks pass.
+
+Raw .txt outputs are in test-results/tat-remarks-*.txt; the handoff is
+docs/reports/tat-remarks-telegram-web-2026-10-14.txt. An early reused test database
+had been flushed of migration seeds; clean runs removed those harness failures.
+The new --fresh-database runner flag recreates only its disposable local test DB.
+The task-owned loopback PostgreSQL cluster was stopped after verification.
+
+Deploy and apply core 0203_tat_event_role_attribution through the normal approved
+release process. The existing process_tat_notifications runner now drains remarks;
+no new schedule, setting or dependency is required. Rollback requires checking
+that saved actor_role values fit 80 characters before migrating core back to
+0202_jawabufarmermaster_requisition_batch_and_more. Existing notes/history survive.
+
+No production migration, deployment, provider write or real staff session was
+used. Actual Telegram Web authenticated launch and the physical native download
+dialog still require a post-deployment smoke test. Correct headers address the
+documented download contract, not proof that every Telegram-client bug is fixed.
+Google cannot atomically compare and write a Sheet layout; pause row/column
+sorting and structural edits during publication. Per-case publication locks
+serialize concurrent note/stage writes, so saves on that same case may wait for
+a publication transaction. Local Python is 3.14; deployment Python 3.12 is untested.
+
 ## Named Sheet columns and BM analysis approval - 14 October 2026
 
 Focused, freshly migrated local PostgreSQL: 197 passed, including real concurrent
