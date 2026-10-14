@@ -31,14 +31,14 @@ const CONFIG = {
   SETTINGS_SHEET_NAME: 'Settings',
   STAFF_SHEET_NAME: 'Staff Permissions',
   IMPORT_LOG_SHEET_NAME: 'Farmers Upload Log',
-  HEADER_ROW: 3,          // row with field names (e.g. "National ID")
-  DATA_START_ROW: 5,      // first row of real data
+  HEADER_ROW: 1,          // row with field names
+  DATA_START_ROW: 2,      // first row of real data
   MAX_ROW: 504,           // template's pre-built row count
   BUFFER_ROWS: 100,       // keep this many empty rows ahead pre-formatted
 
   // Never use physical column numbers for Master Data. Staff may insert
   // useful business columns (for example Current Pipeline State), so every
-  // operation resolves the current column from the row-3 header instead.
+  // operation resolves the current column from the row-1 header instead.
   HEADER_ALIASES: {
     NO: ['No.', 'No'], NAME: ['Customer Name', 'Name'], NATIONAL_ID: ['National ID', 'ID No.', 'ID No'],
     PHONE1: ['Primary Phone', 'Mobile No', 'Phone'], PHONE2: ['Secondary Phone', 'Alternative Phone'],
@@ -94,15 +94,15 @@ const CONFIG = {
 
   // Dropdown source ranges on _REFERENCE, keyed by target column
   DROPDOWNS: [
-    { col: 'LEAD_SOURCE',       ref: 'A2:A3'  },
-    { col: 'MODE_OF_PAYMENT',   ref: 'B2:B3'  },
-    { col: 'CREDIT_DECISION',   ref: 'C2:C6'  },
-    { col: 'JAWABU_OUTCOME',    ref: 'D2:D14' },
-    { col: 'INSTALL_STATUS',    ref: 'E2:E6'  },
-    { col: 'READINESS',         ref: 'F2:F5'  },
-    { col: 'INSTALL_REPORT',    ref: 'G2:G4'  },
-    { col: 'COMMISSION_STATUS', ref: 'H2:H3'  },
-    { col: 'CS_REMARKS',        ref: 'I2:I5'  }
+    { col: 'LEAD_SOURCE' },
+    { col: 'MODE_OF_PAYMENT' },
+    { col: 'CREDIT_DECISION' },
+    { col: 'JAWABU_OUTCOME' },
+    { col: 'INSTALL_STATUS' },
+    { col: 'READINESS' },
+    { col: 'INSTALL_REPORT' },
+    { col: 'COMMISSION_STATUS' },
+    { col: 'CS_REMARKS' }
   ]
 };
 
@@ -167,7 +167,7 @@ function reapplyDropdowns(sheet, lastRow) {
       targetLastRow - CONFIG.DATA_START_ROW + 1, 1
     );
     const rule = SpreadsheetApp.newDataValidation()
-      .requireValueInRange(refSheet.getRange(dd.ref), true)
+      .requireValueInRange(refSheet.getRange(2, col_(refSheet, dd.col), Math.max(refSheet.getLastRow()-1,1), 1), true)
       .setAllowInvalid(false)
       .setHelpText('Select a value from the list.')
       .build();
@@ -423,9 +423,17 @@ function ensureSheetWithHeaders_(name, headers, sampleRows) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
   }
 
-  // Non-destructive setup: keep all existing rows, only refresh row 1 headers
-  // and append sample rows when the tab is genuinely empty.
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  // Non-destructive setup: initialise headers only on an empty tab, and
+  // append samples only when every live column is empty below the headers.
+  if (!sheet.getLastRow()) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const liveNames = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  const unique = new Set();
+  liveNames.forEach(name => {
+    const key=normalizeHeader_(name);
+    if(key && unique.has(key)) throw new Error('Duplicate column name: '+name);
+    if(key) unique.add(key);
+  });
+  headers.forEach(name=>{if(!unique.has(normalizeHeader_(name)))throw new Error('Required named column missing: '+name);});
   sheet.setFrozenRows(1);
   sheet.getRange(1, 1, 1, headers.length)
     .setFontWeight('bold')
@@ -433,12 +441,16 @@ function ensureSheetWithHeaders_(name, headers, sampleRows) {
     .setFontColor('#FFFFFF');
 
   const hasDataRows = sheet.getLastRow() > 1 && sheet
-    .getRange(2, 1, sheet.getLastRow() - 1, Math.min(headers.length, sheet.getMaxColumns()))
+    .getRange(2, 1, sheet.getLastRow() - 1, liveNames.length)
     .getValues()
     .some(row => row.some(value => String(value || '').trim()));
 
   if (!hasDataRows && sampleRows && sampleRows.length) {
-    sheet.getRange(2, 1, sampleRows.length, headers.length).setValues(sampleRows);
+    const rows = sampleRows.map(sample => liveNames.map(name => {
+      const index = headers.findIndex(header => normalizeHeader_(header) === normalizeHeader_(name));
+      return index < 0 ? '' : sample[index];
+    }));
+    sheet.getRange(2, 1, rows.length, liveNames.length).setValues(rows);
   }
 }
 
@@ -536,7 +548,7 @@ function ensureHeaders_(sheet) {
 }
 
 function normalizeHeader_(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  return String(value || '').normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
 
 function headerMap_(sheet) {
@@ -544,7 +556,8 @@ function headerMap_(sheet) {
   const map = {};
   values.forEach((value, index) => {
     const normalized = normalizeHeader_(value);
-    if (normalized && !map[normalized]) map[normalized] = index + 1;
+    if (normalized && map[normalized]) throw new Error('Duplicate column name: '+value+'. Rename before continuing.');
+    if (normalized) map[normalized] = index + 1;
   });
   return map;
 }
@@ -553,10 +566,9 @@ function col_(sheet, key, required) {
   if (required === undefined) required = true;
   const aliases = CONFIG.HEADER_ALIASES[key] || [];
   const map = headerMap_(sheet);
-  for (let i = 0; i < aliases.length; i++) {
-    const index = map[normalizeHeader_(aliases[i])];
-    if (index) return index;
-  }
+  const matches=[...new Set(aliases.map(alias=>map[normalizeHeader_(alias)]).filter(Boolean))];
+  if(matches.length>1)throw new Error('Ambiguous column: '+aliases.join(' / '));
+  if(matches.length)return matches[0];
   if (required) throw new Error('Master Data header not found for ' + key + ' (' + aliases.join(' / ') + ').');
   return 0;
 }

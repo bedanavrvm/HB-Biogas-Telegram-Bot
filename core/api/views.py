@@ -1247,8 +1247,13 @@ def tat_tracker_create(request):
     from core.services.workflow_data_mode import WorkflowModeChanged
     try:
         data = create_case(group_config, user, payload)
-        _send_tat_next_role_alert(group_config, data)
-        return JsonResponse({'ok': True, 'data': data})
+        from core.models import TatTrackerCase
+        from core.services.tat_update_dispatch import dispatch_ids_for_case_revision, dispatch_outcomes_for_case_revision
+        case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=data['summary']['case_id'])
+        return JsonResponse({'ok': True, 'data': data,
+                             'dispatch_ids': dispatch_ids_for_case_revision(case),
+                             'dispatches': dispatch_outcomes_for_case_revision(case),
+                             'dispatch_status': 'pending'})
     except WorkflowModeChanged as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
     except TatCreateValidationError as exc:

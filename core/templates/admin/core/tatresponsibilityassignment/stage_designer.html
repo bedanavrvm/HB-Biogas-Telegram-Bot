@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_control_center.css' %}"><script defer src="{% static 'admin/js/tat_stage_designer.js' %}?v=2"></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_control_center.css' %}"><script defer src="{% static 'admin/js/tat_stage_designer.js' %}?v=3"></script>{% endblock %}
 {% block content %}
 <main class="tat-control-shell">
   <header class="tat-hero"><div><p class="tat-kicker">Visual stage designer</p><h1>{{ title }}</h1><p>{{ version.product.name }} version {{ version.version }} · {{ version.get_status_display }}. Published versions are copied to an editable successor on save.</p></div><a class="button" href="{{ back_url }}">Back to setup</a></header>

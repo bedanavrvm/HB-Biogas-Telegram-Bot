@@ -51,7 +51,7 @@
       key: card.querySelector('[data-key]').value,
       label: card.querySelector('[data-label]').value,
       role: card.querySelector('[data-role]').value,
-      column: card.querySelector('[data-column]').value,
+      sheet_header: card.querySelector('[data-column]').value,
       kind: card.querySelector('[data-kind]').value,
       options: card.querySelector('[data-options]').value.split('\n').map(value => value.trim()).filter(Boolean),
       auto_timestamp_key: card.querySelector('[data-auto]').value,
@@ -70,7 +70,7 @@
         <label>Stable key<input data-key value="${esc(stage.key)}" required></label>
         <label>Label<input data-label value="${esc(stage.label)}" required></label>
         <label>Responsible role<select data-role required>${roleChoices(stage.role)}</select></label>
-        <label>Sheet column<input data-column type="number" min="1" value="${esc(stage.column)}" required></label>
+        <label>Sheet column name<input data-column value="${esc(stage.sheet_header || stage.label)}" required></label>
         <label>Control<select data-kind><option value="timestamp"${stage.kind !== 'dropdown' ? ' selected' : ''}>Timestamp</option><option value="dropdown"${stage.kind === 'dropdown' ? ' selected' : ''}>Dropdown</option></select></label>
         <label>Dropdown options<textarea data-options rows="3" placeholder="One per line">${esc((stage.options || []).join('\n'))}</textarea><span>Auto timestamp key</span><input data-auto value="${esc(stage.auto_timestamp_key)}"><span><input data-signature type="checkbox"${stage.requires_signature_certificate ? ' checked' : ''}> Signature certificate</span></label>
         <button class="tat-stage-remove" type="button" data-remove>Remove</button>
@@ -100,7 +100,7 @@
   document.getElementById('tat-add-stage').addEventListener('click', () => {
     collect();
     stages.push({
-      key: '', label: '', role: '', column: '', kind: 'timestamp', options: [],
+      key: '', label: '', role: '', sheet_header: '', kind: 'timestamp', options: [],
       auto_timestamp_key: '', requires_signature_certificate: false,
     });
     render();

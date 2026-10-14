@@ -1481,6 +1481,9 @@ def update_order_approval_row(
         return {'success': True, 'error': '', 'fields_updated': []}
 
     try:
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+        assert_columns_unchanged(match.service._sheet, NamedColumns(match.headers),
+                                 header_row=configured_header_row(workflow))
         ranges = []
         for group in group_consecutive_columns(columns):
             start_col = group[0][0]
@@ -1741,7 +1744,8 @@ def header_row_values(values: list[list[str]], workflow: dict) -> list[str]:
     header_index_zero_based = configured_header_row(workflow) - 1
     if header_index_zero_based < 0 or header_index_zero_based >= len(values):
         return []
-    return values[header_index_zero_based]
+    from core.services.sheet_columns import validate_headers
+    return validate_headers(values[header_index_zero_based])
 
 
 def store_media_for_order(
@@ -2588,6 +2592,8 @@ def field_headers(workflow: dict) -> dict[str, str]:
     configured = (workflow or {}).get('field_headers') or {}
     headers = dict(ORDER_APPROVAL_FIELD_HEADERS)
     headers.update(configured)
+    from core.services.sheet_columns import NamedColumns
+    NamedColumns(list(headers.values()))
     return headers
 
 
@@ -2708,11 +2714,10 @@ def value_for_header(match: SheetMatch, header: str) -> str:
 
 
 def header_index(headers: list[str], header: str) -> int | None:
-    target = normalize_header(header)
-    for index, candidate in enumerate(headers):
-        if normalize_header(candidate) == target:
-            return index
-    return None
+    from core.services.sheet_columns import NamedColumns
+    lookup = NamedColumns(headers).lookup(normalize_header)
+    column = lookup.get(normalize_header(header))
+    return column - 1 if column else None
 
 
 def append_cell_lines(existing: str, new_lines: list[str]) -> str:
@@ -2849,7 +2854,8 @@ def normalize_label(label: str) -> str:
 
 
 def normalize_header(header: str) -> str:
-    return " ".join(str(header or '').strip().lower().split())
+    from core.services.sheet_columns import normalize_column_name
+    return normalize_column_name(header)
 
 
 def normalize_business_key(value: str) -> str:

@@ -98,7 +98,10 @@ class GoogleSheetsValidationTests(TestCase):
         service._format_complaint_date_rows([2])
 
         formats = mock_sheet.batch_format.call_args.args[0]
-        self.assertEqual([item['range'] for item in formats], ['C2', 'R2'])
+        from core.services.sheet_columns import NamedColumns, column_letter
+        columns = NamedColumns(service.sheet_columns)
+        self.assertEqual([item['range'] for item in formats],
+                         [f'{column_letter(columns.column(name))}2' for name in ('Date Reported', 'Date Resolved')])
         self.assertTrue(all(
             item['format']['numberFormat'] == {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'}
             for item in formats
@@ -137,7 +140,7 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertEqual(short_values[5:11], ['NAKURU COUNTY', 'NAKURU EAST', 'MWARIKI', 'NAKURU', 'OFFICER ONE', 'TECHNICAL SUPPORT'])
         self.assertEqual(short_values[11], 'No Gas at eCitizen URL')
         self.assertEqual(updates['P2:P2'], [['https://maps.example/AaBb']])
-        self.assertEqual(updates['S2:S2'], [[4]])
+        self.assertEqual(updates['T2:T2'], [[4]])
         text_call = next(call for call in mock_sheet.update.call_args_list if call.args[0] == 'D2:O2')
         self.assertEqual(text_call.kwargs['value_input_option'], 'RAW')
         self.assertTrue(any(
@@ -164,12 +167,12 @@ class GoogleSheetsValidationTests(TestCase):
         expected_serial = (date(2026, 5, 6) - date(1899, 12, 30)).days
         self.assertEqual(updates['D2:D2'], [['CLOSED']])
         self.assertEqual(updates['Q2:Q2'], [['Valve replaced by Jane']])
-        self.assertEqual(updates['R2:R2'], [[expected_serial]])
-        self.assertEqual(updates['S2:S2'], [[3]])
+        self.assertEqual(updates['S2:S2'], [[expected_serial]])
+        self.assertEqual(updates['T2:T2'], [[3]])
         date_format_calls = [
             call.args[0]
             for call in mock_sheet.batch_format.call_args_list
-            if any(item['range'] == 'R2' for item in call.args[0])
+            if any(item['range'] == 'S2' for item in call.args[0])
         ]
         self.assertEqual(len(date_format_calls), 1)
         self.assertEqual(

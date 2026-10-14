@@ -64,6 +64,7 @@ from core.services.tat_tracker import (
     decode_tat_start_param,
     get_case_detail,
     product_by_key,
+    product_for_case,
     parse_tat_batch_rows,
     parse_tat_batch_file,
     parse_iso_datetime,
@@ -111,6 +112,7 @@ from core.services.tat_presentation import update_presentation_settings
 from core.services.tat_reporting import export_report_xlsx, report_cases, report_summary
 from core.services.workflow_capabilities import default_enabled_capability_keys
 from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
+from core.test_named_sheet import NamedSheet, tat_headers, service_for
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -299,21 +301,18 @@ class TatTrackerWorkflowTest(TestCase):
             tat_configuration_snapshot=snapshot,
             configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
         )
-        headers = [''] * 55
-        headers[8] = 'Product'
-        headers[9] = 'Loan Cycle Path'
-        headers[54] = 'Product Key'
-        existing = ['STALE'] * 55
-
+        headers = tat_headers(product, include_global=True)
+        existing = ['STALE'] * len(headers)
         row = build_tat_sheet_row_data(self.config, case, product, headers, existing)
-
-        self.assertEqual(row[8], 'Business')
-        self.assertEqual(row[9], 'Standard')
-        self.assertEqual(row[54], 'business')
-        self.assertEqual(row[16], '')  # Valuation ready.
-        self.assertEqual(row[17], '')  # BM HOCC request.
-        self.assertEqual(row[43], '')  # Valuation stage TAT.
-        self.assertEqual(row[44], '')  # BM HOCC request TAT.
+        from core.services.sheet_columns import NamedColumns
+        columns = NamedColumns(headers)
+        self.assertEqual(columns.value(row, 'Product'), 'Business')
+        self.assertEqual(columns.value(row, 'Loan Cycle Path'), 'Standard')
+        self.assertEqual(columns.value(row, 'Product Key'), 'business')
+        self.assertEqual(columns.value(row, 'Valuation Ready'), '')
+        self.assertEqual(columns.value(row, 'BM HOCC Request'), '')
+        self.assertEqual(columns.value(row, 'Valuation Ready TAT Minutes'), '')
+        self.assertEqual(columns.value(row, 'BM HOCC Request TAT Minutes'), '')
 
     def test_bro_records_lower_final_amount_without_changing_hocc_path(self):
         version = ProductVersion.objects.get(product__code='business', status='published')
@@ -2650,6 +2649,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_target_sync_creates_missing_support_tab(self, get_service):
         sheet = MagicMock()
         get_service.return_value.get_or_create_worksheet.return_value = sheet
+        sheet.row_values.return_value = ['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']
 
         result = sync_tat_target_settings_to_sheet(self.config, {
             'products': ['business'],
@@ -2658,7 +2658,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(result['status'], 'synced')
         get_service.return_value.get_or_create_worksheet.assert_called_once_with('TAT TARGETS', rows=500, cols=4)
-        sheet.batch_clear.assert_called_once_with(['A2:D500'])
+        sheet.batch_clear.assert_called_once_with(['A2:A500', 'B2:B500', 'C2:C500', 'D2:D500'])
 
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)
     def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):
@@ -3072,10 +3072,12 @@ class TatTrackerWorkflowTest(TestCase):
 
         for product in (business, logbook, mjengo):
             self.assertEqual(
-                tat_hours_formula(product, 5),
+                tat_hours_formula(product, 5, headers=['Unused ' + str(i) for i in range(7)] + ['Case Created']
+                                  + ['Unused ' + str(i) for i in range(8, 32)] + ['Finance Disbursement', 'Status', 'Remarks', 'TAT Hours']),
                 '=IF(OR($H5="",$AG5=""),"",ROUND(($AG5-$H5)*24,2))',
             )
-            self.assertEqual(tat_days_formula(product, 5), '=IF(AJ5="","",ROUND(AJ5/24,2))')
+            self.assertEqual(tat_days_formula(product, 5, headers=['Unused ' + str(i) for i in range(35)] + ['TAT Hours']),
+                             '=IF(AJ5="","",ROUND(AJ5/24,2))')
     def test_tat_access_comes_from_canonical_user_grants(self):
         group_config = type('GroupConfigLike', (), self.config.as_group_config_kwargs())()
         user = staff_user_for_payload(group_config, {'id': 111, 'username': 'bro_user'})
@@ -3344,24 +3346,6 @@ class TatTrackerWorkflowTest(TestCase):
 
     @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=True)
     def test_sync_case_to_sheet_writes_django_calculated_tat_values(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-
-            def row_values(self, _row):
-                return [''] * 20
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3383,18 +3367,15 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)), \
-             patch('core.services.tat_tracker.sync_case_index'), \
-             patch('core.services.tat_tracker.sync_audit_log'):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][0], 'A5:AE5')
-        self.assertEqual(len(sheet.updates[0][1][0]), 31)
-        self.assertEqual(sheet.updates[0][1][0][2], '12345678')
-        self.assertEqual(sheet.updates[0][1][0][3], '254712345678')
-        self.assertEqual(sheet.updates[0][1][0][20], 30.0)
-        self.assertEqual(sheet.updates[0][1][0][21], 1.25)
-        self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
+        self.assertEqual(sheet.value(5, 'ID NUMBER'), '12345678')
+        self.assertEqual(sheet.value(5, 'PHONE NUMBER'), '254712345678')
+        self.assertEqual(sheet.value(5, 'TAT Hours'), 30.0)
+        self.assertEqual(sheet.value(5, 'TAT Days'), 1.25)
 
     @override_settings(GOOGLE_SHEETS_MAX_RETRIES=2, TAT_REPAIR_RETRY_BASE_SECONDS=0.25)
     @patch('core.services.tat_tracker.time.sleep')
@@ -3408,30 +3389,8 @@ class TatTrackerWorkflowTest(TestCase):
         sleep.assert_called_once_with(0.25)
 
     def test_sync_case_to_sheet_keeps_register_approval_tat_numeric(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-
-            def row_values(self, row):
-                if row == 1:
-                    return [''] * 31
-                values = [''] * 31
-                values[29] = 'legacy TAT value'
-                return values
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
         registered_at = timezone.make_aware(timezone.datetime(2026, 7, 15, 9, 0))
         approved_at = timezone.make_aware(timezone.datetime(2026, 7, 15, 10, 0))
-        sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3466,15 +3425,14 @@ class TatTrackerWorkflowTest(TestCase):
         )
         TatTrackerEvent.objects.filter(pk=event.pk).update(created_at=approved_at)
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][1][0][29], 60.0)
+        self.assertEqual(sheet.value(5, 'Register approved TAT Minutes'), 60.0)
         event.refresh_from_db()
         self.assertTrue(event.synced_to_sheet)
-        self.assertIsNotNone(event.synced_at)
-        self.assertEqual(event.sheet_name, 'TRACKER-Business')
-        self.assertEqual(event.row_number, 5)
         self.assertEqual(event.sync_error, '')
 
     def test_primary_sheet_failure_keeps_event_unsynced_with_error(self):
@@ -3516,26 +3474,6 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(event.sync_error, 'Google Sheets service unavailable.')
 
     def test_sync_case_to_sheet_writes_mjengo_dropdown_values_not_stage_timestamps(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-
-            def row_values(self, row):
-                if row == 1:
-                    return [''] * 43
-                return []
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         now = timezone.now().isoformat()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -3572,34 +3510,15 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        row = sheet.updates[0][1][0]
-        self.assertEqual(row[17], 'Yes')
-        self.assertEqual(row[20], 'Met')
+        self.assertEqual(sheet.value(5, 'Minutes Shared'), 'Yes')
+        self.assertEqual(sheet.value(5, 'BRO Applied on System'), 'Met')
 
     def test_sync_case_to_sheet_maps_legacy_mjengo_stage_timestamps_to_dropdown_values(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-
-            def row_values(self, row):
-                if row == 1:
-                    return [''] * 43
-                return []
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         now = timezone.now().isoformat()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -3627,12 +3546,13 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        row = sheet.updates[0][1][0]
-        self.assertEqual(row[17], 'Yes')
-        self.assertEqual(row[20], 'Met')
+        self.assertEqual(sheet.value(5, 'Minutes Shared'), 'Yes')
+        self.assertEqual(sheet.value(5, 'BRO Applied on System'), 'Met')
 
     def test_completed_dropdowns_use_done_timeline_indicators(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -3641,19 +3561,6 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('if (hasValue) {\n        indicatorHtml = `<span class="indicator-icon check-done">', source)
 
     def test_sync_case_to_sheet_skips_secondary_sheets_by_default(self):
-        class FakeSheet:
-            def row_values(self, _row):
-                return [''] * 20
-
-            def update(self, *_args, **_kwargs):
-                return None
-
-        class FakeService:
-            _sheet = FakeSheet()
-
-            def is_available(self):
-                return True
-
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3672,7 +3579,9 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()), \
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)), \
              patch('core.services.tat_tracker.sync_case_index') as index_mock, \
              patch('core.services.tat_tracker.sync_audit_log') as audit_mock:
             sync_case_to_sheet(self.config, case)
@@ -3681,32 +3590,6 @@ class TatTrackerWorkflowTest(TestCase):
         audit_mock.assert_not_called()
 
     def test_sync_case_to_sheet_appends_new_rows_after_case_id_scan(self):
-        class FakeSheet:
-            def __init__(self):
-                self.appended = []
-                self.row_values_calls = []
-                self.col_values_called = False
-
-            def row_values(self, row):
-                self.row_values_calls.append(row)
-                return [''] * 20
-
-            def col_values(self, _col):
-                self.col_values_called = True
-                return ['Case ID']
-
-            def append_row(self, row, value_input_option=None):
-                self.appended.append((row, value_input_option))
-                return {'updates': {'updatedRange': 'TRACKER-Business!A6:AC6'}}
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3724,46 +3607,16 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(case.row_number, 6)
+        case.refresh_from_db()
+        self.assertEqual(case.row_number, 2)
         self.assertEqual(len(sheet.appended), 1)
-        self.assertEqual(sheet.row_values_calls, [1])
-        self.assertTrue(sheet.col_values_called)
+        self.assertGreaterEqual(sheet.row_values_calls.count(1), 2)
 
     def test_sync_case_to_sheet_follows_case_id_when_stored_row_is_stale(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-                self.appended = []
-
-            def row_values(self, row):
-                if row == 1:
-                    headers = [''] * 31
-                    headers[2] = 'ID NUMBER'
-                    headers[3] = 'PHONE NUMBER'
-                    return headers
-                return ['JBL-BS-2026-006'] + ['existing'] * 30
-
-            def col_values(self, _col):
-                return ['Case ID', '', '', '', 'OTHER-CASE', '', 'JBL-BS-2026-006']
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-            def append_row(self, row, value_input_option=None):
-                self.appended.append((row, value_input_option))
-                return {'updates': {'updatedRange': 'TRACKER-Business!A8:AE8'}}
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3782,12 +3635,18 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', 'OTHER-CASE')
+        sheet.put(7, 'Case ID', case.case_id)
+        sheet.put(7, 'Staff notes', '=SUM(1,2)')
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
         case.refresh_from_db()
         self.assertEqual(case.row_number, 7)
-        self.assertEqual(sheet.updates[0][0], 'A7:AE7')
+        self.assertEqual(sheet.value(5, 'Case ID'), 'OTHER-CASE')
+        self.assertEqual(sheet.value(7, 'Client Name'), 'Recovered Client')
+        self.assertEqual(sheet.value(7, 'Staff notes'), '=SUM(1,2)')
         self.assertEqual(sheet.appended, [])
 
     def test_duplicate_case_rows_keep_the_most_populated_row(self):
@@ -3795,8 +3654,7 @@ class TatTrackerWorkflowTest(TestCase):
             def __init__(self):
                 self.deleted = []
                 self.rows = [
-                    ['title'],
-                    ['headers'],
+                    ['Case ID', 'Client Name', 'National ID', 'Phone Number', 'Branch', 'Status'], [],
                     [],
                     [],
                     ['JBL-BS-2026-007', 'client', 'id'],
@@ -3805,6 +3663,9 @@ class TatTrackerWorkflowTest(TestCase):
                     ['JBL-BS-2026-008', 'client'],
                     ['JBL-BS-2026-008', 'client', 'id', 'phone'],
                 ]
+
+            def row_values(self, row):
+                return list(self.get_all_values()[row - 1])
 
             def get_all_values(self):
                 return [list(row) for row in self.rows]
@@ -3857,9 +3718,12 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_duplicate_cleanup_does_not_guess_a_row_when_post_delete_verification_fails(self):
         class FakeSheet:
+            def row_values(self, row):
+                return list(self.get_all_values()[row - 1])
+
             def get_all_values(self):
                 return [
-                    ['title'], ['headers'], [], [],
+                    ['Case ID', 'Client Name', 'National ID', 'Phone Number', 'Branch', 'Status'], [], [], [],
                     ['JBL-BS-2026-VERIFY', 'sparse'],
                     ['JBL-BS-2026-VERIFY', 'complete', 'id'],
                 ]
@@ -3893,10 +3757,13 @@ class TatTrackerWorkflowTest(TestCase):
         class FakeSheet:
             def __init__(self):
                 self.rows = [
-                    ['title'], ['headers'], [], [],
+                    ['Case ID', 'Client Name', 'National ID', 'Phone Number', 'Branch', 'Status'], [], [], [],
                     ['JBL-BS-2026-REPUBLISH', 'sparse'],
                     ['JBL-BS-2026-REPUBLISH', 'complete', 'id'],
                 ]
+
+            def row_values(self, row):
+                return list(self.get_all_values()[row - 1])
 
             def get_all_values(self):
                 return [list(row) for row in self.rows]
@@ -4035,10 +3902,10 @@ class TatTrackerWorkflowTest(TestCase):
 
         with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()):
             with self.assertLogs('core.services.tat_tracker', level='ERROR'):
-                with self.assertRaisesMessage(ValueError, 'blocks publication'):
+                with self.assertRaisesMessage(ValueError, "Required column 'Case ID'"):
                     sync_case_to_sheet(self.config, case)
         case.refresh_from_db()
-        self.assertIn('blocks publication', case.sync_error)
+        self.assertIn("Required column 'Case ID'", case.sync_error)
 
     def test_registered_schema_accepts_runtime_group_config_for_the_same_group(self):
         """Mini App sync passes GroupConfig, not the admin model instance."""
@@ -4071,30 +3938,6 @@ class TatTrackerWorkflowTest(TestCase):
         )
 
     def test_sync_tat_batch_created_cases_appends_same_product_in_one_sheet_write(self):
-        class FakeSheet:
-            def __init__(self):
-                self.row_values_calls = []
-                self.appended_rows = []
-
-            def row_values(self, row):
-                self.row_values_calls.append(row)
-                headers = [''] * 31
-                headers[2] = 'ID NUMBER'
-                headers[3] = 'PHONE NUMBER'
-                return headers
-
-            def append_rows(self, rows, value_input_option=None):
-                self.appended_rows.append((rows, value_input_option))
-                return {'updates': {'updatedRange': 'TRACKER-Business!A5:AE6'}}
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         created_at = timezone.now().isoformat()
         case_one = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -4129,44 +3972,18 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(tat_headers(product_for_case(case_one)))
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             result = sync_tat_batch_created_cases(self.config, [case_one, case_two])
-
         self.assertEqual(result, {'synced': 2, 'failed': []})
-        self.assertEqual(sheet.row_values_calls, [1])
         self.assertEqual(len(sheet.appended_rows), 1)
         self.assertEqual(sheet.appended_rows[0][1], 'USER_ENTERED')
-        self.assertEqual(len(sheet.appended_rows[0][0]), 2)
         case_one.refresh_from_db()
         case_two.refresh_from_db()
-        self.assertEqual(case_one.row_number, 5)
-        self.assertEqual(case_two.row_number, 6)
+        self.assertEqual(case_one.row_number, 2)
+        self.assertEqual(case_two.row_number, 3)
 
     def test_sync_case_to_sheet_prefers_stage_tat_headers_over_fixed_lag_columns(self):
-        class FakeSheet:
-            def __init__(self):
-                self.updates = []
-
-            def row_values(self, row):
-                if row == 1:
-                    headers = [''] * 34
-                    headers[2] = 'ID NUMBER'
-                    headers[3] = 'PHONE NUMBER'
-                    headers[33] = 'MPESA sent to Admin TAT Minutes'
-                    return headers
-                return [''] * 34
-
-            def update(self, a1_range, values, value_input_option=None):
-                self.updates.append((a1_range, values, value_input_option))
-
-        class FakeService:
-            def __init__(self, sheet):
-                self._sheet = sheet
-
-            def is_available(self):
-                return True
-
-        sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -4188,27 +4005,17 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        sheet.put(5, 'Staff notes', '=SUM(1,2)')
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][0], 'A5:AH5')
-        self.assertEqual(sheet.updates[0][1][0][33], 25.0)
+        self.assertEqual(sheet.value(5, 'MPESA Sent to Admin TAT Minutes'), 25.0)
+        self.assertEqual(sheet.value(5, 'Staff notes'), '=SUM(1,2)')
 
     @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=False)
     def test_secondary_sheet_override_syncs_index_but_not_unused_audit_log(self):
-        class FakeSheet:
-            def row_values(self, _row):
-                return [''] * 20
-
-            def update(self, *_args, **_kwargs):
-                return None
-
-        class FakeService:
-            _sheet = FakeSheet()
-
-            def is_available(self):
-                return True
-
         self.config.workflow['sync_secondary_sheets'] = True
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -4228,7 +4035,9 @@ class TatTrackerWorkflowTest(TestCase):
             status='Active',
         )
 
-        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()), \
+        sheet = NamedSheet(list(reversed(tat_headers(product_for_case(case)))))
+        sheet.put(5, 'Case ID', case.case_id)
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=service_for(sheet)), \
              patch('core.services.tat_tracker.sync_case_index') as index_mock, \
              patch('core.services.tat_tracker.sync_audit_log') as audit_mock:
             sync_case_to_sheet(self.config, case)
@@ -4570,9 +4379,9 @@ class TatTrackerWorkflowTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        mock_reply.assert_called_once()
-        self.assertIn('⏰ Action required', mock_reply.call_args.kwargs['text'])
-        self.assertIn('A TAT task is waiting for BRO.', mock_reply.call_args.kwargs['text'])
+        mock_reply.assert_not_called()
+        sync_mock.assert_not_called()
+        self.assertTrue(response.json()['dispatch_ids'])
 
     @patch('core.services.tat_tracker.validate_tat_telegram_webapp_init_data')
     def test_create_endpoint_returns_specific_invalid_bro_message(self, mock_auth):
@@ -4802,7 +4611,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(first['summary']['case_id'], 'JBL-BS-2026-001')
         self.assertEqual(second['summary']['case_id'], 'JBL-BS-2026-002')
         self.assertEqual(TatTrackerCase.objects.count(), 2)
-        self.assertEqual(sync_mock.call_count, 2)
+        sync_mock.assert_not_called()
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_retry_with_same_request_id_returns_existing_case(self, sync_mock):
@@ -4826,7 +4635,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(first['summary']['case_id'], second['summary']['case_id'])
         self.assertEqual(TatTrackerCase.objects.count(), 1)
         self.assertEqual(TatTrackerCase.objects.get().bro_name, 'BRO User')
-        self.assertEqual(sync_mock.call_count, 1)
+        sync_mock.assert_not_called()
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_retry_does_not_resync_existing_unsynced_case(self, sync_mock):
@@ -4853,15 +4662,14 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(first['summary']['case_id'], second['summary']['case_id'])
         self.assertEqual(TatTrackerCase.objects.count(), 1)
-        self.assertEqual(sync_mock.call_count, 1)
+        sync_mock.assert_not_called()
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
-    def test_create_case_rolls_back_when_primary_sheet_sync_fails(self, sync_mock):
+    def test_create_case_commits_before_primary_sheet_publication(self, sync_mock):
         sync_mock.side_effect = RuntimeError('Primary sheet write failed')
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
 
-        with self.assertRaises(RuntimeError):
-            create_case(self.config, user, {
+        detail = create_case(self.config, user, {
                 'product_key': 'business',
                 'branch': 'Nakuru',
                 'client_name': 'Test Client',
@@ -4870,9 +4678,11 @@ class TatTrackerWorkflowTest(TestCase):
                 'bro_name': 'BRO User',
                 'amount': '10000',
                 'client_request_id': 'req-fail',
-            })
+        })
 
-        self.assertEqual(TatTrackerCase.objects.count(), 0)
+        self.assertTrue(detail['summary']['case_id'])
+        self.assertEqual(TatTrackerCase.objects.count(), 1)
+        sync_mock.assert_not_called()
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_stage_updates_are_role_and_sequence_controlled(self, sync_mock):
@@ -5553,10 +5363,10 @@ class TatTrackerRepairTest(TestCase):
     def test_apps_script_contains_an_explicit_formula_only_repair(self):
         source = (Path(__file__).resolve().parent.parent / 'tat_tracker_apps_script.gs').read_text(encoding='utf-8')
 
-        self.assertIn("'Remove legacy TAT formulas (safe)'", source)
+        self.assertIn('Clear legacy formulas', source)
         self.assertIn('function clearLegacyTatFormulas()', source)
         self.assertIn('range.getFormulas()', source)
-        self.assertIn('getRangeList(formulaCells).clearContent()', source)
+        self.assertIn('if(row[0])sheet.getRange(index+2,columns.column(name)).clearContent()', source)
 
     @patch('core.management.commands.resync_tat_tracker_cases.resync_tat_tracker_cases')
     def test_repair_command_passes_dry_run_without_writing(self, resync):

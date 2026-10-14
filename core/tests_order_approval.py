@@ -45,6 +45,9 @@ class FakeSheet:
     def get_all_values(self):
         return self.values
 
+    def row_values(self, row):
+        return list(self.values[row - 1]) if row <= len(self.values) else []
+
     def batch_update(self, data, raw=True):
         self.batch_update_calls.append((data, raw))
 
@@ -224,7 +227,8 @@ class OrderApprovalSheetTest(TestCase):
         )
 
     def test_update_writes_bro_fields_and_appends_media_urls(self):
-        service = FakeService([])
+        service = FakeService([['ID NUMBER', 'DATE VISITED', 'CUSTOMER NAME',
+                                'CONTACTS / PRIMARY', 'Media URLs', 'BRO COMMENT']])
         match = SheetMatch(
             sheet_name='Pending',
             row_number=4,
@@ -404,7 +408,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(row_values[0], 'JBL-3')
 
     def test_update_adds_missing_order_record_id_without_overwriting_existing(self):
-        service = FakeService([])
+        service = FakeService([['ORDER RECORD ID', 'ID NUMBER', 'BRO COMMENT', 'Media URLs']])
         match = SheetMatch(
             sheet_name='Orders',
             row_number=8,
@@ -485,7 +489,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertNotIn('row ', reply.lower())
 
     def test_unchanged_blank_fields_are_not_reported_as_updates(self):
-        service = FakeService([])
+        service = FakeService([['ID NUMBER', 'BRO COMMENT', 'Media URLs']])
         match = SheetMatch(
             sheet_name='Orders',
             row_number=8,
@@ -639,7 +643,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(fields['imab_created'], 'Yes')
 
     def test_update_rejects_invalid_contact_number(self):
-        service = FakeService([])
+        service = FakeService([['ID NUMBER', 'CONTACTS / PRIMARY', 'Media URLs']])
         match = SheetMatch(
             sheet_name='Orders',
             row_number=2,
@@ -795,6 +799,7 @@ class OrderApprovalSheetTest(TestCase):
         mock_store_files,
     ):
         service = FakeService([])
+        service._sheet.values = [['ID NUMBER', 'CUSTOMER NAME', 'Media URLs']]
         loaded_match = SheetMatch(
             sheet_name='Orders',
             row_number=7,

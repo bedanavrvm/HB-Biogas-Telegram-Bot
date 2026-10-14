@@ -83,6 +83,7 @@ TAT_SHEET_STAGE_FORMATS = {
 TAT_SHEET_NEUTRAL_STAGE_FORMAT = {'backgroundColor': {'red': 1.0, 'green': 1.0, 'blue': 1.0}, 'textFormat': {'foregroundColor': {'red': 0.102, 'green': 0.122, 'blue': 0.161}, 'bold': False}}
 TAT_NEGATIVE_OUTCOME_STATUSES = frozenset({'Rejected', 'Declined', 'Deferred'})
 TAT_STAGE_OUTCOME_OPTIONS = {
+    'bm_analysis_approval': tuple(BM_RESPONSE_OPTIONS),
     'bm_response': tuple(BM_RESPONSE_OPTIONS),
     'decision': tuple(DECISION_OPTIONS),
     'minutes_shared': tuple(MINUTES_SHARED_OPTIONS),
@@ -91,6 +92,7 @@ TAT_STAGE_OUTCOME_OPTIONS = {
     'register_approved': tuple(REGISTER_APPROVED_OPTIONS),
 }
 TAT_TERMINAL_OUTCOMES = {
+    'bm_analysis_approval': frozenset({'Declined'}),
     'bm_response': frozenset({'Declined'}),
     'decision': frozenset({'Rejected', 'Deferred'}),
     'minutes_shared': frozenset({'No'}),
@@ -162,6 +164,7 @@ class StageConfig:
     options: tuple[str, ...] = ()
     auto_timestamp_key: str = ''
     requires_signature_certificate: bool = False
+    sheet_header: str = ''
 
 
 @dataclass(frozen=True)
@@ -336,6 +339,7 @@ def _database_product_by_key(key: str) -> ProductConfig:
         kind=str(item.get('kind') or 'timestamp'), options=tuple(item.get('options') or ()),
         auto_timestamp_key=str(item.get('auto_timestamp_key') or ''),
         requires_signature_certificate=bool(item.get('requires_signature_certificate', False)),
+        sheet_header=str(item.get('sheet_header') or ''),
     ) for item in (configuration.stages or []) if item.get('key'))
     stages_by_key = {stage.key: stage for stage in stages}
     tat_columns = tuple(StageTatColumn(
@@ -1183,7 +1187,9 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
                     status=409,
                 )
             from core.services.tat_notifications import synchronize_case_task
-            synchronize_case_task(group_config, existing)
+            synchronize_case_task(group_config, existing, dispatch_on_commit=False)
+            from core.services.tat_update_dispatch import reserve_update_dispatches
+            reserve_update_dispatches(group_config, existing, request_id=create_request_id)
             return serialize_case_detail(existing, user, workflow=workflow)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
@@ -1218,12 +1224,11 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     )
     record_tat_event(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
     from core.services.tat_notifications import synchronize_case_task
-    synchronize_case_task(group_config, case)
+    synchronize_case_task(group_config, case, dispatch_on_commit=False)
     if payload.get('_defer_sheet_sync'):
         return serialize_case_detail(case, user, workflow=workflow)
-    projected = sync_case_to_sheet(group_config, case)
-    if projected and not case.row_number:
-        raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
+    from core.services.tat_update_dispatch import reserve_update_dispatches
+    reserve_update_dispatches(group_config, case, request_id=create_request_id)
     return serialize_case_detail(case, user, workflow=workflow)
 
 
@@ -1635,7 +1640,9 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
         try:
             headers = cached_tat_sheet_headers(group_config, product, sheet, sheet_name=projection_sheet)
             validate_tracker_identity_headers(headers)
-            existing_case_ids = sheet.col_values(1) if hasattr(sheet, 'col_values') else None
+            from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+            columns = NamedColumns(headers)
+            existing_case_ids = sheet.col_values(columns.column('Case ID'))
             existing_cases = []
             new_cases = []
             for case in product_cases:
@@ -1659,6 +1666,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
                 build_tat_sheet_row_data(group_config, case, product_for_case(case), headers)
                 for case in new_cases
             ]
+            assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
             append_result = append_tat_batch_rows(sheet, rows) if rows else None
             start_row = row_number_from_update_result(append_result)
             now = timezone.now()
@@ -2139,6 +2147,11 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
     The Register is only a projection.  Formatting is deliberately best-effort
     so a cosmetic Google Sheets failure cannot reject a valid workflow update.
     """
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+    from core.services.tat_sheet_schema import stage_binding
+    headers = headers if headers is not None else sheet.row_values(TAT_TRACKER_HEADER_ROW)
+    columns = NamedColumns(headers)
+    assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
     now = timezone.now()
     workflow = getattr(group_config, 'workflow', None) or {}
     formats: list[dict[str, Any]] = []
@@ -2153,7 +2166,7 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
     status_style = TAT_SHEET_STATUS_FORMATS.get(str(case.status or '').upper())
     if status_style:
         formats.append({
-            'range': f'{column_letter(product.status_col)}{int(row)}',
+            'range': f'{column_letter(columns.column("Status"))}{int(row)}',
             'format': status_style,
         })
     for stage in product.stages:
@@ -2168,7 +2181,7 @@ def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCas
                 TAT_SHEET_NEUTRAL_STAGE_FORMAT,
             )
         formats.append({
-            'range': f'{column_letter(stage.column)}{int(row)}',
+            'range': f'{column_letter(stage_binding(columns, stage))}{int(row)}',
             'format': stage_style,
         })
     _format_tat_sheet_cells(sheet, formats, case_id=case.case_id)
@@ -2195,6 +2208,9 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
         # of sheet formulas avoids delayed spreadsheet recalculation.
         headers = cached_tat_sheet_headers(group_config, product, sheet, sheet_name=projection_sheet)
         validate_tracker_identity_headers(headers)
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+        columns = NamedColumns(headers)
+        case_id_column = columns.column('Case ID')
         # A configured register contract turns schema drift into a safe,
         # retryable sync failure before a canonical case can be written into
         # the wrong column layout. Legacy tabs remain unchanged until an
@@ -2203,52 +2219,38 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
 
         assert_registered_schema_before_publish(group_config, projection_sheet, headers)
         # The persisted row number is only a hint: staff can sort or insert
-        # rows in Sheets. Resolve the immutable case ID in column A before
+        # rows in Sheets. Resolve the immutable case ID in its named column before
         # writing so a stale row number cannot overwrite another customer.
-        case_ids = None
-        existing_row = False
-        row = None
-        if case.row_number:
-            try:
-                current_id = str(_tat_sheet_call(
-                    lambda: sheet.cell(case.row_number, 1).value,
-                    description=f'read case ID for {case.case_id}',
-                ) or '').strip()
-            except (AttributeError, IndexError, KeyError):
-                current_id = ''
-            if current_id == str(case.case_id).strip():
-                row = case.row_number
-                existing_row = True
-        if row is None:
-            case_ids = _tat_sheet_call(
-                lambda: sheet.col_values(1),
-                description=f'scan case IDs for {case.case_id}',
-            ) if hasattr(sheet, 'col_values') else None
-            row = resolve_case_sheet_row(sheet, case, case_ids=case_ids)
-            existing_row = bool(
-                case_ids is None and case.row_number and not hasattr(sheet, 'col_values')
-            ) or bool(
-                case_ids is not None
-                and 1 <= row <= len(case_ids)
-                and str(case_ids[row - 1] or '').strip() == str(case.case_id).strip()
-            )
+        case_ids = _tat_sheet_call(lambda: sheet.col_values(case_id_column),
+                                   description=f'scan case IDs for {case.case_id}')
+        row = resolve_case_sheet_row(sheet, case, case_ids=case_ids)
+        existing_row = row <= len(case_ids) and str(case_ids[row - 1] or '').strip() == case.case_id
         values = _tat_sheet_call(
             lambda: sheet.row_values(row),
             description=f'read row {row} for {case.case_id}',
         ) if existing_row else []
         row_data = build_tat_sheet_row_data(group_config, case, product, headers, values)
-        width = len(row_data)
+        assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
         if existing_row:
-            _tat_sheet_call(
-                lambda: sheet.update(
-                    f'A{row}:{column_letter(width)}{row}',
-                    [row_data],
-                    value_input_option='USER_ENTERED',
-                ),
-                description=f'update row {row} for {case.case_id}',
-            )
+            updates = [
+                {'range': f'{column_letter(index + 1)}{row}', 'values': [[value]]}
+                for index, value in enumerate(row_data)
+                if index < len(headers) and str(headers[index] or '').strip()
+                and value != (values[index] if index < len(values) else '')
+            ]
+            if updates:
+                def write_cells():
+                    assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
+                    current = sheet.row_values(row)
+                    if str(columns.value(current, 'Case ID')).strip() != case.case_id:
+                        raise ValueError('The selected Sheet row moved before publication; retry.')
+                    return sheet.batch_update(updates, value_input_option='USER_ENTERED')
+                _tat_sheet_call(
+                    write_cells,
+                    description=f'update named cells for {case.case_id}',
+                )
         else:
-            row = append_case_row(sheet, row_data)
+            row = append_case_row(sheet, row_data, headers=headers)
         format_tat_sheet_case_row(group_config, sheet, row, case, product, headers=headers)
         case.row_number = row
         case.sheet_name = projection_sheet
@@ -2287,112 +2289,16 @@ def mark_case_events_sync_failed(case: TatTrackerCase, error: str) -> int:
     return case.events.filter(synced_to_sheet=False).update(sync_error=str(error or 'Sheet sync failed.'))
 
 
-def build_tat_sheet_row_data(
-    group_config,
-    case: TatTrackerCase,
-    product: ProductConfig,
-    headers: list[Any],
-    existing_values: list[Any] | None = None,
-) -> list[Any]:
-    del group_config
-    tat_columns = resolve_tat_sheet_columns(product, headers)
-    width = max([product.tat_start_col + 1, *tat_columns.values()])
-    row_data = [''] * width
-    for idx, value in enumerate((existing_values or [])[:width], start=1):
-        row_data[idx - 1] = value
-    if product.sheet_name == TAT_GLOBAL_SHEET_NAME:
-        # The register exposes the superset of stage columns. Clear any stale
-        # or manually entered values for stages excluded from this case's
-        # immutable path so the projection never implies work was applicable.
-        from core.services.tat_configuration import GLOBAL_TAT_STAGES
-        applicable_keys = {stage.key for stage in product.stages}
-        for index, stage_definition in enumerate(GLOBAL_TAT_STAGES):
-            if stage_definition['key'] in applicable_keys:
-                continue
-            row_data[int(stage_definition['column']) - 1] = ''
-            timestamp_key = str(stage_definition.get('auto_timestamp_key') or '')
-            timestamp_column = product.stage_columns.get(timestamp_key) if timestamp_key else None
-            if timestamp_column:
-                row_data[timestamp_column - 1] = ''
-            row_data[39 + index - 1] = ''
-    row_data[0] = case.case_id
-    row_data[1] = case.client_name
-    row_data[2] = case.national_id
-    row_data[3] = case.primary_phone
-    row_data[4] = case.branch
-    row_data[5] = case.bro_name
-    row_data[6] = float(case.amount or 0) if case.amount is not None else ''
-    row_data[product.stage_columns['created'] - 1] = sheet_datetime(case.stage_values.get('created'))
-    for stage in product.stages:
-        if stage.key in case.stage_values:
-            row_data[stage.column - 1] = sheet_value_for_stage(stage, case.stage_values.get(stage.key))
-        if stage.auto_timestamp_key and stage.auto_timestamp_key in case.stage_values:
-            col = product.stage_columns.get(stage.auto_timestamp_key)
-            if col:
-                row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
-    row_data[product.status_col - 1] = case.status
-    row_data[product.remarks_col - 1] = case.remarks
-    tat_minutes = calculated_tat_minutes(case)
-    tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
-    tat_days = calculated_tat_days(case) if tat_minutes is not None else None
-    row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
-    row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
-    if tat_columns.get('total_minutes'):
-        row_data[tat_columns['total_minutes'] - 1] = float(tat_minutes) if tat_minutes is not None else ''
-    for stage in product.stages:
-        col = tat_columns.get(stage.key)
-        if col:
-            minutes = stage_tat_minutes(case, stage)
-            row_data[col - 1] = float(minutes) if minutes is not None else ''
-
-    # Optional operational headers are populated only when the existing
-    # workbook already exposes them; no columns are created or reordered.
-    header_indexes = {
-        normalize_header(header): index
-        for index, header in enumerate(headers)
-        if str(header or '').strip()
-    }
-
-    def put_optional(value, *names):
-        for name in names:
-            index = header_indexes.get(normalize_header(name))
-            if index is not None:
-                if index >= len(row_data):
-                    row_data.extend([''] * (index + 1 - len(row_data)))
-                row_data[index] = value if value is not None else ''
-                return
-
-    put_optional(case.product_label or product.label, 'Product', 'Product Name')
-    put_optional(case.product_key or product.key, 'Product Key')
-    put_optional(product.workflow_path, 'Loan Cycle Path', 'Workflow Path')
-    put_optional(
-        float(case.final_loan_amount) if case.final_loan_amount is not None else '',
-        'Final Loan Amount',
-    )
-    put_optional(case.current_stage, 'Current Stage')
-    put_optional(case.status, 'Status')
-    put_optional(sheet_datetime(case.created_at), 'Created At')
-    put_optional(sheet_datetime(case.updated_at), 'Last Updated At')
-    put_optional(case.last_updated_by, 'Last Updated By')
-    return row_data
+def build_tat_sheet_row_data(group_config, case: TatTrackerCase, product: ProductConfig,
+                            headers: list[Any], existing_values: list[Any] | None = None) -> list[Any]:
+    from core.services.tat_sheet_schema import case_row
+    return case_row(case, product, headers, existing_values)
 
 
-def cached_tat_sheet_headers(
-    group_config, product: ProductConfig, sheet, *, sheet_name: str | None = None,
-) -> list[Any]:
-    if not hasattr(sheet, 'row_values'):
-        return []
-    group_key = str(getattr(group_config, 'pk', '') or getattr(group_config, 'group_id', '') or '')
-    cache_key = (
-        group_key, str(group_config.sheet_id or ''),
-        str(sheet_name or product.sheet_name),
-    )
-    now = time.monotonic()
-    cached = _TAT_HEADER_CACHE.get(cache_key)
-    if cached and now - cached[0] < _TAT_HEADER_CACHE_TTL_SECONDS:
-        return list(cached[1])
+def cached_tat_sheet_headers(group_config, product: ProductConfig, sheet, *, sheet_name: str | None = None) -> list[Any]:
+    from core.services.sheet_columns import NamedColumns
     headers = sheet.row_values(TAT_TRACKER_HEADER_ROW)
-    _TAT_HEADER_CACHE[cache_key] = (now, list(headers))
+    NamedColumns(headers, sheet_name=sheet_name or product.sheet_name)
     return headers
 
 
@@ -2410,7 +2316,7 @@ def resync_tat_tracker_cases(
 
     The normal repair scope remains linked cases only. When ``include_unlinked``
     is explicitly selected, cases with no stored Sheet row are also passed to
-    ``sync_case_to_sheet``; that helper searches column A and appends only when
+    ``sync_case_to_sheet``; that helper searches the named Case ID column and appends only when
     the exact immutable case ID is absent.
     """
     selected_product = str(product_key or '').strip()
@@ -2459,26 +2365,22 @@ def resync_tat_tracker_cases(
 
 
 def resolve_tat_sheet_columns(product: ProductConfig, headers: list[Any]) -> dict[str, int]:
-    normalized_headers = {
-        normalize_header(header): index
-        for index, header in enumerate(headers, start=1)
-        if str(header or '').strip()
-    }
-    columns: dict[str, int] = {}
-    total_col = first_matching_header(normalized_headers, ('TAT Minutes', 'Total TAT Minutes', 'Case TAT Minutes'))
-    if total_col:
-        columns['total_minutes'] = total_col
-    for config in product.stage_tat_columns or STAGE_TAT_COLUMNS.get(product.key, ()):
-        columns[config.stage_key] = first_matching_header(normalized_headers, config.aliases) or config.fallback_col
-    return columns
+    from core.services.sheet_columns import NamedColumns
+    from core.services.tat_sheet_schema import stage_minute_names
+    columns = NamedColumns(headers, sheet_name=product.sheet_name)
+    result = {stage.key: columns.column(*stage_minute_names(stage, product)) for stage in product.stages}
+    total = columns.column('TAT Minutes', 'Total TAT Minutes', 'Case TAT Minutes', required=False)
+    if total:
+        result['total_minutes'] = total
+    return result
 
 
 def first_matching_header(headers: dict[str, int], candidates: tuple[str, ...]) -> int | None:
-    for candidate in candidates:
-        col = headers.get(normalize_header(candidate))
-        if col:
-            return col
-    return None
+    from core.services.sheet_columns import SheetColumnError
+    matches = {headers[normalize_header(name)] for name in candidates if normalize_header(name) in headers}
+    if len(matches) > 1:
+        raise SheetColumnError('Ambiguous TAT column: ' + ', '.join(candidates))
+    return next(iter(matches), None)
 
 
 def normalize_header(value: Any) -> str:
@@ -2486,41 +2388,37 @@ def normalize_header(value: Any) -> str:
 
 
 def validate_tracker_identity_headers(headers: list[Any]) -> None:
-    if not any(str(header or '').strip() for header in headers):
-        return
-    expected = ('idnumber', 'phonenumber')
-    actual = tuple(normalize_header(headers[index]) if len(headers) > index else '' for index in (2, 3))
-    if actual != expected:
-        raise ValueError('TAT Register row 1 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
+    from core.services.sheet_columns import NamedColumns
+    NamedColumns(headers).bindings({'case_id': ('Case ID',), 'national_id': ('ID NUMBER', 'National ID'),
+                                    'phone': ('PHONE NUMBER', 'Primary Phone')})
 
 
-def append_case_row(sheet, row_data: list[Any]) -> int:
-    result = None
-    if hasattr(sheet, 'append_row'):
-        result = _tat_sheet_call(
-            lambda: sheet.append_row(row_data, value_input_option='USER_ENTERED'),
-            description='append TAT case row',
-        )
-    elif hasattr(sheet, 'append_rows'):
-        result = _tat_sheet_call(
-            lambda: sheet.append_rows([row_data], value_input_option='USER_ENTERED'),
-            description='append TAT case row',
-        )
-    else:
-        row = next_sheet_row(sheet)
-        _tat_sheet_call(
-            lambda: sheet.update(
-                f'A{row}:{column_letter(len(row_data))}{row}',
-                [row_data],
-                value_input_option='USER_ENTERED',
-            ),
-            description=f'write new TAT case row {row}',
-        )
-        return row
+def append_case_row(sheet, row_data: list[Any], *, headers: list[Any]) -> int:
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+    columns = NamedColumns(headers)
+    identity = str(columns.value(row_data, 'Case ID')).strip()
+
+    def append_once():
+        assert_columns_unchanged(sheet, columns, header_row=TAT_TRACKER_HEADER_ROW)
+        matches = [number for number, value in enumerate(sheet.col_values(columns.column('Case ID')), 1)
+                   if number >= TAT_TRACKER_DATA_START_ROW and str(value).strip() == identity]
+        if len(matches) > 1:
+            raise ValueError('Duplicate Case ID rows need review before publication.')
+        if matches:
+            return {'updatedRange': f'!A{matches[0]}'}
+        if hasattr(sheet, 'append_row'):
+            return sheet.append_row(row_data, value_input_option='USER_ENTERED')
+        return sheet.append_rows([row_data], value_input_option='USER_ENTERED')
+
+    result = _tat_sheet_call(append_once, description='append named TAT case row')
     row = row_number_from_update_result(result)
     if row:
         return row
-    return next_sheet_row(sheet) - 1
+    matches = [number for number, value in enumerate(sheet.col_values(columns.column('Case ID')), 1)
+               if number >= TAT_TRACKER_DATA_START_ROW and str(value).strip() == identity]
+    if len(matches) != 1:
+        raise ValueError('The appended Case ID could not be verified; retry publication.')
+    return matches[0]
 
 
 def row_number_from_update_result(result: Any) -> int | None:
@@ -2546,23 +2444,41 @@ def should_sync_secondary_sheets(group_config) -> bool:
 
 @guarded_publication
 def sync_case_index(group_config, case: TatTrackerCase) -> None:
+    from core.services.sheet_columns import NamedColumns, named_updates, assert_columns_unchanged
     service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='CASE_INDEX')
     if not service.is_available():
         return
     sheet = service._sheet
     rows = sheet.get_all_values()
-    target = None
-    for idx, row in enumerate(rows[1:], start=2):
-        if row and row[0] == case.case_id:
-            target = idx
-            break
-    if not target:
-        target = max(len(rows) + 1, 2)
-    sheet.update(f'A{target}:K{target}', [[case.case_id, case.sheet_name, case.row_number or '', case.client_name, case.national_id, case.primary_phone, case.branch, case.bro_name, case.status, sheet_datetime(case.stage_values.get('created')), timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M')]], value_input_option='USER_ENTERED')
+    columns = NamedColumns(rows[0], sheet_name='CASE_INDEX')
+    matches = [index for index, row in enumerate(rows[1:], start=2)
+               if str(columns.value(row, 'Case ID')).strip() == case.case_id]
+    if len(matches) > 1:
+        raise ValueError('Duplicate Case ID rows in CASE_INDEX need review before publication.')
+    target = matches[0] if matches else max(len(rows) + 1, 2)
+    values = {
+        'Case ID': case.case_id, 'Tracker Sheet': case.sheet_name, 'Row Number': case.row_number or '',
+        'Client Name': case.client_name, 'ID NUMBER': case.national_id,
+        'PHONE NUMBER': case.primary_phone, 'Branch': case.branch, 'BRO Name': case.bro_name,
+        'Status': case.status, 'Created At': sheet_datetime(case.stage_values.get('created')),
+        'Last Updated At': timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M'),
+    }
+    assert_columns_unchanged(sheet, columns)
+    live_row = sheet.row_values(target)
+    if matches and str(columns.value(live_row, 'Case ID')).strip() != case.case_id:
+        raise ValueError('The selected CASE_INDEX row moved before publication; retry.')
+    if not matches and any(value not in ('', None) for value in live_row):
+        raise ValueError('The CASE_INDEX destination changed before publication; retry.')
+    sheet.batch_update(named_updates(columns, target, values), value_input_option='USER_ENTERED')
 
 
 @guarded_publication
+@transaction.atomic
 def sync_audit_log(group_config, case: TatTrackerCase) -> None:
+    from core.services.sheet_columns import NamedColumns, SheetColumnError, append_named_rows
+    # Serialize retries for this exact case; a lost provider response must not
+    # produce another copy of a durable Django event.
+    TatTrackerCase.objects.select_for_update().get(pk=case.pk)
     unsynced = list(case.events.filter(synced_to_sheet=False).order_by('created_at'))
     if not unsynced:
         return
@@ -2570,14 +2486,35 @@ def sync_audit_log(group_config, case: TatTrackerCase) -> None:
     if not service.is_available():
         return
     sheet = service._sheet
-    existing_count = max(len(sheet.get_all_values()), 1)
-    rows = []
-    for event in unsynced:
-        rows.append([timezone.localtime(event.created_at).strftime('%d-%b-%Y %H:%M'), event.actor_name, case.sheet_name, case.case_id, case.row_number or '', event.stage_label or event.stage_key, event.new_value, '', event.source.upper()])
+
+    def projected_ids():
+        values = sheet.get_all_values()
+        columns = NamedColumns(values[0] if values else [], sheet_name='AUDIT LOG')
+        columns.column('Event ID')
+        identities = []
+        for row in values[1:]:
+            columns.validate_row(row)
+            identity = str(columns.value(row, 'Event ID')).strip()
+            if identity:
+                identities.append(identity)
+        if len(identities) != len(set(identities)):
+            raise SheetColumnError('Duplicate Event ID rows in AUDIT LOG need review before publication.')
+        return set(identities)
+
+    already_present = projected_ids()
+    rows = [{
+        'Event ID': str(event.pk),
+        'Timestamp': timezone.localtime(event.created_at).strftime('%d-%b-%Y %H:%M'),
+        'Actor': event.actor_name, 'Tracker Sheet': case.sheet_name, 'Case ID': case.case_id,
+        'Row Number': case.row_number or '', 'Stage': event.stage_label or event.stage_key,
+        'New Value': event.new_value, 'Old Value': event.old_value, 'Source': event.source.upper(),
+    } for event in unsynced if str(event.pk) not in already_present]
     if rows:
-        start = existing_count + 1
-        sheet.update(f'A{start}:I{start + len(rows) - 1}', rows, value_input_option='USER_ENTERED')
-        TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
+        append_named_rows(sheet, rows)
+    if not {str(event.pk) for event in unsynced} <= projected_ids():
+        raise SheetColumnError('The appended audit events could not be verified; retry publication.')
+    TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(
+        synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
 
 
 def calculated_tat_minutes(case: TatTrackerCase, now=None) -> Decimal | None:
@@ -2950,10 +2887,24 @@ def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> di
             if stage['target_minutes']:
                 rows.append([product['key'], stage['key'], stage['target_minutes'], str(NEAR_SLA_RATIO)])
     try:
-        sheet.update('A1:D1', [['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']], value_input_option='USER_ENTERED')
-        sheet.batch_clear(['A2:D500'])
-        if rows:
-            sheet.update(f'A2:D{len(rows) + 1}', rows, value_input_option='USER_ENTERED')
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged, named_updates
+        names = ['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']
+        headers = sheet.row_values(1)
+        if not any(str(value or '').strip() for value in headers):
+            if any(any(str(value or '').strip() for value in row) for row in sheet.get_all_values()):
+                raise ValueError('TAT TARGETS contains data but has no column names.')
+            sheet.update('A1:D1', [names], value_input_option='RAW')
+            headers = names
+        columns = NamedColumns(headers, sheet_name='TAT TARGETS')
+        columns.bindings({name: (name,) for name in names})
+        assert_columns_unchanged(sheet, columns)
+        clear_ranges = [f'{column_letter(columns.column(name))}2:{column_letter(columns.column(name))}500' for name in names]
+        sheet.batch_clear(clear_ranges)
+        payload = [item for number, row in enumerate(rows, start=2)
+                   for item in named_updates(columns, number, dict(zip(names, row)))]
+        if payload:
+            assert_columns_unchanged(sheet, columns)
+            sheet.batch_update(payload, value_input_option='USER_ENTERED')
         return {'status': 'synced'}
     except Exception as exc:
         logger.warning('TAT target sheet sync failed for group %s: %s', group_config.group_id, exc)
@@ -3208,23 +3159,19 @@ def tat_reporting_status(
 def resolve_case_sheet_row(sheet, case: TatTrackerCase, *, case_ids: list[Any] | None = None) -> int:
     """Return the existing case-ID row, or the append position if absent."""
     if case_ids is None:
-        if not hasattr(sheet, 'col_values'):
-            # Lightweight test doubles and non-gspread adapters may not
-            # expose column reads. In production, gspread provides them and
-            # the case ID is always checked before a write.
-            return int(case.row_number or next_sheet_row(sheet))
-        case_ids = sheet.col_values(1)
-    if case.row_number and case.row_number <= len(case_ids):
-        current_id = str(case_ids[case.row_number - 1] or '').strip()
-        if current_id == str(case.case_id).strip():
-            return case.row_number
-    for idx, value in enumerate(case_ids, start=1):
-        if idx >= TAT_TRACKER_DATA_START_ROW and str(value or '').strip() == case.case_id:
-            return idx
+        from core.services.sheet_columns import read_named_columns
+        case_ids = sheet.col_values(read_named_columns(sheet).column('Case ID'))
+    matches = [idx for idx, value in enumerate(case_ids, start=1)
+               if idx >= TAT_TRACKER_DATA_START_ROW and str(value or '').strip() == case.case_id]
+    if len(matches) > 1:
+        raise ValueError('Duplicate Case ID rows need review before publication.')
+    if matches:
+        return matches[0]
     return next_sheet_row(sheet, values=case_ids)
 
 def next_sheet_row(sheet, *, values: list[Any] | None = None) -> int:
-    values = values if values is not None else sheet.col_values(1)
+    from core.services.sheet_columns import read_named_columns
+    values = values if values is not None else sheet.col_values(read_named_columns(sheet).column('Case ID'))
     for idx in range(len(values), TAT_TRACKER_DATA_START_ROW - 1, -1):
         if str(values[idx - 1] or '').strip():
             return idx + 1
@@ -3245,8 +3192,10 @@ def inspect_tat_sheet_duplicate_case_ids(
     """
     values = sheet.get_all_values()
     grouped: dict[str, list[dict[str, int]]] = {}
+    from core.services.sheet_columns import NamedColumns
+    columns = NamedColumns(values[TAT_TRACKER_HEADER_ROW - 1])
     for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
-        case_id = str((row or [''])[0] or '').strip()
+        case_id = str(columns.value(row, 'Case ID') or '').strip()
         if not case_id:
             continue
         populated = sum(1 for value in row if str(value or '').strip())
@@ -3326,6 +3275,12 @@ def cleanup_tat_sheet_duplicate_case_ids(
         reverse=True,
     )
     for row_number in all_delete_rows:
+        from core.services.sheet_columns import read_named_columns, assert_columns_unchanged
+        columns = read_named_columns(sheet)
+        expected_id = next(report['case_id'] for report in actionable if row_number in report['delete_rows'])
+        if str(columns.value(sheet.row_values(row_number), 'Case ID')).strip() != expected_id:
+            raise RuntimeError('The Sheet changed before cleanup. No guessed row was deleted.')
+        assert_columns_unchanged(sheet, columns)
         sheet.delete_rows(row_number)
 
     if not hasattr(sheet, 'get_all_values'):
@@ -3334,8 +3289,10 @@ def cleanup_tat_sheet_duplicate_case_ids(
     verified_rows: dict[str, list[int]] = {}
     try:
         post_delete_values = sheet.get_all_values()
+        from core.services.sheet_columns import NamedColumns
+        columns = NamedColumns(post_delete_values[TAT_TRACKER_HEADER_ROW - 1])
         for row_number, row in enumerate(post_delete_values[data_start_row - 1:], start=data_start_row):
-            case_id = str((row or [''])[0] or '').strip()
+            case_id = str(columns.value(row, 'Case ID') or '').strip()
             if case_id:
                 verified_rows.setdefault(case_id, []).append(row_number)
     except Exception as exc:
@@ -3927,17 +3884,21 @@ def format_local_datetime(value) -> str:
     return value.strftime('%d-%m-%Y %H:%M')
 
 
-def tat_hours_formula(product: ProductConfig, row: int) -> str:
-    created_col = column_letter(product.stage_columns['created'])
+def tat_hours_formula(product: ProductConfig, row: int, *, headers: list[str]) -> str:
+    from core.services.sheet_columns import NamedColumns
+    from core.services.tat_sheet_schema import stage_names
+    columns = NamedColumns(headers)
+    created_col = column_letter(columns.column('Case Created', 'Created'))
     disbursement_stage = stage_by_key(product, 'disbursement')
     if not disbursement_stage:
         return ''
-    end_col = column_letter(disbursement_stage.column)
+    end_col = column_letter(columns.column(*stage_names(disbursement_stage)))
     return f'=IF(OR(${created_col}{row}="",${end_col}{row}=""),"",ROUND((${end_col}{row}-${created_col}{row})*24,2))'
 
 
-def tat_days_formula(product: ProductConfig, row: int) -> str:
-    hours_col = column_letter(product.tat_start_col)
+def tat_days_formula(product: ProductConfig, row: int, *, headers: list[str]) -> str:
+    from core.services.sheet_columns import NamedColumns
+    hours_col = column_letter(NamedColumns(headers).column('TAT Hours'))
     return f'=IF({hours_col}{row}="","",ROUND({hours_col}{row}/24,2))'
 def column_letter(index: int) -> str:
     letters = ''

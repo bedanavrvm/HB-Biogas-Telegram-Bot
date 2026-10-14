@@ -44,6 +44,9 @@ class FakeWorksheet:
     def get_all_values(self, value_render_option=None):
         return [list(row) for row in self.rows]
 
+    def row_values(self, row_number):
+        return list(self.rows[row_number - 1]) if row_number <= len(self.rows) else []
+
     def delete_rows(self, row_number):
         self.deleted_rows.append(row_number)
         del self.rows[row_number - 1]

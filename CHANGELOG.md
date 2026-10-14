@@ -1,5 +1,27 @@
 # Changelog
 
+## 14 October 2026 - Named Sheet columns and BM analysis approval
+
+- Added the distinct BM decision after M-PESA submission for new TAT
+  configurations. Approval advances to Admin verification; decline closes the
+  case. Existing case paths, the later BM response, and final standings remain
+  unchanged. Missing BM targets remain unrated; no credit-assessment gate is added.
+- Added an explicit, idempotent Superuser rollout with draft-change detection,
+  audited BM capability updates, and protection for shared Origination terms.
+  The command previews by default; no product is automatically activated.
+- Sheet addressing now uses unique normalized names across the Django adapters
+  and supported maintenance scripts, with ambiguity and stale-header checks.
+  Master metadata stays in its existing named columns rather than being moved
+  to a fixed block. FarmUp imports reject duplicate names instead of renaming them.
+- Optional audit-log publication verifies immutable event IDs on retries; duplicate
+  case-index IDs stop publication. Order Sheet permissions require names rather
+  than numeric/letter shortcuts. Disabled credit-assessment cards stay hidden.
+- TAT creation commits independently of Sheet/Telegram delivery and reserves
+  the existing durable dispatches. Retired the two superseded Apps Script web
+  app copies as explicitly requested; their prior versions remain in Git.
+- See the named-column/BM runbook for manual headers, script cutover and scoped
+  activation. No production database, Sheet, Drive or Telegram changes were made.
+
 ## 14 October 2026 - Compact Origination applications and consistent signatures
 
 - Application sections have Previous/Next arrows and a section picker; the header

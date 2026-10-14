@@ -4627,6 +4627,7 @@
       writePendingCreateRequestId(state.pendingCreateRequestId);
       payload.client_request_id = state.pendingCreateRequestId;
       const result = await api('/api/tat-tracker/create/', payload);
+      if (result.ok) kickUpdateDispatches(result.dispatch_ids || []);
       const detail = requireCaseDetail(result.data);
       state.detail = detail;
       renderDetail(detail);

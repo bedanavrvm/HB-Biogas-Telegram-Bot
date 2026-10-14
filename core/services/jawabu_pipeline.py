@@ -2707,11 +2707,16 @@ def sync_farmer_to_master_sheet(
             return False
 
         if changes:
+            from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+            assert_columns_unchanged(sheet, NamedColumns(headers), header_row=header_row)
             set_header_value(row_values, header_lookup, 'Last Updated At', now_text)
             update_master_sheet_row(
                 sheet,
                 row_number,
                 row_values,
+                headers=headers, header_row=header_row,
+                changed_headers=[*changes, 'Last Updated At', *(['No.'] if created_sheet_row
+                                 and normalize_header('No.') in header_lookup else [])],
                 date_indexes=date_indexes,
                 datetime_indexes=datetime_indexes,
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
@@ -2742,6 +2747,7 @@ def sync_farmer_to_master_sheet(
             write_master_typed_cells(
                 sheet, [(row_number, row_values)], date_indexes, datetime_indexes,
                 master_hbg_deposit_column_indexes(headers),
+                headers=headers, header_row=header_row,
             )
         if previous_row:
             # Google Sheets is not transactional: confirm the destination and
@@ -2756,6 +2762,10 @@ def sync_farmer_to_master_sheet(
                 note_failure(phase='verify', detail=f'The former {other_sheet_name} row changed; it was not cleared.')
                 return False
             width = max(len(previous_headers), len(current_previous))
+            from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+            previous_columns = NamedColumns(previous_headers)
+            previous_columns.validate_row(current_previous)
+            assert_columns_unchanged(previous_sheet, previous_columns, header_row=header_row)
             previous_sheet.update(
                 f'A{previous_row}:{col_letter(width)}{previous_row}',
                 [[''] * width], value_input_option='RAW',
@@ -3026,6 +3036,8 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         if changes:
             update_master_sheet_row(
                 sheet, row_number, row_values,
+                headers=headers, header_row=header_row,
+                changed_headers=changes,
                 date_indexes=master_date_column_indexes(headers),
                 datetime_indexes=master_datetime_column_indexes(headers),
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
@@ -3034,6 +3046,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             write_master_typed_cells(
                 sheet, [(row_number, row_values)], master_date_column_indexes(headers),
                 master_datetime_column_indexes(headers), master_hbg_deposit_column_indexes(headers),
+                headers=headers, header_row=header_row,
             )
         if not changes:
             return True

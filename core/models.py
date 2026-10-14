@@ -3817,19 +3817,32 @@ class ProductTatConfiguration(models.Model):
             key = str(stage.get('key') or '').strip() if isinstance(stage, dict) else ''
             label = str(stage.get('label') or '').strip() if isinstance(stage, dict) else ''
             role = str(stage.get('role') or '').strip() if isinstance(stage, dict) else ''
-            try:
-                column = int(stage.get('column') or 0) if isinstance(stage, dict) else 0
-            except (TypeError, ValueError):
-                column = 0
-            if not key or not label or not role or column < 1:
-                errors['stages'] = f'Stage {position} needs a key, label, role, and positive Sheet column.'
+            from core.services.sheet_columns import normalize_column_name
+            sheet_header = str(stage.get('sheet_header') or label).strip() if isinstance(stage, dict) else ''
+            if not key or not label or not role or not sheet_header:
+                errors['stages'] = f'Stage {position} needs a key, label, role, and named Sheet column.'
                 break
             keys.append(key)
-            columns.append(column)
+            columns.append(normalize_column_name(sheet_header))
         if len(keys) != len(set(keys)):
             errors['stages'] = 'TAT stage keys must be unique within a product version.'
         if len(columns) != len(set(columns)):
-            errors['stages'] = 'TAT stage Sheet columns must be unique within a product version.'
+            errors['stages'] = 'TAT stage Sheet column names must be unique within a product version.'
+        if not errors:
+            from core.services.tat_sheet_schema import STAGE_HEADERS, TIMESTAMP_HEADERS
+            named_fields = ['Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch',
+                            'BRO Name', 'Requested Amount', 'Case Created', 'Status', 'Remarks / Delays',
+                            'TAT Hours', 'TAT Days', 'Product', 'Product Key', 'Current Stage',
+                            'Final Loan Amount', 'Loan Cycle Path']
+            for stage in stages:
+                header = stage.get('sheet_header') or STAGE_HEADERS.get(stage['key'], (stage['label'],))[0]
+                named_fields.extend([header, f'{header} TAT Minutes'])
+                if stage.get('auto_timestamp_key'):
+                    named_fields.append(TIMESTAMP_HEADERS.get(stage['auto_timestamp_key'],
+                                        (f"{stage['label']} timestamp",))[0])
+            normalized_names = [normalize_column_name(name) for name in named_fields]
+            if len(normalized_names) != len(set(normalized_names)):
+                errors['stages'] = 'Stage, timing and case-detail column names must all be distinct.'
         if errors:
             raise ValidationError(errors)
 

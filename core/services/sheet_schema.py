@@ -113,12 +113,15 @@ class SheetSchema:
     ):
         self.field_headers = dict(DEFAULT_FIELD_HEADERS)
         self.field_headers.update(field_headers or {})
+        from core.services.sheet_columns import NamedColumns
+        NamedColumns(list(self.field_headers.values()))
 
         self.columns = columns or [
             self.field_headers[field]
             for field in DEFAULT_FIELD_ORDER
             if field in self.field_headers
         ]
+        NamedColumns(self.columns)
         self.formula_fields = set(
             DEFAULT_FORMULA_FIELDS if formula_fields is None else formula_fields
         )
@@ -172,7 +175,8 @@ class SheetSchema:
 
     @staticmethod
     def normalize(value: str) -> str:
-        return " ".join(str(value or "").strip().lower().split())
+        from core.services.sheet_columns import normalize_column_name
+        return normalize_column_name(value)
 
     def header(self, field: str) -> str:
         return self.field_headers.get(field, field)

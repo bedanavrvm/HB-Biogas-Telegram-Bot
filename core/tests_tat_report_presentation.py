@@ -46,7 +46,8 @@ class TatReportPresentationPolicyTests(SimpleTestCase):
             stage_tat_columns=(StageTatColumn('visit', 3, ('Visit minutes',)),))
         case = SimpleNamespace(status='Active', case_id='SYNTHETIC', current_stage='', stage_values={})
         sheet = Mock()
-        headers = ['Reference', 'Visit', 'Other', 'Total TAT Minutes', 'Visit minutes']
+        headers = ['Reference', 'Visit', 'Other', 'Total TAT Minutes', 'Visit minutes', 'Status']
+        sheet.row_values.return_value = headers
         format_tat_sheet_case_row(SimpleNamespace(workflow={}), sheet, 7, case, product, headers=headers)
         formats = sheet.batch_format.call_args.args[0]
         numeric = {item['range']: item['format']['numberFormat'] for item in formats

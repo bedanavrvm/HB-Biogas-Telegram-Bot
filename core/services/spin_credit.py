@@ -1,5 +1,6 @@
 """SPIN / CRB / credit-analysis WhatsApp export workflow."""
 from __future__ import annotations
+from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
 
 import base64
 import binascii
@@ -1119,6 +1120,7 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
     try:
         header_row_number = configured_header_row(workflow)
         headers = [str(value or '').strip() for value in service._sheet.row_values(header_row_number)]
+        NamedColumns(headers)
     except Exception as exc:
         logger.error('Failed to read SPIN header row: %s', exc, exc_info=True)
         return {'success': False, 'error': str(exc), 'sheet_name': target_sheet_name}
@@ -1137,15 +1139,20 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
             return {'success': False, 'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8]), 'sheet_name': target_sheet_name}
         for field, header in field_headers.items():
             if header in headers:
-                row[headers.index(header)] = values.get(field, '')
+                row[(NamedColumns(headers).column(header) - 1)] = values.get(field, '')
         rows.append(row)
     try:
         if hasattr(service._sheet, 'append_rows'):
+            assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
             response = service._sheet.append_rows(rows, value_input_option='USER_ENTERED')
         else:
-            responses = [service._sheet.append_row(row, value_input_option='USER_ENTERED') for row in rows]
+            responses = []
+            for row in rows:
+                assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
+                responses.append(service._sheet.append_row(row, value_input_option='USER_ENTERED'))
             response = responses[0] if responses else {}
         row_numbers = row_numbers_from_append_response(response, len(rows))
+        assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
         apply_spin_sheet_formatting(service, headers, field_headers, records, row_numbers)
         return {'success': True, 'row_numbers': row_numbers, 'sheet_name': target_sheet_name}
     except Exception as exc:
@@ -1422,6 +1429,7 @@ def column_letter(index: int) -> str:
 def configured_field_headers(workflow: dict) -> dict[str, str]:
     configured = dict(DEFAULT_FIELD_HEADERS)
     configured.update((workflow or {}).get('field_headers') or {})
+    NamedColumns(list(configured.values()))
     return configured
 
 
@@ -2391,13 +2399,24 @@ def update_spin_request_in_sheet(group_config, record: SpinCreditRequest, update
     try:
         header_row_number = configured_header_row(workflow)
         headers = [str(value or '').strip() for value in service._sheet.row_values(header_row_number)]
+        NamedColumns(headers)
         field_headers = configured_field_headers(workflow)
+        columns = NamedColumns(headers)
+        identity_column = columns.column(field_headers['request_id'])
+        identities = service._sheet.col_values(identity_column)
+        matches = [number for number, identity in enumerate(identities, start=1)
+                   if number > header_row_number and str(identity).strip() == spin_request_id(record)]
+        if len(matches) != 1:
+            raise ValueError('Find exactly one SPIN Request ID row before updating; no stale row pointer was used.')
+        record.row_number = matches[0]
+        assert_columns_unchanged(service._sheet, columns, header_row=header_row_number)
         for field, value in updates.items():
             header = field_headers.get(field)
-            if header in headers:
-                col_index = headers.index(header) + 1
+            if header:
+                col_index = columns.column(header)
                 if field == 'media_urls':
                     value = sheet_media_urls(value)
+                assert_columns_unchanged(service._sheet, columns, header_row=header_row_number)
                 service._sheet.update_cell(record.row_number, col_index, value)
                 if field in {'media_urls', 'analyst_response'}:
                     apply_rich_links_to_cell(service, col_index, record.row_number, value)

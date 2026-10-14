@@ -73,7 +73,7 @@ HEADER_ALIASES = {
     'actual_receipts_currency': {'actual receipts currency', 'currency'},
     'actual_receipts': {'actual receipts', 'receipts', 'deposit', 'amount paid'},
     'hb_sales_person': {'sales person', 'hb sales person', 'sales rep'},
-    'sign_date': {'sign date'},
+    'sign_date': {'sign date', 'hbg visit date'},
     'created_date': {'created date'},
     'comments': {'comments', 'comment'},
 }
@@ -159,11 +159,11 @@ FARMERS_TO_MASTER_MAPPING = [
         'notes': 'Ignored for master-data writes. Original value remains in raw_data only.',
     },
     {
-        'source_column': 'Second Sign Date with value',
+        'source_column': 'HBG Visit Date',
         'master_column': 'HBG Visit Date',
         'field': 'sign_date',
         'confidence': 'high',
-        'notes': 'Uses Sign Date__2 when populated, otherwise falls back to Sign Date. Formatted as 24-June-2026.',
+        'notes': 'Use one uniquely named visit-date column. Sign Date remains a supported legacy name.',
     },
     {
         'source_column': 'Created Date',
@@ -660,7 +660,7 @@ def sync_committed_farmup_rows_to_master_sheet(
                 continue
             headers = ensure_master_system_headers(sheet, header_row, headers=source_headers)
             result = write_rows_to_master_sheet(
-                sheet=sheet, headers=headers, data_start_row=data_start_row,
+                sheet=sheet, headers=headers, header_row=header_row, data_start_row=data_start_row,
                 batch=batch, cleaned_rows=rows,
             )
             for key in ('created', 'updated', 'conflicts'):
@@ -678,50 +678,24 @@ def sync_committed_farmup_rows_to_master_sheet(
 
 
 def ensure_master_system_headers(sheet, header_row: int, *, headers: list[str] | None = None) -> list[str]:
+    """Append missing named metadata; never relocate or erase existing columns."""
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
     headers = ensure_master_case_id_header(sheet, header_row, headers=headers)
-    has_case_id = bool(first_existing_header(header_lookup_from_headers(headers), [MASTER_CASE_ID_HEADER]))
-    unit_col = 45 if has_case_id else 44  # AS after visible Case ID; AR for legacy/fake sheets.
-    if len(headers) < unit_col:
-        headers.extend([''] * (unit_col - len(headers)))
-    if not first_existing_header(header_lookup_from_headers(headers), ['Unit Number']) and not str(headers[unit_col - 1] or '').strip():
-        sheet.update_cell(header_row, unit_col, 'Unit Number')
-        if header_row > 1:
-            sheet.update_cell(header_row + 1, unit_col, 'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.')
-        headers[unit_col - 1] = 'Unit Number'
-    start_col = unit_col + 1  # Keep system metadata immediately after Unit Number.
-    end_col = start_col + len(MASTER_SYSTEM_HEADERS) - 1
-    if end_col > getattr(sheet, 'col_count', end_col):
-        sheet.add_cols(end_col - sheet.col_count)
-    if len(headers) < end_col:
-        headers.extend([''] * (end_col - len(headers)))
-
-    canonical_names = {normalize_header(header) for header in MASTER_SYSTEM_HEADERS}
-    cleanup_cells = []
-    for index, header in enumerate(headers, start=1):
-        if start_col <= index <= end_col:
-            continue
-        if normalize_header(header) in canonical_names:
-            cleanup_cells.append((header_row, index, ''))
-            if header_row > 1:
-                cleanup_cells.append((header_row + 1, index, ''))
-            headers[index - 1] = ''
-
-    for offset, header in enumerate(MASTER_SYSTEM_HEADERS):
-        col = start_col + offset
-        if str(headers[col - 1] or '') != header:
-            headers[col - 1] = header
-            cleanup_cells.append((header_row, col, header))
-            if header_row > 1:
-                cleanup_cells.append((
-                    header_row + 1,
-                    col,
-                    'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
-                ))
-
-    update_sheet_cells(sheet, cleanup_cells)
-    if cleanup_cells:
-        hide_master_system_columns(sheet, start_col, end_col)
-    return headers
+    columns = NamedColumns(headers)
+    required = ['Unit Number', *MASTER_SYSTEM_HEADERS]
+    missing = [name for name in required if not columns.column(name, required=False)]
+    if not missing:
+        return headers
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
+    start = len(headers) + 1
+    end = len(headers) + len(missing)
+    if end > getattr(sheet, 'col_count', end):
+        sheet.add_cols(end - sheet.col_count)
+    update_sheet_cells(sheet, [(header_row, start + index, name) for index, name in enumerate(missing)])
+    for index, name in enumerate(missing):
+        if name in MASTER_SYSTEM_HEADERS:
+            hide_master_system_columns(sheet, start + index, start + index)
+    return [*headers, *missing]
 
 
 def ensure_master_case_id_header(sheet, header_row: int, *, headers: list[str] | None = None) -> list[str]:
@@ -796,11 +770,13 @@ def write_rows_to_master_sheet(
     *,
     sheet,
     headers: list[str],
+    header_row: int,
     data_start_row: int,
     batch: JawabuFarmerUploadBatch,
     cleaned_rows: list[dict],
 ) -> dict:
     values = sheet.get_all_values()
+    original_values = [list(row) for row in values]
     header_lookup = header_lookup_from_headers(headers)
     existing = build_master_existing_index(values, header_lookup, data_start_row)
     created = updated = conflicts = overwritten = 0
@@ -870,6 +846,8 @@ def write_rows_to_master_sheet(
                 sheet,
                 pending_updates,
                 len(headers),
+                headers=headers, header_row=header_row,
+                previous_values=original_values,
                 date_indexes=master_date_column_indexes(headers),
                 datetime_indexes=master_datetime_column_indexes(headers),
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
@@ -1090,21 +1068,35 @@ def batch_update_master_sheet_rows(
     updates: list[tuple[int, list]],
     width: int,
     *,
+    headers: list[str],
+    header_row: int,
+    previous_values: list[list],
     date_indexes: list[int] | None = None,
     datetime_indexes: list[int] | None = None,
     deposit_indexes: list[int] | None = None,
 ) -> None:
     if not updates:
         return
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+    columns = NamedColumns(headers)
+    for _, row in updates:
+        columns.validate_row(row)
+    if width != len(headers):
+        raise ValueError('The row width must match the named worksheet schema.')
     payload = []
-    for start_row, block_rows in compact_master_sheet_updates(updates):
-        end_row = start_row + len(block_rows) - 1
-        payload.append({
-            'range': f'A{start_row}:{col_letter(width)}{end_row}',
-            'values': block_rows,
-        })
-    sheet.batch_update(payload, value_input_option='RAW')
+    for row_number, row in updates:
+        previous = previous_values[row_number - 1] if row_number <= len(previous_values) else []
+        for index, value in enumerate(row):
+            if not columns.fingerprint[index] or value == (previous[index] if index < len(previous) else ''):
+                continue
+            cell = f'{col_letter(columns.column(headers[index]))}{row_number}'
+            payload.append({'range': f'{cell}:{cell}', 'values': [[value]]})
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
+    if payload:
+        sheet.batch_update(payload, value_input_option='RAW')
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
     write_master_date_cells(sheet, updates, date_indexes or [], datetime_indexes)
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
     write_master_hbg_deposit_cells(sheet, updates, deposit_indexes or [])
 
 
@@ -1183,25 +1175,31 @@ def append_master_import_log(*, service, log_sheet_name: str, batch: JawabuFarme
                 'Batch ID', 'Source Filename', 'Group ID', 'Uploaded By', 'Committed At',
                 'Total Rows', 'Created', 'Updated', 'Conflicts', 'Errors',
             ]])
-        sheet.append_row([
+        from core.services.sheet_columns import append_named_rows
+        names = ['Batch ID', 'Source Filename', 'Group ID', 'Uploaded By', 'Committed At',
+                 'Total Rows', 'Created', 'Updated', 'Conflicts', 'Errors']
+        values = [
             str(batch.id), batch.source_filename, batch.group_id, batch.sender,
             timezone.now().strftime('%d-%m-%Y %H:%M'), batch.total_rows,
             result.get('created', 0), result.get('updated', 0), result.get('conflicts', 0),
             '; '.join(result.get('errors') or []),
-        ], value_input_option='USER_ENTERED')
+        ]
+        append_named_rows(sheet, [dict(zip(names, values))])
     except Exception as exc:  # pragma: no cover - optional audit log
         logger.warning('Could not append Farmers Upload Log row: %s', exc, exc_info=True)
 
 
 def header_lookup_from_headers(headers: list[str]) -> dict[str, int]:
-    return {normalize_header(header): index + 1 for index, header in enumerate(headers) if str(header or '').strip()}
+    from core.services.sheet_columns import NamedColumns
+    return NamedColumns(headers).lookup(normalize_header)
 
 
 def first_existing_header(header_lookup: dict[str, int], candidates: list[str]) -> str:
-    for candidate in candidates:
-        if normalize_header(candidate) in header_lookup:
-            return candidate
-    return ''
+    from core.services.sheet_columns import SheetColumnError
+    matches = [candidate for candidate in candidates if normalize_header(candidate) in header_lookup]
+    if len({header_lookup[normalize_header(candidate)] for candidate in matches}) > 1:
+        raise SheetColumnError('More than one column matches ' + ', '.join(candidates) + '. Keep one named field.')
+    return matches[0] if matches else ''
 
 
 def resolve_master_sheet_layout(sheet, workflow: dict) -> tuple[int, int, list[str]]:
@@ -1212,12 +1210,13 @@ def resolve_master_sheet_layout(sheet, workflow: dict) -> tuple[int, int, list[s
     their explicit legacy configuration until their headers are moved.
     """
     first_headers = list(sheet.row_values(1))
-    first_lookup = header_lookup_from_headers(first_headers)
+    first_lookup = header_lookup_from_headers(first_headers) if any(first_headers) else {}
     if first_existing_header(first_lookup, ['No.']) and first_existing_header(first_lookup, ['Customer Name']):
         return 1, 2, first_headers
     header_row = positive_int((workflow or {}).get('master_header_row'), 1)
     data_start_row = positive_int((workflow or {}).get('master_data_start_row'), header_row + 1)
     headers = first_headers if header_row == 1 else list(sheet.row_values(header_row))
+    header_lookup_from_headers(headers)
     return header_row, data_start_row, headers
 
 
@@ -1343,24 +1342,38 @@ def update_master_sheet_row(
     row_number: int,
     row_values: list,
     *,
+    headers: list[str],
+    header_row: int,
+    changed_headers: Iterable[str],
     date_indexes: list[int] | None = None,
     datetime_indexes: list[int] | None = None,
     deposit_indexes: list[int] | None = None,
 ) -> None:
-    end_cell = f"{col_letter(len(row_values))}{row_number}"
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+    columns = NamedColumns(headers)
+    columns.validate_row(row_values)
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
     # Preserve reviewed text exactly as staff see it in the form. Date columns
     # are rewritten separately below with USER_ENTERED so they remain typed
     # dates instead of text values with a hidden leading apostrophe.
-    sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
+    payload = []
+    for name in dict.fromkeys(changed_headers):
+        column = columns.column(name)
+        cell = f'{col_letter(column)}{row_number}'
+        payload.append({'range': f'{cell}:{cell}', 'values': [[row_values[column - 1]]]})
+    if payload:
+        sheet.batch_update(payload, value_input_option='RAW')
     write_master_typed_cells(
         sheet, [(row_number, row_values)], date_indexes or [],
         datetime_indexes or [], deposit_indexes or [],
+        headers=headers, header_row=header_row,
     )
 
 
 def write_master_typed_cells(
     sheet, updates: list[tuple[int, list]], date_indexes: list[int],
     datetime_indexes: list[int], money_indexes: list[int],
+    *, headers: list[str], header_row: int,
 ) -> None:
     """Write dates and money in one values batch, then format in one batch.
 
@@ -1370,6 +1383,11 @@ def write_master_typed_cells(
     """
     if not updates:
         return
+    from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+    columns = NamedColumns(headers)
+    for index in [*date_indexes, *datetime_indexes, *money_indexes]:
+        if index >= len(headers) or not columns.fingerprint[index]:
+            raise ValueError('Typed values require a named worksheet column.')
     payload = []
     for row_number, row_values in updates:
         for index in [*date_indexes, *datetime_indexes]:
@@ -1387,10 +1405,13 @@ def write_master_typed_cells(
     if not payload:
         return
     try:
+        assert_columns_unchanged(sheet, columns, header_row=header_row)
         sheet.batch_update(payload, value_input_option='USER_ENTERED')
     except (AttributeError, TypeError):
         for item in payload:
+            assert_columns_unchanged(sheet, columns, header_row=header_row)
             sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
+    assert_columns_unchanged(sheet, columns, header_row=header_row)
     _format_master_columns(sheet, updates, [
         *[(index, 'DATE', 'dd-mmm-yyyy') for index in date_indexes],
         *[(index, 'DATE_TIME', 'dd-mmm-yyyy HH:mm') for index in datetime_indexes],
@@ -1613,7 +1634,7 @@ def build_cleaned_master_preview(
     header_mapping: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict]:
     rows, headers = read_csv_rows(csv_file)
-    header_map = build_header_map(headers)
+    header_map = build_header_map(headers) if header_mapping is None else {}
     if header_mapping is not None:
         # Portal mapping decisions are canonical-field -> unique source header.
         # Replace the inferred map completely so an explicit Ignore decision
@@ -1623,6 +1644,8 @@ def build_cleaned_master_preview(
             for field, header in header_mapping.items()
             if field in CANONICAL_FIELDS and header in headers
         }
+        from core.services.sheet_columns import NamedColumns
+        NamedColumns(headers).bindings({field: (name,) for field, name in header_map.items()})
     preview_rows = []
     stats = {
         'total_rows': 0,
@@ -1657,8 +1680,11 @@ def read_csv_rows(csv_file: TextIO) -> tuple[list[tuple[int, dict]], list[str]]:
     except StopIteration:
         return [], []
     headers = unique_headers(raw_headers)
+    from core.services.sheet_columns import NamedColumns
+    columns = NamedColumns(headers)
     rows = []
     for source_row_number, values in enumerate(reader, start=2):
+        columns.validate_row(values)
         if len(values) < len(headers):
             values = values + [''] * (len(headers) - len(values))
         row = {header: values[index] if index < len(values) else '' for index, header in enumerate(headers)}
@@ -1667,44 +1693,37 @@ def read_csv_rows(csv_file: TextIO) -> tuple[list[tuple[int, dict]], list[str]]:
 
 
 def unique_headers(headers: Iterable[str]) -> list[str]:
-    seen: dict[str, int] = {}
-    result = []
-    for index, header in enumerate(headers, start=1):
-        base = str(header or '').strip() or f'Column_{index}'
-        seen[base] = seen.get(base, 0) + 1
-        result.append(base if seen[base] == 1 else f'{base}__{seen[base]}')
+    from core.services.sheet_columns import NamedColumns
+    result = [str(header or '').strip() for header in headers]
+    NamedColumns(result)
     return result
 
 
 def build_header_map(headers: list[str]) -> dict[str, str]:
-    normalized_lookup = {}
-    for header in headers:
-        normalized_lookup.setdefault(normalize_header(header), header)
-    base_lookup = {}
-    for header in headers:
-        base = re.sub(r'__\d+$', '', header)
-        base_lookup.setdefault(normalize_header(base), header)
+    from core.services.sheet_columns import NamedColumns, SheetColumnError
+    columns = NamedColumns(headers)
+    positions = columns.lookup(normalize_header)
+    normalized_lookup = {name: headers[index - 1] for name, index in positions.items()}
     header_map: dict[str, str] = {}
     for field, aliases in HEADER_ALIASES.items():
-        for alias in aliases | {field}:
-            normalized = normalize_header(alias)
-            header = base_lookup.get(normalized) or normalized_lookup.get(normalized)
-            if header:
-                header_map[field] = header
-                break
+        matches = {normalized_lookup[normalize_header(alias)] for alias in aliases | {field}
+                   if normalize_header(alias) in normalized_lookup}
+        if field == 'primary_phone' and 'Mobile' in matches:
+            matches = {'Mobile'}  # Phone is the declared secondary column in this import format.
+        if len(matches) > 1:
+            raise SheetColumnError(f'More than one named column matches {field}. Choose an explicit source mapping.')
+        if matches:
+            header_map[field] = matches.pop()
     if 'Mobile' in headers:
         header_map['primary_phone'] = 'Mobile'
         if 'Phone' in headers:
             header_map['secondary_phone'] = 'Phone'
-    if 'Sign Date__2' in headers:
-        header_map['sign_date'] = 'Sign Date__2'
-    elif 'Sign Date' in headers:
-        header_map['sign_date'] = 'Sign Date'
     return header_map
 
 def normalize_header(value: str) -> str:
-    value = re.sub(r'__\d+$', '', str(value or ''))
-    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', value.lower())).strip()
+    from core.services.sheet_columns import normalize_column_name
+    value = normalize_column_name(value)
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', value)).strip()
 
 
 def is_blank_row(row: dict) -> bool:
@@ -1724,7 +1743,7 @@ def clean_farmer_row(
     }
     values = {field: raw_value(raw_row, header_map, field) for field in CANONICAL_FIELDS}
     if sign_date_fallback:
-        values['sign_date'] = values.get('sign_date') or first_non_blank(raw_row, ['Sign Date__2', 'Sign Date'])
+        values['sign_date'] = values.get('sign_date') or first_non_blank(raw_row, ['HBG Visit Date', 'Sign Date'])
     raw_name = clean_text(values['customer_name'])
     bracketed_id_value = bracketed_id_token(raw_name)
     bracketed_id = extract_bracketed_id(raw_name)

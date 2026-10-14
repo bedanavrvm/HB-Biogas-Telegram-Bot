@@ -10,37 +10,15 @@ const CFG = {
   DATA_ROW:    3,
 
   /* Column positions - 1-based, matching scripts/create_order_approval_workbook.py */
-  C: {
-    ORDER_RECORD_ID: 1,  /* A - bot-managed stable record ID */
-    ORDER_NO:       2,  /* B */
-    REQ_DATE:       3,  /* C */
-    DATE_VISITED:   4,  /* D */
-    NAME:           5,  /* E */
-    BRANCH:         6,  /* F */
-    ID_NUMBER:      7,  /* G - dedup key */
-    PRIMARY:        8,  /* H */
-    SECONDARY:      9,  /* I */
-    COUNTY:        10,  /* J */
-    SUB_COUNTY:    11,  /* K */
-    LANDMARK:      12,  /* L */
-    VISITED_BY:    13,  /* M */
-    HB_STAFF:      14,  /* N */
-    DEP_HB:        15,  /* O */
-    DEP_JBL:       16,  /* P */
-    BRO_COMMENT:   17,  /* Q */
-    IMAB:          18,  /* R */
-    CUSTOMER_NO:   19,  /* S */
-    CREDIT:        20,  /* T */
-    DECISION_NOTE: 21,  /* U */
-    DECISION:      22,  /* V */
-    MEDIA_URLS:    23,  /* W - bot-managed */
+  get C() {
+    return namedColumnObject_(CFG.TAB,CFG.HEADER_ROW,{"ORDER_RECORD_ID":"ORDER RECORD ID","ORDER_NO":"ORDER NO","REQ_DATE":"REQUISITION DATE","DATE_VISITED":"DATE VISITED","NAME":"CUSTOMER NAME","BRANCH":"BRANCH","ID_NUMBER":"ID NUMBER","PRIMARY":"CONTACTS / PRIMARY","SECONDARY":"CONTACTS / SECONDARY","COUNTY":"COUNTY","SUB_COUNTY":"SUB-COUNTY","LANDMARK":"LOCATION AND NEAREST LANDMARK","VISITED_BY":"VISITED BY","HB_STAFF":"HB STAFF","DEP_HB":"DEPOSIT / HB","DEP_JBL":"DEPOSIT / JBL","BRO_COMMENT":"BRO COMMENT","IMAB":"IS CUSTOMER CREATED ON IMAB?","CUSTOMER_NO":"CUSTOMER NO","CREDIT":"CREDIT ANALYSIS","DECISION_NOTE":"DECISION COMMENT","DECISION":"FINAL DECISION","MEDIA_URLS":"Media URLs"});
   },
 
   /* Columns the Telegram bot owns - show warning before manual edit */
-  BOT_COLS: [1, 23],
+  get BOT_COLS() { return [this.C.ORDER_RECORD_ID, this.C.MEDIA_URLS]; },
 
   /* Minimum columns needed for a row to count as complete */
-  REQUIRED: [4, 5, 7, 8, 10],   /* Date, Name, ID, Primary, County */
+  get REQUIRED() { const c=this.C; return [c.DATE_VISITED,c.NAME,c.ID_NUMBER,c.PRIMARY,c.COUNTY]; },
 
   /* FINAL DECISION -> row highlight colour */
   COLOURS: {
@@ -79,40 +57,13 @@ const CFG = {
     'Latitude', 'Longitude', 'Media Filenames', 'Decision', 'Decision Note',
     'Import Status', 'Duplicate Key', 'Duplicate Status', 'Review Notes', 'Raw Message',
   ],
-  JAWABU_C: {
-    RECORD_ID: 1,
-    VISIT_DATE: 2,
-    MESSAGE_AT: 3,
-    STAFF_SENDER: 4,
-    NAME: 5,
-    NATIONAL_ID: 6,
-    PRIMARY: 7,
-    SECONDARY: 8,
-    COUNTY: 9,
-    SUB_COUNTY: 10,
-    LANDMARK: 11,
-    GPS_LINK: 12,
-    LATITUDE: 13,
-    LONGITUDE: 14,
-    MEDIA_FILENAMES: 15,
-    DECISION: 16,
-    DECISION_NOTE: 17,
-    IMPORT_STATUS: 18,
-    DUPLICATE_KEY: 19,
-    DUPLICATE_STATUS: 20,
-    REVIEW_NOTES: 21,
-    RAW_MESSAGE: 22,
+  get JAWABU_C() {
+    return namedColumnObject_(CFG.JAWABU_TAB,CFG.JAWABU_HEADER_ROW,{"RECORD_ID":"Record ID","VISIT_DATE":"Visit Date","MESSAGE_AT":"WhatsApp Message Time","STAFF_SENDER":"Staff / Sender","NAME":"Customer Name","NATIONAL_ID":"National ID","PRIMARY":"Primary Phone","SECONDARY":"Secondary Phone","COUNTY":"County","SUB_COUNTY":"Sub-County / City","LANDMARK":"Landmark / Street","GPS_LINK":"GPS Link","LATITUDE":"Latitude","LONGITUDE":"Longitude","MEDIA_FILENAMES":"Media Filenames","DECISION":"Decision","DECISION_NOTE":"Decision Note","IMPORT_STATUS":"Import Status","DUPLICATE_KEY":"Duplicate Key","DUPLICATE_STATUS":"Duplicate Status","REVIEW_NOTES":"Review Notes","RAW_MESSAGE":"Raw Message"});
   },
   /* Optional bootstrap/admin allowlist. Fill this if the menu does not appear before authorization. */
   OWNER_EMAILS: [],
-  STAFF: {
-    NAME:             1,
-    EMAIL:            2,
-    ROLE:             3,
-    BRANCH:           4,
-    NOTIFY_ON:        5,
-    EDITABLE_COLUMNS: 6,
-    ACTIVE:           7,
+  get STAFF() {
+    return namedColumnObject_(CFG.STAFF_TAB,1,{"NAME":"Name","EMAIL":"Email","ROLE":"Role","BRANCH":"Branch","NOTIFY_ON":"Notify On","EDITABLE_COLUMNS":"Editable Columns","ACTIVE":"Active"});
   },
 
   ROLE_EDIT_GROUPS: {
@@ -213,7 +164,7 @@ function activeStaffUserHasRole_(email, allowedRoles) {
   if (!sh || sh.getLastRow() < 2) return false;
   const targetEmail = normalizeStaffToken(email);
   const roles = (allowedRoles || []).map(normalizeStaffToken);
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, CFG.STAFF_HEADERS.length).getValues();
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
   return rows.some(row => {
     const active = normalizeStaffToken(row[CFG.STAFF.ACTIVE - 1]) === 'yes';
     const staffEmail = normalizeStaffToken(row[CFG.STAFF.EMAIL - 1]);
@@ -405,15 +356,15 @@ function ensureDropdownOptionsSheet() {
   let sh = ss.getSheetByName(CFG.OPTIONS_TAB);
   if (!sh) sh = ss.insertSheet(CFG.OPTIONS_TAB, ss.getNumSheets());
 
-  sh.getRange(1, 1, 1, CFG.OPTION_HEADERS.length)
-    .setValues([CFG.OPTION_HEADERS])
+  ensureUniqueNamedHeaders_(sh, CFG.OPTION_HEADERS, 1);
+  sh.getRange(1, 1, 1, sh.getLastColumn())
     .setBackground('#37474F')
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.setColumnWidths(1, CFG.OPTION_HEADERS.length, 160);
   if (sh.getLastRow() < 2) {
-    sh.getRange(2, 1, 3, CFG.OPTION_HEADERS.length).setValues([
+    writeNamedRows_(sh, 1, CFG.OPTION_HEADERS, 2, [
       ['MURANGA', 'MURANGA', 'KIHARU', 'JOHN', 'THOMAS'],
       ['EMBU', 'EMBU', '', 'KIBINGE', ''],
       ['', '', '', '', ''],
@@ -462,6 +413,7 @@ function applyOrderDataValidation(sh, optionsSheet) {
 }
 
 function applyOptionsDropdown(sh, optionsSheet, targetCol, optionsCol, startRow) {
+  optionsCol=namedColumn_(optionsSheet,1,CFG.OPTION_HEADERS[optionsCol-1]);
   const firstDataRow = startRow || CFG.DATA_ROW;
   const rows = Math.max(sh.getMaxRows() - firstDataRow + 1, 1);
   const optionRows = Math.max(optionsSheet.getMaxRows() - 1, 1);
@@ -475,6 +427,7 @@ function applyOptionsDropdown(sh, optionsSheet, targetCol, optionsCol, startRow)
 }
 
 function applyFormulaValidation(sh, col, rows, formula, helpText) {
+  formula=formula.replace(/\$?[A-Z]+\$?\d+/g, columnNumberToLetter(col)+CFG.DATA_ROW);
   sh.getRange(CFG.DATA_ROW, col, rows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireFormulaSatisfied(formula)
@@ -485,6 +438,7 @@ function applyFormulaValidation(sh, col, rows, formula, helpText) {
 }
 
 function applyFormulaValidationAtRow(sh, startRow, col, rows, formula, helpText) {
+  formula=formula.replace(/\$?[A-Z]+\$?\d+/g, columnNumberToLetter(col)+startRow);
   sh.getRange(startRow, col, rows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireFormulaSatisfied(formula)
@@ -531,7 +485,7 @@ function ensureJawabuSheetStructure_() {
     return { ok: true, sheet: sh };
   }
 
-  const headerRange = sh.getRange(CFG.JAWABU_HEADER_ROW, 1, 1, CFG.JAWABU_HEADERS.length);
+  const headerRange = sh.getRange(CFG.JAWABU_HEADER_ROW, 1, 1, Math.max(sh.getLastColumn(), CFG.JAWABU_HEADERS.length));
   const headers = headerRange.getValues()[0].map(value => String(value || '').trim());
   const hasAnyHeader = headers.some(Boolean);
   if (!hasAnyHeader && sh.getLastRow() <= CFG.JAWABU_HEADER_ROW) {
@@ -539,7 +493,8 @@ function ensureJawabuSheetStructure_() {
     return { ok: true, sheet: sh };
   }
 
-  const missing = CFG.JAWABU_HEADERS.filter(header => !headers.includes(header));
+  const map=namedHeaderMap_(sh,CFG.JAWABU_HEADER_ROW);
+  const missing = CFG.JAWABU_HEADERS.filter(header => !map[namedHeaderKey_(header)]);
   if (missing.length > 0) {
     return {
       ok: false,
@@ -694,7 +649,7 @@ function applyDecisionConditionalFormatting(sh) {
   const rules = Object.keys(CFG.COLOURS).map(decision => {
     const style = CFG.COLOURS[decision];
     return SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$S3="' + decision + '"')
+      .whenFormulaSatisfied('=$'+columnNumberToLetter(CFG.C.DECISION)+CFG.DATA_ROW+'="' + decision + '"')
       .setBackground(style.bg)
       .setFontColor(style.accent)
       .setRanges([dataRange])
@@ -966,16 +921,8 @@ function ensureStaffSheet(showAlert) {
   let sh = ss.getSheetByName(CFG.STAFF_TAB);
   if (!sh) sh = ss.insertSheet(CFG.STAFF_TAB, ss.getNumSheets());
 
-  const previousHeaders = sh.getLastColumn() > 0
-    ? sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), CFG.STAFF_HEADERS.length)).getValues()[0]
-    : [];
-  const legacyActiveInEditableColumn = (
-    normalizeStaffToken(previousHeaders[CFG.STAFF.EDITABLE_COLUMNS - 1]) === 'active'
-    && normalizeStaffToken(previousHeaders[CFG.STAFF.ACTIVE - 1]) !== 'active'
-  );
-
-  sh.getRange(1, 1, 1, CFG.STAFF_HEADERS.length)
-    .setValues([CFG.STAFF_HEADERS])
+  ensureUniqueNamedHeaders_(sh, CFG.STAFF_HEADERS, 1);
+  sh.getRange(1, 1, 1, sh.getLastColumn())
     .setBackground('#263238')
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
@@ -984,14 +931,12 @@ function ensureStaffSheet(showAlert) {
   sh.setColumnWidth(CFG.STAFF.NOTIFY_ON, 260);
 
   if (sh.getLastRow() < 2) {
-    sh.getRange(2, 1, 4, CFG.STAFF_HEADERS.length).setValues([
+    writeNamedRows_(sh, 1, CFG.STAFF_HEADERS, 2, [
       ['Manager Name', 'manager@example.com', 'Manager', 'All', 'decision_approved,decision_rejected,stale_digest', 'All', 'No'],
       ['Back Office Name', 'backoffice@example.com', 'Back-office', 'All', 'decision_approved,decision_rejected,stale_digest', 'Back-office', 'No'],
       ['BRO Name', 'bro@example.com', 'BRO', 'Embu', 'decision_approved,decision_rejected,stale_digest', 'BRO', 'No'],
       ['Render Bot Service Account', 'service-account@example.iam.gserviceaccount.com', 'IT', 'All', 'all', 'All', 'No'],
     ]);
-  } else if (legacyActiveInEditableColumn) {
-    migrateLegacyStaffPermissionsSheet(sh);
   }
 
   applyStaffSheetValidation(sh);
@@ -1005,16 +950,7 @@ function ensureStaffSheet(showAlert) {
 }
 
 function migrateLegacyStaffPermissionsSheet(sh) {
-  const rowCount = sh.getLastRow() - 1;
-  if (rowCount <= 0) return;
-  const rows = sh.getRange(2, 1, rowCount, CFG.STAFF_HEADERS.length).getValues();
-  const migrated = rows.map(row => {
-    const legacyActive = row[CFG.STAFF.EDITABLE_COLUMNS - 1];
-    row[CFG.STAFF.EDITABLE_COLUMNS - 1] = defaultEditableColumnsForRole(row[CFG.STAFF.ROLE - 1]);
-    row[CFG.STAFF.ACTIVE - 1] = legacyActive || 'No';
-    return row;
-  });
-  sh.getRange(2, 1, rowCount, CFG.STAFF_HEADERS.length).setValues(migrated);
+  throw new Error('Review the Staff column names manually; positional permission migration is disabled.');
 }
 
 function defaultEditableColumnsForRole(role) {
@@ -1073,7 +1009,7 @@ function validateStaffSheetSetup_(showToast) {
   if (staffSheet.getLastRow() < 2) return result;
 
   const headers = orderSheet ? orderHeaders(orderSheet) : [];
-  const rows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, CFG.STAFF_HEADERS.length).getValues();
+  const rows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, staffSheet.getLastColumn()).getValues();
   result.rows = rows.length;
 
   rows.forEach((row, index) => {
@@ -1238,7 +1174,7 @@ function staffPermissionMap() {
   const orderSheet = ss.getSheetByName(CFG.TAB);
   if (!staffSheet || !orderSheet || staffSheet.getLastRow() < 2) return {};
 
-  const rows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, CFG.STAFF_HEADERS.length).getValues();
+  const rows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, staffSheet.getLastColumn()).getValues();
   const headers = orderHeaders(orderSheet);
   const map = {};
 
@@ -1274,14 +1210,13 @@ function expandEditableToken(token, headers) {
   const normalized = normalizeEditableToken(token);
   if (!normalized) return [];
   if (normalized === 'ALL') {
-    return headers.map((_, index) => index + 1);
+    return headers.flatMap((name, index) => String(name || '').trim() ? [index + 1] : []);
   }
   if (CFG.ROLE_EDIT_GROUPS[normalized]) {
     return editableColumnsToIndexes(CFG.ROLE_EDIT_GROUPS[normalized].join(','), headers);
   }
   if (/^\d+$/.test(normalized)) {
-    const col = Number(normalized);
-    return col >= 1 && col <= headers.length ? [col] : [];
+    throw new Error('Staff permissions must use column names, not numbers. Update Editable Columns before applying protections.');
   }
 
   const headerIndex = headers
@@ -1290,15 +1225,14 @@ function expandEditableToken(token, headers) {
   if (headerIndex >= 0) return [headerIndex + 1];
 
   if (/^[A-Z]+$/.test(normalized)) {
-    const col = columnLetterToNumber(normalized);
-    return col >= 1 && col <= headers.length ? [col] : [];
+    throw new Error('Staff permissions must use column names, not letters. Update Editable Columns before applying protections.');
   }
 
   return [];
 }
 
 function normalizeEditableToken(value) {
-  return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  return String(value || '').normalize('NFKC').trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
 function orderHeaders(sh) {
@@ -1338,7 +1272,7 @@ function getStaffEmails(options) {
   const event = normalizeStaffToken(opts.event || 'all');
   const names = (opts.names || []).map(normalizeStaffToken).filter(Boolean);
 
-  const rows = sh.getRange(2, 1, last - 1, CFG.STAFF_HEADERS.length).getValues();
+  const rows = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
   return rows
     .filter(row => normalizeStaffToken(row[CFG.STAFF.ACTIVE - 1]) === 'yes')
     .filter(row => isValidEmail(row[CFG.STAFF.EMAIL - 1]))
@@ -1383,7 +1317,7 @@ function staffNameTokens(value) {
 }
 
 function normalizeStaffToken(value) {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return String(value || '').trim().toLowerCase().replace(/ß/g, 'ss').replace(/ς/g, 'σ').replace(/\s+/g, ' ');
 }
 
 function uniqueEmails(values) {
@@ -1717,4 +1651,51 @@ function runSearch(query) {
          '<table><tr><th>Row</th><th>Name</th><th>ID</th><th>Branch</th><th>Decision</th></tr>' +
          rows + '</table>' +
          (hits.length > 20 ? '<br><i>Showing first 20 of ' + hits.length + '</i>' : '');
+}
+
+// Named-column contract: positions below are derived from live unique headers.
+function namedHeaderKey_(value) {
+  return String(value || '').normalize('NFKC').trim().toLowerCase().replace(/ß/g, 'ss').replace(/ς/g, 'σ').replace(/\s+/g, ' ');
+}
+function namedHeaderMap_(sheet, headerRow) {
+  if (!sheet) throw new Error('The configured worksheet is missing.');
+  const headers=sheet.getRange(headerRow,1,1,Math.max(sheet.getLastColumn(),1)).getDisplayValues()[0];
+  const map=Object.create(null);
+  headers.forEach((value,index)=>{
+    const key=namedHeaderKey_(value);
+    if(!key)return;
+    if(map[key])throw new Error('Duplicate column name: '+value+'. Rename it before continuing.');
+    map[key]=index+1;
+  });
+  return map;
+}
+function namedColumn_(sheet, headerRow, name) {
+  const column=namedHeaderMap_(sheet,headerRow)[namedHeaderKey_(name)];
+  if(!column)throw new Error('Required named column missing: '+name);
+  return column;
+}
+function namedColumnObject_(tab, headerRow, bindings) {
+  const sheet=SpreadsheetApp.getActive().getSheetByName(tab);
+  const map=namedHeaderMap_(sheet,headerRow), columns={};
+  Object.entries(bindings).forEach(([key,name])=>{
+    const column=map[namedHeaderKey_(name)];
+    if(!column)throw new Error('Required named column missing: '+name);
+    columns[key]=column;
+  });
+  return columns;
+}
+function ensureUniqueNamedHeaders_(sheet, names, headerRow) {
+  if(!sheet.getLastRow())sheet.getRange(headerRow,1,1,names.length).setValues([names]);
+  const map=namedHeaderMap_(sheet,headerRow);
+  names.forEach(name=>{if(!map[namedHeaderKey_(name)])throw new Error('Required named column missing: '+name);});
+}
+
+function writeNamedRows_(sheet, headerRow, names, startRow, rows) {
+  const keys=names.map(namedHeaderKey_);
+  if(new Set(keys).size!==keys.length)throw new Error('Configured column names must be unique.');
+  rows.forEach((row,offset)=>{
+    const columns=namedHeaderMap_(sheet,headerRow);
+    names.forEach(name=>{if(!columns[namedHeaderKey_(name)])throw new Error('Required named column missing: '+name);});
+    names.forEach((name,index)=>sheet.getRange(startRow+offset,columns[namedHeaderKey_(name)]).setValue(row[index]));
+  });
 }

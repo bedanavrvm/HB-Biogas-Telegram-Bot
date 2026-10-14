@@ -53,6 +53,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **HomeBiogas** | The biogas-financing product line and associated field/order workflows. |
 | **FCA** | Field Control Visit / field review workflow — data collected during in-field visits, reviewed and imported into the platform. |
 | **TAT** | Turnaround Time — tracked per loan/case stage with role- and product-based rules (`tat_tracker.py`). |
+| **BM analysis approval** | BM's Approved/Declined decision after M-PESA submission and before Admin verification, distinct from the later BM response to CA. Published successors apply to new cases only; this does not activate the draft credit-assessment workflow. |
 | **TAT configuration binding** | The case-level classification proving which stage definition governs a TAT case: `versioned`, `legacy_assumed`, or `unresolved`. Versioned cases retain exact immutable stage bytes; unresolved cases are read-only until audited reconciliation. |
 | **TAT Control Center** | The Superuser-only guided setup, stage-design, routing-maintenance, and built-in-register workspace. It projects durable Django configuration and never grants workflow access by itself. |
 | **TAT loan-cycle path** | The immutable Standard, Standard + Valuation, HOCC, or HOCC + Valuation path selected from the product version and original requested amount when a case is created. A later BRO-entered final loan amount may be lower but never changes the frozen path. |
@@ -198,6 +199,7 @@ Key modules:
 - `requisition.py` — requisition generation and files
 - `sheet_analyzer.py` — spreadsheet inspection
 - `sheet_schema.py` — expected sheet structure and mappings
+- `sheet_columns.py` — unique named Sheet bindings and freshness checks. Before changing Sheet reads, writes, cleanup or Apps Script addressing, read `docs/adr/0050-named-sheet-columns-and-bm-analysis-approval.md` and `docs/runbooks/named-sheet-columns-and-bm-stage.md`; numeric coordinates are derived transport details, never fallback authority.
 - `sync_governance.py` — publication-only register contracts, drift audits, and Drive sharing inspection
 - `sheet_sync.py` — synchronization orchestration
 - `sheets.py` — low-level Google Sheets gateway

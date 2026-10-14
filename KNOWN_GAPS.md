@@ -1,5 +1,51 @@
 # Known Gaps and Verified Workarounds
 
+## Named Sheet columns and BM analysis approval - 14 October 2026
+
+Focused, freshly migrated local PostgreSQL: 197 passed, including real concurrent
+successor preparation and BM decisions, branch-scoped authorization, named-column
+movement/ambiguity/freshness, durable publication, unknown/formula preservation,
+cleanup guards, expired-version exclusion and lost audit-response recovery.
+The task-owned loopback PostgreSQL cluster was stopped after verification.
+
+Real-template intercepted Chromium: 59 passed at 320/360/390/430/768/1280px,
+including the new BM stage, queue/search, forms, reports and native-button
+contracts. BM screenshots were visually inspected at 390 and 1280px. A disabled
+credit-assessment card was visibly present despite its hidden attribute; its CSS
+now honors that state. Assets remain based on the existing TAT layout, not a new
+design. Screenshots are under `test-results/named-columns-tat-browser-final`.
+
+Broader SQLite: 562 tests, 527 passed, 28 failures, 6 errors, 1 PostgreSQL-only
+skip. All 34 failing test names also fail on unchanged HEAD `d09f1e1d`, whose
+comparable 532-test run had 29 failures, 9 errors and 1 skip. Outstanding failures
+cover legacy TAT creation/correction/signature fixtures, static UI assertions,
+SPIN submission, FarmUp identity/date expectations and order-review validation.
+No workflow or access safeguard was weakened to make those tests pass. One
+intermediate run overlapped SQLite test processes and hit a database lock; the
+final non-overlapping rerun removed that harness failure.
+
+Pinned Ruff 0.16.5 on changed Python files, Node contracts including all five
+supported Apps Scripts, 129 first-party JavaScript syntax checks, Django checks,
+migration drift and diff-whitespace checks pass. Raw `.txt` outputs are retained
+in `test-results/named-columns-*.txt`; the handoff report is
+`docs/reports/tat-bm-named-columns-2026-10-14.txt`.
+
+No production schema, configuration, provider, deployment or existing case
+snapshot was changed. Add the three unique BM headers and explicitly review and
+publish selected product successors before new cases use the stage. A published
+Origination definition sharing the source terms must be coordinated separately;
+the rollout does not silently disable or rebind it. Current BM routing and an
+explicitly agreed target also need operator review; no target means unrated.
+
+The two obsolete TAT Apps Script source copies were removed by user approval,
+recoverable from Git. Their live web apps/triggers must still be disabled by a
+Google owner. Other scripts reject positional permission shortcuts; repair them
+to named columns. Optional AUDIT LOG projection requires `Event ID`. Apps Script
+checks use a local VM, not a deployed Google runtime. Physical Telegram behavior
+and live Sheet layouts remain unverified. Google cannot atomically compare and
+write a schema; pause manual structural edits during publication and cleanup.
+Local Python is 3.14, not the deployment's pinned 3.12.
+
 ## Origination compact UI, typed marks and ID capture - 14 October 2026
 
 The phone/PDF typed-font mismatch was reproduced before changes. New v2 marks

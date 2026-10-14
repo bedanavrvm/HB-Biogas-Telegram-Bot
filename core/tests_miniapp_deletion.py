@@ -448,9 +448,16 @@ class MiniAppSheetCleanupTests(TestCase):
 
     def test_concurrent_sheet_change_is_not_deleted(self):
         sheet, service = self.sheet([['Case ID'], ['remove']])
-        sheet.row_values.side_effect = None
-        sheet.row_values.return_value = ['keep']
+        sheet.row_values.side_effect = lambda number: ['Case ID'] if number == 1 else ['keep']
         with patch('core.services.sheets.get_sheets_service', return_value=service), self.assertRaises(RuntimeError):
+            remove_rows(self.target())
+        sheet.delete_rows.assert_not_called()
+
+    def test_concurrent_header_change_is_not_deleted(self):
+        from core.services.sheet_columns import SheetColumnError
+        sheet, service = self.sheet([['Case ID'], ['remove']])
+        sheet.row_values.side_effect = lambda number: ['Customer Name'] if number == 1 else ['remove']
+        with patch('core.services.sheets.get_sheets_service', return_value=service), self.assertRaises(SheetColumnError):
             remove_rows(self.target())
         sheet.delete_rows.assert_not_called()
 

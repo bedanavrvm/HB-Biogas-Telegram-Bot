@@ -231,17 +231,31 @@ class DrainPortalPublicationsTests(TestCase):
 
 
 class MasterSheetLayoutTests(TestCase):
+    def test_batch_publication_keeps_an_unrelated_formula(self):
+        from core.test_named_sheet import NamedSheet
+        from core.services.jawabu_master import batch_update_master_sheet_rows
+        headers = ['Staff formula', 'Customer Name']
+        sheet = NamedSheet(headers, [['=SUM(1,2)', 'Old']])
+        batch_update_master_sheet_rows(sheet, [(2, ['3', 'New'])], 2, headers=headers, header_row=1,
+                                       previous_values=[headers, ['3', 'Old']])
+        self.assertEqual(sheet.value(2, 'Staff formula'), '=SUM(1,2)')
+        self.assertEqual(sheet.value(2, 'Customer Name'), 'New')
+
     def test_portal_row_combines_typed_values_and_formats(self):
         sheet = MagicMock()
         sheet.id = 42
+        headers = ['Staff formula', 'Customer Name', 'Visit Date', 'Deposit']
+        sheet.row_values.return_value = headers
         update_master_sheet_row(
-            sheet, 8, ['Example', '12-05-2026', '5000'],
-            date_indexes=[1], deposit_indexes=[2],
+            sheet, 8, ['=SUM(1,2)', 'Example', '12-05-2026', '5000'],
+            headers=headers, header_row=1,
+            changed_headers=['Customer Name', 'Visit Date', 'Deposit'],
+            date_indexes=[2], deposit_indexes=[3],
         )
-        sheet.update.assert_called_once_with(
-            'A8:C8', [['Example', '12-05-2026', '5000']], value_input_option='RAW',
-        )
-        sheet.batch_update.assert_called_once()
+        sheet.update.assert_not_called()
+        self.assertEqual(sheet.batch_update.call_count, 2)
+        self.assertEqual([item['range'] for item in sheet.batch_update.call_args_list[0].args[0]],
+                         ['B8:B8', 'C8:C8', 'D8:D8'])
         values = sheet.batch_update.call_args.args[0]
         self.assertEqual(len(values), 2)
         self.assertEqual(values[0]['values'], [['12-May-2026']])

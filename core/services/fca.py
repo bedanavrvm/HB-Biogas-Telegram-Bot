@@ -1,5 +1,6 @@
 """FCA Excel batch import workflow."""
 from __future__ import annotations
+from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
 
 import base64
 import io
@@ -827,6 +828,7 @@ def append_fca_records_to_sheet(group_config, records: list[FcaImportRecord], sh
     try:
         header_row_number = configured_header_row(workflow)
         headers = [str(value or '').strip() for value in service._sheet.row_values(header_row_number)]
+        NamedColumns(headers)
         values = service._sheet.get_all_values() if hasattr(service._sheet, 'get_all_values') else [headers]
     except Exception as exc:
         logger.error("Failed to read FCA target sheet headers: %s", exc, exc_info=True)
@@ -856,17 +858,18 @@ def append_fca_records_to_sheet(group_config, records: list[FcaImportRecord], sh
         row_values = ['' for _ in headers]
         for field, header in field_headers.items():
             if header in headers:
-                row_values[headers.index(header)] = fields.get(field, '')
+                row_values[(NamedColumns(headers).column(header) - 1)] = fields.get(field, '')
         rows.append(row_values)
 
     try:
         if hasattr(service._sheet, 'append_rows'):
+            assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
             response = service._sheet.append_rows(rows, value_input_option='USER_ENTERED')
         else:
-            responses = [
-                service._sheet.append_row(row, value_input_option='USER_ENTERED')
-                for row in rows
-            ]
+            responses = []
+            for row in rows:
+                assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
+                responses.append(service._sheet.append_row(row, value_input_option='USER_ENTERED'))
             response = responses[0] if responses else {}
         return {
             'success': True,
@@ -928,6 +931,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             raise RuntimeError('Missing Master Data column(s): ' + ', '.join(missing))
 
         values = sheet.get_all_values()
+        original_values = [list(row) for row in values]
         existing = build_fcaup_master_existing_index(values, header_lookup, data_start_row)
         pending_updates = []
         created = updated = duplicates = 0
@@ -1047,6 +1051,8 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 sheet,
                 pending_updates,
                 len(headers),
+                headers=headers, header_row=header_row,
+                previous_values=original_values,
                 date_indexes=master_date_column_indexes(headers),
                 datetime_indexes=master_datetime_column_indexes(headers),
             )
@@ -1201,6 +1207,7 @@ def configured_field_headers(workflow: dict) -> dict[str, str]:
             for field, header in configured.items()
             if str(field).strip() and str(header).strip()
         })
+    NamedColumns(list(headers.values()))
     return headers
 
 

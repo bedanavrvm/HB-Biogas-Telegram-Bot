@@ -18,6 +18,7 @@ HOCC_STAGE_KEYS = {
 GLOBAL_TAT_SHEET_NAME = 'TAT Register'
 GLOBAL_TAT_STAGES = [
     {'key': 'mpesa_to_admin', 'label': 'MPESA sent to Admin', 'column': 11, 'role': 'BRO', 'kind': 'timestamp'},
+    {'key': 'bm_analysis_approval', 'label': 'BM analysis approval', 'sheet_header': 'BM analysis approval', 'column': 0, 'role': 'BM', 'kind': 'dropdown', 'options': ['Approved', 'Declined'], 'auto_timestamp_key': 'bm_analysis_approval_ts', 'requires_signature_certificate': False},
     {'key': 'mpesa_verified', 'label': 'MPESA verified by Business Admin and sent to CA', 'column': 12, 'role': 'BUSINESS_ADMIN', 'kind': 'timestamp'},
     {'key': 'ca_analysis_sent', 'label': 'Credit analysis sent', 'column': 13, 'role': 'CA', 'kind': 'timestamp'},
     {'key': 'bro_response', 'label': 'BRO response to CA', 'column': 14, 'role': 'BRO', 'kind': 'timestamp'},
@@ -38,6 +39,10 @@ GLOBAL_TAT_STAGES = [
 
 def apply_global_register_defaults(config: ProductTatConfiguration) -> ProductTatConfiguration:
     """Apply the governed global-register adapter without exposing JSON editing."""
+    # Existing draft/custom designs are human-owned. Defaults initialise only;
+    # published successors adopt a new step through the explicit rollout.
+    if config.stages:
+        return config
     config.sheet_name = GLOBAL_TAT_SHEET_NAME
     config.remarks_col = 35
     config.status_col = 34
@@ -56,7 +61,6 @@ def apply_global_register_defaults(config: ProductTatConfiguration) -> ProductTa
     config.stage_tat_columns = [
         {
             'stage_key': stage['key'],
-            'fallback_col': 39 + index,
             'aliases': [
                 f"{stage['label']} TAT Minutes",
                 f"{stage['label']} TAT",
@@ -148,6 +152,7 @@ def product_config_from_snapshot(snapshot: dict):
             options=tuple(item.get('options') or ()),
             auto_timestamp_key=str(item.get('auto_timestamp_key') or ''),
             requires_signature_certificate=bool(item.get('requires_signature_certificate', False)),
+            sheet_header=str(item.get('sheet_header') or ''),
         )
         for item in snapshot.get('stages') or []
         if item.get('key')

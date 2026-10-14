@@ -136,12 +136,16 @@ def sheet_targets(records):
 
 
 def _layout(target, values):
+    from core.services.sheet_columns import NamedColumns
     row = target['header_row']
     headers = values[row - 1] if len(values) >= row else []
-    matches = [i for i, name in enumerate(headers)
-               if str(name).strip().casefold() in {h.casefold() for h in target['headers']}]
+    columns = NamedColumns(headers, sheet_name=target['tab'])
+    # These are independent immutable-ID evidence columns, not aliases:
+    # Portal may intentionally expose both its visible Case ID and metadata UUID.
+    matches = [columns.column(name, required=False) for name in target['headers']]
+    matches = [column - 1 for column in matches if column]
     if not matches:
-        raise ValueError('The Sheet needs an immutable record-ID column. No rows were guessed or removed.')
+        raise ValueError('The Sheet needs a named immutable-ID column; no rows were guessed or removed.')
     return matches
 
 
@@ -168,6 +172,9 @@ def remove_rows(target):
     rows = [number for number, row in enumerate(values, 1)
             if number >= target['data_start_row'] and _ids_for_row(row, columns) & identities]
     for number in reversed(rows):
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+        assert_columns_unchanged(sheet, NamedColumns(values[target['header_row'] - 1]),
+                                 header_row=target['header_row'])
         # Staff can edit a Sheet independently of our DB mutex.
         current = sheet.row_values(number)
         if not _ids_for_row(current, columns) & identities:

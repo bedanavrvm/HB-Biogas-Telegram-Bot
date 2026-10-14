@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 def normalize_header(value: Any) -> str:
     """Compare headers without making a presentation-only change look unsafe."""
-    return ' '.join(str(value or '').strip().casefold().split())
+    from core.services.sheet_columns import normalize_column_name
+    return normalize_column_name(value)
 
 
 def normalize_value(value: Any, comparison: str = '') -> str:
@@ -133,8 +134,8 @@ def _schema_outcome(contract: SheetRegisterContract, headers: list[Any]) -> tupl
         for indexes in actual_positions.values()
         if len(indexes) > 1
     })
-    expected_positions = [actual_positions[value][0] for value in expected_normalized if value in actual_positions]
-    reordered = expected_positions != sorted(expected_positions)
+    # Positions are presentation, not field identity. Named columns permit moves.
+    reordered = False
     return missing, duplicates, reordered
 
 
@@ -162,14 +163,12 @@ def assert_registered_schema_before_publish(group_configuration, sheet_name: str
     )
     for contract in contracts:
         missing, duplicates, reordered = _schema_outcome(contract, headers)
-        if missing or duplicates or reordered:
+        if missing or duplicates:
             problems = []
             if missing:
                 problems.append('missing required headers: ' + ', '.join(missing))
             if duplicates:
                 problems.append('duplicate headers: ' + ', '.join(duplicates))
-            if reordered:
-                problems.append('expected headers are reordered')
             raise SheetRegisterSchemaDriftError(
                 f'Register contract {contract.register_key} blocks publication because ' + '; '.join(problems) + '.'
             )
@@ -204,11 +203,8 @@ def _tat_discrepancies(
     headers: list[Any],
     values: list[list[Any]],
 ) -> tuple[int, list[dict[str, str]]]:
-    header_index = {
-        normalize_header(header): index
-        for index, header in enumerate(headers)
-        if normalize_header(header)
-    }
+    from core.services.sheet_columns import NamedColumns
+    header_index = {name: column - 1 for name, column in NamedColumns(headers).lookup().items()}
     key_index = header_index.get(normalize_header(contract.row_key_header))
     if key_index is None:
         return 0, []

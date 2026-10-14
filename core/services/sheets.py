@@ -1,44 +1,13 @@
-"""
-Google Sheets Integration Service
+"""Named Google Sheets gateway for configured workflow projections.
 
-Handles appending rows to a shared Google Sheet.
-- NEVER overwrites existing rows (append-only)
-- Uses message_id for idempotency
-- Safe for concurrent staff edits
+Clients remain scoped by spreadsheet/tab. SheetSchema declares logical fields,
+ownership and explicit aliases; NamedColumns resolves their current physical
+positions and rejects missing, duplicate or ambiguous headers. Writes recheck
+the observed header layout and preserve fields not owned by that operation.
 
-KEY FIXES (v2):
-- GoogleSheetsService is now keyed per sheet_id (_instances dict)
-  instead of a single global singleton.  Each group's sheet gets its
-  own authenticated client, so multi-tenant writes go to the correct
-  sheet.
-- get_instance(sheet_id) / __init__(sheet_id) accept an explicit
-  sheet_id; fall back to settings.GOOGLE_SHEET_ID when None.
-- Module-level helpers (get_sheets_service, append_parsed_message_to_sheet,
-  batch_append_messages) all accept an optional sheet_id parameter and
-  forward it to the correct service instance.
-
-Schema (FIXED — 21 columns):
-  [0]  Complaint ID (formula — DO NOT WRITE)
-  [1]  message_id
-  [2]  Date Reported
-  [3]  Customer Name
-  [4]  Customer ID / Account
-  [5]  Phone Number
-  [6]  JBL Reported By
-  [7]  Branch / Region
-  [8]  Complaint Category
-  [9]  Complaint Description
-  [10] raw_message
-  [11] gps_link
-  [12] image_flag
-  [13] source
-  [14] Loan Status          ← HUMAN
-  [15] Loan at Risk         ← HUMAN
-  [16] Risk Level           ← HUMAN
-  [17] Status               ← HUMAN
-  [18] Resolution Details   ← HUMAN
-  [19] Date Resolved        ← HUMAN
-  [20] Days Open (formula — DO NOT WRITE)
+Django owns workflow state. Complaint append retries use the configured row key;
+updates target that key's existing row. Google cannot atomically compare a schema
+and write cells, so pause structural edits during publication and cleanup.
 """
 import logging
 from datetime import date, datetime
@@ -431,17 +400,12 @@ class GoogleSheetsService:
 
         try:
             actual_header = self._header_values()
+            self._operation_headers = tuple(actual_header)
             if not actual_header:
                 return False, f"Sheet header row {self.header_row} is empty"
 
             normalized_header = [self._normalize_header(h) for h in actual_header]
             expected_header = [self._normalize_header(h) for h in self.sheet_columns]
-
-            if self.schema.strict_headers and normalized_header != expected_header:
-                return False, (
-                    f'Sheet header row {self.header_row} must contain exactly these columns in order: '
-                    + ', '.join(self.sheet_columns)
-                )
 
             duplicates = sorted({
                 h for h in normalized_header
@@ -766,6 +730,7 @@ class GoogleSheetsService:
                 return False
 
             headers = self._header_values()
+            self._operation_headers = tuple(headers)
             row_number = self._row_number_for_record_key(record_key)
             if not row_number:
                 logger.warning(
@@ -864,6 +829,8 @@ class GoogleSheetsService:
             return []
 
         headers = values[self.header_row - 1]
+        from core.services.sheet_columns import NamedColumns
+        columns = NamedColumns(headers, sheet_name=self._sheet_name)
         rows = []
         for row_number, row in enumerate(
             values[self.header_row:],
@@ -871,6 +838,7 @@ class GoogleSheetsService:
         ):
             if not any(str(cell or '').strip() for cell in row):
                 continue
+            columns.validate_row(row)
 
             values_by_header = {}
             for idx, header in enumerate(headers):
@@ -895,6 +863,9 @@ class GoogleSheetsService:
             values = self._column_values_by_header(self.schema.header(self.schema.row_key_field))
             return message_id in values
         except Exception as exc:
+            from core.services.sheet_columns import SheetColumnError
+            if isinstance(exc, SheetColumnError):
+                raise
             logger.error(f"Error checking message existence: {exc}")
             return False  # assume not exists to avoid data loss
 
@@ -902,6 +873,9 @@ class GoogleSheetsService:
         try:
             return set(self._column_values_by_header(self.schema.header(self.schema.row_key_field)))
         except Exception as exc:
+            from core.services.sheet_columns import SheetColumnError
+            if isinstance(exc, SheetColumnError):
+                raise
             logger.error(f"Error reading existing message IDs: {exc}")
             return set()
 
@@ -914,7 +888,8 @@ class GoogleSheetsService:
 
     @staticmethod
     def _normalize_header(header: str) -> str:
-        return " ".join(str(header or "").strip().lower().split())
+        from core.services.sheet_columns import normalize_column_name
+        return normalize_column_name(header)
 
     def _sheet_diagnostics(self, headers: list, missing: list = None) -> str:
         found = [str(header or '').strip() for header in (headers or []) if str(header or '').strip()]
@@ -939,19 +914,15 @@ class GoogleSheetsService:
         return ''.join(parts)
 
     def _header_values(self) -> list:
-        return self._sheet.row_values(self.header_row)
+        from core.services.sheet_columns import NamedColumns
+        headers = self._sheet.row_values(self.header_row)
+        NamedColumns(headers, sheet_name=self._sheet_name)
+        return headers
 
     def _header_index(self, header_name: str) -> Optional[int]:
         """Return the 1-based column index for a header name."""
-        target = self._normalize_header(header_name)
-        headers = self._header_values()
-        for idx, header in enumerate(headers, start=1):
-            if self._normalize_header(header) == target:
-                return idx
-        logger.error(
-            f"Required header {header_name!r} not found in sheet {self._sheet_id}"
-        )
-        return None
+        from core.services.sheet_columns import NamedColumns
+        return NamedColumns(self._header_values(), sheet_name=self._sheet_name).column(header_name)
 
     def _column_values_by_header(self, header_name: str) -> list:
         column_index = self._header_index(header_name)
@@ -966,18 +937,7 @@ class GoogleSheetsService:
         This keeps appends safe when staff move columns around. Unknown extra
         sheet columns are left blank.
         """
-        try:
-            headers = self._header_values()
-        except Exception as exc:
-            logger.error(f"Could not read sheet headers for append: {exc}")
-            return row
-
-        if not headers:
-            logger.error("Could not read sheet headers for append; using internal row order")
-            return row
-        if not isinstance(headers, list):
-            logger.error("Sheet headers were not returned as a list; using internal row order")
-            return row
+        headers = self._header_values()
 
         values_by_header = {
             self._normalize_header(column): row[idx]
@@ -993,6 +953,7 @@ class GoogleSheetsService:
         if not rows:
             return
         headers = self._header_values()
+        self._operation_headers = tuple(headers)
         if not isinstance(headers, list) or not headers:
             raise ValueError("Sheet headers are not available")
 
@@ -1156,6 +1117,7 @@ class GoogleSheetsService:
             reserve_operation,
         )
 
+        self._assert_header_freshness()
         digest = payload_digest((self._sheet_id, self._sheet_name, value_input_option, payload))
         operation, _ = reserve_operation(
             integration='google_sheets',
@@ -1169,6 +1131,7 @@ class GoogleSheetsService:
         )
 
         def write_batch() -> None:
+            self._assert_header_freshness()
             self._sheet.batch_update(
                 payload,
                 value_input_option=value_input_option,
@@ -1227,6 +1190,7 @@ class GoogleSheetsService:
         leaves formula and human workflow columns untouched.
         """
         headers = self._header_values()
+        self._operation_headers = tuple(headers)
         if not isinstance(headers, list) or not headers:
             raise ValueError("Sheet headers are not available")
 
@@ -1301,12 +1265,20 @@ class GoogleSheetsService:
 
         return last_data_row + 1
 
+    def _assert_header_freshness(self) -> None:
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+        headers = getattr(self, '_operation_headers', None)
+        if headers is None:
+            raise ValueError('Resolve named worksheet columns before writing.')
+        assert_columns_unchanged(self._sheet, NamedColumns(headers), header_row=self.header_row)
+
     def _update_range(
         self,
         range_name: str,
         values: list,
         value_input_option: str = 'RAW',
     ) -> None:
+        self._assert_header_freshness()
         try:
             self._sheet.update(
                 range_name,

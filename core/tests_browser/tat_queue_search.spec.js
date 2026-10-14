@@ -13,7 +13,7 @@ async function mount(page, reports = false, native = false) {
   await page.route(/^https?:\/\//, route => route.request().url()==='http://miniapp.test/'
     ? route.fulfill({contentType:'text/html',body:'<!doctype html><html></html>'}) : route.abort());
   if(native)await page.goto('http://miniapp.test/');
-  await page.setContent(`<body>${markup}</body>`);
+  await page.setContent(`<!doctype html><html lang="en-KE"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${markup}</body></html>`);
   for (const name of ['base.css','components.css','tat_tracker.css']) await page.addStyleTag({content:fs.readFileSync(asset(name),'utf8').replace(/^@import[^\r\n]*(?:\r?\n|$)/gm,'')});
   await page.evaluate(({reports,native,reportPanelViews}) => {
     if (native) {
@@ -29,7 +29,7 @@ async function mount(page, reports = false, native = false) {
       window.__calls.push({url,body});
       if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['IT'],capabilities:['tat.home.view','tat.case.search','tat.case.create', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[{key:'business',label:'Training product'}],branches:['Training'],bro_users:window.__emptyRoster?[]:roster,statuses:[],...home({})}};
       if(url.includes('/home/')) { if(body.query==='slow') await new Promise(resolve=>setTimeout(resolve,650)); return {ok:true,data:home(body)}; }
-      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:window.__fields||[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,next_stage:window.__nextStage||summary.next_stage,primary_phone:window.__phone??summary.primary_phone},credit_assessment_enabled:false,can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:window.__fields||[],events:[],timeline:window.__timeline||[]}};
       if(url.includes('/tasks/')) {
         if(window.__taskError)throw new Error('Synthetic network failure');
         const all=Array.from({length:23},(_,i)=>({task_id:String(i),case_id:'TASK-'+i,client_name:'Training '+i,stage_label:'Visit',role:'BRO',unread:window.__unread!==false}));
@@ -138,6 +138,28 @@ test('TAT simplification retains every stage and its action or blocker', async (
   await expect(page.locator('#stageFields .stage-row:visible')).toHaveCount(3);
   await expect(page.getByRole('button',{name:'Save outcome'})).toBeVisible();
   await expect(page.locator('[data-stage-key=credit_ready]')).toContainText('Credit ready');
+});
+
+for (const width of [390, 1280]) test(`BM analysis approval fits the existing stage layout ${width}px`, async ({page}, info) => {
+  await page.setViewportSize({width, height:850});
+  await mount(page);
+  await page.evaluate(() => window.__nextStage = 'BM analysis approval');
+  await page.evaluate(() => window.__fields = [
+    {key:'mpesa_to_admin',label:'MPESA sent to Admin',role:'BRO',kind:'timestamp',value:'14-10-26 09:00',editable:false},
+    {key:'bm_analysis_approval',label:'BM analysis approval',role:'BM',kind:'dropdown',options:['Approved','Declined'],value:'',editable:true},
+    {key:'mpesa_verified',label:'MPESA verified by Business Admin and sent to CA',role:'BUSINESS_ADMIN',kind:'timestamp',value:'',editable:false,locked_reason:'Complete BM analysis approval first.'},
+  ]);
+  await page.locator('#queueList .case-name').click();
+  await expect(page.locator('#creditAssessmentPanel')).toBeHidden();
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Segoe UI');
+  expect(await page.locator('#detailSummary').evaluate(node => getComputedStyle(node).fontFamily)).toContain('Segoe UI');
+  const bm = page.locator('[data-stage-key=bm_analysis_approval]');
+  await expect(bm).toContainText('BM analysis approval');
+  await expect(bm.locator('select')).toBeEnabled();
+  await expect(bm.locator('select option')).toHaveText(['Select outcome...', 'Approved', 'Declined']);
+  await expect(page.locator('[data-stage-key=mpesa_verified]')).toContainText('Complete BM analysis approval first.');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`bm-analysis-${width}.png`),fullPage:true});
 });
 
 test('IT creation and corrections use the complete BRO selector with empty-state retry',async({page})=>{

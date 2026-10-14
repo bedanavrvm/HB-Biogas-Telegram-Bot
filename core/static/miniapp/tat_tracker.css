@@ -1013,6 +1013,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   background: var(--tat-surface);
   box-shadow: var(--shadow);
 }
+.credit-assessment-panel[hidden] { display: none; }
 .credit-assessment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .credit-assessment-head h2 { font-size: 14px; }
 .credit-assessment-head .eyebrow { margin: 0 0 1px; font-size: 9px; }

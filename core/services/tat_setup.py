@@ -26,7 +26,10 @@ def _slug(value: object) -> str:
 
 def stage_editor_rows(version: ProductVersion) -> list[dict]:
     config = getattr(version, 'tat_configuration', None)
-    return [dict(item) for item in (getattr(config, 'stages', None) or [])]
+    from core.services.tat_sheet_schema import STAGE_HEADERS
+    return [{**item, 'sheet_header': item.get('sheet_header') or
+             STAGE_HEADERS.get(item.get('key'), (item.get('label'),))[0]}
+            for item in (getattr(config, 'stages', None) or [])]
 
 
 def setup_readiness(group: GroupSheetConfiguration) -> dict:
@@ -106,28 +109,28 @@ def save_stage_design(
         label = str(raw.get('label') or '').strip()
         role = str(raw.get('role') or '').strip().upper()
         kind = str(raw.get('kind') or 'timestamp').strip().lower()
-        try:
-            column = int(raw.get('column') or 0)
-        except (TypeError, ValueError) as exc:
-            raise TatSetupError(f'Stage {position} needs a valid Sheet column number.') from exc
+        from core.services.sheet_columns import normalize_column_name
+        sheet_header = str(raw.get('sheet_header') or label).strip()
+        column = int(raw.get('column') or 0)  # retained historical metadata only
         if not key or not label or not role:
             raise TatSetupError(f'Stage {position} needs a key, label, and responsible role.')
         if key in keys:
             raise TatSetupError(f'Stage key "{key}" is duplicated.')
-        if column < 1 or column in columns:
-            raise TatSetupError(f'Stage {position} needs a unique positive Sheet column.')
+        normalized_header = normalize_column_name(sheet_header)
+        if not normalized_header or normalized_header in columns:
+            raise TatSetupError(f'Stage {position} needs a unique named Sheet column.')
         if kind not in {'timestamp', 'dropdown'}:
             raise TatSetupError(f'Stage {position} has an unsupported control type.')
         options = [str(value).strip() for value in raw.get('options') or [] if str(value).strip()]
         if kind == 'dropdown' and not options:
             raise TatSetupError(f'Stage {position} is a dropdown and needs at least one option.')
         normalized.append({
-            'key': key, 'label': label, 'column': column, 'role': role, 'kind': kind,
+            'key': key, 'label': label, 'column': column, 'sheet_header': sheet_header, 'role': role, 'kind': kind,
             'options': options, 'auto_timestamp_key': _slug(raw.get('auto_timestamp_key')),
             'requires_signature_certificate': bool(raw.get('requires_signature_certificate', False)),
         })
         keys.add(key)
-        columns.add(column)
+        columns.add(normalized_header)
     config = ProductTatConfiguration.objects.select_for_update().filter(product_version=source).first()
     if not config:
         raise TatSetupError('Configure the product TAT adapter before designing stages.')

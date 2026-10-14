@@ -58,6 +58,8 @@ def load_live_sheet_table(group_config, sheet_tab: str = '') -> dict[str, Any]:
         raise LiveSheetRecordError(f'Header row {header_row} is empty.')
 
     duplicate_headers = _duplicate_headers(headers)
+    from core.services.sheet_columns import NamedColumns
+    named_columns = NamedColumns(headers, sheet_name=tab)
     if duplicate_headers:
         raise LiveSheetRecordError(
             'Duplicate headers must be fixed before editing: '
@@ -68,6 +70,7 @@ def load_live_sheet_table(group_config, sheet_tab: str = '') -> dict[str, Any]:
     system_indexes = _system_identifier_indexes(group_config, headers)
     rows = []
     for row_number in range(header_row + 1, len(display_values) + 1):
+        named_columns.validate_row(_row_at(display_values, row_number))
         values = _pad_row(_row_at(display_values, row_number), len(headers))
         formulas = _pad_row(_row_at(formula_values, row_number), len(headers))
         if not any(str(value or '').strip() for value in values):

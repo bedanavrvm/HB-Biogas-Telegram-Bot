@@ -1,0 +1,109 @@
+TAT BM ANALYSIS APPROVAL AND UNIQUE NAMED SHEET COLUMNS
+Implementation and verification report - 14 October 2026
+
+STATUS
+Implemented in the working tree. Not deployed or activated in production.
+Django remains the source of truth. Existing cases and final standings retain
+their captured stages; this change does not activate draft credit assessment.
+
+LOAN CYCLE
+M-PESA sent to Admin -> BM analysis approval -> Admin verification -> CA.
+BM records Approved or Declined; Django records the completion timestamp.
+Approved advances to Admin. Declined closes the case and stops its clock.
+The later BM response to CA remains a different stage. No new signature gate.
+BM authorization retains current group, branch and product scope. Publication
+adds only the new BM capability through the audited access-control service.
+Targets are configured explicitly; a missing target is timed but not rated.
+
+VERSIONED ROLLOUT
+New configurations include the stage. Existing published products receive an
+explicitly reviewed successor; no historical snapshot is rewritten.
+Preparation is idempotent and preserves lending terms, fees, requirements,
+attributes and existing TAT configuration. Edited prepared drafts are not
+silently published. Expired terms, unrelated drafts, scheduled versions and
+shared published Origination dependencies require explicit review.
+The management command previews by default and requires exact product codes
+and an active Superuser before preparing or publishing.
+
+SHEET SAFETY
+A shared resolver matches unique names after Unicode, case and whitespace
+normalization. Explicit aliases are allowed, but two matching columns fail.
+Missing required names, duplicate mappings and populated unnamed columns fail
+before unsafe reads or writes. Numeric coordinates are derived transport
+positions; old numeric metadata is historical evidence only.
+Header freshness is checked before mutations. Primary TAT publication locates
+the immutable Case ID, not a stale saved row. Duplicate Case IDs stop updates.
+Lost append responses are recovered by immutable identity rather than appending
+another case. Optional audit projection uses Django Event ID for retry recovery.
+Unknown staff columns and formulas are preserved by targeted writes.
+Canonical case creation commits independently of provider delivery and reserves
+the existing durable side-effect dispatches for retry.
+
+AFFECTED AREAS
+- TAT configuration, stage designer, creation, updates, timings, terminal states,
+  Sheet projection and existing report/recognition/routing interfaces.
+- Complaint Sheet gateway and schemas; FCA, SPIN, Jawabu/FarmUp and Master Data
+  imports/publication; order-review adapters and read-only live Sheet registers.
+- Selected-record Sheet cleanup and closed-Pilot purge identity/schema checks.
+- TAT maintenance, Master Data, complaint and both order-maintenance Apps Scripts.
+Master Data remains row 1 headers, row 2 onward data. Metadata stays in its own
+named columns. Duplicate CSV headings are rejected, never silently suffixed.
+Order Sheet permission entries must use names or supported named role groups,
+not letters or numbers. Staff rows are read across the full live tab width.
+
+RETIRED SOURCES
+Removed jbl_apps_script_v5.gs and hocc tracker/script.gs with user approval.
+Their history is recoverable from Git. Repository deletion does not undeploy a
+Google web app or remove installed triggers. No live deployment was touched.
+tat_tracker_apps_script.gs is the supported TAT workbook-maintenance script.
+
+VERIFICATION
+Focused fresh local PostgreSQL: 197 passed, no failures or skips. Includes actual
+concurrent preparation/decisions and scoped authorization, not SQLite substitutes.
+Full TAT intercepted-template browser suite: 59 passed. Covers six viewport
+widths, forms, searches, reports, native-button contracts and the new BM stage.
+Mobile and desktop BM screenshots were visually inspected. A disabled draft
+credit-assessment panel's CSS hiding bug was found and fixed during that review.
+Node contracts, all five Apps Script execution checks and 129 first-party
+JavaScript syntax checks passed. Changed Python files pass pinned Ruff 0.16.5.
+Django check passed; no migration changes detected; git diff --check passed.
+
+Broader SQLite: 562 tests; 527 passed, 28 failures, 6 errors, 1 PostgreSQL-only
+skip. The 34 failing names also fail on unchanged HEAD d09f1e1d. Its comparable
+532-test baseline had 29 failures, 9 errors and 1 skip. These include older TAT
+fixtures/static contracts, SPIN submission, FarmUp identity/date expectations,
+and order-review validation. The repository-wide suite is not claimed green.
+An intermediate overlapping SQLite run hit a harness database lock; the final
+sequential run no longer has that failure. No access gate was weakened.
+
+RESULT FILES
+test-results/named-columns-postgres-final.txt
+test-results/named-columns-broad-final.txt
+test-results/named-columns-broad-baseline.txt
+test-results/named-columns-tat-browser-final.txt
+test-results/named-columns-node-final.txt
+test-results/named-columns-js-syntax.txt
+test-results/named-columns-lint.txt
+test-results/named-columns-django-checks.txt
+Screenshots: test-results/named-columns-tat-browser-final/
+
+ACTIVATION STILL REQUIRED
+1. Deploy through the normal release process.
+2. Manually add unique BM analysis approval, BM analysis approval timestamp and
+   BM analysis approval TAT Minutes headers to each applicable TAT Register.
+3. Review current BM routing and agreed targets. Repair duplicate/ambiguous
+   legacy headers; optional AUDIT LOG requires Event ID.
+4. Preview the read-only named-column audit and selected product rollout.
+5. Review and publish exact selected successors with the approved Superuser.
+6. Disable old Google web apps/triggers and install the supported maintenance
+   script. Verify one new BM case and an unchanged older case.
+Commands and recovery steps: docs/runbooks/named-sheet-columns-and-bm-stage.md
+
+LIMITATIONS AND BOUNDARIES
+No production DB, Sheet, Drive, Telegram, Resend or deployment writes were made.
+Google provides no atomic schema compare-and-write: pause structural edits,
+manual sorting and row moves during publication/cleanup. The checks reduce,
+but cannot eliminate, that provider race. Live workbook headers and physical
+Telegram clients remain unverified. Apps Script tests use a local VM. Local
+Python is 3.14, whereas deployment is pinned to 3.12. The task-owned local
+PostgreSQL cluster was stopped after tests; unrelated databases were untouched.

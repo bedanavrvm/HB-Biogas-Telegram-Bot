@@ -910,7 +910,7 @@ Mary Njeri njihia
         self.assertEqual(result['imported'], 1)
         self.assertEqual(result['duplicate_review'], 0)
         self.assertEqual(len(fake_sheet.appended_rows), 1)
-        self.assertEqual(fake_sheet.row_values_calls, 1)
+        self.assertEqual(fake_sheet.row_values_calls, 2)
         # Sheet data rows are never read for duplicate detection; Django is
         # the canonical identity/index source.
         self.assertEqual(fake_sheet.get_all_values_calls, 0)
@@ -1038,7 +1038,7 @@ John Mwangi
 
         self.assertEqual(result['imported'], 2)
         self.assertEqual(len(fake_sheet.appended_rows), 2)
-        self.assertEqual(fake_sheet.row_values_calls, 1)
+        self.assertEqual(fake_sheet.row_values_calls, 2)
         self.assertEqual(fake_sheet.get_all_values_calls, 0)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
 
@@ -1362,7 +1362,7 @@ Mary Njeri njihia
         from core.services.jawabu_master import import_jawabu_farmers_csv
 
         csv_file = StringIO(
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Contract Sign Date,HBG Visit Date,Created Date,HBG Contract Name,Sales Person\n"
             "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
 
@@ -1416,7 +1416,7 @@ Mary Njeri njihia
         )
 
         csv_text = (
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Contract Sign Date,HBG Visit Date,Created Date,HBG Contract Name,Sales Person\n"
             "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
         batch, stats = create_farmup_review_batch(
@@ -1483,7 +1483,7 @@ Mary Njeri njihia
         )
 
         csv_text = (
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Sales Person\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Contract Sign Date,HBG Visit Date,Sales Person\n"
             "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,Jane Sales\n"
             "Mary Njeri [12345678],,Meru,+254722000000,+254704408282,0,01/05/2026,25/06/2026,Jane Sales\n"
         )
@@ -1636,13 +1636,15 @@ Mary Njeri njihia
 
             def batch_update(self, payload, value_input_option=None, **kwargs):
                 self.update_options.append(value_input_option)
+                import re
                 for item in payload:
-                    row_number = int(item['range'].split(':', 1)[0][1:])
+                    match = re.match(r'([A-Z]+)(\d+)', item['range'])
+                    column = 0
+                    for char in match[1]:
+                        column = column * 26 + ord(char) - 64
                     for offset, row in enumerate(item['values']):
-                        target = row_number + offset
-                        while len(self.values) < target:
-                            self.values.append([])
-                        self.values[target - 1] = list(row)
+                        for index, value in enumerate(row):
+                            self.update_cell(int(match[2]) + offset, column + index, value)
 
         batch = JawabuFarmerUploadBatch.objects.create(
             group_id=self.group.group_id,
@@ -1655,6 +1657,7 @@ Mary Njeri njihia
         result = write_rows_to_master_sheet(
             sheet=sheet,
             headers=headers,
+            header_row=3,
             data_start_row=5,
             batch=batch,
             cleaned_rows=[{
@@ -1672,15 +1675,15 @@ Mary Njeri njihia
         self.assertEqual(result['created'], 1)
         self.assertEqual(result['errors'], [])
         self.assertEqual(headers[1], 'Case ID')
-        self.assertEqual(headers[45:55], MASTER_SYSTEM_HEADERS)
+        self.assertTrue(all(headers.count(name) == 1 for name in MASTER_SYSTEM_HEADERS))
         self.assertEqual(sheet.values[4][1], '84d748d6-abf5-4460-9c65-f72f770a07aa')
         self.assertEqual(sheet.values[4][2], 'DAVID MUGAMBI')
-        self.assertEqual(sheet.values[4][6], '5000')
+        self.assertEqual(str(sheet.values[4][6]), '5000')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'created')
-        self.assertEqual(sheet.update_options, ['RAW'])
+        self.assertEqual(sheet.update_options, ['RAW', 'USER_ENTERED'])
         self.assertTrue(sheet.spreadsheet.requests)
 
-    def test_farmup_master_system_headers_are_repaired_to_fixed_block(self):
+    def test_farmup_master_system_headers_preserve_existing_named_columns(self):
         from core.services.jawabu_master import MASTER_SYSTEM_HEADERS, ensure_master_system_headers
 
         class FakeSpreadsheet:
@@ -1725,11 +1728,11 @@ Mary Njeri njihia
         sheet = FakeSheet()
         headers = ensure_master_system_headers(sheet, 3)
 
-        self.assertEqual(headers[44:54], MASTER_SYSTEM_HEADERS)
-        self.assertEqual(sheet.values[2][40], '')
-        self.assertEqual(sheet.values[2][41], '')
-        self.assertEqual(sheet.values[2][42], '')
-        self.assertEqual(sheet.values[2][44:54], MASTER_SYSTEM_HEADERS)
+        self.assertTrue(all(headers.count(name) == 1 for name in MASTER_SYSTEM_HEADERS))
+        self.assertEqual(sheet.values[2][40], 'Source Row')
+        self.assertEqual(sheet.values[2][41], 'Duplicate Key')
+        self.assertEqual(sheet.values[2][42], 'Import Status')
+        self.assertEqual(sheet.values[2][44], 'Master Record ID')
         self.assertTrue(sheet.spreadsheet.requests)
 
     def test_farmup_master_sheet_writer_flags_conflicts_without_overwriting(self):
@@ -1795,6 +1798,7 @@ Mary Njeri njihia
         result = write_rows_to_master_sheet(
             sheet=sheet,
             headers=headers,
+            header_row=3,
             data_start_row=5,
             batch=batch,
             cleaned_rows=[{
@@ -1807,7 +1811,7 @@ Mary Njeri njihia
             }],
         )
 
-        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['updated'], 1, result.get('errors'))
         self.assertEqual(result['conflicts'], 0)
         self.assertEqual(result['overwritten'], 1)
         self.assertEqual(result['overwrite_details'][0]['row_number'], 5)
@@ -1881,6 +1885,7 @@ Mary Njeri njihia
         result = write_rows_to_master_sheet(
             sheet=sheet,
             headers=headers,
+            header_row=3,
             data_start_row=5,
             batch=batch,
             cleaned_rows=[{
@@ -1893,7 +1898,7 @@ Mary Njeri njihia
             }],
         )
 
-        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['updated'], 1, result.get('errors'))
         self.assertEqual(result['conflicts'], 0)
         self.assertEqual(result['conflict_details'], [])
         self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
@@ -6664,7 +6669,7 @@ NATURE OF THE PROBLEM: No gas supply""",
         from core.services.jawabu_master import import_jawabu_farmers_csv
 
         csv_file = StringIO(
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Contract Sign Date,HBG Visit Date,Created Date,HBG Contract Name,Sales Person\n"
             "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
 

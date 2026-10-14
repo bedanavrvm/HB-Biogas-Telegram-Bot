@@ -33,39 +33,13 @@ const CM = {
   ],
   OWNER_EMAILS: [],
   STALE_DAYS: 7,
-  C: {
-    COMPLAINT_ID: 1,
-    MESSAGE_ID: 2,
-    DATE_REPORTED: 3,
-    CUSTOMER_NAME: 4,
-    CUSTOMER_ID: 5,
-    PHONE: 6,
-    REPORTED_BY: 7,
-    BRANCH: 8,
-    CATEGORY: 9,
-    DESCRIPTION: 10,
-    RAW_MESSAGE: 11,
-    GPS_LINK: 12,
-    IMAGE_FLAG: 13,
-    SOURCE: 14,
-    LOAN_STATUS: 15,
-    LOAN_AT_RISK: 16,
-    RISK_LEVEL: 17,
-    STATUS: 18,
-    RESOLUTION: 19,
-    DATE_RESOLVED: 20,
-    DAYS_OPEN: 21,
+  get C() {
+    return namedColumnObject_(CM.TAB,CM.HEADER_ROW,{"COMPLAINT_ID":"Complaint ID","MESSAGE_ID":"message_id","DATE_REPORTED":"Date Reported","CUSTOMER_NAME":"Customer Name","CUSTOMER_ID":"Customer ID / Account","PHONE":"Phone Number","REPORTED_BY":"JBL Reported By","BRANCH":"Branch / Region","CATEGORY":"Complaint Category","DESCRIPTION":"Complaint Description","RAW_MESSAGE":"raw_message","GPS_LINK":"gps_link","IMAGE_FLAG":"image_flag","SOURCE":"source","LOAN_STATUS":"Loan Status","LOAN_AT_RISK":"Loan at Risk","RISK_LEVEL":"Risk Level","STATUS":"Status","RESOLUTION":"Resolution Details","DATE_RESOLVED":"Date Resolved","DAYS_OPEN":"Days Open"});
   },
-  BOT_COLS: [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 21],
-  REQUIRED: [3, 4, 5, 6, 8, 10, 18],
-  STAFF: {
-    NAME: 1,
-    EMAIL: 2,
-    ROLE: 3,
-    BRANCH: 4,
-    NOTIFY_ON: 5,
-    EDITABLE_COLUMNS: 6,
-    ACTIVE: 7,
+  get BOT_COLS() { const c=this.C; return [c.COMPLAINT_ID,c.MESSAGE_ID,c.DATE_REPORTED,c.CUSTOMER_NAME,c.CUSTOMER_ID,c.PHONE,c.REPORTED_BY,c.BRANCH,c.DESCRIPTION,c.RAW_MESSAGE,c.GPS_LINK,c.IMAGE_FLAG,c.SOURCE,c.DAYS_OPEN]; },
+  get REQUIRED() { const c=this.C; return [c.DATE_REPORTED,c.CUSTOMER_NAME,c.CUSTOMER_ID,c.PHONE,c.BRANCH,c.DESCRIPTION,c.STATUS]; },
+  get STAFF() {
+    return namedColumnObject_(CM.STAFF_TAB,1,{"NAME":"Name","EMAIL":"Email","ROLE":"Role","BRANCH":"Branch","NOTIFY_ON":"Notify On","EDITABLE_COLUMNS":"Editable Columns","ACTIVE":"Active"});
   },
   ROLE_EDIT_GROUPS: {
     SUPPORT: ['Status', 'Resolution Details', 'Date Resolved'],
@@ -197,6 +171,7 @@ function applyComplaintDataValidation_(sh, optionsSheet) {
 }
 
 function applyComplaintOptionsDropdown_(sh, optionsSheet, targetCol, optionsCol) {
+  optionsCol=namedColumn_(optionsSheet,1,CM.OPTION_HEADERS[optionsCol-1]);
   const rows = Math.max(sh.getMaxRows() - CM.DATA_ROW + 1, 1);
   const source = optionsSheet.getRange(2, optionsCol, Math.max(optionsSheet.getMaxRows() - 1, 1), 1);
   sh.getRange(CM.DATA_ROW, targetCol, rows, 1).setDataValidation(
@@ -208,6 +183,7 @@ function applyComplaintOptionsDropdown_(sh, optionsSheet, targetCol, optionsCol)
 }
 
 function applyComplaintFormulaValidation_(sh, col, rows, formula, helpText) {
+  formula=formula.replace(/\$?[A-Z]+\$?\d+/g, complaintColumnLetter_(col)+CM.DATA_ROW);
   sh.getRange(CM.DATA_ROW, col, rows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireFormulaSatisfied(formula)
@@ -228,7 +204,7 @@ function applyComplaintConditionalFormatting_(sh) {
   Object.keys(CM.COLOURS).forEach(status => {
     const style = CM.COLOURS[status];
     rules.push(SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$R3="' + status + '"')
+      .whenFormulaSatisfied('=$'+complaintColumnLetter_(CM.C.STATUS)+CM.DATA_ROW+'="' + status + '"')
       .setBackground(style.bg)
       .setFontColor(style.fg)
       .setRanges([range])
@@ -237,7 +213,7 @@ function applyComplaintConditionalFormatting_(sh) {
   Object.keys(CM.RISK_COLOURS).forEach(risk => {
     const style = CM.RISK_COLOURS[risk];
     rules.push(SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$Q3="' + risk + '"')
+      .whenFormulaSatisfied('=$'+complaintColumnLetter_(CM.C.RISK_LEVEL)+CM.DATA_ROW+'="' + risk + '"')
       .setBackground(style.bg)
       .setFontColor(style.fg)
       .setRanges([range])
@@ -250,8 +226,8 @@ function ensureComplaintDropdownOptionsSheet() {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(CM.OPTIONS_TAB);
   if (!sh) sh = ss.insertSheet(CM.OPTIONS_TAB, ss.getNumSheets());
-  sh.getRange(1, 1, 1, CM.OPTION_HEADERS.length)
-    .setValues([CM.OPTION_HEADERS])
+  ensureUniqueNamedHeaders_(sh, CM.OPTION_HEADERS, 1);
+  sh.getRange(1, 1, 1, sh.getLastColumn())
     .setBackground('#37474F')
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
@@ -272,7 +248,7 @@ function ensureComplaintDropdownOptionsSheet() {
     const data = Array.from({ length: rows }, (_, rowIndex) =>
       defaults.map(values => values[rowIndex] || '')
     );
-    sh.getRange(2, 1, data.length, CM.OPTION_HEADERS.length).setValues(data);
+    writeNamedRows_(sh, 1, CM.OPTION_HEADERS, 2, data);
   }
   return sh;
 }
@@ -282,15 +258,15 @@ function ensureComplaintStaffSheet(showAlert) {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(CM.STAFF_TAB);
   if (!sh) sh = ss.insertSheet(CM.STAFF_TAB, ss.getNumSheets());
-  sh.getRange(1, 1, 1, CM.STAFF_HEADERS.length)
-    .setValues([CM.STAFF_HEADERS])
+  ensureUniqueNamedHeaders_(sh, CM.STAFF_HEADERS, 1);
+  sh.getRange(1, 1, 1, sh.getLastColumn())
     .setBackground('#00695C')
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.setColumnWidths(1, CM.STAFF_HEADERS.length, 180);
   if (sh.getLastRow() < 2) {
-    sh.getRange(2, 1, 3, CM.STAFF_HEADERS.length).setValues([
+    writeNamedRows_(sh, 1, CM.STAFF_HEADERS, 2, [
       ['IT Admin', 'it@example.com', 'IT', 'All', 'all', 'All', 'Yes'],
       ['Manager', 'manager@example.com', 'Manager', 'All', 'stale_digest,status_resolved,status_closed', 'Risk,Resolution', 'Yes'],
       ['Support Staff', 'support@example.com', 'Support', 'All', 'stale_digest,status_resolved', 'Resolution', 'Yes'],
@@ -497,7 +473,8 @@ function runComplaintSearch(query) {
   values.forEach((row, i) => {
     const fields = [CM.C.COMPLAINT_ID, CM.C.MESSAGE_ID, CM.C.CUSTOMER_NAME, CM.C.PHONE, CM.C.CATEGORY, CM.C.DESCRIPTION];
     if (fields.some(col => String(row[col - 1] || '').toLowerCase().includes(q))) {
-      hits.push({ row: CM.DATA_ROW + i, id: row[0], name: row[3], phone: row[5], status: row[17] });
+      const c=CM.C;
+      hits.push({ row: CM.DATA_ROW + i, id: row[c.COMPLAINT_ID-1], name: row[c.CUSTOMER_NAME-1], phone: row[c.PHONE-1], status: row[c.STATUS-1] });
     }
   });
   if (!hits.length) return '<i>No results.</i>';
@@ -612,7 +589,7 @@ function validateComplaintStaffSheetSetup_(showAlert) {
   const sh = SpreadsheetApp.getActive().getSheetByName(CM.STAFF_TAB);
   const result = { activeRows: 0, invalidEmails: 0 };
   if (!sh || sh.getLastRow() < 2) return result;
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, CM.STAFF_HEADERS.length).getValues();
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
   rows.forEach(row => {
     if (normalizeComplaintToken_(row[CM.STAFF.ACTIVE - 1]) !== 'yes') return;
     result.activeRows++;
@@ -633,7 +610,7 @@ function getComplaintStaffEmails_(options) {
   const roles = (opts.roles || []).map(normalizeComplaintToken_);
   const branch = normalizeComplaintToken_(opts.branch || 'All');
   const event = normalizeComplaintToken_(opts.event || 'all');
-  return sh.getRange(2, 1, sh.getLastRow() - 1, CM.STAFF_HEADERS.length).getValues()
+  return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues()
     .filter(row => normalizeComplaintToken_(row[CM.STAFF.ACTIVE - 1]) === 'yes')
     .filter(row => isComplaintEmail_(row[CM.STAFF.EMAIL - 1]))
     .filter(row => complaintRoleMatches_(row[CM.STAFF.ROLE - 1], roles))
@@ -648,7 +625,7 @@ function complaintStaffPermissionMap_() {
   if (!sh || !register || sh.getLastRow() < 2) return {};
   const headers = complaintHeaders_(register);
   const map = {};
-  sh.getRange(2, 1, sh.getLastRow() - 1, CM.STAFF_HEADERS.length).getValues().forEach(row => {
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(row => {
     if (normalizeComplaintToken_(row[CM.STAFF.ACTIVE - 1]) !== 'yes') return;
     const email = String(row[CM.STAFF.EMAIL - 1] || '').trim();
     if (!isComplaintEmail_(email)) return;
@@ -756,4 +733,55 @@ function uniqueComplaintEmails_(values) {
 
 function isComplaintEmail_(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+// Named-column contract: positions below are derived from live unique headers.
+function namedHeaderKey_(value) {
+  return String(value || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function complaintColumnLetter_(column) {
+  let result=''; while(column>0){const remainder=(column-1)%26;result=String.fromCharCode(65+remainder)+result;column=Math.floor((column-1)/26);}
+  return result;
+}
+function namedHeaderMap_(sheet, headerRow) {
+  if (!sheet) throw new Error('The configured worksheet is missing.');
+  const headers=sheet.getRange(headerRow,1,1,Math.max(sheet.getLastColumn(),1)).getDisplayValues()[0];
+  const map=Object.create(null);
+  headers.forEach((value,index)=>{
+    const key=namedHeaderKey_(value);
+    if(!key)return;
+    if(map[key])throw new Error('Duplicate column name: '+value+'. Rename it before continuing.');
+    map[key]=index+1;
+  });
+  return map;
+}
+function namedColumn_(sheet, headerRow, name) {
+  const column=namedHeaderMap_(sheet,headerRow)[namedHeaderKey_(name)];
+  if(!column)throw new Error('Required named column missing: '+name);
+  return column;
+}
+function namedColumnObject_(tab, headerRow, bindings) {
+  const sheet=SpreadsheetApp.getActive().getSheetByName(tab);
+  const map=namedHeaderMap_(sheet,headerRow), columns={};
+  Object.entries(bindings).forEach(([key,name])=>{
+    const column=map[namedHeaderKey_(name)];
+    if(!column)throw new Error('Required named column missing: '+name);
+    columns[key]=column;
+  });
+  return columns;
+}
+function ensureUniqueNamedHeaders_(sheet, names, headerRow) {
+  if(!sheet.getLastRow())sheet.getRange(headerRow,1,1,names.length).setValues([names]);
+  const map=namedHeaderMap_(sheet,headerRow);
+  names.forEach(name=>{if(!map[namedHeaderKey_(name)])throw new Error('Required named column missing: '+name);});
+}
+
+function writeNamedRows_(sheet, headerRow, names, startRow, rows) {
+  const keys=names.map(namedHeaderKey_);
+  if(new Set(keys).size!==keys.length)throw new Error('Configured column names must be unique.');
+  rows.forEach((row,offset)=>{
+    const columns=namedHeaderMap_(sheet,headerRow);
+    names.forEach(name=>{if(!columns[namedHeaderKey_(name)])throw new Error('Required named column missing: '+name);});
+    names.forEach((name,index)=>sheet.getRange(startRow+offset,columns[namedHeaderKey_(name)]).setValue(row[index]));
+  });
 }

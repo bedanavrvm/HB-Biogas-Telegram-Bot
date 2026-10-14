@@ -1,5 +1,6 @@
 """Jawabu HomeBiogas WhatsApp export workflow."""
 from __future__ import annotations
+from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
 
 import hashlib
 import logging
@@ -1041,6 +1042,7 @@ def append_jawabu_records_to_sheet(group_config, records: list[JawabuVisitRecord
 
     if not headers:
         return {'success': False, 'error': 'Header row is empty or unavailable.'}
+    NamedColumns(headers)
 
     field_headers = configured_field_headers(workflow)
     missing_headers = [
@@ -1063,17 +1065,18 @@ def append_jawabu_records_to_sheet(group_config, records: list[JawabuVisitRecord
         fields['review_notes'] = jawabu_review_notes(record)
         for field, header in field_headers.items():
             if header in headers:
-                row_values[headers.index(header)] = fields.get(field, '')
+                row_values[(NamedColumns(headers).column(header) - 1)] = fields.get(field, '')
         rows.append(row_values)
 
     try:
         if hasattr(service._sheet, 'append_rows'):
+            assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
             response = service._sheet.append_rows(rows, value_input_option='USER_ENTERED')
         else:
-            responses = [
-                service._sheet.append_row(row_values, value_input_option='USER_ENTERED')
-                for row_values in rows
-            ]
+            responses = []
+            for row_values in rows:
+                assert_columns_unchanged(service._sheet, NamedColumns(headers), header_row=header_row_number)
+                responses.append(service._sheet.append_row(row_values, value_input_option='USER_ENTERED'))
             response = responses[0] if responses else {}
         return {
             'success': True,
@@ -1107,6 +1110,7 @@ def configured_field_headers(workflow: dict) -> dict[str, str]:
         for field, header in overrides.items()
         if str(field).strip() and str(header).strip()
     })
+    NamedColumns(list(headers.values()))
     return headers
 
 
@@ -1131,7 +1135,8 @@ def header_row_values(values: list[list[str]], workflow: dict) -> list[str]:
     index = configured_header_row(workflow) - 1
     if index < 0 or index >= len(values):
         return []
-    return [str(value or '').strip() for value in values[index]]
+    from core.services.sheet_columns import validate_headers
+    return validate_headers([str(value or '').strip() for value in values[index]])
 
 
 def jawabu_record_id(record: JawabuVisitRecord) -> str:

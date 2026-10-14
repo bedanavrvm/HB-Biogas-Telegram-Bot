@@ -187,24 +187,17 @@ def _sheet_layout(workflow: str, sheet_id: str, sheet_tab: str) -> dict:
             if text.startswith('='):
                 formulas.append([row_index, column_index, text])
 
-    if workflow == WORKFLOW_TAT:
-        id_column = 0
-        data_start_row = 5
-        header_row = 2
-    else:
-        id_column = None
-        header_row = None
-        for row_index, row in enumerate(values[:10], start=1):
-            for column_index, value in enumerate(row):
-                if str(value or '').strip().casefold() in {'request id', 'spin request id'}:
-                    header_row = row_index
-                    id_column = column_index
-                    break
-            if id_column is not None:
-                break
-        if id_column is None:
-            raise RuntimeError('The SPIN Sheet does not expose a Request ID header.')
-        data_start_row = header_row + 1
+    from core.services.sheet_columns import NamedColumns, normalize_column_name
+    names = ('Case ID',) if workflow == WORKFLOW_TAT else ('Request ID', 'SPIN Request ID')
+    candidates = []
+    for row_index, row in enumerate(values[:10], start=1):
+        if any(normalize_column_name(value) in {normalize_column_name(name) for name in names} for value in row):
+            columns = NamedColumns(row, sheet_name=sheet_tab)
+            candidates.append((row_index, columns.column(*names) - 1))
+    if len(candidates) != 1:
+        raise RuntimeError('The Sheet must expose one unambiguous named immutable-ID header row.')
+    header_row, id_column = candidates[0]
+    data_start_row = header_row + 1
 
     configuration = {
         'workflow': workflow,
@@ -394,6 +387,13 @@ def _verify_and_delete_sheet_group(workflow: str, sheet_id: str, sheet_tab: str,
     if not hasattr(layout['sheet'], 'delete_rows'):
         raise RuntimeError('The configured Sheet adapter cannot delete rows.')
     for row_number in delete_rows:
+        from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
+        assert_columns_unchanged(layout['sheet'], NamedColumns(layout['values'][layout['header_row'] - 1]),
+                                 header_row=layout['header_row'])
+        live_row = layout['sheet'].row_values(row_number)
+        identity = str(live_row[layout['id_column']] if len(live_row) > layout['id_column'] else '').strip().lstrip("'")
+        if identity not in target_ids:
+            raise RuntimeError('A selected Sheet row changed before deletion; purge stopped safely.')
         layout['sheet'].delete_rows(row_number)
     verified = _sheet_layout(workflow, sheet_id, sheet_tab)
     remaining = _rows_for_ids(verified, target_ids)
