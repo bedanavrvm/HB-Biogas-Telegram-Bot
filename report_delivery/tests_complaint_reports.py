@@ -164,14 +164,14 @@ class ProjectionTests(SimpleTestCase):
         self.assertEqual(result['comparison']['metrics'], {})
         self.assertIn('exact selected filters', ' '.join(result['notices']))
 
-    def test_all_report_types_render_plaintext_and_at_most_three_graphs(self):
+    def test_all_report_types_render_plaintext_and_at_most_two_graphs(self):
         for preset in ['complaints', 'cmp_tat', 'cmp_open']:
             result = self.project([synthetic_case(1, resolved='2026-09-11T09:00', response='2026-09-10T15:00')], preset)
             snapshot = {**result, 'preset': preset, 'period': {'from': '2026-09-01', 'to': '2026-09-30'},
                         'run_at': self.now.isoformat(), 'total_rows': 1, 'rows': [],
                         'xlsx_content': base64.b64encode(b'synthetic').decode(), 'applied_filters': self.filters}
             payload = build_payload(snapshot, 'synthetic@example.invalid', {})
-            self.assertLessEqual(payload['html'].count('class="report-graph"'), 3)
+            self.assertLessEqual(payload['html'].count('class="report-graph"'), 2)
             self.assertNotIn('Breakdown</h2>', payload['html'])
             if preset != 'cmp_open':
                 self.assertIn(result['email_sections'][0]['title'], payload['text'])

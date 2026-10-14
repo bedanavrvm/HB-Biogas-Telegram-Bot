@@ -103,3 +103,131 @@ class ManagementEmailTests(SimpleTestCase):
         self.assertEqual(duration('Median resolution (hours)', 2), '2.0 hours')
         self.assertEqual(duration('Median TAT (minutes)', 1), 'Under 1 hour')
         self.assertEqual(duration('Median resolution (hours)', 0), '0 hours')
+
+    def cohort_snapshot(self, cases):
+        filters = {'date_from': '2026-10-01', 'date_to': '2026-10-31'}
+        with patch('core.services.complaint_register._apply_report_filters', return_value=object()), \
+                patch('report_delivery.complaint_reports.timed_cases', return_value=iter(cases)):
+            projection = complaint_email_projection(object(), filters, now=stamp('2026-11-02T12:00'))
+        return {**projection, 'preset': 'complaints', 'period': {'from': '2026-10-01', 'to': '2026-10-31'},
+                'applied_filters': filters, 'run_at': '2026-11-02T12:00:00+03:00',
+                'rows': [], 'total_rows': 6, 'xlsx_content': base64.b64encode(b'synthetic').decode()}
+
+    def test_summary_reconciles_new_complaints_older_resolutions_and_current_backlog(self):
+        cases = [synthetic_case(i, reported='2026-10-05T09:00',
+                                resolved='2026-10-11T09:00' if i < 2 else None) for i in range(6)]
+        cases += [synthetic_case(10+i, reported='2026-09-05T09:00',
+                                 resolved='2026-10-11T09:00' if i < 3 else None) for i in range(4)]
+        snapshot = self.cohort_snapshot(cases)
+        self.assertEqual(snapshot['management']['reported_resolved'], 2)
+        self.assertEqual(snapshot['management']['older_resolved'], 3)
+        summary = email_context(snapshot)['summary_sentence']
+        self.assertIn('6 new complaints were reported', summary)
+        self.assertIn('2 of these were resolved', summary)
+        self.assertIn('3 older complaints', summary)
+        self.assertIn('5 complaints remain open overall', summary)
+
+    def test_same_period_closure_is_distinct_and_current_reopening_is_explicit(self):
+        case = synthetic_case(1, reported='2026-10-05T09:00', resolved='2026-10-11T09:00')
+        case.complaint_timing['closures'].append(stamp('2026-10-12T09:00'))
+        case.complaint_status = 'Reopened'
+        case.complaint_timing['reopened'] = [stamp('2026-10-13T09:00')]
+        snapshot = self.cohort_snapshot([case])
+        self.assertEqual(snapshot['management']['reported_resolved'], 1)
+        self.assertEqual(snapshot['management']['resolved_now_reopened'], 1)
+        self.assertEqual(snapshot['management']['open'], 1)
+        self.assertIn('has since reopened', email_context(snapshot)['summary_sentence'])
+
+    def test_following_month_resolution_is_not_attributed_to_reporting_month(self):
+        snapshot = self.cohort_snapshot([synthetic_case(1, reported='2026-10-31T23:59', resolved='2026-11-01T00:00')])
+        self.assertEqual(snapshot['management']['reported_resolved'], 0)
+        self.assertEqual(snapshot['management']['resolved'], 0)
+
+    def test_summary_pairs_activity_with_doughnut_not_attention(self):
+        context = email_context(self.snapshot())
+        self.assertEqual([chart['title'] for chart in context['graph_sections']], ['Reported vs resolved', 'On-time vs late'])
+        self.assertEqual([chart['definition']['type'] for chart in context['graph_sections']], ['line', 'doughnut'])
+        self.assertEqual(len(context['graph_pairs'][0]), 2)
+        payload = build_payload(self.snapshot(), 'management@example.invalid', {})
+        self.assertIn('class="attention-section"', payload['html'])
+        attention = payload['html'].split('class="attention-section"', 1)[1].split('</table>', 1)[0]
+        self.assertNotIn('class="report-graph"', attention)
+
+    def test_unrestricted_subject_has_no_scope_suffix_and_timestamp_is_in_brand(self):
+        snapshot = self.snapshot()
+        snapshot['applied_filters'].pop('branch')
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        self.assertNotIn('All approved cases', payload['subject'])
+        self.assertFalse(payload['subject'].endswith(' / '))
+        brand = payload['html'].split('class="brand-name', 1)[1].split('</td>', 1)[0]
+        self.assertIn('Data as of', brand)
+        stamp = payload['html'].split('class="report-stamp"', 1)[1].split('</p>', 1)[0]
+        self.assertNotIn('Data as of', stamp)
+        self.assertNotIn('<br>', stamp)
+
+    def test_doughnut_renders_semantic_colors_and_rejects_empty_totals(self):
+        from io import BytesIO
+        from PIL import Image
+        from .email_charts import chart_png
+        chart = {'type': 'doughnut', 'labels': ['On time', 'Late'], 'unit': 'complaints',
+                 'datasets': [{'label': 'Complaints', 'values': [3, 2]}], 'colors': ['#168354', '#d14343']}
+        png = chart_png(chart)
+        self.assertIsNotNone(png)
+        colors = Image.open(BytesIO(png)).convert('RGB').getcolors(840 * 440)
+        self.assertTrue(any(color == (22, 131, 84) for _, color in colors))
+        self.assertTrue(any(color == (209, 67, 67) for _, color in colors))
+        chart['datasets'][0]['values'] = [0, 0]
+        self.assertIsNone(chart_png(chart))
+
+    def test_reconciled_counts_cover_period_edges_unknown_dates_and_missing_targets(self):
+        cases = [synthetic_case(1, reported='2026-10-01T00:00', resolved='2026-10-31T23:59', target=None),
+                 synthetic_case(2, reported='2026-09-30T23:59', resolved='2026-10-01T00:00'),
+                 synthetic_case(3, reported='2026-10-31T23:59', resolved='2026-11-01T00:00'),
+                 synthetic_case(4, reported='2026-09-01T09:00', resolved='2026-10-05T09:00')]
+        cases[3].complaint_timing['reported_at'] = None
+        snapshot = self.cohort_snapshot(cases)
+        facts = snapshot['management']
+        self.assertEqual((facts['reported_resolved'], facts['older_resolved'], facts['other_resolved']), (1, 1, 1))
+        self.assertEqual(sum(facts[key] for key in ('reported_resolved', 'older_resolved', 'other_resolved')), facts['resolved'])
+        self.assertIn('1 other complaint', email_context(snapshot)['summary_sentence'])
+
+    def test_historical_snapshot_does_not_invent_same_period_intersection(self):
+        snapshot = self.snapshot()
+        for key in ('reported_resolved', 'older_resolved', 'other_resolved', 'resolved_now_reopened'):
+            snapshot['management'].pop(key, None)
+        summary = email_context(snapshot)['summary_sentence']
+        self.assertNotIn('of these were resolved', summary)
+        self.assertIn('this total can include older complaints', summary)
+
+    def test_chart_axes_are_distinct_from_grid_and_units_remain_explicit(self):
+        from io import BytesIO
+        from PIL import Image
+        from .email_charts import AXIS, GRID, chart_png
+        for kind in ('bar', 'line'):
+            chart = {'type': kind, 'temporal': kind == 'line', 'unit': 'complaints',
+                     'labels': ['1 Oct', '2 Oct'], 'datasets': [{'label': 'Reported', 'values': [0, 3]}]}
+            png = chart_png(chart)
+            colors = dict((color, count) for count, color in Image.open(BytesIO(png)).convert('RGB').getcolors(840 * 440))
+            from PIL import ImageColor
+            self.assertGreater(colors.get(ImageColor.getrgb(AXIS), 0), 1500)
+            self.assertGreater(colors.get(ImageColor.getrgb(GRID), 0), 500)
+
+    def test_compositions_single_category_invalid_and_missing_values(self):
+        from .email_charts import chart_png
+        chart = {'type': 'doughnut', 'unit': 'complaints', 'labels': ['On time', 'Late'],
+                 'datasets': [{'label': 'Complaints', 'values': [3, 0]}]}
+        self.assertIsNotNone(chart_png(chart))
+        for values in ([0, 0], [-1, 2], [None, 2], ['NaN', 2]):
+            chart['datasets'][0]['values'] = values
+            self.assertIsNone(chart_png(chart))
+
+    def test_empty_target_and_zero_duration_have_honest_displays(self):
+        snapshot = self.cohort_snapshot([])
+        payload = build_payload(snapshot, 'management@example.invalid', {})
+        self.assertIn('No resolved complaints with a recorded target.', payload['html'])
+        self.assertNotIn('NaN', payload['html'])
+        snapshot = self.snapshot('cmp_tat')
+        chart = snapshot['email_sections'][0]
+        chart['datasets'][0]['values'] = [0] * len(chart['labels'])
+        context = email_context(snapshot)
+        self.assertFalse(context['graph_sections'][0].get('empty_message'))

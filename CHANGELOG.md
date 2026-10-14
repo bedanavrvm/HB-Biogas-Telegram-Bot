@@ -1,5 +1,18 @@
 # Changelog
 
+## 14 October 2026 - Complaints email layout and reconciled figures
+
+- Needs attention has its own full-width row; two complementary graphs share
+  the next row, with equal desktop dimensions and stacked mobile layouts.
+- Complaint introductions separate new complaints resolved in the same period,
+  older resolutions, current reopenings and the overall open/overdue backlog.
+- Email graphs use Mini App semantic colours, readable units, distinct axes and
+  grid lines, line/marker trends, on-time/response doughnuts and age bars.
+- Moved Data as of under the branding, kept period comparisons on one line,
+  and removed the unrestricted All approved cases subject suffix.
+- Changes affect new captures only. Frozen deliveries, permissions, workbooks,
+  schedule settings and provider retry/idempotency behaviour are unchanged.
+
 ## 14 October 2026 - TAT BM action access and oldest-case names
 
 - Oldest Active Cases leads with the customer's name rather than the reference;

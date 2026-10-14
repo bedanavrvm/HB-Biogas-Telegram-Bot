@@ -1,0 +1,123 @@
+COMPLAINTS EMAIL REPORTS - LAYOUT, CHARTS AND RECONCILED FIGURES
+14 October 2026 | Workspace implementation; not deployed
+
+RESULT
+
+The email retains its 900px desktop width, existing readable text scale and KPI
+comparisons. Needs attention occupies its own full-width row. Two complementary,
+equal-sized graphs share the next row and stack on phones. Tables remain paired
+separately; a graph is not repeated as another table.
+
+Data as of is directly beneath JBL BOT / MANAGEMENT REPORT. The selected and
+comparison dates occupy one row, including narrow/cross-year layouts. The full
+dates remain in the subject, accessible title and plain-text alternative.
+Unrestricted subjects no longer append / All approved cases. Actual branch,
+county or product restrictions still identify the narrower report scope.
+
+COUNT DEFINITIONS
+
+New complaints: reported within the selected Nairobi interval, through the
+captured cutoff for an ongoing period.
+
+New complaints resolved: the intersection of those newly reported complaints
+with distinct complaints having a resolution in the same interval.
+
+Older complaints resolved: reported before the interval, with a resolution
+inside it. Unclassifiable reporting dates form an honest Other count rather
+than being invented as an older or same-period complaint.
+
+Reopened: a complaint with an in-period resolution that is currently open again.
+It retains its resolution activity and also belongs in the current open backlog.
+Repeated closure events count the complaint once in the period total.
+
+Open overall: all currently unresolved complaints in the existing authorized,
+non-date-filtered report scope. The overdue number is a subset of this backlog.
+It is not new complaints minus all resolutions, or reconstructed period-end
+status. The data-as-of stamp identifies when that current state was captured.
+
+Example: 6 new complaints were reported in October 2026. 2 of these were
+resolved in the same period, along with 3 older complaints. 5 complaints remain
+open overall, including 4 overdue.
+
+A complaint reported in October and resolved on 1 November is not an October
+resolution. Older stored snapshots without the new aggregate intersections use
+explicitly labelled totals, never a guessed same-period breakdown.
+
+CHARTS
+
+Summary: Reported vs resolved line/marker trend + on-time/late doughnut.
+Turnaround performance: resolution-time trend + first-response-time trend.
+Open-case follow-up: chronological age bars + response-coverage doughnut.
+
+The default follows the information: trend lines/markers, composition rings,
+ordered distribution bars. One temporal interval uses grouped bars because
+there is no trend to join. Missing points stay missing; a measured zero duration
+is valid. Zero-denominator compositions show a plain empty state, not NaN or 0%.
+
+Reported uses blue, resolved/on-time green, late/no response red, caution amber.
+Cartesian axes are dark and thicker than the lighter grid. Units are explicit;
+count ticks are whole numbers. Doughnuts show counts and percentages and support
+one full-category result. Graph text is larger and legends are compact.
+
+PNG rendering remains offline through the existing Pillow dependency. Logo and
+graphs remain inline CID images. Plain text and Excel retain complete datasets;
+unreadable/failed graphs retain a bounded fallback, never lose the report file.
+There are no app links, remote assets, interactive email tabs or new dependencies.
+
+VERIFICATION
+
+Before the implementation, six regression tests reproduced the reported defects:
+missing cohort counts and reopening distinctions, two bar defaults, absent
+doughnut support, incorrect panel pairing and the unwanted subject suffix.
+Log: test-results/complaint-email-layout-red.txt
+
+PASS: 55 focused presentation/data tests on the final source. Covers same-period
+and cross-month counts, repeated closures, reopening, missing reporting dates,
+target denominators, measured zero durations, graph fallback, semantic colours,
+visible axes/grid, immutable snapshots/workbook bytes and shared email wording.
+Log: test-results/complaint-email-layout-focused-final.txt
+
+PASS: 88 final Chromium email/dialog tests. Summary, Turnaround and Open-case
+follow-up have two complementary graphs, unique panels and equal desktop image
+dimensions. Tested 320, 360, 390, 430, 768 and 1280px where applicable, including
+light/dark modes, shared Portal/TAT headers, retained export selections and
+cross-year date stamps fitting one line. Screenshots were opened and inspected
+for the three presets at mobile/tablet/desktop widths.
+Log: test-results/complaint-email-layout-browser-final.txt
+Screenshots: test-results/complaint-email-layout-browser-final/
+
+PASS: Ruff across report_delivery, JavaScript syntax, Django system checks,
+no migration drift and git diff whitespace checks.
+Log: test-results/complaint-email-layout-checks.txt
+
+PASS: Full report_delivery suite on isolated SQLite: 140 tests, zero failures,
+errors or skips. Includes real database capture/scope checks, frozen-payload
+retries, provider idempotency, schedule/recipient authorization and webhook
+validation. Providers were mocked/disabled. Expected rejection tests produce
+400/404 warnings, not test failures.
+Log: test-results/complaint-email-layout-regression-final.txt
+
+Intermediate runs exposed the retired overview_graph assertion and a mixed
+source/expectation import during parallel editing. The final frozen-source run
+above is clean; no production guard was weakened to obtain that result.
+
+DELIVERY AND ROLLOUT
+
+No database migration, environment change or shell setup is required for these
+changes. Deploy normally; newly generated reports use the revised projection
+and templates. Already frozen deliveries retain their exact payload, attachment
+bytes and provider key on retry. No schedule, recipient approval, scope check,
+workbook cohort, business state or signing workflow was changed.
+
+No production database, Google Sheet, Drive file, Telegram account or Resend
+delivery was mutated. No real test email was sent. Full PostgreSQL/repository
+tests and Python 3.12 deployment were not exercised in this turn; local tests
+used Python 3.14 and synthetic data with provider calls mocked/disabled.
+
+Browser previews verify layout, not Gmail/Outlook certification. Real inbox
+rendering and client-controlled dark-mode inversion need an authorized recipient
+check after deployment. No live delivery is claimed from local screenshots.
+
+Rollback: revert this presentation/projection release for new captures; retain
+all existing schedules, disclosure evidence and frozen payloads. There is no
+schema reversal or destructive cleanup.

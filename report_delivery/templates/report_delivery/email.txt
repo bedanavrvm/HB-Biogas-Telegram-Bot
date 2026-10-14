@@ -1,11 +1,10 @@
 {{ bot_name }} | {{ miniapp_name }} | {{ title }} - {{ frequency }}
-{{ period }}
-Generated {{ generated }}
+Data as of {{ generated }}
+{{ period }}{% if previous_period %} vs {{ previous_period }}{% endif %}
 {% if summary_sentence %}
 {{ summary_sentence }}{% endif %}
 
 Full detail in the attached Excel.
-{% if previous_period %}vs {{ previous_period }}{% endif %}
 
 {{ basis }}
 {% for item in metrics %}

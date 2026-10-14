@@ -10,7 +10,8 @@ Explicitly configured display names are preserved. Existing frozen submissions
 retain their original bytes and attachments on retry.
 
 New subjects use `{TELEGRAM_BOT_DISPLAY_NAME} | {Mini App} | {Report name} -
-{Frequency} | {Timeframe / scope}`. The header identifies the same app/cadence
+{Frequency} | {Timeframe}` with `/ {scope}` only for an actual branch, county or
+product restriction. Unrestricted subjects omit "All approved cases". The header identifies the same app/cadence
 without a long heading. Scheduled cadence is captured in delivery configuration;
 one-off exports say On demand. Only readable branch/county/product scope is
 included, never search/customer values, auth data or numeric group identifiers.
@@ -21,11 +22,14 @@ comments; scheduled duration cells retain numeric two-decimal minute formatting.
 
 The shared fluid email uses up to 900px on desktop: title and date stamp,
 a short factual summary for Complaints overview/Open-case follow-up, attachment
-note, three or four KPIs, Needs attention, up to three complementary complaint
+note, three or four KPIs, full-width Needs attention, two complementary complaint
 charts and top-five tables, then the footer. There is no long verdict paragraph
 or app link in either HTML or plain text. Segoe UI/Helvetica Neue/Arial fallbacks
 use 15px body, 14px tables, 12px KPI labels and 28px numbers (20px duration phrases).
-On phones KPIs form two columns. Nested-table panel pairs stack below 600px;
+The data-as-of timestamp sits directly beneath JBL BOT / MANAGEMENT REPORT.
+Selected and comparison dates share one row, using compact unambiguous ranges
+and a numeric fallback at the narrowest widths. Full dates remain in the subject
+and plain-text alternative. On phones KPIs form two columns. Nested-table panel pairs stack below 600px;
 charts pair with charts, tables with tables, and lone panels use full width.
 Large KES figures use M/B in tiles; exact amounts remain in plain text, Excel
 and the tile's title. A navy structural accent and light dividers replace coloured
@@ -64,7 +68,12 @@ The existing project logo is embedded as a local base64 inline attachment using
 [Resend Content-ID](https://resend.com/changelog/embed-images-using-cid); no
 remote image URL, tracking pixel or new hosting is needed. If the packaged logo
 is unavailable, text branding remains and the report can still be sent.
-Up to three complaint chart panels use offline PNGs with the existing Pillow dependency.
+Two complaint chart panels use offline PNGs with the existing Pillow dependency.
+Activity/resolution/response trends use lines with markers; a single interval
+uses bars. On-time/late and response coverage use doughnuts with counts and
+percentages. Open-case age uses chronological horizontal bars. Blue, green,
+red and amber match the Mini App's meanings. Cartesian axes are darker and
+thicker than the grid; zero-denominator compositions show an honest empty state.
 Graphs have a bounded height (at most 220px at their 420px desktop display width).
 Category/branch counts use a top-five HTML table instead of more large images.
 A successfully rendered graph is not repeated as a table; unreadable/unsupported
@@ -134,18 +143,18 @@ or activating additional schedules. No cross-workflow customer joins are made.
 ### Complaints report choices and comparisons
 
 - **Summary:** Reported and distinct complaints resolved in-period, current Open,
-  on-time rate, median resolution/first HB response with sample sizes. One history
-  panel, on-time/late and first-response charts, paired complaint-type/branch tables. Current open/overdue work appears in Needs
+  on-time rate, median resolution/first HB response with sample sizes. Paired
+  activity and on-time/late charts, then paired complaint-type/branch tables. Current open/overdue work appears in Needs
   attention, not a separate age table.
 - **Turnaround performance:** median resolution/first HB response, on-time rate
-  and distinct reopened complaints. Resolution/first-response/reopening panels, explicit late denominator /
+  and distinct reopened complaints. Paired resolution/first-response charts, explicit late denominator /
   percentage and missing-target counts, and five slowest types with samples.
   The scheduled workbook
   includes cases with resolution, first response or reopening events in-period,
   including cases reported earlier.
 - **Open-case follow-up:** all currently unresolved complaints in the approved
   group/branch, including older cases. Open, Over 14 days, No HB response, oldest
-  age; one age chart, response coverage, overdue complaint types and top five branches
+  age; paired age/response-coverage charts, then overdue-type and top-five-branch tables
   (Open, Overdue, No response yet). The
   scheduled workbook contains currently unresolved cases without date limits.
   This is a current snapshot, never reconstructed period-end backlog.
@@ -155,6 +164,16 @@ Resolved-in-period figure includes older complaints closed in-period. One-off
 Summary workbooks remain the native filtered Excel export. Open panels retain
 non-date selections (branch, type, search, status), but ignore reporting dates.
 Customer-level data stays in Excel, not the email body.
+
+New captures also retain the intersection of newly reported complaints with
+distinct in-period resolutions, older in-period resolutions, resolutions with
+unknown reporting dates, and resolved-in-period complaints currently reopened.
+The short introduction reconciles these counts separately from the current
+open/overdue backlog. Reporting in October and resolution in November is not an
+October resolution. Repeated closures count once per selected period; a later
+reopening is explicitly described and belongs in the current backlog. Historical
+snapshots lacking the intersection use labelled totals, never invented splits.
+These aggregate additions do not change workbook cohorts or authorization.
 
 Closures count a complaint once per reporting bucket; HB comments can be a first
 response, never a resolution. Resolution medians/target rates reuse current Closed

@@ -1,6 +1,8 @@
 <h2 class="email-heading" style="margin:0 0 6px;color:#2e3480;font-size:17px;line-height:1.5">{{ chart.title }}</h2>
-{% if chart.context %}<p class="email-copy" style="margin:0 0 8px;color:#526173;font-size:13px">{{ chart.context }}</p>{% endif %}
-{% if chart.graph %}
+{% if chart.context %}<p class="email-copy panel-context" style="margin:0 0 8px;color:#526173;font-size:13px{% if chart.graph %};min-height:40px{% endif %}">{{ chart.context }}</p>{% endif %}
+{% if chart.empty_message %}
+<p class="email-copy chart-empty" style="margin:0;padding:60px 12px;color:#526173;font-size:14px;text-align:center">{{ chart.empty_message }}</p>
+{% elif chart.graph %}
 <img class="report-graph" src="{{ chart.graph.src }}" width="420" alt="{{ chart.graph.alt }}" style="display:block;width:100%;max-width:420px;height:auto;margin:0;border:0;outline:none">
 <p class="email-copy chart-text" style="margin:6px 0 0;color:#526173;font-size:12px">{{ chart.visible_summary }}</p>
 {% elif chart.single_series %}

@@ -30,7 +30,8 @@ class EmailPolishTests(SimpleTestCase):
         self.assertEqual(median['value'], 'Under 1 hour')
         self.assertTrue(any('8.0 days' in item['text'] and '4 complaints resolved within 24 hours' in item['text'] for item in context['attention']))
         self.assertEqual(context['headline'][0]['label'], 'Resolved on time')
-        self.assertIn('whole period', context['overview_graph']['context'])
+        self.assertIn('full period', context['graph_sections'][0]['context'])
+        self.assertNotIn('overview_graph', context)
 
     def test_target_denominator_percent_and_absolute_colour(self):
         cases = [synthetic_case(i, resolved='2026-10-06T09:00', target=target)
@@ -51,7 +52,7 @@ class EmailPolishTests(SimpleTestCase):
                 before = deepcopy(snapshot)
                 payload = build_payload(snapshot, 'synthetic@example.invalid', {})
                 context = email_context(snapshot)
-                self.assertLessEqual(len(context['graph_sections']), 3)
+                self.assertLessEqual(len(context['graph_sections']), 2)
                 titles = [panel['title'] for panel in context['graph_sections'] + context['table_sections']]
                 self.assertEqual(len(titles), len(set(titles)))
                 attachments = [item for item in payload['attachments'] if item.get('content_id', '').startswith('jawabu-report-chart')]

@@ -177,6 +177,8 @@ def build_payload(snapshot, email, configuration):
     chart_attachments = []
     context['email_graphs'] = []
     for index, section in enumerate(context['graph_sections']):
+        if section.get('empty_message'):
+            continue
         chart = section['definition']
         try:
             content = chart_png(chart)
@@ -195,10 +197,9 @@ def build_payload(snapshot, email, configuration):
         context['email_graphs'].append(section['graph'])
     # Rendering failure changes the display role, not the captured data. Never
     # put a fallback table beside a chart, or render one panel in two slots.
-    rendered = [section for section in context['graph_sections'] if section.get('graph')]
-    context['fallback_sections'] = [section for section in context['graph_sections'] if not section.get('graph')]
-    context['overview_graph'] = rendered[0] if rendered else None
-    context['graph_pairs'] = [rendered[i:i + 2] for i in range(1, len(rendered), 2)]
+    rendered = [section for section in context['graph_sections'] if section.get('graph') or section.get('empty_message')]
+    context['fallback_sections'] = [section for section in context['graph_sections'] if not section.get('graph') and not section.get('empty_message')]
+    context['graph_pairs'] = [rendered[i:i + 2] for i in range(0, len(rendered), 2)]
     try:
         logo = {'filename': 'jawabu-logo.png', 'content_type': 'image/png',
                 'content_id': BRAND_LOGO_ID, 'content': base64.b64encode(BRAND_LOGO_PATH.read_bytes()).decode()}
@@ -332,10 +333,10 @@ def email_context(snapshot, configuration=None):
                         and row.get('product_label')]
             value = matching[0] if matching else 'Selected product'
         friendly_scope.append(' '.join(str(value).split()))
-    context['report_scope'] = ', '.join(friendly_scope) or 'All approved cases'
+    context['report_scope'] = ', '.join(friendly_scope)
     context['subject'] = (f'{context["bot_name"]} | {context["miniapp_name"]} | '
                           f'{context["title"]} - {context["frequency"]} | '
-                          f'{period_text} / {context["report_scope"]}')
+                          f'{period_text}' + (f' / {context["report_scope"]}' if friendly_scope else ''))
     present(snapshot, context)
     return context
 

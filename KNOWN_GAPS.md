@@ -1,5 +1,28 @@
 # Known Gaps and Verified Workarounds
 
+## Complaints email layout and reconciled counts - 14 October 2026
+
+Needs attention is now full-width, followed by two matched chart panels. New
+captures separate same-period new-complaint resolutions, older resolutions and
+current reopenings from the current open/overdue backlog. Shared email headers
+place Data as of below the branding, keep comparison periods on one row and
+omit unrestricted scope text from subjects. No permissions, workbook cohorts,
+schedule settings or frozen delivery payloads are rewritten.
+
+Full report_delivery regression suite on isolated SQLite: 140 passed, no skips.
+Final focused presentation/data checks: 55 passed. Final Chromium email/dialog
+suite: 88 passed, covering the three Complaints presets, shared Portal/TAT
+headers, paired graph dimensions, 320-1280px layouts, cross-year single-row
+stamps and light/dark states. Rendered screenshots were opened and inspected.
+Ruff, JavaScript syntax, Django checks, migration drift and whitespace checks
+pass. Offline PNGs use existing Pillow only; no new dependency or migration.
+
+Actual Gmail/Outlook behaviour, automatic dark-mode image inversion and live
+inbox delivery are not certified by browser previews. No real emails, provider
+writes or production changes were made. PostgreSQL and the full repository
+suite were not rerun for this presentation-only change. Details and logs:
+docs/reports/complaints-email-layout-2026-10-14.txt.
+
 ## TAT BM action access and oldest-case names - 14 October 2026
 
 Three focused tests reproduced the BM/IT denial before the fix. The built-in BM

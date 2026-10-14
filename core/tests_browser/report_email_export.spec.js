@@ -75,6 +75,12 @@ elif snapshot['preset'] in {'month','year'}:
     with patch('core.services.complaint_register._apply_report_filters',return_value=object()), patch('report_delivery.complaint_reports.timed_cases',return_value=iter(cases)):
         snapshot.update(complaint_email_projection(object(),filters,now=stamp('2027-02-01T12:00')))
     snapshot.update(preset='complaints',period={'from':filters['date_from'],'to':filters['date_to']},applied_filters=filters,total_rows=len(cases),exported_rows=len(cases),run_at='2027-02-01T12:00:00+03:00')
+elif snapshot['preset']=='cross_year':
+    from report_delivery.tests_management_email import ManagementEmailTests
+    snapshot=ManagementEmailTests().snapshot()
+    snapshot['period']={'from':'2025-12-20','to':'2026-01-10'}
+    snapshot['management'].update(previous_from='2025-11-28',previous_to='2025-12-19')
+    snapshot['applied_filters'].pop('branch',None)
 payload=build_payload(snapshot,'management@example.invalid',{})
 html=payload['html']
 for attachment in payload['attachments']:
@@ -198,7 +204,7 @@ for(const preset of ['tat','finance','empty','cmp_tat','cmp_open','month','year'
     if(['month','year'].includes(preset)) {
       await expect(page.locator('.report-graph')).toHaveCount(2);
       expect(await page.locator('.report-graph').first().evaluate(img=>img.naturalWidth)).toBe(840);
-      await expect(page.getByText(preset==='month'?'Complaints per day.':'Complaints per month.',{exact:true})).toBeVisible();
+      await expect(page.getByText('Complaints reported and resolved by date. Resolutions include older complaints.',{exact:true})).toBeVisible();
       await expect(page.getByText(/partial bucket|Latest.*bucket/)).toHaveCount(0);
     }
     await page.screenshot({path:info.outputPath(`management-${preset}-${width}.png`),fullPage:true});
@@ -256,11 +262,25 @@ for (const preset of ['polish_overview','polish_tat','polish_open']) for (const 
     const images=page.locator('.report-graph');
     const count=await images.count();
     expect(count).toBeGreaterThanOrEqual(2);
-    expect(count).toBeLessThanOrEqual(3);
+    expect(count).toBe(2);
     const sources=await images.evaluateAll(items=>items.map(item=>item.src));
     expect(new Set(sources).size).toBe(count);
     const headings=await page.locator('h2').allTextContents();
     expect(new Set(headings).size).toBe(headings.length);
+    const attention=page.locator('.attention-section');
+    await expect(attention.locator('.report-graph')).toHaveCount(0);
+    const attentionBox=await attention.boundingBox(),bodyBox=await page.locator('.email-body').boundingBox();
+    expect(attentionBox.width).toBeGreaterThan(bodyBox.width-45);
+    await expect(page.locator('.brand-name .data-as-of')).toContainText('Data as of');
+    await expect(page.locator('.report-stamp br')).toHaveCount(0);
+    const stamp=await page.locator('.report-stamp').evaluate(el=>({height:el.getBoundingClientRect().height,line:parseFloat(getComputedStyle(el).lineHeight),width:el.clientWidth,scroll:el.scrollWidth}));
+    expect(stamp.height).toBeLessThanOrEqual(stamp.line+1);expect(stamp.scroll).toBeLessThanOrEqual(stamp.width);
+    if(width>600) {
+      const charts=await images.evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().toJSON()));
+      expect(Math.abs(charts[0].y-charts[1].y)).toBeLessThan(1);
+      expect(Math.abs(charts[0].width-charts[1].width)).toBeLessThan(1);
+      expect(Math.abs(charts[0].height-charts[1].height)).toBeLessThan(1);
+    }
     await expect(page.locator('.metric-comparison')).toHaveCount(4);
     expect(await page.locator('.metric-content').evaluateAll(items=>Math.max(...items.map(el=>el.offsetHeight))-Math.min(...items.map(el=>el.offsetHeight)))).toBeLessThanOrEqual(1);
     for (const row of await page.locator('.panel-row').all()) {
@@ -282,6 +302,15 @@ for (const preset of ['polish_overview','polish_tat','polish_open']) for (const 
     await page.screenshot({path:info.outputPath(`${preset}-${colorScheme}-${width}.png`),fullPage:true});
   });
 }
+
+for(const width of [320,390,1280])test(`Email cross-year comparison remains one row at ${width}px`,async({page},info)=>{
+  await page.route(/^https?:\/\//,route=>route.abort());await page.setViewportSize({width,height:900});
+  await page.setContent(renderPreview('cross_year'));
+  const stamp=await page.locator('.report-stamp').evaluate(el=>({height:el.offsetHeight,line:parseFloat(getComputedStyle(el).lineHeight),width:el.clientWidth,scroll:el.scrollWidth}));
+  expect(stamp.height).toBeLessThanOrEqual(stamp.line+1);expect(stamp.scroll).toBeLessThanOrEqual(stamp.width);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`cross-year-email-${width}.png`),fullPage:true});
+});
 
 test('Real TAT report header keeps email beside export and strips launch credentials',async({page},info)=>{
   await page.setViewportSize({width:320,height:740});

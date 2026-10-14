@@ -56,6 +56,7 @@ def _in(stamp, start, end):
 
 def _stats(cases, start, end):
     reported, closed, reopened = set(), set(), set()
+    older_closed, other_closed, closed_now_open = set(), set(), set()
     resolution, response, categories = [], [], defaultdict(list)
     on_time = late = no_target = 0
     targets = set()
@@ -65,6 +66,13 @@ def _stats(cases, start, end):
             reported.add(case.pk)
         if any(_in(stamp, start, end) for stamp in facts['closures']):
             closed.add(case.pk)
+            reported_at = facts['reported_at']
+            if reported_at is not None and reported_at < start:
+                older_closed.add(case.pk)
+            elif not _in(reported_at, start, end):
+                other_closed.add(case.pk)
+            if case.complaint_status != 'Closed':
+                closed_now_open.add(case.pk)
         if any(_in(stamp, start, end) for stamp in facts['reopened']):
             reopened.add(case.pk)
         if case.complaint_status == 'Closed' and _in(facts['resolved_at'], start, end) and facts['resolution_hours'] is not None:
@@ -90,7 +98,9 @@ def _stats(cases, start, end):
             'on_time': on_time, 'late': late, 'no_target': no_target,
             'categories': categories, 'targets': sorted(targets, key=Decimal),
             'longest_resolution_hours': max(resolution) if resolution else None,
-            'within_24_hours': sum(value < 24 for value in resolution)}
+            'within_24_hours': sum(value < 24 for value in resolution),
+            'reported_resolved': len(reported & closed), 'older_resolved': len(older_closed),
+            'other_resolved': len(other_closed), 'resolved_now_reopened': len(closed_now_open)}
 
 
 def _category(case):
@@ -215,6 +225,12 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
                                   context='Currently open complaints beyond their recorded target.')
         for section in (response_section, overdue_section):
             section.update(type='bar', presentation='chart')
+        response_section.update(type='doughnut')
+        # _counts sorts by count; colours follow meaning rather than position.
+        response_section['colors'] = ['#168354' if label == 'Response recorded' else '#d14343'
+                                      for label in response_section['labels']]
+        age_section['colors'] = ['#2481cc', '#168354', '#d49a16', '#d14343']
+        overdue_section['presentation'] = 'rows'
         sections += [response_section, overdue_section]
         return {'summary': summary, 'email_sections': sections, 'charts': sections,
                 'comparison': {'label': 'Current snapshot · generated now; no historical open-count comparison.'},
@@ -255,18 +271,17 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
             _counts('Complaints by branch', Counter(_branch(case) for case in reported_cases), top=True, context='Reported in the selected period · top five + Other.')]
         targets = _counts('On-time vs late', {'On time': stats['on_time'], 'Late': stats['late']},
                           context='Resolved complaints with both reliable timing and a recorded target.')
-        targets.update(type='bar', presentation='chart')
+        targets.update(type='doughnut', presentation='chart')
+        targets['colors'] = ['#168354' if label == 'On time' else '#d14343' for label in targets['labels']]
         sections += [targets, _section('First-response time', [label for _, _, label in windows],
             [{'label': 'Hours', 'values': [row['Median HB response (hours)'] for row in history]}],
             kind='chart', context=f'{cadence} median wait for the first recorded HomeBiogas response.', unit='hours')]
     for section in sections:
         if section['presentation'] == 'chart' and section['type'] == 'line':
             section['temporal'] = True
-            if section['unit'] == 'complaints':
-                # Sparse counts are discrete activity, not a continuous trend.
-                values = [value for dataset in section['datasets'] for value in dataset['values']]
-                if sum(bool(value) for value in values) <= max(3, len(values) // 3):
-                    section['type'] = 'bar'
+            if len(section['labels']) == 1:
+                # One interval has no trend to join; show discrete values.
+                section['type'] = 'bar'
     safe_compare = not filters.get('metric') and filters.get('date_basis', 'reported') == 'reported'
     bounded = period_start is not None and period_end is not None
     deltas = {key: _delta(key, current[key], previous[key]) for key in summary if key in current} if safe_compare and bounded else {}
@@ -290,6 +305,8 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
                              'Median HB response (hours)': f"{stats['response_count']} first HB response{'s' if stats['response_count'] != 1 else ''}"},
             'notices': notices,
             'management': {'resolved': stats['Resolved in period'], 'on_time': stats['on_time'],
+                'reported_resolved': stats['reported_resolved'], 'older_resolved': stats['older_resolved'],
+                'other_resolved': stats['other_resolved'], 'resolved_now_reopened': stats['resolved_now_reopened'],
                 'late': stats['late'], 'no_target': stats['no_target'], 'targets_hours': stats['targets'],
                 'resolution_count': stats['resolution_count'], 'response_count': stats['response_count'],
                 'resolution_hours': stats['Median resolution (hours)'], 'open': len(open_cases),

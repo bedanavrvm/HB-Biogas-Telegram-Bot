@@ -23,6 +23,53 @@ def date_range(first, last):
     return f'{left} - {b.day} {b:%b %Y}'
 
 
+def compact_date_range(first, last):
+    """Short, unambiguous stamps that fit paired periods on a phone."""
+    a, b = date.fromisoformat(str(first)[:10]), date.fromisoformat(str(last)[:10])
+    if a == b:
+        return f'{a.day} {a:%b %y}'
+    if (a.year, a.month) == (b.year, b.month):
+        return f'{a.day}-{b.day} {b:%b %y}'
+    left = f'{a.day} {a:%b}' + (f' {a:%y}' if a.year != b.year else '')
+    return f'{left}-{b.day} {b:%b %y}'
+
+
+def _complaint_summary(snapshot, facts):
+    reported = snapshot['summary'].get('Reported', 0)
+    period = snapshot.get('period') or {}
+    filters = snapshot.get('applied_filters') or {}
+    first, last = period.get('from') or filters.get('date_from'), period.get('to') or filters.get('date_to')
+    scope = 'during the selected period'
+    if first and last:
+        a, b = date.fromisoformat(first), date.fromisoformat(last)
+        if a.day == 1 and a.month == b.month and a.year == b.year:
+            from calendar import monthrange
+            if b.day == monthrange(b.year, b.month)[1]:
+                scope = f'in {a:%B %Y}'
+    summary = f'{_count(reported, "new complaint")} {"was" if reported == 1 else "were"} reported {scope}.'
+    if 'reported_resolved' in facts:
+        same, older, other = facts['reported_resolved'], facts['older_resolved'], facts.get('other_resolved', 0)
+        summary += f' {same} of these {"was" if same == 1 else "were"} resolved in the same period'
+        additions = []
+        if older:
+            additions.append(_count(older, 'older complaint'))
+        if other:
+            additions.append(_count(other, 'other complaint'))
+        if additions:
+            summary += ', along with ' + ' and '.join(additions)
+        summary += '.'
+    else:
+        # Historical snapshots never acquire invented cohort intersections.
+        resolved = facts.get('resolved', 0)
+        summary += f' {_count(resolved)} {"was" if resolved == 1 else "were"} resolved {scope}; this total can include older complaints.'
+    reopened = facts.get('resolved_now_reopened', 0)
+    if reopened:
+        summary += f' {_count(reopened, "resolved complaint")} {"has" if reopened == 1 else "have"} since reopened.'
+    opened = facts.get('open', 0)
+    summary += f' {_count(opened)} {"remains" if opened == 1 else "remain"} open overall, including {facts.get("late_open", 0)} overdue.'
+    return summary
+
+
 def duration(label, value):
     if value is None:
         return '—'
@@ -140,13 +187,27 @@ def _prepare_sections(context):
                                          series['values'][i] if i < len(series['values']) else None)
                                  for series in original['definition']['datasets']]
                 row['cells'] = [{'label': 'Median time', 'value': value} for value in row['values']]
-            chart['context'] = ('Typical resolution time for each date; the tile covers the whole period.' if resolution else
-                                'Typical wait for the first recorded HomeBiogas comment or resolution, grouped by response date.')
+            chart['context'] = ('Median resolution time by date; the tile covers the full period.' if resolution else
+                                'Median wait for the first HomeBiogas response, by response date.')
         if raw_title == 'Reported vs resolved':
             definition['temporal'] = True
-            chart['context'] = chart['context'].replace('Distinct complaints', 'Complaints')
+            definition.update(type='line' if len(labels) > 1 else 'bar', colors=['#2481cc', '#168354'])
+            chart['context'] = 'Complaints reported and resolved by date. Resolutions include older complaints.'
+        elif raw_title in {'On-time vs late', 'Response coverage'}:
+            definition.update(type='doughnut', colors=[
+                '#168354' if label in {'On time', 'Response recorded'} else '#d14343' for label in labels])
+            chart['context'] = ('Resolved complaints with a recorded target; no-target cases excluded.' if raw_title == 'On-time vs late'
+                                else 'First recorded HomeBiogas response on currently open complaints.')
+        elif raw_title == 'Open-case age':
+            definition.update(type='bar', colors=['#2481cc', '#168354', '#d49a16', '#d14343'])
+        elif raw_title in {'Resolution time', 'HB response time', 'First-response time'}:
+            definition.update(type='line' if len(labels) > 1 else 'bar',
+                              colors=['#2481cc' if raw_title == 'Resolution time' else '#168354'])
         chart['definition'] = definition
-        chart['label_header'] = ('Branch' if 'branch' in raw_title.lower() else
+        chart['label_header'] = ('Target result' if raw_title == 'On-time vs late' else
+                                 'Response' if raw_title == 'Response coverage' else
+                                 'Age' if raw_title == 'Open-case age' else
+                                 'Branch' if 'branch' in raw_title.lower() else
                                  'Complaint type' if 'type' in raw_title.lower() or 'categor' in raw_title.lower() else 'Period')
         chart['display_headers'] = [{'No HB response': 'No response yet'}.get(header, header) for header in chart['headers']]
         chart['rows_display'] = chart['rows'][:5]
@@ -209,9 +270,9 @@ def present(snapshot, context):
                             ' Targets vary: ' + duration('Median resolution (hours)', targets[0]) + ' - ' + duration('Median resolution (hours)', targets[-1])) + '.'
     sections = _prepare_sections(context)
     choices = {
-        'complaints': (('Reported vs resolved', 'On-time vs late', 'First-response time'), ('Complaint types', 'Complaint categories', 'Complaints by branch')),
-        'cmp_tat': (('Resolution time', 'HB response time', 'Complaints reopened'), ('Slowest complaint types',)),
-        'cmp_open': (('Open-case age', 'Response coverage', 'Overdue complaints by type'), ('Open cases by branch',)),
+        'complaints': (('Reported vs resolved', 'On-time vs late'), ('Complaint types', 'Complaint categories', 'Complaints by branch')),
+        'cmp_tat': (('Resolution time', 'HB response time'), ('Slowest complaint types',)),
+        'cmp_open': (('Open-case age', 'Response coverage'), ('Open cases by branch', 'Overdue complaints by type')),
     }
     graph_titles, table_titles = choices.get(snapshot['preset'], ((), ())) if snapshot.get('email_sections') else ((), ())
     by_key = {section['key']: section for section in sections}
@@ -220,13 +281,27 @@ def present(snapshot, context):
     if not graph_titles:
         graphs = [section for section in sections if section['presentation'] == 'chart'][:1]
         tables = [section for section in sections if section not in graphs][:1]
-    graphs = [section for section in graphs if any(value is not None and value != 0 for series in section['definition']['datasets'] for value in series['values'])]
+    visible_graphs = []
+    for section in graphs:
+        measured = any(value is not None and (value != 0 or section['definition'].get('unit') in {'hours', 'days'})
+                       for series in section['definition']['datasets'] for value in series['values'])
+        if not measured and section['key'] in {'On-time vs late', 'Response coverage', 'Resolution time', 'HB response time'}:
+            section['empty_message'] = {
+                'On-time vs late': 'No resolved complaints with a recorded target.',
+                'Response coverage': 'No open complaints to compare.',
+                'Resolution time': 'No resolution times recorded during this period.',
+                'HB response time': 'No first responses recorded during this period.',
+            }[section['key']]
+        if measured or section.get('empty_message'):
+            visible_graphs.append(section)
+    graphs = visible_graphs
     for table in tables:
         table['rows'] = [row for row in table['rows'] if any(value not in {'0', '—'} for value in row['values'])]
         table['context'] = {'Complaint types': 'Complaints reported in the selected period, by type.',
                             'Complaint categories': 'Complaints reported in the selected period, by type.',
                             'Complaints by branch': 'Complaints reported in the selected period, by branch.',
                             'Open cases by branch': 'Currently open complaints, including older cases.',
+                            'Overdue complaints by type': 'Currently open complaints beyond their recorded target, by type.',
                             'Slowest complaint types': 'Typical resolution time by complaint type; at least two complaints are needed to rate a type.'}.get(table['key'], table['context'])
         if table['key'] == 'Slowest complaint types':
             for row in table['rows']:
@@ -245,10 +320,7 @@ def present(snapshot, context):
     tables = [table for table in tables if table['rows']]
     summary = ''
     if facts and snapshot['preset'] == 'complaints':
-        reported, resolved = snapshot['summary'].get('Reported', 0), facts.get('resolved', 0)
-        summary = f'{_count(reported)} reported and {resolved} resolved during this period.'
-        if facts.get('late_open'):
-            summary += f' {facts["late_open"]} {"remains" if facts["late_open"] == 1 else "remain"} open and overdue.'
+        summary = _complaint_summary(snapshot, facts)
     elif facts and snapshot['preset'] == 'cmp_open':
         n = facts.get('open', 0)
         summary = f'{_count(n)} {"remains" if n == 1 else "remain"} open'
@@ -257,15 +329,25 @@ def present(snapshot, context):
             summary += f' The oldest is {duration("Oldest open (hours)", facts["oldest_open_hours"])} old.'
     previous_period = date_range(facts['previous_from'], facts['previous_to']) if facts.get('previous_from') else ''
     context.update(metrics=list(metrics.values()), headline=headline, headline_width=100 // (len(headline) or 1),
-                   attention=attention[:4], overview_graph=graphs[0] if graphs else None,
-                   graph_sections=graphs[:3], table_sections=tables,
-                   graph_pairs=[graphs[i:i + 2] for i in range(1, len(graphs), 2)],
+                   attention=attention[:4],
+                   graph_sections=graphs[:2], table_sections=tables,
+                   graph_pairs=[graphs[i:i + 2] for i in range(0, len(graphs), 2)],
                    table_pairs=[tables[i:i + 2] for i in range(0, len(tables), 2)],
                    top_table=tables[0] if tables else None, summary_sentence=summary, eligibility_note=eligibility,
-                   text_sections=graphs[:3] + tables if graph_titles else sections,
+                   text_sections=sections,
                    report_url='', previous_period=previous_period, remaining=[], remaining_rows=[],
                    exceptions_available=bool(facts), roomy_headline=False, breakdowns=sections)
     context['current_snapshot'] = snapshot['preset'] == 'cmp_open'
+    period = snapshot.get('period') or {}
+    filters = snapshot.get('applied_filters') or {}
+    first, last = period.get('from') or filters.get('date_from'), period.get('to') or filters.get('date_to')
+    context['period_short'] = compact_date_range(first, last) if first and last and not context['current_snapshot'] else context['period']
+    context['previous_period_short'] = compact_date_range(facts['previous_from'], facts['previous_to']) if previous_period else ''
+    # Numeric fallback keeps even cross-year comparisons on one narrow row.
+    context['period_tiny'] = (f'{date.fromisoformat(first):%d/%m/%y}-{date.fromisoformat(last):%d/%m/%y}'
+                              if first and last and not context['current_snapshot'] else context['period'])
+    context['previous_period_tiny'] = (f'{date.fromisoformat(facts["previous_from"]):%d/%m/%y}-{date.fromisoformat(facts["previous_to"]):%d/%m/%y}'
+                                     if previous_period else '')
     if previous_period:
         context['comparison_label'] = 'vs ' + previous_period
     if facts.get('comparison_cutoff'):
