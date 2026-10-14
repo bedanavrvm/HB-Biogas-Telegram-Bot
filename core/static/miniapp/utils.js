@@ -849,6 +849,40 @@
           control.type = 'tel'; control.inputMode = 'tel'; control.autocomplete ||= 'tel';
         }
         if (control.type === 'file' && !control.labels?.length && !control.hasAttribute('aria-label')) control.setAttribute('aria-label', 'Choose supporting files');
+        if (settings.alignFields && label && control.parentElement === label
+            && label.parentElement.matches('.form-grid,.product-configuration-panel,.assessment-questions')
+            && !['checkbox','radio','hidden'].includes(control.type)
+            && label.querySelectorAll('input,select,textarea').length === 1) {
+          label.parentElement.classList.add('miniapp-aligned-grid');
+          label.classList.add('miniapp-aligned-field');
+          let caption = label.querySelector(':scope > .miniapp-field-caption');
+          if (!caption) {
+            caption = label.querySelector(':scope > span:not(.miniapp-field-feedback)');
+            if (!caption) {
+              caption = document.createElement('span');
+              for (const node of [...label.childNodes]) {
+                if (node === control) break;
+                if (node.nodeType === Node.TEXT_NODE) caption.append(node);
+              }
+              label.prepend(caption);
+            }
+            caption.classList.add('miniapp-field-caption');
+          }
+          // Preserve rich captions (for example numbered analyst questions),
+          // while keeping explanatory notes in the feedback track.
+          for (const node of [...label.childNodes]) {
+            if (node === control) break;
+            if (node !== caption && !(node.nodeType === Node.ELEMENT_NODE && node.matches('small,.miniapp-field-feedback'))) {
+              caption.insertBefore(node, caption.querySelector(':scope > .miniapp-required-mark'));
+            }
+          }
+          let feedback = label.querySelector(':scope > .miniapp-field-feedback');
+          if (!feedback) {
+            feedback = document.createElement('span'); feedback.className = 'miniapp-field-feedback';
+            label.append(feedback);
+          }
+          label.querySelectorAll(':scope > small').forEach(note => feedback.append(note));
+        }
       });
     }
     function messageFor(control) {
@@ -897,7 +931,10 @@
         let output = outputs.get(control);
         if (!output) {
           output = document.createElement('small'); output.className = 'miniapp-field-error';
-          output.id = `${control.id}-error`; control.insertAdjacentElement('afterend', output); outputs.set(control, output);
+          output.id = `${control.id}-error`;
+          const feedback = control.closest('.miniapp-aligned-field')?.querySelector(':scope > .miniapp-field-feedback');
+          if (feedback) feedback.append(output); else control.insertAdjacentElement('afterend', output);
+          outputs.set(control, output);
         }
         output.textContent = String(message); output.hidden = false;
         control.setAttribute('aria-invalid', 'true'); associate(control, output, true);
@@ -978,9 +1015,9 @@
     return /^254[17]\d{8}$/.test(digits) && !digits.startsWith('254199') ? digits : '';
   }
 
-  function installAccessibleForms(root) {
+  function installAccessibleForms(root, options) {
     const scope = root || document;
-    const mount = () => scope.querySelectorAll('form:not([method="dialog"])').forEach(form => bindAccessibleForm(form));
+    const mount = () => scope.querySelectorAll('form:not([method="dialog"])').forEach(form => bindAccessibleForm(form, options));
     mount();
     const observer = new MutationObserver(mount);
     observer.observe(scope === document ? document.body : scope, {childList: true, subtree: true});

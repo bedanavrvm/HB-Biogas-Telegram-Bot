@@ -38,6 +38,16 @@ troubleshooting, read the
 - Use the case reference when requesting support and keep customer personal
   information out of ordinary support chats.
 
+## Search and forms
+
+- Search the current queue by client name, case reference, full National ID,
+  phone, branch or BRO. Branch/name searches accept part of a name and ignore
+  case. Phone accepts Kenyan local or international formats; ID/phone searches
+  match complete identifiers, not fragments. Results remain within your access
+  and the selected queue and filters.
+- Form messages stay beneath their fields. Paired inputs remain aligned even
+  when only one error wraps; all entered values remain available for correction.
+
 ## Reports
 
 - **Current workload** shows cases waiting now and recorded queue history.
@@ -49,6 +59,11 @@ troubleshooting, read the
 - Use **?** for a short explanation of what is counted and how to read it.
   Select a graph point or heatmap cell to narrow the table when case links
   exist; historical queue totals may not have individual case links.
+- Report filters show common case and period choices first. **More options**
+  contains stage, role, target-result, comparison and heatmap choices; its count
+  indicates applied extra choices. The header **?** explains filter guidance.
+  A warning remains visible when an active filter narrows the table but not the
+  current graph. All case stages remain visible; no workflow step was removed.
 - Download Excel offers filtered or all authorized records. Telegram's file
   dialog names the workbook. "Download requested" is not proof it finished;
   check device downloads or use the visible browser-download link. Cancellation

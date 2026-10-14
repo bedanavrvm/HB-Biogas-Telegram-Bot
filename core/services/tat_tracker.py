@@ -637,14 +637,7 @@ def home_data(
     if search_term:
         # Intersect both capabilities; never expand Home access using search.
         queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
-        match = Q(case_id__icontains=search_term) | Q(client_name__icontains=search_term)
-        normalized_id = normalize_national_id(search_term)
-        normalized_phone = normalize_kenyan_phone(search_term)
-        if normalized_id:
-            match |= Q(national_id=normalized_id)
-        if normalized_phone:
-            match |= Q(primary_phone=normalized_phone)
-        queryset = queryset.filter(match)
+        queryset = queryset.filter(_case_search_match(search_term))
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     def selected_values(values, legacy=''):
         source = values if values not in (None, '') else legacy
@@ -828,21 +821,30 @@ def pagination_payload(offset: int, page_size: int, total: int, returned: int) -
     }
 
 
+def _case_search_match(term: str) -> Q:
+    """One matching contract; callers still apply their own visibility scopes."""
+    term = str(term or '').strip()[:120]
+    match = (
+        Q(case_id__icontains=term) | Q(client_name__icontains=term)
+        | Q(branch__icontains=term) | Q(bro_name__icontains=term)
+    )
+    normalized_id = normalize_national_id(term)
+    normalized_phone = normalize_kenyan_phone(term)
+    if normalized_id:
+        match |= Q(national_id=normalized_id)
+    if normalized_phone:
+        match |= Q(primary_phone=normalized_phone)
+    return match
+
+
 def search_cases(group_config, user: dict, query: str) -> list[dict]:
     q = str(query or '').strip()
     if len(q) < 2:
         return []
     workflow = getattr(group_config, 'workflow', None) or {}
-    normalized_id = normalize_national_id(q)
-    normalized_phone = normalize_kenyan_phone(q)
-    query = Q(case_id__icontains=q) | Q(client_name__icontains=q) | Q(branch__icontains=q) | Q(bro_name__icontains=q)
-    if normalized_id:
-        query |= Q(national_id=normalized_id)
-    if normalized_phone:
-        query |= Q(primary_phone=normalized_phone)
     queryset = operational_tat_cases(
         TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
-    ).filter(query)
+    ).filter(_case_search_match(q))
     queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
     from core.services.tat_presentation import business_time_enabled
     include_business_time = business_time_enabled()

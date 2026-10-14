@@ -857,7 +857,6 @@ body.tat-sheet-open { overflow: hidden; }
 }
 #newCaseForm { background:var(--tat-surface); border-top:3px solid var(--tat-accent); }
 #newCaseForm .new-case-grid { background:var(--tat-bg); border:1px solid var(--tat-line); border-radius:var(--radius); padding:8px; }
-#newCaseForm .new-case-grid > label { display:flex; flex-direction:column; justify-content:flex-end; }
 #newCaseForm :is(input,select) { background:var(--tat-surface); border-color:color-mix(in srgb,var(--tat-muted) 30%,transparent); }
 .tat-download-status:empty, .task-inbox-status:empty, #newCaseBroStatus:empty, #correctionBroStatus:empty { display:none; }
 .tat-download-status { margin:0; font-size:11px; overflow-wrap:anywhere; }
@@ -879,7 +878,26 @@ body.tat-sheet-open { overflow: hidden; }
 .new-case-grid > label { min-width: 0; }
 .new-case-grid .new-case-full, .new-case-grid .product-configuration-panel { grid-column: 1 / -1; }
 .amount-range-help { display: block; margin-top: 4px; color: var(--tat-muted); font-size: 10px; font-weight: 600; line-height: 1.35; }
-.new-case-amount-help { grid-column: 2; margin: -2px 0 0; }
+.form-grid > .form-actions { grid-column: 1 / -1; }
+.tat-app .miniapp-aligned-grid { row-gap: 0; }
+.tat-app .miniapp-aligned-field { gap: 0; }
+.tat-app .miniapp-field-feedback small[hidden] { display: none; }
+.tat-filter-help { position: relative; flex: 0 0 auto; align-self: center; }
+.tat-report-filter-sheet > .tat-sheet-header { grid-template-columns: minmax(0,1fr) 32px 44px; gap: 6px; position: sticky; top: 0; z-index: 3; background: var(--tat-surface); }
+.tat-report-filter-sheet > footer { position: sticky; bottom: 0; z-index: 2; background: var(--tat-surface); }
+.tat-report-filter-sheet > .tat-sheet-header > .tat-sheet-close { grid-column: 3; }
+.tat-report-filter-sheet > .tat-sheet-header > .tat-filter-help { grid-column: 2; grid-row: 1; }
+.tat-filter-help > summary { display: grid; place-items: center; width: 32px; height: 32px; margin-left: auto; border: 1px solid var(--tat-line); border-radius: 50%; color: var(--tat-muted); cursor: pointer; list-style: none; font-size: 14px; }
+.tat-filter-help > summary::-webkit-details-marker { display: none; }
+.tat-filter-help p { margin: 6px 0; color: var(--tat-muted); font-size: 11px; line-height: 1.4; }
+.tat-filter-help-content { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: min(250px, calc(100vw - 64px)); padding: 8px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); box-shadow: 0 6px 18px #0002; }
+.tat-filter-help .tat-report-filter-legend { padding: 0; }
+.tat-more-options { border-top: 1px solid var(--tat-line); margin-top: 8px; }
+.tat-more-options > summary { padding: 10px 0; color: var(--tat-text); font-size: 12px; font-weight: 700; cursor: pointer; }
+.tat-more-options > .tat-report-filters { padding-top: 4px; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.tat-more-options .tat-report-filters > label:first-child { grid-column: auto; }
+.tat-more-options:has([data-guidance="unavailable"]) > summary { color: var(--tat-warn); }
+.tat-filter-help summary:focus-visible, .tat-more-options summary:focus-visible { outline: 2px solid var(--tat-accent); outline-offset: 2px; }
 .form-actions { display: flex; margin-top: 4px; }
 .form-actions button { width: 100%; }
 .settings-eyebrow { display: block; color: var(--tat-accent); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }

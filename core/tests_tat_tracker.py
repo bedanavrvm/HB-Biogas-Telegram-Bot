@@ -503,6 +503,49 @@ class TatTrackerWorkflowTest(TestCase):
                     self.assertEqual(result['items'][0]['case_id'], target.case_id)
         self.assertEqual(home_data(self.config, user, queue='all', query='')['pagination']['total'], 15)
 
+    def test_queue_search_branch_phone_and_id_match_within_scope(self):
+        for index, branch in enumerate(['Nakuru', 'Embu']):
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'JBL-MATCH-{index}',
+                product_key='business', product_label='Business', client_name='Synthetic applicant',
+                branch=branch, bro_name='Synthetic Officer', status='Active',
+                national_id='99000001', primary_phone='254712345678',
+                stage_values={'created': timezone.now().isoformat()},
+            )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        for queue in ['role', 'all']:
+            for query in ['99000001', '0712345678', '712345678', '+254 712 345 678',
+                          '  nAkUrU  ', 'nak', 'Synthetic Officer']:
+                with self.subTest(queue=queue, query=query):
+                    data = home_data(self.config, user, queue=queue, query=query)
+                    self.assertEqual(data['pagination']['total'], 1)
+                    self.assertEqual(data['items'][0]['case_id'], 'JBL-MATCH-0')
+                    self.assertEqual([item['case_id'] for item in search_cases(self.config, user, query)], ['JBL-MATCH-0'])
+            for query in ['Embu', '990000', '071234', 'unknown']:
+                with self.subTest(queue=queue, query=query):
+                    self.assertEqual(home_data(self.config, user, queue=queue, query=query)['pagination']['total'], 0)
+
+    def test_queue_search_excludes_deleted_other_groups_products_and_closed_pilots(self):
+        import uuid
+        from core.models import WORKFLOW_DATA_MODE_PILOT
+        base = dict(group_id=self.config.group_id, product_key='business', product_label='Business',
+                    branch='Nakuru', client_name='Synthetic applicant', national_id='99000001',
+                    primary_phone='254712345678', status='Active',
+                    stage_values={'created': timezone.now().isoformat()})
+        for index, changes in enumerate([
+            {}, {'is_deleted': True}, {'group_id': '-100other'}, {'product_key': 'logbook'},
+            {'data_mode': WORKFLOW_DATA_MODE_PILOT, 'pilot_cycle_id': uuid.uuid4()},
+        ]):
+            TatTrackerCase.objects.create(**{**base, **changes, 'case_id': f'JBL-SCOPE-{index}'})
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        for queue in ['role', 'all']:
+            for query in ['99000001', '0712345678', 'Nakuru']:
+                with self.subTest(queue=queue, query=query):
+                    result = home_data(self.config, user, queue=queue, query=query)
+                    self.assertEqual([row['case_id'] for row in result['items']], ['JBL-SCOPE-0'])
+            self.assertEqual(home_data(self.config, user, queue=queue, query='Nakuru', product_keys=['logbook'])['pagination']['total'], 0)
+            self.assertEqual(home_data(self.config, user, queue=queue, query='Nakuru', statuses=['Disbursed'])['pagination']['total'], 0)
+
     def test_target_mirror_health_is_truthful_and_retry_obeys_cooldown(self):
         from core.models import IntegrationOperation
         from core.services.external_resilience import reserve_operation
@@ -939,7 +982,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=102", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=127", template)
 
     def test_credit_assessment_uses_staff_inputs_and_in_app_pdf_preview(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -985,9 +1028,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('class="form-grid new-case-grid"', template)
         self.assertIn('class="new-case-full">Client Name', template)
         self.assertIn('.new-case-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }', stylesheet)
-        self.assertIn('</label>\n          <small id="newCaseAmountHelp"', template)
-        self.assertIn('class="amount-range-help new-case-amount-help"', template)
-        self.assertIn('.new-case-amount-help { grid-column: 2;', stylesheet)
+        self.assertIn('aria-describedby="newCaseAmountHelp"><small id="newCaseAmountHelp"', template)
+        self.assertIn('class="amount-range-help" aria-live="polite" hidden', template)
+        self.assertIn('alignFields: true', source)
         self.assertIn('.target-input-grid {', stylesheet)
         self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr));', stylesheet)
         self.assertIn('class="case-number"', source)
@@ -999,7 +1042,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=65", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=79", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)

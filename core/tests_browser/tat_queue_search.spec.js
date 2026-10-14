@@ -29,7 +29,7 @@ async function mount(page, reports = false, native = false) {
       window.__calls.push({url,body});
       if(url.includes('bootstrap')) return {ok:true,data:{authorized:true,presentation:{report_panel_views:reportPanelViews},user:{name:'Synthetic Officer',roles:['IT'],capabilities:['tat.home.view','tat.case.search','tat.case.create', ...(reports?['tat.reports.view','tat.reports.export',...(reports==='all'?Object.keys(reportPanelViews).map(key=>'tat.reports.insight.'+key):['tat.reports.insight.trend'])]:[])]},products:[{key:'business',label:'Training product'}],branches:['Training'],bro_users:window.__emptyRoster?[]:roster,statuses:[],...home({})}};
       if(url.includes('/home/')) { if(body.query==='slow') await new Promise(resolve=>setTimeout(resolve,650)); return {ok:true,data:home(body)}; }
-      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:[],events:[],timeline:window.__timeline||[]}};
+      if(url.includes('/detail/')) return {ok:true,data:{summary:{...summary,primary_phone:window.__phone??summary.primary_phone},can_correct_details:true,correction_branches:['Training'],correction_bro_users:roster,fields:window.__fields||[],events:[],timeline:window.__timeline||[]}};
       if(url.includes('/tasks/')) {
         if(window.__taskError)throw new Error('Synthetic network failure');
         const all=Array.from({length:23},(_,i)=>({task_id:String(i),case_id:'TASK-'+i,client_name:'Training '+i,stage_label:'Visit',role:'BRO',unread:window.__unread!==false}));
@@ -45,8 +45,9 @@ async function mount(page, reports = false, native = false) {
       const key=body.insight||'trend';chart.id=key;
       chart.interpretation=key==='tat_percentiles' ? 'Median is the middle completion time. P90 is the time within which 90% finished.' : 'Each point shows the last recorded queue size for that period.';
       chart.scope_note='Scope: all records you are allowed to view.';
+      chart.filter_guidance={applicable_filters:['search','branch','product','status'],basis_changing_filters:[],chart_controls:[],unavailable_filters:[{key:'stage',reason:'Stage narrows the table, not this graph.'}]};
       const visiblePanelKeys=Object.keys(reportPanelViews).filter(k=>reportPanelViews[k]===(body.view||'current')&&(reports==='all'||k==='trend'));
-      const result = url.includes('/summary/') ? {response_mode:'focused_v1',metrics:{},filters:{},visible_panel_keys:visiblePanelKeys,charts:{[key]:chart}}
+      const result = url.includes('/summary/') ? {response_mode:'focused_v1',metrics:{},filters:{stages:[['training','Training stage']]},visible_panel_keys:visiblePanelKeys,charts:{[key]:chart}}
         : {results:[{case_id:body.drill_bucket?'TAT-SELECTED':'TAT-ALL',client_name:'Synthetic Applicant'}],count:body.drill_bucket?1:30,stage_columns:[]};
       return new Response(JSON.stringify({ok:true,data:result}));
     };
@@ -79,6 +80,66 @@ test('real TAT queue searches the selected queue, ignores stale responses and pr
   await expect(page.locator('#queueList')).toContainText('Synthetic Applicant');
 });
 
+test('TAT queue sends identifiers and branches in either queue and resets pagination', async ({page}) => {
+  await mount(page);
+  for (const queue of ['all','role']) {
+    await page.locator(`[data-home-queue="${queue}"]`).click();
+    for (const query of ['99000001','0712345678','+254 712 345 678','nAkUrU']) {
+      await page.locator('#queueSearchInput').fill(query);
+      await expect.poll(() => page.evaluate(() => __calls.filter(c=>c.url.includes('/home/')).at(-1).body)).toMatchObject({query,queue,page:1});
+    }
+  }
+});
+
+for (const width of [320,360,390,430,768,1280]) test(`TAT report filters hide specialist controls and keep warnings ${width}px`, async ({page},info) => {
+  await page.setViewportSize({width,height:850}); await mount(page,'all');
+  await page.locator('#dashboardWorkspaceBtn').click();
+  await page.locator('#openTatReportFiltersBtn').click();
+  for (const theme of ['light','dark']) {
+    await page.evaluate(t => document.documentElement.dataset.miniappColorScheme=t,theme);
+    const more=page.locator('#tatReportMoreOptions');
+    await more.evaluate(node=>node.open=false);
+    await expect(page.locator('#tatReportFilters [name=chart_metric]')).toBeHidden();
+    await expect(page.locator('#tatReportFilters [name=branch]')).toBeVisible();
+    await expect(page.locator('.tat-report-filter-legend')).toBeHidden();
+    const helpBox=await page.getByLabel('Help with report filters',{exact:true}).boundingBox();
+    const closeBox=await page.locator('#closeTatReportFiltersBtn').boundingBox();
+    expect(Math.abs(helpBox.y+helpBox.height/2-closeBox.y-closeBox.height/2)).toBeLessThan(4);
+    expect(helpBox.x+helpBox.width).toBeLessThanOrEqual(closeBox.x);
+    await page.getByLabel('Help with report filters',{exact:true}).click();
+    await expect(page.locator('.tat-report-filter-legend')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.getByLabel('Help with report filters',{exact:true}).click();
+    await page.screenshot({path:info.outputPath(`tat-report-filters-${width}-${theme}.png`),fullPage:true});
+    await more.locator('summary').click();
+    await expect(page.locator('#tatReportFilters [name=chart_metric]')).toBeVisible();
+    const footer=await page.locator('#tatReportFilterSheet > footer').boundingBox();
+    expect(footer.y+footer.height).toBeLessThanOrEqual(851);
+    await page.screenshot({path:info.outputPath(`tat-report-more-${width}-${theme}.png`),fullPage:true});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await page.locator('#tatReportFilters [name=stage]').selectOption('training');
+  await expect.poll(()=>page.evaluate(()=>__calls.filter(c=>c.url.includes('/reports/cases/')).at(-1).body.stage)).toBe('training');
+  await expect(page.locator('#tatReportFilterWarning')).toBeVisible();
+  await page.locator('#closeTatReportFiltersBtn').click();
+  await page.locator('#tatReportFilterWarning').click();
+  await expect(page.locator('#tatReportMoreOptions')).toHaveAttribute('open','');
+  await expect(page.locator('[data-report-filter=stage] .report-filter-guidance-note')).toBeVisible();
+});
+
+test('TAT simplification retains every stage and its action or blocker', async ({page}) => {
+  await mount(page);
+  await page.evaluate(()=>window.__fields=[
+    {key:'created',label:'Case created',role:'BRO',value:'01-10-26',editable:false},
+    {key:'bro_applied',label:'Loan applied',role:'BRO',kind:'dropdown',options:['Met'],editable:true},
+    {key:'credit_ready',label:'Credit ready',role:'CA',editable:false,locked_reason:'Complete the loan application first.'},
+  ]);
+  await page.locator('#queueList .case-name').click();
+  await expect(page.locator('#stageFields .stage-row:visible')).toHaveCount(3);
+  await expect(page.getByRole('button',{name:'Save outcome'})).toBeVisible();
+  await expect(page.locator('[data-stage-key=credit_ready]')).toContainText('Credit ready');
+});
+
 test('IT creation and corrections use the complete BRO selector with empty-state retry',async({page})=>{
   await mount(page);
   await page.locator('[data-view="new"]').click();
@@ -91,6 +152,62 @@ test('IT creation and corrections use the complete BRO selector with empty-state
   await expect(page.locator('#caseCorrectionForm [name=bro_name]')).toHaveCount(0);
   await expect(page.locator('#caseCorrectionForm [name=bro_user_id]')).toHaveValue('unchanged');
   await expect(page.locator('#caseCorrectionForm [name=bro_user_id] option')).toHaveCount(4);
+});
+
+for (const width of [320,360,390,430,768,1280]) test(`TAT uneven field errors keep paired inputs aligned ${width}px`, async ({page}, info) => {
+  await page.setViewportSize({width,height:850}); await mount(page);
+  await page.locator('[data-view="new"]').click();
+  const form = page.locator('#newCaseForm');
+  await form.locator('[name=client_name]').fill('Retained applicant');
+  const tops = () => form.locator('[name=national_id],[name=primary_phone]').evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().top));
+  for (const theme of ['light','dark']) {
+    await page.evaluate(t => document.documentElement.dataset.miniappColorScheme=t, theme);
+    await page.evaluate(() => MiniAppUtils.bindAccessibleForm(document.getElementById('newCaseForm')).show({national_id:'Enter a National ID using digits only. Check the identification document before saving.'},false));
+    let y = await tops(); expect(Math.abs(y[0]-y[1])).toBeLessThan(1);
+    const bro = await form.locator('[name=bro_user_id]').boundingBox();
+    const error = await form.locator('.miniapp-field-error:visible').boundingBox();
+    expect(bro.y).toBeGreaterThan(error.y+error.height);
+    await page.screenshot({path:info.outputPath(`tat-uneven-errors-${width}-${theme}.png`),fullPage:true});
+    await page.evaluate(() => MiniAppUtils.bindAccessibleForm(document.getElementById('newCaseForm')).show({national_id:'Check this ID.',primary_phone:'Enter a complete Kenyan phone number, including the area prefix. Do not include words or extensions.'},false));
+    y = await tops(); expect(Math.abs(y[0]-y[1])).toBeLessThan(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await form.locator('[name=national_id]').fill('99000001');
+    await expect(form.locator('[name=national_id]')).not.toHaveAttribute('aria-invalid','true');
+    await form.locator('[name=primary_phone]').fill('0712345678');
+    await expect(form.locator('.miniapp-field-error:visible')).toHaveCount(0);
+    await expect(form.locator('[name=client_name]')).toHaveValue('Retained applicant');
+    y = await tops(); expect(Math.abs(y[0]-y[1])).toBeLessThan(1);
+  }
+});
+
+for (const width of [320,768,1280]) test(`TAT corrections and dynamic requirements preserve error rows ${width}px`, async ({page},info) => {
+  await page.setViewportSize({width,height:850}); await mount(page);
+  await page.locator('#queueList .case-name').click();
+  await page.locator('#correctCaseDetailsBtn').click();
+  await page.evaluate(() => MiniAppUtils.bindAccessibleForm(document.getElementById('caseCorrectionForm')).show({client_name:'Check the full client name against the identification document. Keep the original input until the change is confirmed.',national_id:'Check the ID.'},false));
+  await expect(page.locator('#caseCorrectionForm .miniapp-field-error:visible')).toHaveCount(2);
+  const correction=page.locator('#caseCorrectionForm');
+  const name=await correction.locator('[name=client_name]').boundingBox(), id=await correction.locator('[name=national_id]').boundingBox();
+  if(width>=640)expect(Math.abs(name.y-id.y)).toBeLessThan(1);
+  await page.screenshot({path:info.outputPath(`tat-correction-errors-${width}.png`),fullPage:true});
+  await page.locator('#cancelCaseCorrectionBtn').click();
+  await page.locator('[data-view=new]').click();
+  await page.evaluate(()=>{
+    const panel=document.getElementById('newCaseProductConfiguration');
+    panel.hidden=false;
+    panel.innerHTML='<h3>Product details</h3><label><strong>A long requirement name that wraps over several lines</strong><input name="requirement_one" required><small>Keep this existing help.</small></label><label>Second field<input name="requirement_two" required></label><label>Third field<input name="requirement_three" required></label><label>Fourth field<input name="requirement_four" required></label>';
+  });
+  await expect(page.locator('[name=requirement_one]')).toHaveAttribute('aria-required','true');
+  await expect(page.getByRole('textbox',{name:'A long requirement name that wraps over several lines'})).toHaveCount(1);
+  await page.evaluate(()=>MiniAppUtils.bindAccessibleForm(document.getElementById('newCaseForm')).show({requirement_one:'Check the supplied requirement carefully before saving. This longer error should wrap without covering any neighbouring field.',requirement_two:'Check this field.'},false));
+  const rows=await page.locator('#newCaseProductConfiguration input').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
+  expect(Math.abs(rows[0]-rows[1])).toBeLessThan(1);
+  expect(Math.abs(rows[2]-rows[3])).toBeLessThan(1);
+  const messages=await page.locator('#newCaseProductConfiguration .miniapp-field-error:visible').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().bottom));
+  expect(rows[2]).toBeGreaterThan(Math.max(...messages));
+  await expect(page.locator('#newCaseProductConfiguration')).toContainText('Keep this existing help.');
+  await page.screenshot({path:info.outputPath(`tat-product-errors-${width}.png`),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
 test('personal inbox pages ten, preserves rows on failure and hides a zero unread badge',async({page})=>{

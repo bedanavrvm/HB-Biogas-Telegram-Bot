@@ -6,6 +6,7 @@ or retry rule; code coverage alone is not sufficient evidence.
 
 | Rule | Allowed-path test | Denied/failure-path test |
 |---|---|---|
+| TAT queue search matches identifiers/branches without widening scope | `core.tests_tat_tracker.TatTrackerWorkflowTest.test_queue_search_branch_phone_and_id_match_within_scope` | `test_queue_search_excludes_deleted_other_groups_products_and_closed_pilots`, `test_home_rejects_multi_select_values_outside_authorized_scope` |
 | TAT native export keeps current access and frozen period | `core.tests_tat_tracker.TatTrackerWorkflowTest.test_native_report_download_preserves_period_rechecks_actor_and_keeps_binary_clients` | Same test checks revoked access/tampering; `core.tests_tat_report_presentation.TatReportPresentationPolicyTests.test_download_token_hides_filters_and_rejects_expiry_and_tampering` |
 | BRO corrections use current explicit roster without rewriting history | `core.tests_tat_tracker.TatTrackerWorkflowTest.test_bro_correction_resolves_identity_and_preserves_history` | Same test rejects removed/unknown BROs; `test_it_bootstrap_keeps_explicit_bro_roster_without_inventing_it_assignment` |
 | Personal task counts and paging | `core.tests_tat_notifications.TatPrivateTaskTests.test_personal_inbox_api_pages_ten_and_read_count_is_not_total` | Same test checks invalid paging; browser `personal inbox pages ten, preserves rows on failure and hides a zero unread badge` |

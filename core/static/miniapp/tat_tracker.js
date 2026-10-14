@@ -6,7 +6,7 @@
   const tatFormatters = window.TatMiniAppFormatters || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
-  utils.installAccessibleForms?.();
+  utils.installAccessibleForms?.(document, {alignFields: true});
   let creationDraft = null;
   utils.bindAccessibleForm?.(document.getElementById('newCaseForm'), {validators: {
     national_id: value => /^\d{1,9}$/.test(String(value).trim()) ? '' : 'Enter a National ID using 1 to 9 digits.',
@@ -1884,6 +1884,7 @@
       $('newCaseAmountHelp'),
       selectedNewCaseProduct(),
     );
+    if ($('newCaseAmountHelp')) $('newCaseAmountHelp').hidden = !selectedNewCaseProduct();
     validateNewCaseAmount(false);
   }
 
@@ -3230,6 +3231,11 @@
     const form = $('tatReportFilters');
     $('tatReportDateSummary').textContent = `${formatReportDate(form.elements.date_from.value)} – ${formatReportDate(form.elements.date_to.value)}`;
     const count = active.length;
+    const moreOptions = $('tatReportMoreOptions');
+    if (moreOptions) {
+      const extraCount = [...moreOptions.querySelectorAll('[data-report-filter]')].filter(node => reportFilterIsActive(node.dataset.reportFilter)).length;
+      moreOptions.querySelector('summary').textContent = extraCount ? `More options (${extraCount})` : 'More options';
+    }
     if (form.elements.date_mode.value === 'all') $('tatReportDateSummary').textContent = 'Any time';
     const badge = $('tatReportActiveFilterCount');
     badge.textContent = String(count); badge.hidden = count === 0;
@@ -3238,12 +3244,12 @@
     if (mismatches.length) {
       warning.textContent = `${mismatches.length} active ${mismatches.length === 1 ? 'filter does' : 'filters do'} not affect ${insight.title}. Tap to review.`;
     }
-    $('tatReportFilterTitle').textContent = `Filters for ${insight.title}`;
-    $('tatReportFilterHelp').textContent = 'Highlighted controls affect or configure this insight. Other controls remain available for the table and other insights.';
+    $('tatReportFilterTitle').textContent = 'Report filters';
+    $('tatReportFilterHelp').textContent = 'Choose the cases and period to include.';
   }
 
   function reportFilterSheetElements() {
-    return Array.from($('tatReportFilterSheet').querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    return Array.from($('tatReportFilterSheet').querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(node => node.getClientRects().length);
   }
 
   function openTatReportFilters(trigger) {
@@ -3254,8 +3260,11 @@
     $('tatReportFilterOverlay').setAttribute('aria-hidden', 'false');
     document.body.classList.add('tat-sheet-open');
     $('tatReportFilterSheet').focus();
+    const moreOptions = $('tatReportMoreOptions');
+    if (moreOptions && moreOptions.querySelector('[data-report-filter][data-guidance="unavailable"]')) moreOptions.open = true;
     if (trigger?.id === 'tatReportFilterWarning') {
       window.requestAnimationFrame(() => {
+        if (moreOptions && moreOptions.querySelector('[data-guidance="unavailable"]')) moreOptions.open = true;
         $('tatReportFilters').querySelector('[data-guidance="unavailable"]')?.scrollIntoView?.({ block: 'center' });
       });
     }

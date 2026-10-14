@@ -1,5 +1,35 @@
 # Known Gaps and Verified Workarounds
 
+## TAT form/search verification - 14 October 2026
+
+The form alignment and queue branch-search defects were reproduced before the
+fix. Six red browser checks measured asymmetric error displacement; synthetic
+search inspection distinguished the queue's missing branch match from legacy
+Find Case. TAT now opts into shared caption/input/feedback row tracks; other
+apps retain their existing layout. Full phone/ID matching and current access,
+queue, filters, operational data mode and paging remain enforced.
+
+Focused local PostgreSQL: 16 passed, including identifier formats, branch/BRO
+matching, authorization boundaries, deleted/foreign/product/closed-Pilot cases,
+filters, APIs and paging. Intercepted real-template Chromium: 83 passed across
+320/360/390/430/768/1280px, with light/dark screenshots. Six additional final
+report-header checks cover help/close alignment and collapsed specialist controls.
+Logs are `test-results/tat-*.txt`; screenshots are under
+`test-results/tat-final-20261014` and `test-results/tat-header-final-20261014`.
+
+The broader TAT suite recorded 191 tests with 11 failures/errors. All eleven
+also reproduce on unchanged HEAD `a5fa83ea` (190 tests), covering older static
+UI contracts and legacy creation/correction/approval fixtures. The broad shared
+form browser run's Origination signer-status assertion also fails unchanged
+HEAD; it is not a TAT regression. Baseline logs are retained separately. Do not
+loosen workflow gates or access policies to satisfy these fixtures.
+
+No production Telegram/Google connection, physical device keyboard or older
+non-subgrid WebView was tested. Older WebViews have a single-column layout
+fallback. No schema/configuration change or deployment was performed. Reload
+the Mini App after the normal approved asset deployment; report/stage/scoring
+rules are unchanged.
+
 ## Origination signing/copy verification - 13 October 2026
 
 Local PostgreSQL and intercepted Chromium checks cover short acknowledgement

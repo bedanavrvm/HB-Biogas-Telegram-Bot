@@ -394,6 +394,24 @@ input:focus, select:focus, textarea:focus {
 .miniapp-field-error { display: block; color: var(--miniapp-form-error); font-weight: 600; }
 .miniapp-form :is(.miniapp-field-error,.miniapp-form-notice) { text-transform: none; letter-spacing: normal; }
 .miniapp-field-error[hidden] { display: none !important; }
+/* Opt-in shared rows: a wrapped caption or error grows the entire paired row,
+   without changing input scale or reserving space for errors that do not exist. */
+.miniapp-aligned-grid { row-gap: 0; }
+.miniapp-aligned-grid > :not(.miniapp-aligned-field) { grid-column: 1 / -1; }
+.miniapp-aligned-grid > .miniapp-aligned-field {
+  display: grid; grid-row: span 3; grid-template-rows: subgrid;
+  gap: 0; min-width: 0; padding-bottom: 6px; align-items: start;
+}
+.miniapp-aligned-field > .miniapp-field-caption { grid-row: 1; margin-bottom: 4px; }
+.miniapp-aligned-field > :is(input,select,textarea) { grid-row: 2; min-width: 0; width: 100%; }
+.miniapp-aligned-field > .miniapp-field-feedback { grid-row: 3; min-width: 0; text-transform: none; letter-spacing: normal; }
+.miniapp-field-feedback > small { display: block; margin: 4px 0 0; overflow-wrap: anywhere; }
+.miniapp-field-feedback > small:empty { display: none; }
+@supports not (grid-template-rows: subgrid) {
+  .miniapp-aligned-grid { grid-template-columns: minmax(0,1fr) !important; }
+  .miniapp-aligned-grid > .miniapp-aligned-field { grid-row: auto; grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+  .miniapp-aligned-field > .miniapp-field-caption { margin-bottom: 0; }
+}
 .miniapp-form-notice { margin: 0 0 8px; color: var(--miniapp-form-error); overflow-wrap: anywhere; }
 .miniapp-form-notice:focus { outline: 2px solid var(--accent, #2481cc); outline-offset: 2px; }
 .miniapp-draft-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-bottom: 12px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }

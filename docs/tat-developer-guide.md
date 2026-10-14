@@ -30,6 +30,26 @@ canonical when Google publication fails.
 
 ## Safe extension and validation
 
+Queue and legacy Find Case search share `_case_search_match`, but retain their
+own capability intersection and group/branch/product/data-mode scopes. Matching
+is applied before paging. ID/phone lookup retains the existing normalization
+and exact-match rules; names, references, branches and BRO names use substring
+matching. Do not introduce a search path that widens authorized visibility.
+
+TAT opts into `installAccessibleForms(document, {alignFields: true})`. Existing
+shared validation still owns errors, focus, aria associations and correction.
+Compatible grid labels share caption, input and feedback row tracks; existing
+help and inline errors stay in the same field feedback container. Dynamically
+inserted fields adopt the pattern through the existing form observer. Checkbox
+and mixed-content rows remain full width. Older WebViews without CSS subgrid
+fall back to one column. Other Mini Apps do not opt in implicitly.
+
+Report specialist controls remain inside the same form/API contract, under a
+native More options disclosure. Keyboard focus excludes collapsed controls;
+active non-applicable filters still raise a visible warning and reveal the
+relevant disclosure when the user opens that warning. No reporting basis,
+recognition formula, timer, stage gate or permission policy changes here.
+
 The export POST accepts `prepare_download: true` for an opaque 15-minute link
 and filename; legacy clients still receive XLSX bytes. GET/HEAD on
 `/api/tat-tracker/reports/download/<token>/` rechecks the original active actor's

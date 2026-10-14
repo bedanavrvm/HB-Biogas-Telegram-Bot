@@ -1,5 +1,20 @@
 # Changelog
 
+## 14 October 2026 - TAT form alignment, search and simpler filters
+
+- Paired form inputs stay aligned when labels, help or validation errors wrap.
+  Messages remain beneath their fields without duplicated error lists or lost
+  input. TAT opts into the shared presentation pattern; other apps keep their
+  current layout. Dynamic fields and corrections use the same pattern.
+- Queue search now includes branches and BRO names, using the same matching
+  rules as Find Case. Full ID and Kenyan phone matching, visibility scopes,
+  current queue, filters and ten-case paging are preserved.
+- Shortened create/correction labels and removed repeated guidance. Report
+  filters lead with common choices; specialist controls are under More options,
+  with help beside Close and visible warnings for filters not affecting a graph.
+  All stages remain visible; workflow rules and reporting calculations stay
+  unchanged. No migration, dependency, environment change or deployment.
+
 ## 13 October 2026 - Clearer Origination signing and application copies
 
 - Added application downloads: visibly unsigned before approval, exact signed
