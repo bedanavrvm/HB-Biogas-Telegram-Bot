@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@playwright/mcp": "0.0.78",
-    "playwright": "1.62.1"
+    "playwright": "1.63.0"
   },
   "dependencies": {
     "ag-grid-community": "36.1.0"
