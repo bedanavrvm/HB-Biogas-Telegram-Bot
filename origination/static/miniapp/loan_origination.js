@@ -77,6 +77,7 @@
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
   let activeCameraStream = null;
+  let sheetCleanup = null;
   let mainActionController = null;
   let lastActivatedButton = null;
   let primaryBusy = false;
@@ -667,6 +668,7 @@
   }
 
   function closeSheet({ restoreFocus = true } = {}) {
+    sheetCleanup?.(); sheetCleanup = null;
     window.OriginationSigningCompletion?.active?.dispose();
     const overlay = document.getElementById('origination-sheet-overlay');
     if (!sheetMode && overlay.hidden) return;
@@ -814,13 +816,24 @@
     };
     const typedInput = document.querySelector('[data-test-signature-name]');
     const typedPreview = document.querySelector('[data-test-signature-typed-preview]');
-    typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || (verified ? '' : 'Synthetic Test Signer'); });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    const typedAppearance = window.OriginationSignatureAppearance.mount({
+      input: typedInput, container: typedPreview,
+      request: async values => {
+        const result = await postJson(`/applications/${current.id}/signature-preview/`, {
+          ...values, revision: current.revision, package_id: button.dataset.packageId, test_mode: !verified,
+          signer_role: button.dataset.signerRole, participant_id: button.dataset.participantId || '',
+        });
+        if (!result.ok) throw new Error(result.data?.error || 'Could not load signature preview.');
+        return result.data;
+      },
+    });
+    sheetCleanup = () => typedAppearance.dispose();
+    document.querySelector('[data-sheet-cancel]').onclick = () => { typedAppearance.dispose(); closeSheet(); };
     document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction(verified ? 'Saving signature...' : 'Placing TEST signature...', async () => {
       const drawn = document.querySelector('[data-test-signature-mode="drawn"]').getAttribute('aria-selected') === 'true';
-      const capture = drawn
-        ? { method: 'drawn', strokes: testSignatureStrokes }
-        : { method: 'typed', name: typedInput.value.trim() };
+      let capture;
+      try { capture = drawn ? { method: 'drawn', strokes: testSignatureStrokes } : typedAppearance.capture(); }
+      catch (error) { return setStatus(error.message); }
       if (drawn && !testSignatureStrokes.length) return setStatus(verified ? 'Draw your signature before saving.' : 'Draw the TEST signature before confirming.');
       if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus(verified ? 'Enter your full name using 2 to 120 characters.' : 'Enter a test signer name using 2 to 120 characters.');
       if (verified && current.signing_workspace && !document.querySelector('[data-staff-consent]')?.checked) return setStatus('Confirm that you reviewed and agree to sign the documents.');
@@ -909,10 +922,10 @@
     const mains = replacementMains.map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}" required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF · version ${escapeHtml(item.version)}</small></span></label>`).join('');
     const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"${selectedSupporting.has(item.id) ? ' checked' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>Optional supporting document · version ${escapeHtml(item.version)}</small></span></label>`).join('');
     openSheet({
-      mode: 'restart-laf', eyebrow: current.reference_number, title: 'Restart with another Main LAF',
-      hint: 'A replacement draft will safely prefill matching fields. This draft will then be cancelled. Files, previews, approvals, and signatures are never copied.', trigger,
+      mode: 'restart-laf', eyebrow: current.reference_number, title: 'Change Main LAF',
+      hint: 'Starts a replacement draft with matching answers. Uploads and signatures stay with the current application.', trigger,
       body: `<form id="origination-restart-form" class="sheet-form"><div class="section-title"><div><h3>Main LAF</h3><p>Choose the replacement legal form.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}</form>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Keep this draft</button><button type="submit" form="origination-restart-form" class="btn btn-danger">Cancel and create replacement</button>',
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="submit" form="origination-restart-form" class="btn btn-primary">Change form</button>',
     });
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
     document.getElementById('origination-restart-form').onsubmit = async event => {
@@ -1155,7 +1168,7 @@
     }
     if (current?.form_projection_version === 1) sections = sections.filter(section => fieldsFor(section.key).length);
     const terms = current?.product_terms || {};
-    const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
+    const requirements = [...(terms.requirements || []), ...(current?.identity_copies || [])].filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
     if (requirements.length || attributes.length || (terms.fees || []).some(item => !item.mandatory)) {
       sections.push({
@@ -1283,7 +1296,13 @@
 
   function productConfigurationMarkup(editable) {
     const terms = current?.product_terms || {};
-    const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
+    const requirements = [...(terms.requirements || []), ...(current?.identity_copies || [])].filter(item => !item.workflow || item.workflow === 'loan_origination');
+    for (const file of current?.requirement_evidence || []) {
+      if (['borrower_id_copy','guarantor_1_id_copy','guarantor_2_id_copy'].includes(file.requirement_key)
+          && !requirements.some(item => item.key === file.requirement_key)) {
+        requirements.push({key:file.requirement_key,label:file.requirement_label || 'Earlier ID copy',type:'document',stale_only:true});
+      }
+    }
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
     const commercialV2 = Number(current?.form_schema?.commercial_contract_version || 0) >= 2;
     const optionalFees = commercialV2
@@ -1297,9 +1316,11 @@
       const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('requirement', item.key, item.label) : '';
       if (item.type === 'document') {
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
-        const itemEditable = evidenceEditable && correctionAllows('requirement', item.key);
-        const upload = itemEditable ? `<div class="evidence-upload-actions"><button type="button" class="evidence-upload evidence-camera" data-evidence-camera="${escapeHtml(item.key)}"><span>Take photo</span></button><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
-        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}" data-evidence-name="${escapeHtml(file.filename)}" data-evidence-mime="${escapeHtml(file.mime_type || '')}">View</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
+        const itemEditable = evidenceEditable && !item.stale_only && correctionAllows('requirement', item.key);
+        const upload = itemEditable ? item.identity_role
+          ? `<div class="evidence-upload-actions"><button type="button" class="evidence-upload" data-id-capture="${escapeHtml(item.key)}">Front &amp; back</button><label class="evidence-upload"><input type="file" accept="application/pdf" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF</span></label></div>`
+          : `<div class="evidence-upload-actions"><button type="button" class="evidence-upload evidence-camera" data-evidence-camera="${escapeHtml(item.key)}"><span>Take photo</span></button><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
+        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.identity_changed ? 'ID changed · earlier copy' : file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}" data-evidence-name="${escapeHtml(file.filename)}" data-evidence-mime="${escapeHtml(file.mime_type || '')}">View</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
         return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}</div>`;
       }
       const signingEditable = current?.status === 'reviewed'
@@ -1584,18 +1605,24 @@
         item => item.key === sectionKey.slice('document:'.length),
       );
       const errors = {};
-      (document?.schema?.fields || []).forEach(field => {
+      (document?.schema?.fields || []).filter(field => field.source_type !== 'system'
+        && (current.value_contract_version !== 2 || field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered')
+        && field.editable !== false).forEach(field => {
         if (field.type === 'repeating_group') {
           const container = root()?.querySelector(`[data-repeatable-field="${CSS.escape(field.key)}"]`);
-          const rows = [...(container?.querySelectorAll('[data-repeat-row]') || [])];
+          const rows = container ? [...container.querySelectorAll('[data-repeat-row]')] : (document.field_payload?.[field.key] || []);
           const structure = field.structure || {};
           const minimum = Number(structure.min_items || 0);
           const maximum = Number(structure.max_items || 0);
           if (field.required && rows.length < Math.max(minimum, 1)) errors[field.key] = `Add at least ${Math.max(minimum, 1)} asset`;
           if (maximum && rows.length > maximum) errors[field.key] = `Add no more than ${maximum} assets`;
-          rows.forEach((row, index) => row.querySelectorAll('[data-repeat-column]').forEach(input => {
+          rows.forEach((row, index) => container ? row.querySelectorAll('[data-repeat-column]').forEach(input => {
             if (!errors[field.key] && input.required && !input.value.trim()) errors[field.key] = `Complete row ${index + 1}`;
             if (!errors[field.key] && numericInputError(input)) errors[field.key] = `${numericInputError(input)} Row ${index + 1}.`;
+          }) : (structure.columns || []).forEach(column => {
+            if (!errors[field.key] && column.required && (row[column.key] === undefined || row[column.key] === '')) errors[field.key] = `Complete row ${index + 1}`;
+            const message = window.OriginationFieldRules?.validate(column,row[column.key]);
+            if (!errors[field.key] && message) errors[field.key] = `${message} Row ${index + 1}.`;
           }));
           return;
         }
@@ -1710,6 +1737,23 @@
       return [key, message === 'Required' ? `Complete ${label.toLowerCase()}.` : message];
     }));
     controller.show(readable, focus);
+  }
+
+  function validateSubmission() {
+    const errors = {};
+    for (const section of wizardSections()) {
+      if (section.key !== 'review') Object.assign(errors, sectionErrors(section.key));
+    }
+    if (!Object.keys(errors).length) return true;
+    const first = Object.keys(errors)[0];
+    const index = originationErrorSection(first);
+    if (index >= 0 && index !== step) {
+      current.form_payload = collectPayload();
+      renderEditor(current,index);
+    }
+    showErrors(errors);
+    showToast('Check the highlighted fields before submitting.', 'warning');
+    return false;
   }
 
   function originationErrorSection(key) {
@@ -1846,7 +1890,11 @@
 
   function setSaveState(text, state) {
     const element = document.getElementById('origination-save-status');
-    if (element) { element.textContent = text; element.dataset.state = state; }
+    if (element) {
+      element.textContent = state === 'saved' ? 'Saved' : state === 'dirty' ? 'Not saved'
+        : state === 'offline' ? 'Not saved · retry' : text.startsWith('Uploading') ? text : 'Saving…';
+      element.dataset.state = state;
+    }
   }
 
   function scheduleSave() {
@@ -1904,7 +1952,7 @@
     const sections = wizardSections();
     const section = sections[step];
     const percent = Math.round(((step + 1) / sections.length) * 100);
-    return `<div class="wizard-progress-compact"><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>Step ${step + 1} of ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
+    return `<div class="wizard-progress-compact"><div class="wizard-section-row"><button type="button" class="icon-button" id="section-previous" aria-label="Previous section" ${step === 0 ? 'disabled' : ''}>${iconSvg('arrowLeft')}</button><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>${step + 1} / ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><button type="button" class="icon-button" id="section-next" aria-label="Next section" ${step === sections.length - 1 ? 'disabled' : ''}>${iconSvg('arrowRight')}</button></div><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
   }
 
   function hasFinalSignedPacket() {
@@ -2073,8 +2121,7 @@
   }
 
   function actionMarkup(editable) {
-    if (current.signing_workspace && !editable) return current.signing_workspace.can_recall
-      ? '<button class="btn btn-secondary" id="origination-recall">Withdraw for changes</button>' : '';
+    if (current.signing_workspace && !editable) return '';
     if (!editable) {
       const officerOwnsApplication = capabilities.can_create
         && String(current.officer_id) === String(capabilities.user_id);
@@ -2108,7 +2155,7 @@
       : capabilities.can_confirm_signing
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
       : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit application">Submit application</button>';
-    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : finalAction}`;
+    return step === wizardSections().length - 1 ? finalAction : '';
   }
 
   function correctionChecklistMarkup() {
@@ -2133,9 +2180,9 @@
   function recoveryConflictMarkup() {
     if (!syncConflict || !conflictDraft) return '';
     if (!conflictServerLoaded) {
-      return '<aside class="notice recovery-conflict"><strong>Refreshing the saved draft</strong><span>Your encrypted phone copy is safe. The latest server revision must load before either copy can be selected.</span><div><button type="button" class="btn btn-secondary" id="recovery-retry-refresh">Retry refresh</button></div></aside>';
+      return '<aside class="notice recovery-conflict"><strong>Could not load the saved draft</strong><span>Your changes are kept.</span><button type="button" class="btn btn-secondary" id="recovery-retry-refresh">Retry</button></aside>';
     }
-    return `<aside class="notice recovery-conflict"><strong>Two draft revisions need your choice</strong><span>The encrypted phone draft was based on revision ${escapeHtml(conflictDraft.revision)}; the server is now revision ${escapeHtml(current.revision)}. Nothing has been overwritten.</span><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Use server version</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Restore phone draft</button></div></aside>`;
+    return '<aside class="notice recovery-conflict"><strong>A newer draft was saved</strong><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Load saved</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Keep my changes</button></div></aside>';
   }
 
   function persistentStateFeedbackMarkup() {
@@ -2179,7 +2226,7 @@
     const archive = approved && verified.archive_status !== 'uploaded' ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Documents need saving' : 'Saving documents'}</strong>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-secondary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry saving</button>` : ''}</aside>` : '';
     const details = (current.form_schema?.sections || []).map(section => `<details><summary>${escapeHtml(section.label)}</summary>${sectionFieldsMarkup(section.key, current.form_payload || {}, false)}</details>`).join('');
     const history = (current.activity || []).map(event => `<p><strong>${escapeHtml(event.label)}</strong><small>${escapeHtml(event.actor)} · ${escapeHtml(new Date(event.at).toLocaleString('en-KE'))}</small></p>`).join('') || '<p>No activity yet.</p>';
-    return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div>${preview}</header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
+    return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div>${preview}${workspace.can_recall ? '<button type="button" class="btn btn-secondary" id="origination-recall">Withdraw for changes</button>' : ''}</header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
   }
 
   function renderEditor(application, requestedStep) {
@@ -2205,12 +2252,12 @@
         : sectionFieldsMarkup(section.key, values, sectionEditable);
       const quote = section.key === facilitySectionKey() && Number(application.form_schema?.commercial_contract_version || 0) >= 2
         ? commercialQuoteMarkup() : '';
-      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}${quote}`;
+      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3>${section.hint ? `<p>${escapeHtml(section.hint)}</p>` : ''}</div></div>${fields}${quote}`;
     }
     if (sectionLocked) {
       content = `<aside class="completed-section-lock"><span><strong>Section saved</strong><small>Values are locked while you continue. Unlock only when you need to change this section.</small></span><button type="button" class="btn btn-secondary" id="origination-edit-section">Edit section</button></aside>${content}`;
     }
-    const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
+    const recoveryState = syncConflict ? ['Choose draft', 'offline'] : dirty ? ['Not saved', 'offline'] : ['Saved', 'saved'];
     const actions = actionMarkup(editable);
     const actionFooter = editable || actions
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
@@ -2221,10 +2268,16 @@
     const contextChip = statusHasPersistentBanner
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = application.status === 'draft'
-      ? '<button type="button" class="btn btn-secondary" id="origination-restart-laf">Change Main LAF</button>' : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div></div>${restartAction ? `<div class="draft-document-action">${restartAction}</div>` : ''}${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
+      ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Change Main LAF" aria-label="Change Main LAF"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    root().querySelectorAll('.preview-link').forEach(button => {
+      const label = button.textContent.trim();
+      button.setAttribute('aria-label',label);button.title=label;
+      button.classList.add('icon-button');
+      button.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    });
     if (!['declined', 'expired', 'cancelled'].includes(application.status)) {
       const context = root().querySelector('.editor-context');
       const download = document.createElement('button');
@@ -2235,7 +2288,7 @@
         download.disabled = true; download.title = 'Complete the required fields to download';
       }
       download.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      context?.appendChild(download);
+      context?.querySelector('.editor-document-actions')?.appendChild(download);
       download.onclick = async () => {
         if (download.disabled) return;
         download.disabled = true; download.setAttribute('aria-busy', 'true');
@@ -2549,11 +2602,9 @@
       openSheet({
         mode: 'recall-confirmation',
         eyebrow: details.approval_invalidated ? 'Approval will be invalidated' : 'Documents will be replaced',
-        title: 'Return this application to Draft?',
-        hint: details.approval_invalidated
-          ? 'Editing replaces the approved documents. They will need another review before signing.'
-          : 'Editing replaces the prepared documents. They will need to be prepared again before review.',
-        body: current?.approval_roles?.length ? '<aside class="notice warning"><strong>Previous documents kept</strong><span>It stays in history and cannot be signed or approved.</span></aside>' : '<aside class="notice warning"><strong>This action is audited</strong><span>Previous documents stay in history and cannot be signed or approved.</span></aside>',
+        title: 'Withdraw for changes?',
+        hint: 'Your answers and uploads stay saved. Previous links and signatures no longer apply; everyone must sign again.',
+        body: '',
         footer: '<button type="button" class="btn btn-secondary" id="origination-recall-cancel">Keep current documents</button><button type="button" class="btn btn-danger" id="origination-recall-confirm">Withdraw and edit</button>',
         trigger: document.getElementById('origination-recall'),
       });
@@ -2576,7 +2627,7 @@
     }
     closeSheet({ restoreFocus: false });
     current = result.data.application;
-    showToast('Application returned to Draft. Previous documents and approval are no longer valid.');
+    showToast('Ready to edit. Resubmit when your changes are complete.');
     renderEditor(current, 0);
     return true;
   }
@@ -2632,6 +2683,69 @@
     const requirementKey = input.dataset.evidenceUpload;
     input.value = '';
     return uploadEvidenceFile(file, requirementKey, input);
+  }
+
+  async function openIdentityCapture(requirementKey, trigger) {
+    const option = current.identity_copies?.find(item => item.key === requirementKey);
+    if (!option) return;
+    const photos = {}; const urls = {};
+    let uploadKey = requestKey('id-copy');
+    openSheet({mode: 'id-capture', title: option.label, eyebrow: '',
+      hint: 'Optional. Add both sides to save one PDF.', trigger,
+      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-id-side="${side}" hidden><span data-id-caption="${side}">Take / choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
+      footer: '<button type="button" class="btn btn-secondary" data-id-cancel>Cancel</button><button type="button" class="btn btn-primary" data-id-upload>Save ID copy</button>',
+    });
+    const cleanup = () => Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+    sheetCleanup = cleanup;
+    document.querySelector('[data-id-cancel]').onclick = () => {cleanup();closeSheet();};
+    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => {
+      const side = input.dataset.idSide, file = input.files?.[0];
+      if (!file) return;
+      if (urls[side]) URL.revokeObjectURL(urls[side]);
+      photos[side] = file; urls[side] = URL.createObjectURL(file);
+      uploadKey = requestKey('id-copy');
+      const image = document.querySelector(`[data-id-image="${side}"]`);
+      image.src = urls[side];image.hidden = false;
+      image.onclick = () => {
+        const dialog = document.createElement('dialog');dialog.className = 'identity-photo-preview';
+        dialog.innerHTML = '<header><button type="button" aria-label="Previous photo">‹</button><span></span><button type="button" aria-label="Next photo">›</button><button type="button" aria-label="Close photo preview">×</button></header><div tabindex="0"><img alt="ID photo preview"></div>';
+        document.body.append(dialog);
+        let active = side;
+        const stage = dialog.querySelector('div'), preview = dialog.querySelector('img');
+        const display = () => {preview.src=urls[active];dialog.querySelector('span').textContent=active==='front'?'Front':'Back';};
+        const navigate = () => {const next=active==='front'?'back':'front';if(urls[next]){active=next;display();gestures?.reset();}};
+        const gestures = window.SecureMediaViewer?.bindImageGestures(stage,preview,{navigateAtEdges:true,onNavigate:navigate});
+        dialog.querySelector('[aria-label="Previous photo"]').onclick = navigate;
+        dialog.querySelector('[aria-label="Next photo"]').onclick = navigate;
+        dialog.querySelector('[aria-label="Close photo preview"]').onclick = () => dialog.close();
+        dialog.addEventListener('close',()=>{gestures?.dispose?.();dialog.remove();image.focus?.();},{once:true});
+        display();dialog.showModal();
+      };
+      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake / replace';
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+    });
+    document.querySelector('[data-id-upload]').onclick = async event => {
+      const status = document.querySelector('[data-id-status]');
+      if (!photos.front || !photos.back) {status.textContent = 'Add both the front and back.';return;}
+      await window.MiniAppUtils.runButtonAction(event.currentTarget, async () => {
+        if (!await saveDraft(true)) {status.textContent = 'Your photos are kept. Save the application, then retry.';return;}
+        if (current.form_payload?.[option.identity_field] !== undefined && !current.identity_copies?.some(item => item.key === requirementKey && item.subject_sha256 === option.subject_sha256)) {
+          status.textContent = 'This person’s ID changed. Cancel and open their ID copy again.';return;
+        }
+        const data = new FormData();data.append('front', photos.front);data.append('back',photos.back);
+        data.append('revision',String(current.revision));data.append('request_id',uploadKey);
+        const response = await fetch(`/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`, {
+          method:'POST',headers:{'X-Telegram-Init-Data':tg?.initData || ''},body:data,
+        });
+        const result = await response.json();
+        if (result.application) current = result.application;
+        if (!response.ok || !result.ok) {
+          if (result.evidence?.status === 'failed') uploadKey = requestKey('id-copy-retry');
+          status.textContent = result.error || 'Could not save. Your photos are kept; retry.';showToast(status.textContent,result.pending?'info':'error');return;
+        }
+        cleanup();closeSheet();renderEditor(current,step);showToast('ID copy saved.');
+      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';});
+    };
   }
 
   async function openEvidenceCamera(requirementKey, trigger) {
@@ -2812,6 +2926,17 @@
   }
 
   function bindEditor(editable) {
+    root().querySelectorAll('[data-id-capture]').forEach(button => button.onclick = () => openIdentityCapture(button.dataset.idCapture,button));
+    const browseSection = async direction => {
+      if (syncConflict) return showToast('Choose which draft to keep first.', 'warning');
+      const section = wizardSections()[step];
+      const saved = section.key === 'document_selection' ? await saveDocumentSelection()
+        : section.key.startsWith('document:') ? await saveSupportingDocument(section.key.slice(9))
+        : await saveDraft(true);
+      if (saved) renderEditor(current, step + direction);
+    };
+    document.getElementById('section-previous')?.addEventListener('click', () => browseSection(-1));
+    document.getElementById('section-next')?.addEventListener('click', () => browseSection(1));
     document.getElementById('origination-refresh-signing')?.addEventListener('click', event => {
       void runPrimaryAction('Refreshing...', () => refreshCurrentSigning({ manual: true }), event.currentTarget, 'Updated');
     });
@@ -2961,28 +3086,6 @@
       scheduleSave();
       if (await saveDraft(true)) renderEditor(current, step);
     })));
-    document.getElementById('wizard-previous')?.addEventListener('click', async () => {
-      if (current.status === 'draft' && !editable) return renderEditor(current, step - 1);
-      if (await saveDraft(true)) renderEditor(current, step - 1);
-    });
-    document.getElementById('wizard-next')?.addEventListener('click', () => runPrimaryAction('Saving...', async () => {
-      const section = wizardSections()[step];
-      const errors = sectionErrors(section.key); showErrors(errors);
-      if (Object.keys(errors).length) return showToast('Complete the required fields in this section.', true);
-      const continueToNext = () => {
-        if (current.status === 'draft') {
-          completedDraftSections.add(section.key);
-          unlockedDraftSections.delete(section.key);
-        }
-        renderEditor(current, step + 1);
-      };
-      if (current.status === 'draft' && !editable) return continueToNext();
-      if (section.key === 'document_selection') {
-        if (await saveDocumentSelection()) continueToNext();
-      } else if (section.key.startsWith('document:')) {
-        if (await saveSupportingDocument(section.key.slice('document:'.length))) continueToNext();
-      } else if (await saveDraft(true)) continueToNext();
-    }));
     document.getElementById('origination-preview')?.addEventListener('click', () => {
       const selectedDocuments = (current?.document_packet?.documents || []).filter(item => item.selected);
       if (wizardSections()[step]?.key === 'review' && selectedDocuments.length > 1 && !current?.review_packet_ready && !hasFinalSignedPacket()) {
@@ -2992,6 +3095,7 @@
     });
     document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
     document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Preparing documents...', async () => {
+      if (['draft','correction_required'].includes(current.status) && !validateSubmission()) return;
       if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
       if (['draft', 'correction_required'].includes(current.status) && previewedRevision !== current.revision) {
         return showToast('Preview the saved document bundle before continuing.', true);
@@ -3006,6 +3110,7 @@
       renderEditor(current, wizardSections().length - 1);
     }));
     document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
+      if (!validateSubmission()) return;
       if (!(await saveDraft(true))) return;
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
       const result = await postJson(`/applications/${current.id}/submit/`, { revision: current.revision });
@@ -3479,7 +3584,7 @@
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
       const identifiers = [identity.national_id ? `ID ${escapeHtml(identity.national_id)}` : '', identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : ''].filter(Boolean).join(' · ');
-      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${identifiers || 'ID and telephone pending'}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || applicationStatusLabel(item))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
+      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${identifiers || 'ID and telephone pending'}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.next_action || '')}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
     }).join('');
     const alerts = ''; // Alerts belong to their application card, never a duplicate list.
     const queueTabs = [
@@ -3595,7 +3700,7 @@
     }
     const mains = (catalogue.main_lafs || []).map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}" required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF · version ${escapeHtml(item.version)}</small></span></label>`).join('');
     const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"><span><strong>${escapeHtml(item.name)}</strong><small>Optional supporting document · version ${escapeHtml(item.version)}</small></span></label>`).join('');
-    container.innerHTML = `<div class="section-title"><div><h3>Main LAF</h3><p>Choose the legal form for this application. It cannot be changed after starting without an audited restart.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3><p>Select only the additional documents required for this application.</p></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}`;
+    container.innerHTML = `<div class="section-title"><div><h3>Main LAF</h3><p>Choose your application form.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3><p>Select only the additional documents required for this application.</p></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}`;
     container.querySelectorAll('input').forEach(input => input.addEventListener('change', syncCreationPrimary));
   }
 

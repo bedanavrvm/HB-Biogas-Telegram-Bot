@@ -111,8 +111,10 @@ and `date_signed` slot: `borrower_signature`, `borrower_date_signed`,
 
 Evidence requirements are `mpesa_statement_12_months`,
 `bank_statement_6_months`, conditional `payslips_2_months`,
-`guarantor_1_id_copy`, and `guarantor_2_id_copy`, all of type `document` and
-enforced at `review`.
+`guarantor_1_id_copy`, and `guarantor_2_id_copy`, all of type `document`.
+Guarantor copies are optional; other evidence keeps its `review` enforcement.
+Optional borrower/guarantor front-and-back collation follows ADR 0049. Existing
+submitted applications retain their captured evidence requirements.
 
 The fixed printed `No. 3096` is not data. The alignment must white-out that
 value and place system `reference_number`; it must remain visible in preview

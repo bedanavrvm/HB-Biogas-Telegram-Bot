@@ -226,13 +226,15 @@ designed explicitly before adding such a slot.
 
 | Requirement key | Label | Required | Enforcement | Validation |
 |---|---|---|---|---|
-| `guarantor_1_id_copy` | Guarantor 1 ID Copy | Yes | Before review | Clear document upload |
-| `guarantor_2_id_copy` | Guarantor 2 ID Copy | Conditional | Before review | Required when `guarantor_2_name` is truthy |
+| `guarantor_1_id_copy` | Guarantor 1 ID Copy | No | Optional | Complete PDF or front/back photos |
+| `guarantor_2_id_copy` | Guarantor 2 ID Copy | No | Optional | Complete PDF or front/back photos |
 
 These are application evidence requirements, not supporting document templates
 and not PDF placements.
-The Mini App **Take photo** action opens a live rear-camera stream through
-`getUserMedia`; **Choose file** remains the separate document/photo picker.
+The Mini App offers optional Borrower ID copy and two guarantor copies when their
+saved ID fields are present. **Front & back** provides camera/file capture, retake
+and preview; both sides become one private PDF. **Choose PDF** accepts a complete
+copy. See ADR 0049 for draft adoption and historical requirement retention.
 
 ## Calibration, publication, and product assignment
 

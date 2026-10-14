@@ -837,10 +837,13 @@ def _missing_application_requirements(
     application: LoanOriginationApplication, *, stage: str,
 ) -> list[dict[str, str]]:
     from origination.services.origination_evidence import requirement_has_evidence
+    from origination.services.identity_copies import collection_enabled, ID_KEYS
     result = []
     evidence = application.product_requirement_evidence or {}
     for item in (application.product_terms_snapshot or {}).get('requirements', []):
         if not isinstance(item, dict):
+            continue
+        if item.get('key') in ID_KEYS and collection_enabled(application):
             continue
         validation = item.get('validation') if isinstance(item.get('validation'), dict) else {}
         required = bool(item.get('required'))
@@ -1334,6 +1337,7 @@ def create_application(
             )
             from origination.services.origination_consent import ACKNOWLEDGEMENT_VERSION
             schema_snapshot['acknowledgement_version'] = ACKNOWLEDGEMENT_VERSION
+            schema_snapshot['identity_copy_policy'] = 1
             initial_payload = {}
             if (
                 commercial_contract_enabled(schema_snapshot)
@@ -1780,7 +1784,8 @@ def save_application_fields(
             }
             if commercial_validation else {}
         ), **({'value_request_sha256': value_fingerprint} if value_fingerprint else {}),
-            **({'acknowledgement_version': ACKNOWLEDGEMENT_VERSION} if acknowledgement_adopted else {})},
+            **({'acknowledgement_version': ACKNOWLEDGEMENT_VERSION,
+                'identity_copy_policy': 1} if acknowledgement_adopted else {})},
     )
     return application
 
@@ -2883,6 +2888,12 @@ def serialize_application(
                     document['resolved_values'] = {}
                     document['field_payload'] = {}
         if presentation == 'full':
+            from origination.services.identity_copies import copy_options, ID_KEYS, collection_enabled
+            if collection_enabled(application):
+                payload['identity_copy_policy'] = 1
+                payload['identity_copies'] = copy_options(application)
+                payload['product_terms'] = {**payload['product_terms'], 'requirements': [
+                    item for item in payload['product_terms'].get('requirements', []) if item.get('key') not in ID_KEYS]}
             from origination.services.application_copies import copy_readiness
             payload['download_ready'] = application.status == 'approved' or (
                 application.status not in {'declined','expired','cancelled'} and not copy_readiness(application))

@@ -44,6 +44,11 @@ the new bytes receive a fresh review. Path-based trust alone is not sufficient.
 Controlled formats are also marked as binary in `.gitattributes`, preventing a
 deletion or hash change from copying their contents into a pull-request diff.
 
+Public handwriting fonts have the bounded `public_signature_font` classification
+under `origination/assets/signature_fonts/`. These are unmodified upstream TTFs,
+with their licences, upstream commit and SHA-256 manifest alongside them. They
+contain no captured signatures. New or changed fonts require the same hash review.
+
 ## Local audit
 
 Run:

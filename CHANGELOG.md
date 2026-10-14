@@ -1,5 +1,22 @@
 # Changelog
 
+## 14 October 2026 - Compact Origination applications and consistent signatures
+
+- Application sections have Previous/Next arrows and a section picker; the header
+  hides while editing, document icons share one row and saving feedback stays thin.
+  Signing participants and expandable details have clearer controls. Withdraw is
+  beside Signatures, with a short confirmation and no audit reminder.
+- New typed marks offer four pinned handwriting styles. Preview and PDF use the
+  same server-generated dark-blue PNG, keeping the whole name and verified date.
+  Old captures/signed documents are unchanged. Ordinary unsigned downloads no
+  longer receive red overlays; filenames and TEST markings remain explicit.
+- Optional borrower/two-guarantor ID copies follow saved IDs. Front/back photos
+  collate into one PDF; retake, preview and failed-upload recovery are supported.
+  Existing editable drafts adopt on save; submitted requirements remain captured.
+  Earlier copies are flagged if an ID changes, never silently reassigned.
+- Django document choices show version labels. No migration, dependency, provider,
+  permission or environment change; no production deployment or external writes.
+
 ## 14 October 2026 - TAT form alignment, search and simpler filters
 
 - Paired form inputs stay aligned when labels, help or validation errors wrap.

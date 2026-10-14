@@ -20,7 +20,7 @@ ALLOWLIST_PATH = ROOT / "scripts" / "tracked_artifact_allowlist.json"
 CONTROLLED_ARTIFACT_SUFFIXES = {
     ".7z", ".bmp", ".csv", ".der", ".docx", ".gif", ".jpeg", ".jpg",
     ".key", ".p12", ".pdf", ".pem", ".pfx", ".png", ".rar", ".tif",
-    ".tiff", ".tsv", ".webp", ".xls", ".xlsm", ".xlsx", ".zip",
+    ".tiff", ".tsv", ".webp", ".xls", ".xlsm", ".xlsx", ".zip", ".ttf",
 }
 OFFICE_LOCK_PREFIX = "~$"
 MAX_TEXT_SCAN_BYTES = 5 * 1024 * 1024
@@ -28,6 +28,7 @@ CLASSIFICATION_PATH_PREFIXES = {
     "public_brand_asset": "core/static/",
     "sanitized_test_fixture": "core/test_fixtures/sanitized/",
     "blank_business_document": "origination/assets/lafs/",
+    "public_signature_font": "origination/assets/signature_fonts/",
 }
 
 # High-confidence credential shapes only. Customer-data controls are enforced

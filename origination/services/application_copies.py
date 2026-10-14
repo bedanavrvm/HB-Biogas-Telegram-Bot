@@ -1,12 +1,9 @@
 """Authorized, revision-bound application copies. No review or provider writes."""
-from io import BytesIO
 import hashlib
 import json
 
 from django.core import signing
 from django.db import transaction
-from pypdf import PdfReader, PdfWriter
-from reportlab.pdfgen import canvas
 
 from origination.models import LoanOriginationApplication
 from origination.services.loan_origination import OriginationError, OriginationConflict
@@ -61,20 +58,7 @@ def copy_content(application: LoanOriginationApplication) -> tuple[bytes, str]:
         raise OriginationError('Complete the required fields before downloading.', errors=errors)
     from origination.services.origination_documents import render_packet
     content, _manifest = render_packet(application)
-    writer = PdfWriter()
-    for page in PdfReader(BytesIO(content)).pages:
-        width, height = float(page.mediabox.width), float(page.mediabox.height)
-        overlay = BytesIO()
-        pdf = canvas.Canvas(overlay, pagesize=(width, height), invariant=1)
-        pdf.setFillColorRGB(.65, .12, .12)
-        pdf.setFont('Helvetica-Bold', 12)
-        pdf.drawCentredString(width / 2, height - 18, 'UNSIGNED - NOT FINAL')
-        pdf.save()
-        page.merge_page(PdfReader(overlay).pages[0])
-        writer.add_page(page)
-    output = BytesIO()
-    writer.write(output)
-    return output.getvalue(), 'UNSIGNED'
+    return content, 'UNSIGNED'
 
 
 @transaction.atomic

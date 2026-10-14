@@ -3072,6 +3072,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             )
             sample_context = dict(config.get('sample_context') or {})
             sample_context['_show_signature_slots'] = True
+            sample_context['_signature_appearance_version'] = 2
             pdf = render_template(load_template_source(obj), config, sample_context)
             content, total = render_pdf_page(pdf, page_number=int(body.get('page') or 1), scale=2)
         except Exception as exc:

@@ -21,7 +21,8 @@ revision checks and approval rules remain enforced.
 
 Application copies are prepared through an authorized request and delivered by
 an expiring, actor-bound link that rechecks access and the captured revision.
-Before approval they are conspicuously unsigned; after approval they contain
+Before approval their copy type is labelled unsigned (the red page overlay was
+removed by ADR 0049); after approval they contain
 the exact signed bytes. Copies do not count as review or signing.
 
 Signature dates belong to the same verified action, not the time of opening a

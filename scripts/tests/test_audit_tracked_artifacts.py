@@ -41,6 +41,12 @@ class TrackedArtifactAuditTests(TestCase):
             "core/test_fixtures/sanitized/",
         )
 
+    def test_signature_fonts_are_controlled_and_bounded(self):
+        from scripts.audit_tracked_artifacts import controlled_artifact
+        self.assertTrue(controlled_artifact('origination/assets/signature_fonts/caveat.ttf'))
+        self.assertEqual(CLASSIFICATION_PATH_PREFIXES['public_signature_font'],
+                         'origination/assets/signature_fonts/')
+
     def test_allowlist_rejects_fixture_classification_outside_fixture_directory(self):
         payload = {
             "version": 1,

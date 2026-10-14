@@ -129,7 +129,7 @@ class ApplicationPresentationTests(TestCase):
             revision=self.application.revision, request_id='copy')
         self.assertEqual(kind, 'UNSIGNED')
         content, filename = retrieve_copy(read_copy_token(token))
-        self.assertIn('UNSIGNED - NOT FINAL', PdfReader(BytesIO(content)).pages[0].extract_text())
+        self.assertNotIn('UNSIGNED - NOT FINAL', PdfReader(BytesIO(content)).pages[0].extract_text())
         self.assertTrue(filename.endswith('-UNSIGNED.pdf'))
         prepare_copy(application_id=self.application.pk, actor=self.officer, revision=self.application.revision, request_id='copy')
         self.assertEqual(self.application.events.filter(action='application_copy_prepared').count(), 1)

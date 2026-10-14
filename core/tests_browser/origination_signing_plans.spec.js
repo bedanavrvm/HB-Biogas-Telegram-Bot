@@ -55,6 +55,12 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
       payload=route.request().postDataJSON();
       return route.fulfill({json:{ok:true,application:application(true)}});
     }
+    if(url.pathname.endsWith('/signature-preview/')) {
+      const values=route.request().postDataJSON();
+      const image=execFileSync(path.join(root,'.venv','Scripts','python.exe'),['-c',
+        'import json,sys; from origination.services.signature_appearance import preview_capture; print(json.dumps(preview_capture(sys.argv[1],sys.argv[2])))',values.name,values.font],{cwd:root,encoding:'utf8'});
+      return route.fulfill({json:{ok:true,...JSON.parse(image)}});
+    }
     if(url.pathname.endsWith('/download/')) {
       payload=route.request().postDataJSON();
       return route.fulfill({json:{ok:true,download_url:'http://127.0.0.1/copy.pdf',
@@ -71,9 +77,11 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
     if(mode==='browser') delete window.Telegram.WebApp.downloadFile;
   }, download);
   await page.addStyleTag({path:asset('core','base.css')});
-  await page.addStyleTag({content:fs.readFileSync(asset('core','workflow_standard.css'),'utf8').replace(/@import[^;]+;/g,'')});
+  await page.addStyleTag({content:fs.readFileSync(asset('core','workflow_standard.css'),'utf8').replace(/^@import[^\r\n]*;\s*$/gm,'')});
   await page.addStyleTag({path:asset('origination','loan_origination.css')});
   await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
+  await page.addStyleTag({path:asset('origination','origination_compact.css')});
+  await page.addStyleTag({path:asset('origination','signature_appearance.css')});
   if(dark) await page.evaluate(()=>{
     document.documentElement.dataset.telegramTheme='dark';
     document.documentElement.dataset.miniappColorScheme='dark';
@@ -83,6 +91,7 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
   await page.addScriptTag({path:asset('core','utils.js')});
   await page.addScriptTag({path:asset('core','secure_media_viewer.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
+  await page.addScriptTag({path:asset('origination','signature_appearance.js')});
   await page.addScriptTag({path:asset('origination','loan_origination.js')});
   await expect(page.locator('.signing-workspace')).toBeVisible();
   return {errors,payload:()=>payload,queries};
@@ -164,6 +173,7 @@ test('staff action addresses the individual and approved view is read-only',asyn
   await page.getByRole('button',{name:'Sign',exact:true}).click();
   await page.locator('[data-test-signature-mode="typed"]').click();
   await page.locator('[data-test-signature-name]').fill('Synthetic Manager');
+  await expect(page.locator('.typed-mark-frame img')).toBeVisible();
   await page.locator('[data-staff-consent]').check();
   await page.locator('[data-test-signature-confirm]').click();
   await expect.poll(()=>audit.payload()?.participant_id).toBe('00000000-0000-4000-8000-000000000004');
@@ -188,6 +198,45 @@ test('approved applications expose signed documents without workflow buttons',as
   await page.screenshot({path:info.outputPath('approved-320.png'),fullPage:true});
 });
 
+for(const width of [320,360,390,430,768,1280]) for(const dark of [false,true]) {
+  test(`typed signature images and compact actions ${width} ${dark?'dark':'light'}`,async({page},info)=>{
+    await page.setViewportSize({width,height:844});
+    const audit=await mount(page,{dark});
+    await expect(page.locator('.origination-header')).toBeHidden();
+    const actions=await page.locator('.editor-document-actions button').evaluateAll(nodes=>nodes.map(node=>{
+      const box=node.getBoundingClientRect();return {y:box.y,height:box.height};
+    }));
+    expect(new Set(actions.map(box=>box.y)).size).toBe(1);
+    await page.getByRole('button',{name:'Sign',exact:true}).click();
+    await page.locator('[data-test-signature-mode="typed"]').click();
+    await page.locator('[data-test-signature-name]').fill("Wanjiku O'Mwangi-Kamau with a longer synthetic name");
+    await expect(page.locator('.typed-mark-frame img')).toBeVisible();
+    await expect(page.locator('.signature-styles input')).toHaveCount(4);
+    await page.getByLabel('Yellowtail',{exact:true}).check();
+    await expect(page.locator('.typed-mark-frame img')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    expect(audit.errors).toEqual([]);
+    await page.screenshot({path:info.outputPath(`typed-signature-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+    await page.locator('[data-staff-consent]').check();
+    await page.locator('[data-test-signature-confirm]').click();
+    await expect.poll(()=>audit.payload()?.signature_capture?.font).toBe('yellowtail');
+    expect(audit.payload().signature_capture.appearance_version).toBe(2);
+  });
+}
+
+test('typed preview failure keeps the name and cannot silently sign',async({page})=>{
+  const audit=await mount(page);
+  await page.route('**/signature-preview/',route=>route.fulfill({status:503,json:{ok:false,error:'Preview unavailable. Retry.'}}));
+  await page.getByRole('button',{name:'Sign',exact:true}).click();
+  await page.locator('[data-test-signature-mode="typed"]').click();
+  await page.locator('[data-test-signature-name]').fill('Synthetic Manager');
+  await expect(page.locator('.typed-mark-frame [role=status]')).toContainText('Preview unavailable');
+  await page.locator('[data-staff-consent]').check();
+  await page.locator('[data-test-signature-confirm]').click();
+  await expect(page.locator('[data-test-signature-name]')).toHaveValue('Synthetic Manager');
+  expect(audit.payload()).toBeUndefined();
+});
+
 test('staff countdown returns to the application without closing the Mini App',async({page})=>{
   await mount(page);
   await page.evaluate(()=>{
@@ -197,6 +246,7 @@ test('staff countdown returns to the application without closing the Mini App',a
   await page.getByRole('button',{name:'Sign',exact:true}).click();
   await page.locator('[data-test-signature-mode="typed"]').click();
   await page.locator('[data-test-signature-name]').fill('Synthetic Manager');
+  await expect(page.locator('.typed-mark-frame img')).toBeVisible();
   await page.locator('[data-staff-consent]').check();
   await page.locator('[data-test-signature-confirm]').click();
   await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
@@ -281,10 +331,16 @@ async function mountRecipient(page,{verified=false}={}) {
   const markup=fs.readFileSync(path.join(root,'origination/templates/loan_origination/sign.html'),'utf8')
     .replace(/\{%[\s\S]*?%\}/g,'').replace(/<script[\s\S]*?<\/script>/g,'').replace(/<link[^>]+>/g,'')
     .replace('src=""',`src="data:image/png;base64,${fs.readFileSync(asset('core','jawabu-logo.png')).toString('base64')}"`);
-  await page.route('**/*',route=>{
+  await page.route('**/*',async route=>{
     const url=new URL(route.request().url());
     if(url.hostname!=='127.0.0.1') return route.abort();
     if(url.pathname==='/sign/') return route.fulfill({contentType:'text/html',body:markup});
+    if(url.pathname.endsWith('/signature-preview/')) {
+      const values=route.request().postDataJSON();
+      const rendered=execFileSync(path.join(root,'.venv','Scripts','python.exe'),['-c',
+        'import json,sys; from origination.services.signature_appearance import preview_capture; print(json.dumps(preview_capture(sys.argv[1],sys.argv[2])))',values.name,values.font],{cwd:root,encoding:'utf8'});
+      return route.fulfill({json:{ok:true,...JSON.parse(rendered)}});
+    }
     if(url.pathname.endsWith('/packet/')) return route.fulfill({contentType:'image/svg+xml',
       headers:{'X-Preview-Page-Count':'1','X-Signing-Packet-Version':'synthetic-v1'},
       body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="300"><rect width="595" height="300" fill="white"/><text x="30" y="50">Synthetic loan document - no customer data</text></svg>'});
@@ -302,6 +358,7 @@ async function mountRecipient(page,{verified=false}={}) {
   await page.addStyleTag({path:asset('origination','origination_signing.css')});
   await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
   await page.addScriptTag({path:asset('core','utils.js')});
+  await page.addScriptTag({path:asset('origination','signature_appearance.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
   if(!verified) await expect(page.locator('#packet-page')).toBeVisible();
@@ -315,6 +372,7 @@ test('recipient keeps saved signature when SMS fails and resumes on refresh',asy
   await expect(page.locator('#verification-card')).toBeHidden();
   await page.getByRole('button',{name:'Type',exact:true}).click();
   await page.locator('#typed-name').fill('Synthetic Applicant');
+  await expect(page.locator('.typed-mark-frame img')).toBeVisible();
   await page.locator('#packet-consent').check();
   await page.getByRole('button',{name:'Save & send code',exact:true}).click();
   await expect(page.locator('#sign-status')).toContainText('Signature saved.');
@@ -326,6 +384,7 @@ test('recipient keeps saved signature when SMS fails and resumes on refresh',asy
   await page.addStyleTag({path:asset('origination','origination_signing_completion.css')});
   await page.addScriptTag({path:asset('core','utils.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
+  await page.addScriptTag({path:asset('origination','signature_appearance.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
   await expect(page.locator('#sign-status')).toContainText('Your signature is saved.');
   await page.getByRole('button',{name:'Resend code',exact:true}).click();

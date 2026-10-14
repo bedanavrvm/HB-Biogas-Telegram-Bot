@@ -24,3 +24,4 @@
 *.p12 binary
 *.pfx binary
 *.der binary
+*.ttf binary

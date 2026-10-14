@@ -2,6 +2,8 @@ from django.urls import path
 from core.api.legacy_routes import legacy_get_redirect
 from .auth import origination_auth_required
 from .views import (
+    portal_origination_signature_preview,
+    origination_signer_signature_preview,
     portal_origination_prepare_download,
     portal_origination_download,
     origination_signer_session,
@@ -46,6 +48,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path('origination/sign/api/signature-preview/', origination_signer_signature_preview, name='loan_origination_signer_signature_preview'),
+    path('origination/api/applications/<str:application_id>/signature-preview/', origination_auth_required(portal_origination_signature_preview), name='loan_origination_signature_preview'),
     path('origination/api/download/', portal_origination_download, name='loan_origination_download'),
     path('origination/api/applications/<str:application_id>/download/', origination_auth_required(portal_origination_prepare_download), name='loan_origination_prepare_download'),
     path('origination/', legacy_get_redirect('loan_origination_app'), name='legacy_api_loan_origination_app'),

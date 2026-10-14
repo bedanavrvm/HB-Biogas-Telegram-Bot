@@ -262,7 +262,7 @@ class SetupCatalogueSelectionForm(forms.Form):
             | Q(status='ready', product_eligibilities__product_id=definition.product_version.product_id),
         ).distinct().order_by('document_role', 'name', '-version')
         self.fields['templates'].label_from_instance = lambda item: (
-            f'{item.name} · {item.get_document_role_display()} · {item.get_status_display()}'
+            f'{item.name} · v{item.version} · {item.get_document_role_display()} · {item.get_status_display()}'
         )
         if definition.lifecycle_status != definition.STATUS_DRAFT:
             self.fields.pop('approval_mode')

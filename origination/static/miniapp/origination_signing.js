@@ -220,6 +220,11 @@
   ['pointerup', 'pointercancel'].forEach(name => pad.addEventListener(name, () => { activeStroke = null; pad.dispatchEvent(new Event('input', {bubbles:true})); }));
   document.getElementById('signature-clear').onclick = () => { strokes = []; redraw(); syncSignatureProtection(); };
   document.getElementById('typed-name').addEventListener('input', () => { captureSaved = false; syncSignatureProtection(); });
+  const typedAppearance = window.OriginationSignatureAppearance.mount({
+    input: document.getElementById('typed-name'), container: document.getElementById('typed-appearance'),
+    request: values => api('signature-preview/', {method: 'POST', body: JSON.stringify(values)}),
+    onChange: () => { captureSaved = false; syncSignatureProtection(); },
+  });
   function setMode(next) {
     mode = next;
     document.getElementById('mode-drawn').classList.toggle('active', next === 'drawn');
@@ -262,7 +267,7 @@
       await window.MiniAppUtils.runButtonAction(button, async () => {
         if (reviewedPages.size < pages) throw new Error('Review every page of the loan documents before continuing.');
         const capture = mode === 'typed'
-          ? { method: 'typed', name: document.getElementById('typed-name').value.trim() }
+          ? typedAppearance.capture()
           : { method: 'drawn', strokes };
         const consent = document.getElementById('packet-consent').checked
           && (session.access_mode !== 'assisted' || document.getElementById('assisted-consent').checked);

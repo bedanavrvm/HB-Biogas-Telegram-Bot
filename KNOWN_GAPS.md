@@ -1,5 +1,44 @@
 # Known Gaps and Verified Workarounds
 
+## Origination compact UI, typed marks and ID capture - 14 October 2026
+
+The phone/PDF typed-font mismatch was reproduced before changes. New v2 marks
+share one server-generated PNG; tests compare its decoded pixels with the image
+embedded in the PDF, including all four fonts and long/hyphenated/apostrophe names.
+Historical v1 captures retain text rendering; approved copy bytes remain exact.
+Optional ID copies are subject-bound, front/back-collated and do not loosen other
+evidence or signing requirements. Photo/provider failure and stale identity cases
+are covered with synthetic data and mocked storage, never real customer evidence.
+
+Focused local PostgreSQL: 124 passed. Real-template intercepted Chromium:
+95 passed at 320/360/390/430/768/1280px, including light/dark screenshots, typed
+styles, section arrows, circle radios, participant rows, photo preview and retry.
+Screenshots were visually inspected and corrected for inherited header/icon
+layout, truncated section names and selected-style contrast. Final screenshots
+are under `test-results/origination-accurate-css`; text logs are
+`test-results/origination-release-postgres.txt` and `origination-accurate-css.txt`.
+Eleven further UI polish checks passed under `test-results/origination-polish-check`.
+The first final rerun had one stylesheet-injection failure before app startup;
+the harness now removes remote font imports without damaging their semicolon-rich
+URLs or the following CSS rules, and the complete rerun passed.
+
+The broader 80-test run had two failures: one assertion still expected mandatory
+guarantor copies and was updated for the approved policy, including legacy
+retention. The other is an existing repeating-value error-wording mismatch,
+reproduced on unchanged HEAD `f0f94663` in an isolated checkout; it is not fixed
+here. See `test-results/origination-baseline-failure.txt`. Existing route inventory
+issues (33) and unrelated artifact hash mismatches (19) also reproduce unchanged
+HEAD. New preview routes are inventoried; four new font hashes verify. Fonts are
+new working-tree assets and must accompany the normal commit/deployment. Existing
+logo/Portal screenshot pins were not silently changed. JavaScript syntax, Node
+contracts, artifact-policy unit tests and Django checks pass; no migration changes.
+
+Physical-device camera/file-picker/keyboard/printing, live Telegram downloads,
+SMS and production Drive were not tested. Local Python is 3.14, not the pinned
+deployment 3.12. No external writes, new dependency, environment changes,
+migrations, production deployment or published-document mutation was performed.
+New document publication affects future applications, not captured ongoing ones.
+
 ## TAT form/search verification - 14 October 2026
 
 The form alignment and queue branch-search defects were reproduced before the

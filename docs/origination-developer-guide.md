@@ -1,5 +1,35 @@
 # Loan Origination Mini App: Developer Guide
 
+## Typed images and optional identity copies - 14 October 2026
+
+Read ADR 0049. `signature_appearance` pins four upstream fonts with their licences
+and one commit/hash manifest. Pillow renders a regular 300dpi 750x209 transparent
+PNG; preview APIs are authenticated, bounded and private/no-store. Clients submit
+name/style/preview SHA, never arbitrary image bytes. Confirmation regenerates it
+and freezes the profile, image and digest in existing session/action JSON. The
+PDF renderer verifies and embeds those bytes. Historical v1 captures retain the
+old renderer. Keep these assets if rolling back the UI while v2 captures exist.
+
+The shared `signature_appearance.js` controls debounce, stale-response protection
+and typed-preview readiness for internal, TEST and remote signing. Captures are
+memory-only; neither images nor ID photos enter phone recovery drafts. Changing
+a typed mark still invalidates outstanding OTP challenges through its capture hash.
+
+`identity_copies` projects optional roles from captured identity mappings. New
+applications capture `identity_copy_policy=1`; editable drafts adopt in the
+existing successful `fields_saved` event. Prepared/submitted legacy applications
+keep their requirements. `_document_requirement` allows only current saved role
+IDs; the upload event records their field/role/digest and capture provenance.
+Changing an ID flags prior evidence and prevents silently reusing the same bytes
+for another ID. This is a declared subject binding, not OCR/identity verification.
+
+The existing evidence upload accepts either `file` (complete PDF), or `front` and
+`back`. Portal's local image validation, EXIF stripping and one-page ID collation
+run before Drive access. Existing authorization, revisions, counts, limits and
+storage apply. A pending reservation is not upload success. An uncertain retry
+reuses its request key; a known failed provider attempt uses a new attempt key.
+No new table, migration, environment variable, provider or scheduled job.
+
 ## Short acknowledgement, copies and signing dates - 13 October 2026
 
 Read ADR 0048 before changing these boundaries. New application schemas capture
@@ -15,7 +45,7 @@ and supporting-document fields. Authorized POST preparation returns a fifteen-
 minute actor-bound download URL, filename and copy type. The GET/HEAD route uses
 the signed capability because native Telegram downloads cannot send initData;
 it rechecks the actor's current access and full application visibility. Unsigned
-copies bind captured render inputs and carry a mark on every page. Approved
+copies bind captured render inputs and identify their kind in the filename. Approved
 copies are byte-for-byte the signed PDF. An expired/stale/closed/tampered request
 is rejected. Copy preparation records one idempotent event; it does not generate
 review receipts, signatures, provider jobs or a new model.

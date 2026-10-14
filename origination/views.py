@@ -1202,6 +1202,13 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
         return access_error
     try:
         from origination.services.origination_evidence import serialize_evidence, upload_requirement_evidence
+        captured = request.FILES.get('front') or request.FILES.get('back')
+        file_obj = request.FILES.get('file')
+        if captured:
+            from origination.services.identity_copies import ID_KEYS, prepare_identity_copy
+            if requirement_key not in ID_KEYS or file_obj:
+                raise OriginationError('Choose either an ID PDF or front and back photos.')
+            file_obj = prepare_identity_copy(request.FILES.get('front'), request.FILES.get('back'))
         item, replayed = upload_requirement_evidence(
             application_id=application.pk,
             actor=request.origination_user,
@@ -1213,7 +1220,7 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
                 or request.POST.get('request_id')
                 or ''
             ),
-            file_obj=request.FILES.get('file'),
+            file_obj=file_obj, provenance='front_back' if captured else '',
             allow_signing_actor=signing_stage,
         )
         refreshed = _application(application_id)
@@ -1227,6 +1234,11 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
             'evidence': serialize_evidence(item),
             'application': serialize_application(refreshed, actor=request.origination_user),
         }, status=502)
+    if item.status == item.STATUS_PENDING:
+        return JsonResponse({'ok': False, 'pending': True,
+            'error': 'This upload is still being saved. Wait a moment, then retry.',
+            'evidence': serialize_evidence(item),
+            'application': serialize_application(refreshed, actor=request.origination_user)}, status=202)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
         'evidence': serialize_evidence(item),
@@ -1365,6 +1377,59 @@ def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'inva
         details=details,
         developer_message=f'{type(exc).__name__}:{code}', exception=exc,
     )
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential.
+@require_http_methods(['POST'])
+def origination_signer_signature_preview(request):
+    from origination.services.origination_esign import resolve_session
+    from origination.services.signature_appearance import preview_capture
+    if response := _public_signing_throttle(request):
+        return response
+    try:
+        session = resolve_session(_public_signing_token(request))
+        if session.status == session.STATUS_VERIFIED:
+            raise OriginationError('This application has already been signed.')
+        body = _body(request)
+        data = preview_capture(body.get('name'), body.get('font') or 'caveat')
+    except (OriginationError, TypeError, ValueError) as exc:
+        return _public_signing_error(request, exc)
+    response = JsonResponse({'ok': True, **data})
+    response['Cache-Control'] = 'no-store, private'
+    return _public_signing_response(request, response)
+
+
+@csrf_exempt  # Verified Telegram identity, not a session cookie, authorizes staff APIs.
+@require_http_methods(['POST'])
+def portal_origination_signature_preview(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if error := _application_access_error(request, application):
+        return error
+    try:
+        from origination.services.signature_appearance import preview_capture
+        body = _body(request)
+        capability = 'origination.signing.start' if body.get('test_mode') is True else 'origination.signing.staff'
+        if error := _capability_error(request, capability, application):
+            return error
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before signing.')
+        package = application.signing_packages.filter(pk=body.get('package_id')).first()
+        if not package or package.status not in {'pending', 'in_progress'} or package.test_mode != (body.get('test_mode') is True):
+            raise OriginationError('The signing request is unavailable. Refresh the application.')
+        if not package.test_mode:
+            from origination.services.origination_esign import authorize_staff_signer
+            authorize_staff_signer(actor=request.origination_user, application=application,
+                                   signer_role=str(body.get('signer_role') or ''))
+        data = preview_capture(body.get('name'), body.get('font') or 'caveat')
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    response = JsonResponse({'ok': True, **data})
+    response['Cache-Control'] = 'no-store, private'
+    return response
 
 
 @csrf_exempt  # Opaque signer token is the non-cookie credential.

@@ -126,6 +126,8 @@ request can be approved.
 | Origination Applicant | Person or entity applying for a loan. Applicant is the standard operational label before execution. |
 | Origination signing acknowledgement | The short agreement confirmed by a signer for the exact application documents and required approval. Historical signing requests retain their original agreement. |
 | Origination application copy | A downloadable document bundle: clearly unsigned before approval, or the exact signed application after approval. Downloading never grants approval. |
+| Origination typed mark | A versioned server-rendered handwriting image bound to the confirmed name, style and preview hash. It is appearance, not independent proof of identity; the verified signing action supplies that evidence. |
+| Origination identity copy | An optional complete ID PDF bound to a saved borrower or guarantor identity under the captured collection policy. A later identity change flags the earlier copy without deleting evidence. |
 | Origination Customer | The canonical global customer identity optionally matched to an Origination Applicant; it is not a generic form-role synonym. |
 | Origination Borrower | Contractual obligor or signer named in legal documents. The role may refer to the same person as the Applicant but has a distinct legal meaning. |
 | Origination Party | Collective term for the Applicant, guarantors, spouse, and other document participants. |

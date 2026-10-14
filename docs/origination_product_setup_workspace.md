@@ -8,6 +8,10 @@
 
 A Product owns lending terms and chooses documents. A Document owns its PDF,
 signers, applicant fields and placement. Products do not own editable PDF copies.
+Document selections show their version so identically named PDFs are distinguishable.
+Publishing an editable document affects new applications; existing applications
+keep captured documents, fields, alignment and signer requirements. Use the
+Mini App Change Main LAF icon only to create a compatible replacement draft.
 See [ADR 0041](adr/0041-independent-origination-authoring.md).
 
 ## Product: three tasks, any order

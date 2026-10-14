@@ -1,5 +1,30 @@
 # Loan Origination Mini App: Django Admin Guide
 
+## Compact applications and signature styles - 14 October 2026
+
+Previous/Next arrows now live in the section bar. Its title opens the section
+picker. The heading groups Change Main LAF, Preview and Download; the bottom strip
+only reports saving state, with the submit action on Telegram's Main Button.
+Withdraw for changes is beside Signatures, when the server permits it.
+
+Typed signatures offer Caveat, Dancing Script, Yellowtail and Nothing You Could
+Do. The displayed PNG is the exact mark embedded in the PDF. Full names shrink
+without abbreviation, wrapping or clipping. Only the existing verified signing
+date accompanies the mark; earlier signatures and signed documents are unchanged.
+
+ID copies are optional. Save the applicant/guarantor ID first; that person's copy
+then appears under Product requirements. Choose Front & back for two photos or
+Choose PDF for a complete copy. Retake/preview before saving. Both photos become
+one PDF using the same checks as Portal. Failed saves keep the selected photos
+while the dialog stays open. Changing a person's ID flags the earlier copy; it
+does not delete it or automatically assign it to a different person.
+
+Selected documents and Choose documents show v1/v2/etc. Publishing an editable
+document version affects new applications only. Existing applications retain
+their selected PDFs, fields, alignment and signing requirements. To use another
+Main LAF in an editable draft, use the Change Main LAF icon: this creates a
+replacement draft with compatible answers, not a rewrite of the original.
+
 ## Signing and application copies - 13 October 2026
 
 New applications use a short acknowledgement on the signing screen. There is
@@ -10,8 +35,8 @@ To adopt the shorter flow on an existing editable draft, save it successfully;
 an already prepared application must first use **Withdraw for changes**.
 
 The download icon beside the application heading prepares its document bundle.
-Before approval the filename includes **UNSIGNED** and every PDF page is marked
-**UNSIGNED - NOT FINAL**. After approval it downloads the exact signed application.
+Before approval the filename includes **UNSIGNED**, without a red page overlay.
+After approval it downloads the exact signed application. TEST watermarks remain.
 Complete required main/supporting fields first. Telegram displays the filename
 in its download confirmation; older clients use a browser download. A download
 request does not approve or sign the application.

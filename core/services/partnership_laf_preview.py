@@ -186,7 +186,7 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, Any, Any
     return output.getvalue()
 
 
-def _signature_preview_page(width: float, height: float, slots: list[dict]) -> bytes:
+def _signature_preview_page(width: float, height: float, slots: list[dict], *, image_marks: bool = False) -> bytes:
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=(width, height), pageCompression=1)
     pdf.setStrokeColorRGB(0.48, 0.23, 0.93)
@@ -234,6 +234,17 @@ def _signature_preview_page(width: float, height: float, slots: list[dict]) -> b
             pdf.setFillColorRGB(.72, .12, .12)
             pdf.setFont('Helvetica-Bold', min(10, max(5, stamp_height * .3)))
             pdf.drawCentredString(stamp_x + stamp_width / 2, stamp_y + stamp_height * .4, 'STAMP PREVIEW')
+        elif slot_type == 'signature' and image_marks:
+            from reportlab.lib.utils import ImageReader
+            from origination.services.signature_appearance import render_mark
+            content, _profile = render_mark('Wanjiku Mwangi-Kamau')
+            image = ImageReader(BytesIO(content))
+            image_width, image_height = image.getSize()
+            fit = min(content_width / image_width, content_height / image_height)
+            image_width, image_height = image_width * fit, image_height * fit
+            pdf.drawImage(image, content_x + (content_width - image_width) / 2,
+                          content_y + (content_height - image_height) / 2,
+                          width=image_width, height=image_height, mask='auto')
         else:
             ink = {
                 'black': (0.09, 0.14, 0.12),
@@ -311,6 +322,7 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
         if signature_slots_by_page.get(index):
             signature_overlay = _signature_preview_page(
                 width, height, signature_slots_by_page[index],
+                image_marks=context.get('_signature_appearance_version') == 2,
             )
             page.merge_page(PdfReader(BytesIO(signature_overlay)).pages[0], over=True)
         writer.add_page(page)

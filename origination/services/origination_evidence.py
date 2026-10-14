@@ -33,6 +33,12 @@ def _request_id(value: str) -> str:
 
 def _document_requirement(application, requirement_key: str) -> dict[str, Any]:
     key = str(requirement_key or '').strip()
+    from origination.services.identity_copies import ID_KEYS, collection_enabled, copy_options
+    if key in ID_KEYS and collection_enabled(application):
+        item = next((item for item in copy_options(application) if item['key'] == key), None)
+        if not item:
+            raise OriginationError('Save this person’s National ID before adding their ID copy.')
+        return item
     for item in (application.product_terms_snapshot or {}).get('requirements', []):
         if not isinstance(item, dict) or str(item.get('key') or '') != key:
             continue
@@ -113,7 +119,16 @@ def validate_evidence_file(file_obj) -> tuple[str, int, str]:
 
 
 def serialize_evidence(item: OriginationRequirementEvidence) -> dict[str, Any]:
+    from origination.services.identity_copies import copy_options, ID_KEYS
+    stale = False
+    if item.requirement_key in ID_KEYS:
+        event = item.application.events.filter(action='evidence_upload_started',
+                                              after_values__evidence_id=str(item.pk)).first()
+        bound = (event.metadata or {}).get('subject_sha256') if event else None
+        current = next((row for row in copy_options(item.application) if row['key'] == item.requirement_key), None)
+        stale = bool(bound and (not current or bound != current['subject_sha256']))
     return {
+        'identity_changed': stale,
         'id': str(item.pk),
         'requirement_key': item.requirement_key,
         'requirement_label': item.requirement_label,
@@ -163,16 +178,18 @@ def requirement_has_evidence(application, requirement_key: str) -> bool:
 def _reserve_upload(
     *, application_id, actor, requirement_key: str, expected_revision: int,
     request_id: str, filename: str, mime_type: str, byte_size: int, sha256: str,
-    allow_signing_actor: bool = False,
+    allow_signing_actor: bool = False, provenance: str = '',
 ) -> tuple[OriginationRequirementEvidence, bool]:
     from origination.services.loan_origination import _record_event
 
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
-    replay = application.requirement_evidence_files.filter(request_id=request_id).first()
-    if replay:
-        return replay, True
     if application.officer_id != actor.pk and not allow_signing_actor:
         raise OriginationError('Only the assigned officer may upload application evidence.')
+    replay = application.requirement_evidence_files.filter(request_id=request_id).first()
+    if replay:
+        if replay.uploaded_by_id != actor.pk or replay.requirement_key != requirement_key or replay.content_sha256 != sha256:
+            raise OriginationConflict('This upload request was already used for a different file.')
+        return replay, True
     allowed_statuses = {application.STATUS_DRAFT, application.STATUS_CORRECTION_REQUIRED}
     if allow_signing_actor:
         allowed_statuses.add(application.STATUS_REVIEWED)
@@ -185,11 +202,19 @@ def _reserve_upload(
         if requirement_key not in correction_targets(application)['requirement']:
             raise OriginationError('This evidence requirement is locked for the current correction.')
     requirement = _document_requirement(application, requirement_key)
+    from origination.services.identity_copies import subject_binding
+    binding = subject_binding(application, requirement_key)
     duplicate = application.requirement_evidence_files.filter(
         requirement_key=requirement_key, content_sha256=sha256,
         status=OriginationRequirementEvidence.STATUS_UPLOADED,
     ).first()
     if duplicate:
+        if binding:
+            prior = application.events.filter(action='evidence_upload_started',
+                after_values__evidence_id=str(duplicate.pk)).first()
+            prior_binding = (prior.metadata or {}).get('subject_sha256') if prior else None
+            if prior_binding != binding['subject_sha256']:
+                raise OriginationError('This copy belongs to an earlier ID. Add new photos or a new ID PDF.')
         return duplicate, True
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before uploading evidence.')
@@ -225,6 +250,7 @@ def _reserve_upload(
     _record_event(
         application, 'evidence_upload_started', actor=actor, request_id=request_id,
         after={'evidence_id': str(item.pk), 'requirement_key': requirement_key},
+        metadata={**binding, **({'capture': provenance} if provenance else {})},
     )
     return item, False
 
@@ -232,10 +258,14 @@ def _reserve_upload(
 def upload_requirement_evidence(
     *, application_id, actor, requirement_key: str, expected_revision: int,
     request_id: str, file_obj,
-    allow_signing_actor: bool = False,
+    allow_signing_actor: bool = False, provenance: str = '',
 ) -> tuple[OriginationRequirementEvidence, bool]:
     request_id = _request_id(request_id)
     mime_type, byte_size, sha256 = validate_evidence_file(file_obj)
+    from origination.services.identity_copies import ID_KEYS, collection_enabled
+    application = LoanOriginationApplication.objects.get(pk=application_id)
+    if requirement_key in ID_KEYS and collection_enabled(application) and mime_type != 'application/pdf':
+        raise OriginationError('Add the front and back photos, or choose a complete ID PDF.')
     filename = _safe_filename(
         getattr(file_obj, 'name', ''), fallback=f'{requirement_key}{next(iter(ALLOWED_FILE_TYPES[mime_type]))}',
     )
@@ -243,7 +273,7 @@ def upload_requirement_evidence(
         application_id=application_id, actor=actor, requirement_key=requirement_key,
         expected_revision=expected_revision, request_id=request_id, filename=filename,
         mime_type=mime_type, byte_size=byte_size, sha256=sha256,
-        allow_signing_actor=allow_signing_actor,
+        allow_signing_actor=allow_signing_actor, provenance=provenance,
     )
     if replayed or item.status != item.STATUS_PENDING:
         return item, True

@@ -5,7 +5,7 @@ const {test, expect} = require('playwright/test');
 const root = path.resolve(__dirname, '../..');
 const html = fs.readFileSync(path.join(root, 'origination/templates/loan_origination/app.html'), 'utf8')
   .replace(/{% static '([^']+)' %}/g, '/static/$1')
-  .replace(/{%[\s\S]*?%}/g, '').replace(/<script[\s\S]*?<\/script>/g, '');
+  .replace(/{%[\s\S]*?%}/g, '').replace(/<script[\s\S]*?<\/script>/g, '').replace(/<link[^>]+>/g,'');
 const options = [{value:'draft',label:'Draft'}, {value:'correction_required',label:'Changes requested'},
   {value:'signing_pending',label:'Awaiting signatures'}, {value:'approved',label:'Approved'}];
 
@@ -33,8 +33,8 @@ async function boot(page, width, empty = false, native = false, locationCatalog 
     window.__handlers=new Set();window.__native={show(){this.visible=true;},hide(){this.visible=false;},setText(){},enable(){},disable(){},showProgress(){},hideProgress(){},onClick(fn){__handlers.add(fn);},offClick(fn){__handlers.delete(fn);}};
     window.Telegram={WebApp:{initData:'synthetic-only',ready(){},expand(){},onEvent(){},MainButton:__native,BackButton:{show(){},hide(){},onClick(){},offClick(){}}}};
   });
-  for (const css of ['core/static/miniapp/base.css','core/static/miniapp/workflow_standard.css','origination/static/miniapp/loan_origination.css']) {
-    await page.addStyleTag({path:path.join(root,css)});
+  for (const css of ['core/static/miniapp/base.css','core/static/miniapp/workflow_standard.css','origination/static/miniapp/loan_origination.css','origination/static/miniapp/origination_compact.css']) {
+    await page.addStyleTag({content:fs.readFileSync(path.join(root,css),'utf8').replace(/^@import[^\r\n]*;\s*$/gm,'')});
   }
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/utils.js')});
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/secure_media_viewer.js')});
@@ -100,13 +100,13 @@ for(const width of [320,430,1280]) for(const dark of [false,true]) {
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:info.outputPath(`placed-form-${width}-${dark?'dark':'light'}.png`),fullPage:true});
     await page.locator('[data-field=applicant_full_name]').fill('Synthetic Applicant Updated');
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(page.locator('[data-field=purpose]')).toBeVisible();
     expect(lastPayload).not.toHaveProperty('unused');
     await page.locator('[data-field=purpose]').fill('Synthetic request');
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(page.locator('[data-document-field=private_note]')).toBeVisible();
     await page.screenshot({path:info.outputPath(`placed-support-${width}-${dark?'dark':'light'}.png`),fullPage:true});
   });
@@ -169,6 +169,7 @@ test('Origination native editor action keeps section validation and input intact
     form_payload:{},form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_name',label:'Applicant name',type:'text',section:'applicant',required:true}]},
   }}}));
   await page.locator('.application-card').click();
+  await page.locator('#section-next').click();
   await expect.poll(()=>page.evaluate(()=>__native.visible&&__handlers.size===1)).toBe(true);
   await page.evaluate(()=>[...__handlers][0]());
   await expect(page.locator('[data-field=applicant_name]')).toHaveAttribute('aria-invalid','true');
@@ -209,7 +210,7 @@ for (const width of [320, 430]) {
     await expect(page.locator('[aria-invalid=true]')).toHaveCount(0);
     await email.fill('bad');
     await children.fill('1.5');
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(email).toHaveAttribute('aria-invalid','true');
     await expect(children).toHaveAttribute('aria-invalid','true');
     expect(writes).toBe(0);
@@ -221,7 +222,7 @@ for (const width of [320, 430]) {
     await page.locator('[data-field=birth_date]').fill('2000-01-01');
     await expect(email).not.toHaveAttribute('aria-invalid','true');
     await expect(children).not.toHaveAttribute('aria-invalid','true');
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect.poll(() => writes).toBeGreaterThan(0);
     expect(app.form_payload.people[0].active).toBe(false);
     expect(app.form_payload.nationality).toBe('ke');
@@ -257,11 +258,11 @@ for (const width of [320, 430]) {
     await page.locator('.application-card').click();
     await expect(page.locator('[data-field="applicant_name"]')).toHaveCount(1);
     await page.locator('[data-field="applicant_name"]').fill('Updated Synthetic Applicant');
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
     expect(writes.length).toBeGreaterThan(0);
     expect(writes.at(-1).inactive_saved_value).toBeUndefined();
-    await page.locator('#wizard-next').click();
+    await page.locator('#section-next').click();
     await expect(page.locator('[data-document-field="notes"]')).toBeEditable();
     await expect(page.locator('[data-document-field="applicant_name"]')).toHaveCount(0);
     await expect(page.locator('[data-document-field="interest"]')).toHaveCount(0);
@@ -305,4 +306,63 @@ test('Each sub-county uses its own county and preserves the other person', async
   await expect(applicantArea).toHaveValue('');
   await expect(applicantArea.locator('option')).toHaveText(['Choose sub-county','Area B']);
   await expect(guarantorArea).toHaveValue('AREA-B');
+});
+
+for(const width of [320,390,430,1280]) test(`optional ID pair preserves photos after failed upload ${width}`,async({page},info)=>{
+  await boot(page,width);
+  const id='00000000-0000-0000-0000-000000000001';
+  let app={id,officer_id:1,revision:1,status:'draft',reference_number:'ORG-SYNTHETIC-ID',product_name:'Training',
+    form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_id_number',type:'national_id',label:'National ID',section_key:'applicant'}]},
+    form_payload:{applicant_id_number:'99000001'},product_terms:{},requirement_evidence:[],identity_copy_policy:1,
+    identity_copies:[{key:'borrower_id_copy',label:'Borrower ID copy',type:'document',identity_role:'borrower',identity_field:'applicant_id_number',subject_sha256:'synthetic-subject'}]};
+  await page.route(`**/applications/${id}/`,route=>route.fulfill({json:{ok:true,application:app}}));
+  const uploads=[];
+  await page.route(`**/requirements/borrower_id_copy/evidence/`,route=>{
+    uploads.push(route.request().postDataBuffer().toString());
+    if(uploads.length===1) return route.fulfill({status:502,json:{ok:false,error:'Could not save. Retry.',evidence:{status:'failed'},application:app}});
+    app={...app,revision:2,requirement_evidence:[{id:'synthetic-copy',requirement_key:'borrower_id_copy',requirement_label:'Borrower ID copy',filename:'client-id.pdf',byte_size:1000,status:'uploaded'}]};
+    return route.fulfill({json:{ok:true,application:app}});
+  });
+  await page.locator('.application-card').click();
+  await expect(page.locator('.origination-header')).toBeHidden();
+  await page.locator('#section-next').click();
+  await expect(page.getByText('Borrower ID copy',{exact:true})).toBeVisible();
+  await expect(page.locator('.required-mark')).toHaveCount(0);
+  await page.locator('[data-id-capture]').click();
+  await page.locator('[data-id-upload]').click();
+  await expect(page.locator('[data-id-status]')).toContainText('Add both');
+  for(const side of ['front','back']) await page.locator(`[data-id-side="${side}"]`).setInputFiles({name:`synthetic-${side}.png`,mimeType:'image/png',buffer:fs.readFileSync(path.join(root,'core/static/miniapp/jawabu-logo.png'))});
+  await expect(page.locator('[data-id-image="front"]')).toBeVisible();
+  await expect(page.locator('[data-id-image="back"]')).toBeVisible();
+  await page.screenshot({path:info.outputPath(`identity-pair-${width}.png`),fullPage:true});
+  await page.locator('[data-id-image="front"]').click();
+  await expect(page.locator('.identity-photo-preview')).toBeVisible();
+  await page.getByRole('button',{name:'Next photo',exact:true}).click();
+  await expect(page.locator('.identity-photo-preview header span')).toHaveText('Back');
+  await page.getByRole('button',{name:'Close photo preview',exact:true}).click();
+  await page.locator('[data-id-upload]').click();
+  await expect(page.locator('[data-id-status]')).toContainText('Could not save');
+  await expect(page.locator('[data-id-image="front"]')).toBeVisible();
+  await page.locator('[data-id-upload]').click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await expect(page.locator('.evidence-row')).toContainText('client-id.pdf');
+  expect(uploads).toHaveLength(2);
+  expect(uploads[1]).toContain('name="front"');expect(uploads[1]).toContain('name="back"');
+});
+
+test('Main LAF radio is a circle with document version and no rectangular input border',async({page},info)=>{
+  await boot(page,390);
+  await page.route('**/products/**',route=>route.fulfill({json:{ok:true,branches:['Synthetic'],products:[
+    {product_key:'training',name:'Training',template_ready:true,document_catalogue:{ready:true,main_lafs:[{id:'synthetic-template',name:'Same named LAF',version:3}],supporting_documents:[]}}]}}));
+  await page.getByRole('button',{name:'Start application',exact:true}).click();
+  await page.locator('#origination-create-branch').evaluate(node=>{node.add(new Option('Synthetic','Synthetic'));});
+  await page.locator('#origination-create-branch').selectOption('Synthetic');
+  await page.locator('#origination-create-product').selectOption('training');
+  const radio=page.locator('.packet-document-option input[type=radio]');
+  await expect(radio).toHaveCSS('height','18px');
+  await expect(radio).toHaveCSS('box-shadow','none');
+  await expect(page.getByText(/version 3/)).toBeVisible();
+  await radio.check();
+  await expect(radio).toHaveCSS('outline-style','none');
+  await page.screenshot({path:info.outputPath('main-laf-radio-390.png'),fullPage:true});
 });

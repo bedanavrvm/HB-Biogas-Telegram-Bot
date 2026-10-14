@@ -189,8 +189,8 @@ SIGNER_RULES = (
 )
 
 EVIDENCE_REQUIREMENTS = (
-    {'key': 'guarantor_1_id_copy', 'label': 'Guarantor 1 ID Copy', 'description': 'Upload a clear copy of Guarantor 1 national ID.', 'type': 'document', 'workflow': 'loan_origination', 'enforcement_stage': 'review', 'required': True, 'validation': {}},
-    {'key': 'guarantor_2_id_copy', 'label': 'Guarantor 2 ID Copy', 'description': 'Required when a second guarantor is provided.', 'type': 'document', 'workflow': 'loan_origination', 'enforcement_stage': 'review', 'required': False, 'validation': {'required_when': {'field': 'guarantor_2_name', 'operator': 'truthy'}}},
+    {'key': 'guarantor_1_id_copy', 'label': 'Guarantor 1 ID Copy', 'description': 'Optional front and back copy of Guarantor 1 national ID.', 'type': 'document', 'workflow': 'loan_origination', 'enforcement_stage': 'review', 'required': False, 'validation': {}},
+    {'key': 'guarantor_2_id_copy', 'label': 'Guarantor 2 ID Copy', 'description': 'Optional front and back copy of Guarantor 2 national ID.', 'type': 'document', 'workflow': 'loan_origination', 'enforcement_stage': 'review', 'required': False, 'validation': {}},
 )
 
 

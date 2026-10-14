@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 const {test, expect} = require('playwright/test');
 const root = path.resolve(__dirname, '../..');
 const asset = (owner, name) => path.join(root, owner, 'static', 'miniapp', name);
@@ -22,6 +23,12 @@ async function mount(page, options = {}) {
     if(url.hostname !== '127.0.0.1') return route.abort();
     if(url.pathname === '/sign/') return route.fulfill({contentType:'text/html', body:html});
     if(url.pathname.endsWith('/session/')) return route.fulfill({json:{ok:true,session}});
+    if(url.pathname.endsWith('/signature-preview/')) {
+      const values=route.request().postDataJSON();
+      const rendered=execFileSync(path.join(root,'.venv','Scripts','python.exe'),['-c',
+        'import json,sys; from origination.services.signature_appearance import preview_capture; print(json.dumps(preview_capture(sys.argv[1],sys.argv[2])))',values.name,values.font],{cwd:root,encoding:'utf8'});
+      return route.fulfill({json:{ok:true,...JSON.parse(rendered)}});
+    }
     if(url.pathname.endsWith('/packet/')) {
       packetReads++;
       return route.fulfill({contentType:'image/png',body:fs.readFileSync(asset('core','jawabu-logo.png')),
@@ -51,7 +58,7 @@ async function mount(page, options = {}) {
   });
   await page.goto('http://127.0.0.1/sign/#synthetic-signing-token');
   await page.addStyleTag({path:asset('core','base.css')});
-  for(const name of ['origination_signing.css','origination_signing_feedback.css','origination_signing_completion.css'])
+  for(const name of ['origination_signing.css','origination_signing_feedback.css','origination_signing_completion.css','origination_compact.css','signature_appearance.css'])
     await page.addStyleTag({path:asset('origination',name)});
   await page.evaluate(telegram => {
     window.__closed=0;
@@ -60,6 +67,7 @@ async function mount(page, options = {}) {
   await page.addScriptTag({path:asset('core','utils.js')});
   await page.addScriptTag({path:asset('core','secure_media_viewer.js')});
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
+  await page.addScriptTag({path:asset('origination','signature_appearance.js')});
   await page.addScriptTag({path:asset('origination','origination_signing.js')});
   if(!options.verified && !options.pages) await expect(page.locator('#signature-card')).toBeVisible();
   return {errors, requests, packetReads:()=>packetReads};
@@ -94,7 +102,8 @@ for (const width of [320,360,390,430,768,1280]) for (const dark of [false,true])
 }
 async function save(page, assisted=false) {
   await page.getByRole('button',{name:'Type',exact:true}).click();
-  await page.getByLabel('Type your full legal name').fill('Synthetic Applicant');
+  await page.getByLabel('Your full name',{exact:true}).fill('Synthetic Applicant');
+  await expect(page.locator('.typed-mark-frame img')).toBeVisible();
   await page.locator('#packet-consent').check();
   if(assisted) await page.locator('#assisted-consent').check();
   await page.locator('#save-signature').click();

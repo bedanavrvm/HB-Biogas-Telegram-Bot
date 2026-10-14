@@ -58,6 +58,9 @@ def _validated_signature_capture(value: Any) -> dict[str, Any]:
         raise OriginationError('Draw or type the TEST signature before confirming this slot.')
     method = str(value.get('method') or '').strip().casefold()
     if method == 'typed':
+        if value.get('appearance_version') == 2:
+            from origination.services.signature_appearance import freeze_capture
+            return freeze_capture(value)
         name = ' '.join(str(value.get('name') or '').split())
         if len(name) < 2 or len(name) > 120:
             raise OriginationError('Enter the signer name using 2 to 120 characters.')
@@ -400,6 +403,19 @@ def _slot_overlay(
                     for point in stroke[1:]:
                         path.lineTo(content_x + point[0] * content_width, content_y + (1 - point[1]) * content_height)
                     pdf.drawPath(path, stroke=1, fill=0)
+            elif capture.get('appearance_version') == 2:
+                import base64
+                image_bytes = base64.b64decode(capture['image_png'], validate=True)
+                if hashlib.sha256(image_bytes).hexdigest() != capture['image_sha256']:
+                    raise OriginationError('The saved signature image could not be verified.')
+                signature_image = ImageReader(BytesIO(image_bytes))
+                image_width, image_height = signature_image.getSize()
+                fit = min(content_width / image_width, content_height / image_height)
+                image_width, image_height = image_width * fit, image_height * fit
+                pdf.drawImage(signature_image,
+                              content_x + (content_width - image_width) / 2,
+                              content_y + (content_height - image_height) / 2,
+                              width=image_width, height=image_height, mask='auto')
             else:
                 name = str(capture.get('name') or ('TEST SIGNATURE' if test_mode else ''))
                 font_name = str(spec.get('typed_font') or 'Helvetica-BoldOblique')

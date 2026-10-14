@@ -47,6 +47,16 @@ def _add(
 
 
 _add(
+    'loan_origination_signature_preview',
+    authentication='Verified Telegram identity or exact opaque signer-session token',
+    capability='Existing Origination staff signing or TEST start capability; public session is signing-only',
+    scope='Currently accessible application revision/package or unexpired signer session',
+    request_key_binding='Read-only deterministic name/font rendering; no workflow writes',
+    domain_replay='Repeated previews return the same image hash without creating signatures or events',
+)
+
+
+_add(
     'staff_telegram_activation_submit',
     authentication='Canonical Telegram initData plus single-use activation proof',
     capability='Enrolled staff activation only',
@@ -512,6 +522,7 @@ _add(
 # Telegram Mini App routes. They remain governed by their own boundary and
 # must be reviewed explicitly instead of silently disappearing from CI.
 NON_MINIAPP_WRITE_ROUTES: dict[str, str] = {
+    'loan_origination_signer_signature_preview': 'Read-only deterministic image render; opaque session credential and public signing throttle; no signature or workflow write.',
     'loan_origination_signer_consent': 'Public opaque signer session; request-keyed signer consent service.',
     'loan_origination_signer_otp': 'Public opaque signer session; throttled OTP request service.',
     'loan_origination_signer_verify': 'Public opaque signer session; request-keyed OTP verification service.',

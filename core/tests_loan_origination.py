@@ -1790,13 +1790,19 @@ class LoanOriginationServiceTests(TestCase):
         from origination.services.loan_origination import _missing_application_requirements
         self.assertEqual(
             {item['key'] for item in _missing_application_requirements(application, stage='review')},
-            {'guarantor_1_id_copy'},
+            set(),  # New applications capture the optional identity-copy policy.
         )
         application.form_payload = {'guarantor_2_name': 'Synthetic Guarantor'}
         self.assertEqual(
             {item['key'] for item in _missing_application_requirements(application, stage='review')},
-            {'guarantor_1_id_copy', 'guarantor_2_id_copy'},
+            set(),
         )
+        application.schema_snapshot.pop('identity_copy_policy')
+        application.status = 'ready_for_review'
+        self.assertEqual(
+            {item['key'] for item in _missing_application_requirements(application, stage='review')},
+            {'guarantor_1_id_copy', 'guarantor_2_id_copy'},
+        )  # Submitted legacy snapshots retain their captured requirements.
 
         template.status = template.STATUS_RETIRED
         template.save(update_fields=['status'])
