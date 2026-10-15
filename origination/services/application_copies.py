@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from zoneinfo import ZoneInfo
 
 from django.core import signing
@@ -14,13 +15,15 @@ from origination.models import LoanOriginationApplication
 from origination.services.loan_origination import OriginationError, OriginationConflict
 
 SALT = 'origination-application-copy-1'
+SEPARATE_COPY_UNAVAILABLE = 'Separate copies are unavailable for this application. Download all documents instead.'
+NOTICE_KEY = 'conditional_approval_notice'
 
 
 class IncompleteCopyConfirmation(OriginationError):
     pass
 
 
-def copy_filename(application, prepared_at):
+def copy_filename(application, prepared_at, *, document_name=''):
     from origination.services.loan_origination import applicant_identity_snapshot
     identity = applicant_identity_snapshot(application.form_payload, schema=application.schema_snapshot,
                                            signer_rules=application.signer_rules_snapshot)
@@ -38,26 +41,103 @@ def copy_filename(application, prepared_at):
         text = ''.join(c for c in str(value) if not unicodedata.category(c).startswith('C'))
         return re.sub(r'\s+', ' ', re.sub(r'[<>:"/\\|?*]', ' ', text)).strip(' .')[:65]
     stamp = prepared_at.astimezone(ZoneInfo('Africa/Nairobi')).strftime('%d-%m-%Y %H-%M-%S')
-    return f'{safe(name)} {safe(product)} {amount_label} {stamp}.pdf'
+    document_label = f' {safe(document_name)}' if document_name else ''
+    return f'{safe(name)} {safe(product)} {amount_label}{document_label} {stamp}.pdf'
 
 
-def copy_fingerprint(application: LoanOriginationApplication, content: bytes, kind: str) -> str:
+def _document_key(value):
+    if value is None or value == '':
+        return ''
+    if not isinstance(value, str) or not re.fullmatch(r'[-a-zA-Z0-9_]{1,80}', value):
+        raise OriginationError('Choose a document from this application.')
+    return value
+
+
+def _approved_package(application):
+    return application.signing_packages.filter(status='fully_signed').order_by('-finalized_at', '-created_at').first()
+
+
+def _manifest_ranges(package, *, page_count=None):
+    """Only captured, complete page boundaries can identify a signed document."""
+    manifest = package.document_manifest_snapshot
+    if not isinstance(manifest, list) or not manifest:
+        raise OriginationError(SEPARATE_COPY_UNAVAILABLE)
+    ranges, offset = {}, 0
+    for item in manifest:
+        if not isinstance(item, dict):
+            raise OriginationError(SEPARATE_COPY_UNAVAILABLE)
+        key, count = item.get('key'), item.get('page_count')
+        if (not isinstance(key, str) or not re.fullmatch(r'[-a-zA-Z0-9_]{1,80}', key)
+                or key in ranges or type(count) is not int or count < 1):
+            raise OriginationError(SEPARATE_COPY_UNAVAILABLE)
+        ranges[key] = {'start': offset, 'count': count,
+                       'name': 'Main LAF' if key == 'primary' else str(item.get('name') or 'Supporting document')}
+        offset += count
+    if 'primary' not in ranges or (page_count is not None and offset != page_count):
+        raise OriginationError(SEPARATE_COPY_UNAVAILABLE)
+    return ranges
+
+
+def download_choices(application):
+    """Authorized-detail metadata only; never render PDFs or contact storage."""
+    if application.status in {'declined', 'expired', 'cancelled'}:
+        return []
+    choices = [{'document_key': '', 'label': 'All documents', 'description': 'Combined PDF', 'available': True}]
+    if application.status == 'approved':
+        package = _approved_package(application)
+        if not package or not package.signed_document_hash:
+            choices[0].update(available=False, reason='The signed application is not available yet.')
+            return choices
+        try:
+            ranges = _manifest_ranges(package)
+        except OriginationError:
+            return choices + [{'document_key': 'primary', 'label': 'Individual documents',
+                               'available': False, 'reason': SEPARATE_COPY_UNAVAILABLE}]
+        return choices + [{'document_key': key, 'label': value['name'], 'description': 'Signed PDF', 'available': True}
+                          for key, value in ranges.items() if key != NOTICE_KEY]
+    documents = list(application.packet_documents.filter(selected=True).order_by('display_order', 'document_key'))
+    primary = next((item for item in documents if item.document_key == 'primary'), None)
+    if not documents or primary:
+        choices.append({'document_key': 'primary', 'label': 'Main LAF',
+                        'description': primary.name if primary and primary.name != 'Main LAF' else 'PDF', 'available': True})
+    choices.extend({'document_key': item.document_key, 'label': item.name or 'Supporting document',
+                    'description': 'PDF', 'available': True} for item in documents if item.document_key != 'primary')
+    return choices
+
+
+def copy_fingerprint(application: LoanOriginationApplication, content: bytes, kind: str, *, document_key='', source=None) -> str:
     # Unsigned rendering metadata can change between requests. Bind its saved
     # inputs instead; final signed copies must still match the exact bytes.
     if kind == 'SIGNED':
+        if document_key:
+            # PDF extraction metadata is not signing evidence. Bind the verified
+            # original bundle, captured manifest and selected range instead.
+            return hashlib.sha256(json.dumps([document_key, source], sort_keys=True).encode()).hexdigest()
         return hashlib.sha256(content).hexdigest()
     captured = [application.schema_snapshot, application.form_payload,
                 application.template_configuration_snapshot, application.product_quote_snapshot,
                 list(application.packet_documents.filter(selected=True).order_by('document_key').values(
                     'document_key', 'template_snapshot', 'field_payload', 'schema_snapshot'))]
+    if document_key:
+        captured.append(document_key)
     return hashlib.sha256(json.dumps(captured, sort_keys=True, separators=(',', ':'), default=str).encode()).hexdigest()
 
 
-def copy_readiness(application: LoanOriginationApplication, *, require_complete=True) -> dict[str, str]:
+def copy_readiness(application: LoanOriginationApplication, *, require_complete=True, document_key='') -> dict[str, str]:
     """Form completeness, without preview/signing side effects or PDF rendering."""
-    from origination.services.origination_value_contracts import application_input_schema, entered_payload
+    from origination.services.origination_value_contracts import application_input_schema, application_document_schema, entered_payload
     from origination.services.loan_origination import validate_form_payload
     from origination.services.origination_documents import _document_fields, document_context
+    if document_key:
+        document = _selected_document(application, document_key)
+        schema = application_document_schema(application, document if document_key != 'primary' else None)
+        schema['fields'] = [field for field in schema.get('fields', [])
+                            if field.get('source_type') != 'system'
+                            and (field.get('value_contract') or {}).get('source', 'entered') == 'entered']
+        values = {**application.form_payload, **(document.field_payload if document else {})}
+        result = validate_form_payload(schema, entered_payload(values, schema=schema), require_complete=require_complete)
+        return {(key if document_key == 'primary' else f'{document_key}.{key}'): message
+                for key, message in result.errors.items()}
     schema = application_input_schema(application)
     result = validate_form_payload(schema, entered_payload(application.form_payload, schema=schema), require_complete=require_complete)
     errors = dict(result.errors)
@@ -73,28 +153,68 @@ def copy_readiness(application: LoanOriginationApplication, *, require_complete=
     return errors
 
 
-def copy_content(application: LoanOriginationApplication, *, allow_incomplete=False) -> tuple[bytes, str]:
+def _selected_document(application, document_key):
+    document = application.packet_documents.filter(document_key=document_key).first()
+    if document is None and document_key == 'primary' and not application.packet_documents.exists():
+        return None  # Historical single-LAF application.
+    if not document or not document.selected:
+        raise OriginationError('This document is not selected for the application.')
+    return document
+
+
+def _copy_result(application, *, allow_incomplete=False, document_key=''):
     if application.status in {'declined', 'expired', 'cancelled'}:
         raise OriginationError('This application is closed. A new application copy cannot be downloaded.')
     if application.status == 'approved':
-        package = application.signing_packages.filter(status='fully_signed').order_by('-finalized_at', '-created_at').first()
+        package = _approved_package(application)
         if not package:
             raise OriginationError('The signed application is not available yet.')
         from origination.services.origination_esign import signed_package_content
         package, content = signed_package_content(package_id=package.pk)
-        return content, 'SIGNED'
-    invalid = copy_readiness(application, require_complete=False)
+        if not document_key:
+            return content, 'SIGNED', '', None
+        from pypdf import PdfReader, PdfWriter
+        from pypdf.errors import PdfReadError
+        try:
+            reader = PdfReader(BytesIO(content))
+            ranges = _manifest_ranges(package, page_count=len(reader.pages))
+            selected = ranges.get(document_key) if document_key != NOTICE_KEY else None
+            if not selected:
+                raise OriginationError('This document is not included in the signed application.')
+            writer = PdfWriter()
+            for page in range(selected['start'], selected['start'] + selected['count']):
+                writer.add_page(reader.pages[page])
+            output = BytesIO()
+            writer.write(output)
+        except (PdfReadError, ValueError, KeyError, TypeError) as exc:
+            raise OriginationError(SEPARATE_COPY_UNAVAILABLE) from exc
+        source = {'package_id': str(package.pk), 'sha256': package.signed_document_hash,
+                  'manifest_sha256': hashlib.sha256(json.dumps(package.document_manifest_snapshot, sort_keys=True).encode()).hexdigest(),
+                  'start': selected['start'], 'count': selected['count']}
+        return output.getvalue(), 'SIGNED', selected['name'], source
+    document = _selected_document(application, document_key) if document_key else None
+    invalid = copy_readiness(application, require_complete=False, document_key=document_key)
     if invalid:
         raise OriginationError('Check the entered values before downloading.', errors=invalid)
-    if not allow_incomplete and copy_readiness(application):
+    if not allow_incomplete and copy_readiness(application, document_key=document_key):
         raise IncompleteCopyConfirmation('Some required details are missing. Download this copy anyway?')
-    from origination.services.origination_documents import render_packet
-    content, _manifest = render_packet(application)
-    return content, 'UNSIGNED'
+    from origination.services.origination_documents import render_packet, render_document
+    if document_key:
+        content = render_document(application, document_key)
+    else:
+        content, _manifest = render_packet(application)
+    name = 'Main LAF' if document_key == 'primary' else document.name if document else ''
+    return content, 'UNSIGNED', name, None
+
+
+def copy_content(application: LoanOriginationApplication, *, allow_incomplete=False, document_key='') -> tuple[bytes, str]:
+    content, kind, _name, _source = _copy_result(application,
+        allow_incomplete=allow_incomplete, document_key=_document_key(document_key))
+    return content, kind
 
 
 @transaction.atomic
-def prepare_copy(*, application_id, actor, revision: int, request_id: str, allow_incomplete=False) -> tuple[str, str]:
+def prepare_copy(*, application_id, actor, revision: int, request_id: str, allow_incomplete=False, document_key='') -> tuple[str, str]:
     from origination.services.loan_origination import _require_request_id
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
@@ -110,19 +230,24 @@ def prepare_copy(*, application_id, actor, revision: int, request_id: str, allow
         raise OriginationError('You do not have access to this application.')
     if not isinstance(allow_incomplete, bool):
         raise OriginationError('Confirm whether to download the incomplete copy.')
-    content, kind = copy_content(application, allow_incomplete=allow_incomplete)
+    document_key = _document_key(document_key)
+    content, kind, document_name, source = _copy_result(application,
+        allow_incomplete=allow_incomplete, document_key=document_key)
     payload = {'actor': actor.pk, 'application': str(application.pk), 'revision': application.revision,
-               'kind': kind, 'sha256': copy_fingerprint(application, content, kind),
-               'allow_incomplete': allow_incomplete}
+               'kind': kind, 'sha256': copy_fingerprint(application, content, kind, document_key=document_key, source=source),
+               'allow_incomplete': allow_incomplete, 'document_key': document_key}
+    if source:
+        payload['document_source'] = source
     from origination.services.loan_origination import _record_event
     replay = application.events.filter(action='application_copy_prepared', request_id=request_id).first()
     if replay:
         recorded = replay.after_values
-        if any(recorded.get(key, False if key == 'allow_incomplete' else None) != value for key, value in payload.items()):
+        defaults = {'allow_incomplete': False, 'document_key': ''}
+        if any(recorded.get(key, defaults.get(key)) != value for key, value in payload.items()):
             raise OriginationConflict('This download request was already used for a different copy.')
         payload = dict(recorded)
     else:
-        payload['filename'] = copy_filename(application, timezone.now())
+        payload['filename'] = copy_filename(application, timezone.now(), document_name=document_name)
         _record_event(application, 'application_copy_prepared', actor=actor, request_id=request_id, after=payload)
     return signing.dumps(payload, salt=SALT, compress=True), kind
 
@@ -136,7 +261,11 @@ def retrieve_copy(payload: dict) -> tuple[bytes, str]:
     application = LoanOriginationApplication.objects.select_for_update().get(pk=payload['application'])
     if application.revision != payload['revision']:
         raise OriginationConflict('This copy has changed. Download the latest application.')
-    content, kind = copy_content(application, allow_incomplete=payload.get('allow_incomplete', False))
-    if kind != payload['kind'] or copy_fingerprint(application, content, kind) != payload['sha256']:
+    document_key = _document_key(payload.get('document_key'))
+    content, kind, _name, source = _copy_result(application,
+        allow_incomplete=payload.get('allow_incomplete', False), document_key=document_key)
+    if (kind != payload['kind'] or copy_fingerprint(application, content, kind,
+            document_key=document_key, source=source) != payload['sha256']
+            or (source and source != payload.get('document_source'))):
         raise OriginationConflict('This copy has changed. Download the latest application.')
     return content, payload.get('filename') or f'{application.reference_number}-{kind}.pdf'

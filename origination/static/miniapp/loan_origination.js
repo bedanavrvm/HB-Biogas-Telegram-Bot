@@ -83,6 +83,7 @@
   let lastActivatedButton = null;
   let primaryBusy = false;
   let createInFlight = false;
+  let copyDownloadInFlight = false;
   let previewGestures = null;
   let keyboardFocusTimer = null;
 
@@ -273,6 +274,7 @@
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
 
   function applicationStatusLabel(application) {
+    if (application?.status === 'completed') return 'Completed';
     if (application.signing_workspace) return application.signing_workspace.status_label;
     if (application.status_label) return application.status_label;
     if ((application.approval_roles || []).length) return application.status_text || 'Awaiting signatures';
@@ -296,6 +298,9 @@
       refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
       review: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12M14 2v6h6L14 2Z"/><circle cx="15" cy="15" r="4"/><path d="m18 18 3 3"/>',
+      document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h6"/>',
+      documents: '<path d="M15 3H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5M3 7v13a2 2 0 0 0 2 2h10"/>',
+      download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
       undo: '<path d="M3 7v6h6M3 13l4-4a7 7 0 1 1 1 10"/>',
     };
     return `<svg class="${escapeHtml(className)}" aria-hidden="true" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
@@ -672,6 +677,7 @@
     sheetMode = mode;
     sheetReturnFocus = trigger || document.activeElement;
     document.getElementById('origination-sheet-eyebrow').textContent = eyebrow || 'Origination';
+    document.getElementById('origination-sheet-eyebrow').hidden = mode === 'downloads';
     document.getElementById('origination-sheet-title').textContent = title;
     document.getElementById('origination-sheet-hint').textContent = hint;
     document.getElementById('origination-sheet-body').innerHTML = body;
@@ -1114,7 +1120,7 @@
     conflictDraft = null;
     conflictServerLoaded = false;
     await recoverDraft(application);
-    if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved'].includes(application.status)) {
+    if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved', 'completed'].includes(application.status)) {
       requestedStep = wizardSections().length - 1;
     }
     renderEditor(current, requestedStep);
@@ -2169,7 +2175,9 @@
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
     }
-    const finalAction = current.signing_workspace || (current.approval_roles || []).length
+    const finalAction = current.completion_without_signing
+      ? '<button class="btn btn-primary" id="origination-submit" data-primary-action="Complete application">Complete application</button>'
+      : current.signing_workspace || (current.approval_roles || []).length
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Submit for signing">Submit for signing</button>'
       : capabilities.can_confirm_signing
       ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
@@ -2261,7 +2269,8 @@
     const sectionLocked = false;
     const sectionEditable = editable && !sectionLocked && !syncConflict;
     let content;
-    if (application.signing_workspace && !editable) content = signingWorkspaceMarkup();
+    if (application.status === 'completed') content = '<div class="section-title"><div><h3>Application completed</h3><p>No e-signatures were required. This does not approve the loan.</p></div></div><button type="button" class="btn btn-primary" id="origination-completed-download">Download application</button>';
+    else if (application.signing_workspace && !editable) content = signingWorkspaceMarkup();
     else if (section.key === 'review') content = reviewMarkup(values);
     else if (section.key === 'document_selection') content = documentSelectionMarkup(sectionEditable && application.status !== 'correction_required');
     else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, sectionEditable);
@@ -2296,7 +2305,7 @@
       button.classList.add('icon-button');
       button.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
     });
-    if (!['declined', 'expired', 'cancelled'].includes(application.status)) {
+    if (!['declined', 'expired', 'cancelled'].includes(application.status) && application.presentation !== 'masked' && application.download_ready !== false) {
       const context = root().querySelector('.editor-context');
       const download = document.createElement('button');
       download.type = 'button'; download.className = 'icon-button';
@@ -2304,14 +2313,10 @@
       download.title = application.status === 'approved' ? 'Download signed application' : 'Download unsigned application';
       download.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       context?.querySelector('.editor-document-actions')?.appendChild(download);
-      download.onclick = async () => {
-        if (download.disabled) return;
-        download.disabled = true; download.setAttribute('aria-busy', 'true');
-        showToast('Preparing application copy…', 'info');
-        try { await downloadApplication(); }
-        catch (_) { showToast('Could not prepare this application. Please try again.', 'error'); }
-        finally { download.disabled = false; download.removeAttribute('aria-busy'); }
-      };
+      download.onclick = () => { if (!copyDownloadInFlight) openDownloadSheet(download); };
+      document.getElementById('origination-completed-download')?.addEventListener('click', event => {
+        if (!copyDownloadInFlight) openDownloadSheet(event.currentTarget);
+      });
     }
     window.MiniAppUtils?.bindAccessibleForm?.(root());
     document.getElementById('origination-restart-laf')?.addEventListener('click', event => openRestartSheet(event.currentTarget));
@@ -3133,7 +3138,10 @@
         if (result.data?.errors) showServerErrors(result.data.errors);
         return showToast(result.data?.error || 'Could not submit the application.', true);
       }
-      await load();
+      current = result.data.application;
+      showToast(current.status === 'completed' ? 'Application completed.' : 'Application submitted.');
+      if (current.status === 'completed') renderEditor(current, wizardSections().length - 1);
+      else await load();
     }));
     root().querySelectorAll('[data-review]').forEach(button => button.onclick = async () => {
       const decision = button.dataset.review;
@@ -3316,10 +3324,36 @@
     showToast('Opening the signed PDF.');
   }
 
-  async function downloadApplication() {
+  function openDownloadSheet(trigger) {
+    const choices = current.download_choices || [{document_key:'',label:'All documents',description:'Combined PDF',available:true}];
+    openSheet({mode:'downloads',eyebrow:'',title:'Download',trigger,
+      body:`<div class="document-download-list">${choices.map((choice,index) => `<button type="button" class="document-download-choice" data-download-choice="${index}" aria-label="Download ${escapeHtml(choice.label)}"${choice.available === false ? ' disabled' : ''}>
+        ${iconSvg(choice.document_key ? 'document' : 'documents')}<span><strong>${escapeHtml(choice.label)}</strong><small>${escapeHtml(choice.available === false ? choice.reason || 'Unavailable' : choice.description || 'PDF')}</small></span>${iconSvg('download')}
+      </button>`).join('')}</div>`});
+    document.querySelectorAll('[data-download-choice]').forEach(button => button.onclick = async () => {
+      if (copyDownloadInFlight) return;
+      const choice = choices[Number(button.dataset.downloadChoice)];
+      if (!choice || choice.available === false) return;
+      copyDownloadInFlight = true;
+      closeSheet();
+      const control = document.getElementById('origination-download');
+      if (control) {control.disabled=true;control.setAttribute('aria-busy','true');}
+      showToast('Preparing PDF…','info');
+      try {await downloadApplication(choice.document_key || '');}
+      catch (_) {showToast('Could not prepare this document. Please try again.','error');}
+      finally {
+        copyDownloadInFlight=false;
+        const currentControl=document.getElementById('origination-download');
+        if (currentControl) {currentControl.disabled=false;currentControl.removeAttribute('aria-busy');}
+      }
+    });
+  }
+
+  async function downloadApplication(documentKey = '') {
     if (!await saveDraft(true)) return;
     const revision = current.revision;
-    let result = await postJson(`/applications/${current.id}/download/`, {revision});
+    const selection = {revision,document_key:documentKey};
+    let result = await postJson(`/applications/${current.id}/download/`, selection);
     if (result.data?.code === 'incomplete_copy_confirmation_required') {
       const message = result.data.error;
       const telegram = window.Telegram?.WebApp;
@@ -3327,8 +3361,8 @@
         ? await new Promise(resolve => telegram.showPopup({title:'Download application', message,
           buttons:[{id:'download',type:'default',text:'Download'},{type:'cancel'}]}, id => resolve(id === 'download')))
         : window.confirm(message);
-      if (!confirmed) return;
-      result = await postJson(`/applications/${current.id}/download/`, {revision, allow_incomplete:true});
+      if (!confirmed) {showToast('Download cancelled.','info');return;}
+      result = await postJson(`/applications/${current.id}/download/`, {...selection, allow_incomplete:true});
     }
     if (!result.ok) {
       if (result.data?.errors) showServerErrors(result.data.errors);

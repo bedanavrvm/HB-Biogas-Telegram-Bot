@@ -1,5 +1,29 @@
 # Changelog
 
+## 15 October 2026 - Origination document downloads and unsigned completion
+
+- Download the combined application, Main LAF or an individual selected
+  supporting document from one compact chooser. Signed individual copies use
+  verified original pages; unsigned validation is scoped to the chosen document.
+  Incomplete-copy confirmation, current access and expiring revision-bound
+  links remain enforced. Old combined links remain compatible.
+- Published signature-free Main LAFs are available to new applications. Selected
+  documents own their signer requirements; old product mirrors cannot add back
+  removed signers. Independently published replacements no longer leave stale
+  product maintenance notices; genuine pending changes remain pending.
+- New applications without required signatures finish as Completed, not
+  Approved. Completion validates and locks the application without signing
+  sessions or provider calls. Supporting-document signing obligations and
+  historical applications remain unchanged.
+- Migration 0008 adds the completion status. Deploy it with the normal migration
+  step and versioned static files. No manual seed or role command is needed.
+  No production deployment or external provider write was performed.
+- Verification: 170 affected backend tests passed on isolated SQLite; two
+  PostgreSQL-only concurrency checks were skipped. All 59 browser checks passed,
+  with mobile/dark/desktop screenshots inspected. Django, migration drift,
+  Python/JavaScript syntax and diff checks passed. The artifact audit retains
+  17 unchanged HEAD hash mismatches; the full repository suite was not run.
+
 ## 15 October 2026 - Origination cards and unsigned document publication
 
 - Origination application cards show full IDs and dialable phone numbers for

@@ -66,7 +66,30 @@ def selected_documents(definition):
 
 def pending_changes(definition):
     event = definition.events.filter(action__in=['maintenance_staged', 'maintenance_applied']).order_by('-occurred_at', '-pk').first()
-    return event.metadata.get('changes', []) if event and event.action == 'maintenance_staged' else []
+    if not event or event.action != 'maintenance_staged':
+        return []
+    changes = event.metadata.get('changes', [])
+    records = {str(item.pk): item for item in OriginationDocumentTemplate.objects.filter(
+        pk__in={item[key] for item in changes for key in ('source', 'target') if item.get(key)},
+    ).select_related('published_configuration_revision')}
+    eligible = set(str(pk) for pk in OriginationDocumentProductEligibility.objects.filter(
+        template_id__in=records, product_id=definition.product_version.product_id,
+    ).values_list('template_id', flat=True))
+    pending = []
+    for item in changes:
+        source, target = records.get(item['source']), records.get(item.get('target'))
+        # Publishing in the independent Document editor may already have applied
+        # this exact replacement. Project that fact without rewriting audit events
+        # or applying genuinely pending removals/eligibility changes.
+        applied = (item['action'] in {'edit', 'replace'} and source and target
+                   and target.status in {'active', 'retired'}
+                   and target.published_configuration_revision_id
+                   and target.published_configuration_revision.is_published
+                   and str(target.pk) in eligible
+                   and (source.status == 'retired' or str(source.pk) not in eligible))
+        if not applied:
+            pending.append(item)
+    return pending
 
 
 def maintenance_impact(definition):
@@ -453,7 +476,7 @@ def document_readiness(definition):
     if mains:
         from origination.services.loan_origination import validate_product_definition
         try:
-            validate_product_definition(definition)
+            validate_product_definition(definition, document_owned=True)
         except ValueError as exc:
             errors.append(str(exc))
     for template in templates:

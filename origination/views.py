@@ -86,7 +86,7 @@ def portal_origination_prepare_download(request, application_id):
         body = _body(request)
         token, kind = prepare_copy(application_id=application.pk, actor=request.origination_user,
             revision=body.get('revision'), request_id=_request_id(request, body),
-            allow_incomplete=body.get('allow_incomplete', False))
+            allow_incomplete=body.get('allow_incomplete', False), document_key=body.get('document_key', ''))
         url = request.build_absolute_uri(reverse('loan_origination_download') + '?token=' + token)
         return JsonResponse({'ok': True, 'download_url': url,
             'filename': read_copy_token(token).get('filename') or f'{application.reference_number}-{kind}.pdf',
@@ -791,7 +791,8 @@ def portal_origination_submit(request, application_id: str):
         return access_error
     try:
         body = _body(request)
-        if application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required':
+        from origination.services.application_completion import without_signing
+        if not without_signing(application) and (application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required'):
             package, _ = confirm_and_start_conditional_signing(
                 application_id=application.pk, actor=request.origination_user,
                 expected_revision=int(body.get('revision')), request_id=_request_id(request, body),

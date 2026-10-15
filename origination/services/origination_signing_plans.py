@@ -14,7 +14,8 @@ POLICY = 'all_required'
 
 
 def enabled(application):
-    return application.signing_policy_snapshot == POLICY
+    from origination.services.application_completion import without_signing
+    return application.signing_policy_snapshot == POLICY and not without_signing(application)
 
 
 def candidates(application):

@@ -1,5 +1,18 @@
 # Known Gaps and Verified Workarounds
 
+## Origination application copies and unsigned completion - 15 October 2026
+
+- Multiple different supporting documents are supported; repeated instances of
+  one guarantor template are not. Two guarantors do not automatically produce
+  two separately bound guarantor forms.
+- Older approved applications without trustworthy page-boundary metadata retain
+  combined downloads only. Individual signed copies are never reconstructed.
+- Local synthetic browser checks cover the chooser and Telegram/browser handoff,
+  not a real device's file-opening behaviour. Production deployment and
+  PostgreSQL concurrency remain unverified locally.
+- Signature-free completion applies to newly created catalogue applications;
+  historical application and signing snapshots are deliberately not backfilled.
+
 ## Origination non-OTP readiness review - 15 October 2026
 
 Origination is not given unconditional production sign-off. The detailed review,

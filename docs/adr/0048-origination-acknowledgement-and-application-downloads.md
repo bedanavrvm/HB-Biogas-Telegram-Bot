@@ -25,6 +25,13 @@ Before approval their copy type is labelled unsigned (the red page overlay was
 removed by ADR 0049); after approval they contain
 the exact signed bytes. Copies do not count as review or signing.
 
+As of 15 October, the same authorized download request can select the combined
+PDF, Main LAF or one selected supporting document. Signed individual copies
+extract manifest-bound pages from the verified original, accounting for older
+notice pages; they never regenerate signatures. Missing trustworthy historical
+page boundaries leave the combined copy available with a separate-copy warning.
+ADR 0054 separately governs completion without e-signing.
+
 Signature dates belong to the same verified action, not the time of opening a
 preview. New authoring placements pair signatures with date slots. Missing date
 placements remain authoring warnings; existing published documents are not

@@ -837,6 +837,7 @@ class LoanOriginationApplication(models.Model):
     STATUS_FULLY_SIGNED = 'fully_signed'
     STATUS_SIGNED_PENDING_APPROVAL = 'signed_pending_approval'
     STATUS_APPROVED = 'approved'
+    STATUS_COMPLETED = 'completed'
     STATUS_CORRECTION_REQUIRED = 'correction_required'
     STATUS_DECLINED = 'declined'
     STATUS_EXPIRED = 'expired'
@@ -848,8 +849,9 @@ class LoanOriginationApplication(models.Model):
         (STATUS_SIGNING_PENDING, 'Signing pending'),
         (STATUS_PARTIALLY_SIGNED, 'Partially signed'),
         (STATUS_FULLY_SIGNED, 'Fully signed'),
-        (STATUS_SIGNED_PENDING_APPROVAL, 'Signed â€” pending JBL approval'),
+        (STATUS_SIGNED_PENDING_APPROVAL, 'Signed — pending JBL approval'),
         (STATUS_APPROVED, 'Approved and locked'),
+        (STATUS_COMPLETED, 'Completed without e-signing'),
         (STATUS_CORRECTION_REQUIRED, 'Correction required'),
         (STATUS_DECLINED, 'Declined'),
         (STATUS_EXPIRED, 'Expired'),

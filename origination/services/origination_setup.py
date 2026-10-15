@@ -453,8 +453,9 @@ def publish_product_profile(*, definition: OriginationProductDefinition, actor):
     }:
         raise ValidationError('Publish the governed commercial terms first.')
     from origination.services.loan_origination import OriginationError, validate_product_definition
+    from origination.services.origination_document_catalogue import catalogue_for_product
     try:
-        validate_product_definition(locked)
+        validate_product_definition(locked, document_owned=catalogue_for_product(locked)['ready'])
     except OriginationError as exc:
         raise ValidationError(str(exc)) from exc
     previous = list(OriginationProductDefinition.objects.select_for_update().filter(

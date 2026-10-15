@@ -11,7 +11,7 @@ const template = fs.readFileSync(path.join(root,'origination/templates/loan_orig
   .replace(/\{%[\s\S]*?%\}/g,'').replace(/<script[\s\S]*?<\/script>/g,'').replace(/<link[^>]+>/g,'')
   .replace('src=""',`src="data:image/png;base64,${fs.readFileSync(asset('core','jawabu-logo.png')).toString('base64')}"`);
 
-function application(approved = false) {
+function application(approved = false, choices = null) {
   const roles = ['borrower', 'borrower', 'officer', 'branch_manager'];
   const people = roles.map((role,index) => ({id:`00000000-0000-4000-8000-00000000000${index+1}`,
     role,name:index===1 ? 'Synthetic joint applicant with a longer readable name' : `Synthetic person ${index+1}`,
@@ -20,6 +20,8 @@ function application(approved = false) {
     status:approved ? 'approved' : 'partially_signed',officer_id:1,revision:4,branch:'Synthetic branch',
     applicant_summary:{name:'Synthetic Applicant'}, form_schema:{fields:[],sections:[{key:'applicant',label:'Applicant'}]},
     form_payload:{},product_terms:{},requirement_evidence:[],
+    download_choices:choices || [{document_key:'',label:'All documents',description:'Combined PDF',available:true},
+      {document_key:'primary',label:'Main LAF',description:approved?'Signed PDF':'PDF',available:true}],
     document_packet:{documents:[{key:'primary',name:'Main LAF',role:'primary',selected:true,applicable:true,schema:{fields:[]}}]},
     signing_workspace:{policy:'all_required',status_label:approved?'Approved':'Awaiting signatures',
       required_count:4,completed_count:approved?4:1,can_recall:false,participants:people},
@@ -32,21 +34,32 @@ function application(approved = false) {
           document_key:'primary',required:true,completed:p.complete}]}))}}};
 }
 
-async function mount(page, {approved=false,dark=false,download=''}={}) {
+async function mount(page, {approved=false,dark=false,download='',choices=null,unsigned=false}={}) {
   const errors=[];
   const queries=[];
+  const downloads=[];
   page.on('pageerror', error=>errors.push(error.message));
   let payload;
+  let unsignedStatus = 'draft';
+  const currentApplication = () => {
+    const value = application(approved, choices);
+    if (unsigned) Object.assign(value, {status:unsignedStatus, status_label:unsignedStatus==='completed'?'Completed':'Draft',
+      status_text:unsignedStatus==='completed'?'Completed without e-signing':'Draft',
+      completion_without_signing:true,signing_workspace:null,signing_package:null,short_acknowledgement:true,
+      officer_id:2,form_payload:{applicant_full_name:'Synthetic Applicant'},
+      form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_full_name',label:'Applicant name',type:'text',required:true}]}});
+    return value;
+  };
   await page.route('**/*', async route=>{
     const url=new URL(route.request().url());
     if(url.hostname!=='127.0.0.1') return route.abort();
     if(url.pathname==='/origination/') return route.fulfill({contentType:'text/html',body:template});
     if(url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],
-      capabilities:{user_id:2,can_create:false,can_review:false,can_start_signing:false,can_staff_sign:true,
+      capabilities:{user_id:2,can_create:unsigned,can_review:false,can_start_signing:false,can_staff_sign:true,
         staff_signer_roles:['branch_manager']}}});
     if(url.pathname.endsWith('/applications/')) {
       queries.push(url.search);
-      return route.fulfill({json:{ok:true,applications:[application(approved)],
+      return route.fulfill({json:{ok:true,applications:[currentApplication()],
         status_group_options:[{value:'draft',label:'Draft'},{value:'changes',label:'Needs changes'},
           {value:'progress',label:'In progress'},{value:'completed',label:'Completed'},{value:'closed',label:'Closed'}],
         capabilities:{user_id:2,can_staff_sign:true,staff_signer_roles:['branch_manager']},pagination:{pages:1,page:1,total:1}}});
@@ -54,6 +67,10 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
     if(url.pathname.endsWith('/staff-signature/')) {
       payload=route.request().postDataJSON();
       return route.fulfill({json:{ok:true,application:application(true)}});
+    }
+    if(unsigned && url.pathname.endsWith('/submit/')) {
+      unsignedStatus = 'completed';
+      return route.fulfill({json:{ok:true,application:currentApplication()}});
     }
     if(url.pathname.endsWith('/signature-preview/')) {
       const values=route.request().postDataJSON();
@@ -63,10 +80,11 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
     }
     if(url.pathname.endsWith('/download/')) {
       payload=route.request().postDataJSON();
+      downloads.push(payload);
       return route.fulfill({json:{ok:true,download_url:'http://127.0.0.1/copy.pdf',
-        filename:`ORG-SYNTHETIC-PLAN-${approved?'SIGNED':'UNSIGNED'}.pdf`,copy_type:approved?'signed':'unsigned'}});
+        filename:`ORG-SYNTHETIC-PLAN-${approved?'SIGNED':'UNSIGNED'}${payload.document_key?'-'+payload.document_key:''}.pdf`,copy_type:approved?'signed':'unsigned'}});
     }
-    if(url.pathname.includes(`/applications/${applicationId}/`)) return route.fulfill({json:{ok:true,application:application(approved)}});
+    if(url.pathname.includes(`/applications/${applicationId}/`)) return route.fulfill({json:{ok:true,application:currentApplication()}});
     return route.fulfill({json:{ok:true}});
   });
   await page.goto(`http://127.0.0.1/origination/?application=${applicationId}`);
@@ -93,9 +111,36 @@ async function mount(page, {approved=false,dark=false,download=''}={}) {
   await page.addScriptTag({path:asset('origination','origination_signing_completion.js')});
   await page.addScriptTag({path:asset('origination','signature_appearance.js')});
   await page.addScriptTag({path:asset('origination','loan_origination.js')});
-  await expect(page.locator('.signing-workspace')).toBeVisible();
-  return {errors,payload:()=>payload,queries};
+  await expect(page.locator(unsigned?'.wizard-card':'.signing-workspace')).toBeVisible();
+  return {errors,payload:()=>payload,queries,downloads};
 }
+
+for(const width of [320,390,1280]) test(`unsigned completion and download ${width}`, async({page}, info)=>{
+  await page.setViewportSize({width,height:844});
+  const audit = await mount(page,{unsigned:true,download:'native'});
+  // Enter the review section without pretending a download is a review.
+  for(let count=0;count<10 && await page.locator('#section-next').isEnabled();count++) {
+    await page.locator('#section-next').click();
+  }
+  await expect(page.locator('#origination-submit')).toHaveText('Complete application');
+  await expect(page.locator('#origination-confirm-signing')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath(`unsigned-review-${width}.png`),fullPage:true});
+  await page.route('**/preview/', route=>route.fulfill({contentType:'image/svg+xml',
+    body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/><text x="20" y="40">Synthetic unsigned document</text></svg>',
+    headers:{'X-Preview-Page-Count':'1'}}));
+  await page.locator('#origination-preview').click();
+  await expect(page.locator('#preview-page')).toHaveText('Page 1 of 1');
+  await page.locator('#preview-close').click();
+  await page.locator('#origination-submit').click();
+  await expect(page.getByRole('heading',{name:'Application completed',exact:true})).toBeVisible();
+  await expect(page.getByText('This does not approve the loan.',{exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Submit for signing',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Download application',exact:true}).last().click();
+  await expect(page.getByRole('button',{name:/All documents/})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`unsigned-completed-${width}.png`),fullPage:true});
+  expect(audit.errors).toEqual([]);
+});
 
 test('grouped status filter uses five plain choices and the grouped API parameter', async({page})=>{
   const audit=await mount(page);
@@ -142,6 +187,9 @@ for (const mode of ['native','cancel','throw','browser']) test(`application down
   await page.setViewportSize({width:390,height:844});
   const audit=await mount(page,{download:mode});
   await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Download',exact:true})).toBeVisible();
+  expect(audit.downloads).toHaveLength(0);
+  await page.getByRole('button',{name:'Download All documents',exact:true}).click();
   await expect(page.locator('#origination-toast')).toContainText(mode==='cancel'?'Download cancelled.':'Download requested: ORG-SYNTHETIC-PLAN-UNSIGNED.pdf');
   expect(audit.payload().revision).toBe(4);
   await expect(page.getByRole('button',{name:'Download application',exact:true})).toBeEnabled();
@@ -208,9 +256,121 @@ test('incomplete application download asks before native handoff',async({page})=
   });
   page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await page.getByRole('button',{name:'Download All documents',exact:true}).click();
   await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
   expect(count).toBe(2);
   expect(await page.evaluate(()=>window.__downloads[0].file_name)).toContain('Synthetic Applicant Loan KES 100000');
+});
+
+for (const width of [320,390,1280]) for (const dark of [false,true]) {
+  test(`document download chooser is compact at ${width}px ${dark?'dark':'light'}`,async({page},info)=>{
+    await page.setViewportSize({width,height:844});
+    const choices=[{document_key:'',label:'All documents',description:'Combined PDF',available:true},
+      {document_key:'primary',label:'Main LAF',description:'Signed PDF',available:true},
+      {document_key:'guarantee',label:'Guarantee and undertaking for a joint applicant with a longer document name',description:'Signed PDF',available:true},
+      {document_key:'home_visit',label:'Home visit',description:'Signed PDF',available:true}];
+    const audit=await mount(page,{approved:true,dark,download:'native',choices});
+    await page.getByRole('button',{name:'Download application',exact:true}).click();
+    const sheet=page.locator('#origination-sheet');
+    await expect(sheet.getByRole('button',{name:/^Download /})).toHaveCount(4);
+    await expect(sheet.locator('button')).toHaveCount(5); // Four choices and the existing Close icon.
+    expect(audit.downloads).toHaveLength(0);
+    const geometry=await sheet.evaluate(node=>{
+      const title=node.querySelector('h2').getBoundingClientRect();
+      const close=node.querySelector('#origination-sheet-close').getBoundingClientRect();
+      const icons=[...node.querySelectorAll('.document-download-choice svg')].map(icon=>icon.getBoundingClientRect().width);
+      return {height:node.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth,
+        aligned:close.top<title.bottom && close.bottom>title.top,icons};
+    });
+    expect(geometry.height).toBeLessThan(430);
+    expect(geometry.overflow).toBe(false);
+    expect(geometry.aligned).toBe(true);
+    expect(geometry.icons.every(size=>size<=20)).toBe(true);
+    await page.screenshot({path:info.outputPath(`download-chooser-${width}-${dark?'dark':'light'}.png`)});
+    await page.getByRole('button',{name:'Download Main LAF',exact:true}).click();
+    await expect(page.locator('#origination-toast')).toContainText('Download requested: ORG-SYNTHETIC-PLAN-SIGNED-primary.pdf');
+    expect(audit.downloads[0].document_key).toBe('primary');
+    expect(audit.errors).toEqual([]);
+  });
+}
+
+test('individual supporting download and incomplete confirmation keep the selected document',async({page})=>{
+  const choices=[{document_key:'',label:'All documents',available:true},
+    {document_key:'guarantee',label:'Guarantee',available:true}];
+  await mount(page,{download:'native',choices});
+  const requests=[];
+  await page.route('**/applications/*/download/',route=>{
+    const body=route.request().postDataJSON();requests.push(body);
+    return route.fulfill({json:body.allow_incomplete
+      ? {ok:true,download_url:'http://127.0.0.1/copy.pdf',filename:'Synthetic Guarantee.pdf'}
+      : {ok:false,code:'incomplete_copy_confirmation_required',error:'Some required details are missing. Download this copy anyway?'}});
+  });
+  page.once('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await page.getByRole('button',{name:'Download Guarantee',exact:true}).click();
+  await expect.poll(()=>requests.length).toBe(2);
+  expect(requests.map(body=>body.document_key)).toEqual(['guarantee','guarantee']);
+  await expect.poll(()=>page.evaluate(()=>window.__downloads.length)).toBe(1);
+  expect(await page.evaluate(()=>window.__downloads[0].file_name)).toBe('Synthetic Guarantee.pdf');
+});
+
+test('closing chooser or cancelling incomplete confirmation performs no download',async({page})=>{
+  const audit=await mount(page,{download:'native'});
+  const opener=page.getByRole('button',{name:'Download application',exact:true});
+  await opener.click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await expect(opener).toBeFocused();
+  expect(audit.downloads).toHaveLength(0);
+  let requests=0;
+  await page.route('**/applications/*/download/',route=>{
+    requests++;
+    return route.fulfill({json:{ok:false,code:'incomplete_copy_confirmation_required',error:'Download incomplete copy?'}});
+  });
+  page.once('dialog',dialog=>dialog.dismiss());
+  await opener.click();
+  await page.getByRole('button',{name:'Download Main LAF',exact:true}).click();
+  await expect(opener).toBeEnabled();
+  expect(requests).toBe(1);
+  expect(await page.evaluate(()=>window.__downloads.length)).toBe(0);
+});
+
+test('download failure is visible and repeated taps prepare only one copy',async({page})=>{
+  await mount(page,{download:'native'});
+  let requests=0, release;
+  await page.route('**/applications/*/download/',async route=>{
+    requests++;
+    await new Promise(resolve=>{release=resolve;});
+    return route.fulfill({status:503,json:{ok:false,error:'The document could not be retrieved. Try again.'}});
+  });
+  const opener=page.getByRole('button',{name:'Download application',exact:true});
+  await opener.click();
+  await page.getByRole('button',{name:'Download Main LAF',exact:true}).evaluate(button=>{button.click();button.click();});
+  await expect.poll(()=>requests).toBe(1);
+  await expect(opener).toBeDisabled();
+  await expect(page.locator('#origination-toast')).toContainText('Preparing PDF');
+  release();
+  await expect(page.locator('#origination-toast')).toContainText('The document could not be retrieved. Try again.');
+  await expect(opener).toBeEnabled();
+  expect(await page.evaluate(()=>window.__downloads.length)).toBe(0);
+  await opener.click();
+  await expect(page.getByRole('button',{name:'Download Main LAF',exact:true})).toBeEnabled();
+});
+
+test('many documents scroll inside chooser and historical unavailable copies explain why',async({page})=>{
+  await page.setViewportSize({width:320,height:568});
+  const choices=[{document_key:'',label:'All documents',description:'Combined PDF',available:true},
+    ...Array.from({length:14},(_,index)=>({document_key:`support_${index}`,label:`Supporting document ${index+1}`,available:true})),
+    {document_key:'primary',label:'Individual documents',available:false,reason:'Separate copies are unavailable for this application. Download all documents instead.'}];
+  const audit=await mount(page,{approved:true,download:'native',choices});
+  await page.getByRole('button',{name:'Download application',exact:true}).click();
+  expect(await page.locator('#origination-sheet-body').evaluate(node=>node.scrollHeight>node.clientHeight)).toBe(true);
+  const unavailable=page.getByRole('button',{name:'Download Individual documents',exact:true});
+  await unavailable.scrollIntoViewIfNeeded();
+  await expect(unavailable).toBeDisabled();
+  await expect(unavailable).toContainText('Download all documents instead.');
+  expect(audit.downloads).toHaveLength(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
 test('approved applications expose signed documents without workflow buttons',async({page},info)=>{

@@ -97,7 +97,7 @@ def _template_snapshot(template: OriginationDocumentTemplate) -> dict[str, Any]:
 
 
 def _primary_signer_rules(
-    template_rules: Any, application_rules: Any,
+    template_rules: Any, application_rules: Any, *, document_owned: bool = False,
 ) -> list[dict[str, Any]]:
     """Combine PDF slot placement with the product's signer identity contract.
 
@@ -121,7 +121,7 @@ def _primary_signer_rules(
         role = str(document_rule.get('role') or '').strip()
         binding_key = str(document_rule.get('participant_key') or role)
         product_rule = product_by_role.get(binding_key, {})
-        combined = {**product_rule, **document_rule}
+        combined = deepcopy(document_rule) if document_owned else {**product_rule, **document_rule}
         identity_fields = {
             **(
                 product_rule.get('identity_fields')
@@ -137,7 +137,8 @@ def _primary_signer_rules(
         merged.append(combined)
         if role:
             seen_roles.add(binding_key)
-    merged.extend(item for item in product_rules if str(item.get('participant_key') or item.get('role') or '').strip() not in seen_roles)
+    if not document_owned:
+        merged.extend(item for item in product_rules if str(item.get('participant_key') or item.get('role') or '').strip() not in seen_roles)
     return merged
 
 
@@ -198,7 +199,7 @@ def initialize_document_packet(
                 },
                 schema_snapshot=document_schema,
                 signer_rules_snapshot=(
-                    _primary_signer_rules(document_signers, application.signer_rules_snapshot)
+                    _primary_signer_rules(document_signers, application.signer_rules_snapshot, document_owned=True)
                     if is_primary else deepcopy(template.signer_rules or [])
                 ),
             )
@@ -689,6 +690,8 @@ def render_document(
 
 
 def mark_document_previewed(application: LoanOriginationApplication, document_key: str) -> None:
+    if application.status == application.STATUS_COMPLETED:
+        return  # Viewing a completed copy must not move its document dates.
     document = application.packet_documents.filter(document_key=document_key).first()
     if document and document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY:
         from origination.services.loan_origination import OriginationError, validate_form_payload
@@ -709,6 +712,8 @@ def mark_document_previewed(application: LoanOriginationApplication, document_ke
 
 def mark_packet_previewed(application: LoanOriginationApplication) -> None:
     """Mark one complete combined-packet preview for the current revision."""
+    if application.status == application.STATUS_COMPLETED:
+        return
     from origination.services.loan_origination import OriginationError, validate_form_payload
     selected = list(application.packet_documents.filter(selected=True))
     if not selected:

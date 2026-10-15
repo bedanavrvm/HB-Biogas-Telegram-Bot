@@ -716,10 +716,20 @@ class OriginationSetupWorkspaceTests(TestCase):
         definition.product_version.refresh_from_db()
         self.assertEqual(definition.product_version.status, 'draft')
 
-    def test_invalid_signers_still_block_publication(self):
+    def test_empty_product_signer_mirror_does_not_block_document_owned_publication(self):
         definition = self._ready_guided_draft()
         definition.signer_rules = []
         definition.save(update_fields=['signer_rules'])
+        response = self._publish_guided(definition)
+        self.assertEqual(response.status_code, 302)
+        definition.product_version.refresh_from_db()
+        self.assertEqual(definition.product_version.status, 'published')
+
+    def test_invalid_document_signers_still_block_product_publication(self):
+        definition = self._ready_guided_draft()
+        from origination.models import OriginationDocumentTemplate
+        OriginationDocumentTemplate.objects.filter(product_eligibilities__product=definition.product_version.product,
+            document_role='primary').update(signer_rules=[{'role': 'unsupported-role'}])
         response = self._publish_guided(definition)
         self.assertEqual(response.status_code, 400)
         definition.product_version.refresh_from_db()

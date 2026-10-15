@@ -8,14 +8,14 @@ STATUS_LABELS = {
     'signing_pending': 'Awaiting signatures', 'partially_signed': 'Partly signed',
     'fully_signed': 'Fully signed', 'signed_pending_approval': 'Awaiting final approval',
     'approved': 'Approved', 'declined': 'Declined', 'expired': 'Expired',
-    'cancelled': 'Cancelled',
+    'cancelled': 'Cancelled', 'completed': 'Completed',
 }
 
 STATUS_GROUPS = {
     'draft': ('Draft', ['draft']),
     'changes': ('Needs changes', ['correction_required']),
     'progress': ('In progress', ['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval']),
-    'completed': ('Completed', ['approved']),
+    'completed': ('Completed', ['approved', 'completed']),
     'closed': ('Closed', ['declined', 'expired', 'cancelled']),
 }
 

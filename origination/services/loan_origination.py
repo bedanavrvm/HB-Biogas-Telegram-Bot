@@ -322,19 +322,21 @@ def validate_product_form_contract(
                 )
 
 
-def validate_product_definition(definition: OriginationProductDefinition) -> None:
+def validate_product_definition(definition: OriginationProductDefinition, *, document_owned: bool = False) -> None:
     """Reject activation of an incomplete product compatibility profile."""
-    validate_product_form_contract(definition.form_schema, definition.signer_rules)
+    validate_product_form_contract(definition.form_schema, [] if document_owned else definition.signer_rules,
+                                   require_signers=not document_owned)
     from origination.services.origination_approval import validate_approval_roles
-    validate_approval_roles(definition.approval_roles, definition.signer_rules)
+    validate_approval_roles(definition.approval_roles, None if document_owned else definition.signer_rules)
     if definition.signing_policy == 'all_required':
         if definition.approval_roles:
             raise OriginationError('All-signers approval does not use an ordered final approver sequence.')
-        from origination.services.origination_esign import STAFF_SIGNER_ROLES
-        roles = {item['role'] for item in definition.signer_rules}
-        if not roles.intersection({'borrower', 'customer'}) or not roles.intersection(STAFF_SIGNER_ROLES):
-            raise OriginationError('Configure an applicant and at least one JBL signer in the document editor.')
-    elif len({item['role'] for item in definition.signer_rules}) != len(definition.signer_rules):
+        if not document_owned:
+            from origination.services.origination_esign import STAFF_SIGNER_ROLES
+            roles = {item['role'] for item in definition.signer_rules}
+            if not roles.intersection({'borrower', 'customer'}) or not roles.intersection(STAFF_SIGNER_ROLES):
+                raise OriginationError('Configure an applicant and at least one JBL signer in the document editor.')
+    elif not document_owned and len({item['role'] for item in definition.signer_rules}) != len(definition.signer_rules):
         raise OriginationError('Multiple people sharing a role require the configurable signing policy.')
     if (
         definition.lifecycle_status == definition.STATUS_PUBLISHED
@@ -1232,8 +1234,8 @@ def create_application(
     ).first()
     if not definition:
         raise OriginationError('This origination product is not active.')
-    validate_product_definition(definition)
     catalogue_selection = bool(primary_template_id)
+    validate_product_definition(definition, document_owned=catalogue_selection)
     supporting_template_ids = list(supporting_template_ids or [])
     request_digest = ''
     if catalogue_selection:
@@ -1338,6 +1340,8 @@ def create_application(
             from origination.services.origination_consent import ACKNOWLEDGEMENT_VERSION
             schema_snapshot['acknowledgement_version'] = ACKNOWLEDGEMENT_VERSION
             schema_snapshot['identity_copy_policy'] = 1
+            if catalogue_selection:
+                schema_snapshot['document_completion_version'] = 1
             initial_payload = {}
             if (
                 commercial_contract_enabled(schema_snapshot)
@@ -1349,7 +1353,7 @@ def create_application(
                 from origination.services.origination_fields import template_form_contract
                 _document_schema, document_signers = template_form_contract(primary_template)
                 signer_rules_snapshot = _primary_signer_rules(
-                    document_signers, definition.signer_rules,
+                    document_signers, definition.signer_rules, document_owned=True,
                 )
                 template_configuration_snapshot = (
                     (primary_template.published_configuration_revision.configuration
@@ -1863,6 +1867,8 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationConflict('This application changed on another device. Refresh before submitting.')
     if application.status not in {LoanOriginationApplication.STATUS_DRAFT, LoanOriginationApplication.STATUS_CORRECTION_REQUIRED}:
         raise OriginationError('This application cannot be submitted from its current state.')
+    from origination.services.application_completion import without_signing
+    complete_without_signing = without_signing(application)
     if not _payload_has_value(application.form_payload):
         raise OriginationError('Enter the Applicant details before submitting this application.')
     from origination.services.origination_value_contracts import application_input_schema, ValueContractError
@@ -1918,6 +1924,8 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
                 'Complete the selected documents and preview the latest full packet before submitting.',
             )
     missing = _missing_application_requirements(application, stage='review')
+    if complete_without_signing:
+        missing += _missing_application_requirements(application, stage='signing')
     if missing:
         raise OriginationError(
             'Complete required product evidence before review: ' + ', '.join(item['label'] for item in missing),
@@ -1926,18 +1934,21 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
     if commercial_validation:
         application.product_quote_snapshot = commercial_quote_snapshot(commercial_validation)
     before_status = application.status
-    application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+    application.status = (LoanOriginationApplication.STATUS_COMPLETED if complete_without_signing
+                          else LoanOriginationApplication.STATUS_READY_FOR_REVIEW)
     application.revision += 1
     application.submitted_at = timezone.now()
     update_fields = ['status', 'revision', 'submitted_at', 'updated_at']
     if commercial_validation:
         update_fields.append('product_quote_snapshot')
     application.save(update_fields=update_fields)
+    if complete_without_signing:
+        application.packet_documents.filter(selected=True, completed_at__isnull=True).update(completed_at=application.submitted_at)
     application.correction_requests.filter(status='open').update(
         status='addressed', addressed_by=actor, addressed_at=timezone.now(),
     )
     _record_event(
-        application, 'submitted_for_review', actor=actor, request_id=request_id,
+        application, 'application_completed' if complete_without_signing else 'submitted_for_review', actor=actor, request_id=request_id,
         before={'status': before_status},
         metadata=(
             {
@@ -2323,6 +2334,9 @@ def confirm_and_start_conditional_signing(
     """Officer-confirm, freeze and open a governed conditional packet for signing."""
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    from origination.services.application_completion import without_signing
+    if without_signing(application):
+        raise OriginationError('No signatures are required. Complete this application instead.')
     replay = application.events.filter(
         action='conditional_signing_started', request_id=request_id,
     ).first()
@@ -2747,6 +2761,7 @@ def serialize_application(
         LoanOriginationApplication.STATUS_FULLY_SIGNED: 'Signatures complete',
         LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL: 'Signed — pending independent JBL approval',
         LoanOriginationApplication.STATUS_APPROVED: 'Approved and locked',
+        LoanOriginationApplication.STATUS_COMPLETED: 'Completed without e-signing',
     }.get(application.status, application.get_status_display())
     if application.status == LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
         status_text = (
@@ -2789,6 +2804,8 @@ def serialize_application(
         'review_packet_ready': review_packet_ready,
     }
     from origination.services.origination_consent import short_acknowledgement
+    from origination.services.application_completion import without_signing
+    payload['completion_without_signing'] = without_signing(application)
     payload['short_acknowledgement'] = short_acknowledgement(application)
     from origination.services.origination_signing_plans import workspace
     signing_workspace = workspace(application, latest_package if application.status != 'draft' else None, actor) if presentation == 'full' else None
@@ -2812,7 +2829,7 @@ def serialize_application(
             payload['activity'] = [{'label': labels.get(event.action, event.action.replace('_', ' ').capitalize()),
                 'actor': event.actor.get_full_name() or event.actor.get_username() if event.actor_id else 'Signer',
                 'at': event.occurred_at.isoformat()} for event in application.events.exclude(action='signing_plan_confirmed').select_related('actor').order_by('-occurred_at')[:20]]
-    if application.approval_roles_snapshot:
+    if application.approval_roles_snapshot and not payload['completion_without_signing']:
         from origination.services.origination_approval import signing_progress
         progress = signing_progress(latest_package) if latest_package else {}
         payload['approval_sequence'] = progress
@@ -2896,8 +2913,9 @@ def serialize_application(
                 payload['identity_copies'] = copy_options(application)
                 payload['product_terms'] = {**payload['product_terms'], 'requirements': [
                     item for item in payload['product_terms'].get('requirements', []) if item.get('key') not in ID_KEYS]}
-            from origination.services.application_copies import copy_readiness
+            from origination.services.application_copies import copy_readiness, download_choices
             payload['download_ready'] = application.status not in {'declined','expired','cancelled'}
+            payload['download_choices'] = download_choices(application)
             payload['download_requires_confirmation'] = (
                 payload['download_ready'] and application.status != 'approved' and bool(copy_readiness(application)))
         package = latest_package if not (application.signing_policy_snapshot == 'all_required' and application.status == 'draft') else None
