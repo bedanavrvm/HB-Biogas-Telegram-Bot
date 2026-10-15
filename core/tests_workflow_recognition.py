@@ -262,6 +262,87 @@ class PortalPerformanceRedesignTests(TestCase):
         self.assertEqual(result['rows'], [])
         self.assertEqual(result['pages'], 1)
 
+    def test_branches_include_current_unvisited_cases_without_awarding_points(self):
+        for index in range(12):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'Awaiting customer {index:02}', branch='Embu',
+                hbg_visit_date=date(2026, 8, 1), workflow_state='jbl_visit',
+            )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Already visited', branch='Embu', workflow_state='jbl_visit',
+            hbg_visit_date=date(2026, 8, 1), jbl_visit_date=date(2026, 8, 2),
+        )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Inactive', branch='Embu', status='archived',
+            hbg_visit_date=date(2026, 8, 1), workflow_state='jbl_visit',
+        )
+        summary = portal_recognition_payload(self.user, period='2026-09', view='branches')
+        self.assertIsNone(summary['personal'])
+        self.assertEqual(summary['rows'], [])
+        self.assertEqual(summary['awaiting_visits']['total'], 12)
+        self.assertEqual(summary['awaiting_visits']['rows'], [])
+        self.assertIn('Embu', summary['filter_options']['branches'])
+        result = portal_recognition_payload(
+            self.user, period='2026-09', view='branches', branch='Embu', awaiting_page=2,
+        )
+        pending = result['awaiting_visits']
+        self.assertEqual((pending['page'], pending['pages'], len(pending['rows'])), (2, 2, 2))
+        self.assertTrue(all(row['url'].startswith('/portal/') for row in pending['rows']))
+        # Backlog is current operational context, not part of a settled score.
+        historical = portal_recognition_payload(self.user, period='2020-01', view='branches')
+        self.assertTrue(historical['final'])
+        self.assertEqual(historical['rows'], [])
+        self.assertEqual(historical['awaiting_visits']['total'], 12)
+
+    def test_unvisited_list_cannot_borrow_origination_or_other_branch_grants(self):
+        viewer = get_user_model().objects.create_user(username='pending-embu', is_active=True)
+        AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='IT', branch='EMBU')
+        AccessGrant.objects.create(user=viewer, workflow='loan_origination', role='IT', branch='NAKURU')
+        for branch in ('EMBU', 'NAKURU'):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'{branch} pending', branch=branch,
+                hbg_visit_date=date(2026, 9, 1), workflow_state='jbl_visit',
+            )
+        result = portal_recognition_payload(viewer, period='2026-09', view='branches', awaiting_page=1)
+        self.assertEqual(result['filter_options']['branches'], ['EMBU'])
+        self.assertEqual(result['awaiting_visits']['total'], 1)
+        self.assertEqual(result['awaiting_visits']['rows'][0]['name'], 'EMBU pending')
+
+    def test_unvisited_cases_respect_portal_product_and_group_scope(self):
+        from core.models import GroupSheetConfiguration, Product
+        viewer = get_user_model().objects.create_user(username='scoped-pending', is_active=True)
+        first = GroupSheetConfiguration.objects.create(group_id='synthetic-pending-a', sheet_id='synthetic')
+        second = GroupSheetConfiguration.objects.create(group_id='synthetic-pending-b', sheet_id='synthetic')
+        hb = Product.objects.create(code='PENDING-HB', name='Synthetic HB')
+        eco = Product.objects.create(code='PENDING-ECO', name='Synthetic Eco')
+        AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='IT',
+                                   group_configuration=first, product=hb.code)
+        for group, product, name in ((first, hb, 'Visible'), (second, hb, 'Other group'),
+                                     (first, eco, 'Other product')):
+            JawabuFarmerMaster.objects.create(
+                customer_name=name, branch='EMBU', group_configuration=group, product=product,
+                hbg_visit_date=date(2026, 9, 1), workflow_state='jbl_visit',
+            )
+        result = portal_recognition_payload(viewer, period='2026-09', view='branches', awaiting_page='bad')
+        self.assertEqual(result['awaiting_visits']['total'], 1)
+        self.assertEqual(result['awaiting_visits']['rows'][0]['name'], 'Visible')
+        self.assertEqual(result['filter_options']['products'], [hb.code])
+
+    def test_unvisited_details_require_current_case_read_permission(self):
+        from core.models import WorkflowRoleCapability
+        viewer = get_user_model().objects.create_user(username='performance-without-cases', is_active=True)
+        AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='JBL_OFFICER')
+        WorkflowRoleCapability.objects.filter(
+            workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.case.read',
+        ).update(effect=WorkflowRoleCapability.EFFECT_DENY)
+        JawabuFarmerMaster.objects.create(
+            customer_name='Private pending customer', branch='EMBU',
+            hbg_visit_date=date(2026, 9, 1), workflow_state='jbl_visit',
+        )
+        result = portal_recognition_payload(viewer, period='2026-09', view='branches', awaiting_page=1)
+        self.assertEqual(result['awaiting_visits']['total'], 0)
+        self.assertEqual(result['awaiting_visits']['rows'], [])
+
     def test_rejected_audited_visit_counts_once_and_approved_credit_adds_a_point(self):
         farmer = JawabuFarmerMaster.objects.create(customer_name='Portal result', branch='Embu')
         for day in (4, 5):

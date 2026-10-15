@@ -1,5 +1,26 @@
 # Portal QA: human verification
 
+## Performance and Mini App separation
+
+- Give a synthetic user independent Portal and Origination grants. Create a
+  failed Origination invitation/archive operation and a failed Portal import
+  archive operation. Home and the bell show only the Portal failure. Neither
+  projection retries or removes the Origination operation.
+- Compare Performance with TAT Recognition at the same phone width: no table
+  header, compact rows, aligned scores with rank arrows below, and no dividers
+  touching the result numbers. Long names wrap without moving the score.
+- Open Score details. Six milestone contributions fit in two columns; `+`
+  denotes points earned. The help icon opens readable scoring guidance. The
+  close control and device Back return to the standings.
+- In Branches, open **Awaiting visit now**. Current active cases waiting for
+  their first JBL visit appear ten at a time, including cases in branches with
+  no points. Branch/product filters and current Portal access apply. An
+  Origination grant never extends this list's scope. Open a case and return.
+- A historic Final result stays unchanged as current awaiting-visit cases
+  change. Pending cases do not earn points or take a numbered standing.
+- Test offline/retry and closing during loading. A late response must not
+  reopen the list, change the score or discard the selected filters.
+
 ## Invoice upload and payment preview
 
 - With synthetic invoices, upload on a slow connection (over 20 seconds).

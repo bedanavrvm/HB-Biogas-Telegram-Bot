@@ -53,7 +53,7 @@ class PortalActionDashboardTests(TestCase):
         for index in range(3):
             IntegrationOperation.objects.create(
                 integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-                operation_type='training_sync', source_model='Training', source_id=str(index),
+                operation_type='portal_import_drive_archive', source_model='core.JawabuFarmerUploadBatch', source_id=str(index),
                 deduplication_key=f'inbox-training-failure-{index}',
                 status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='network',
             )
@@ -65,7 +65,7 @@ class PortalActionDashboardTests(TestCase):
     def test_invalid_sync_source_does_not_break_home(self):
         IntegrationOperation.objects.create(
             integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-            operation_type='training_sync', source_model='JawabuFarmerMaster',
+            operation_type='portal_import_drive_archive', source_model='core.JawabuFarmerUploadBatch',
             source_id='invalid-or-deleted', deduplication_key='inbox-invalid-source',
             status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='network',
         )
@@ -231,6 +231,27 @@ class PortalActionDashboardTests(TestCase):
         self.assertEqual(payload['home']['actions'], [])
         self.assertEqual(payload['home']['queues'], [])
         self.assertEqual(payload['home']['shortcuts'], [])
+
+    def test_other_miniapp_failures_never_become_portal_notifications(self):
+        for operation_type, source in (
+            ('origination_signing_otp', 'origination.OriginationOtpChallenge'),
+            ('origination_approved_archive', 'origination.LoanOriginationApplication'),
+            ('origination_laf_bootstrap', 'OriginationLafBootstrap'),
+            ('complaint_case.publish', 'ComplaintCaseControl'),
+            ('tat_comment_sheet_projection', 'TatCaseEvent'),
+        ):
+            IntegrationOperation.objects.create(
+                integration='google_drive', operation_type=operation_type, source_model=source,
+                source_id='synthetic', deduplication_key=f'other-app:{operation_type}',
+                status=IntegrationOperation.STATUS_DEAD_LETTER,
+            )
+        payload = dashboard_payload(None, access={})
+        self.assertEqual(payload['notification_count'], 0)
+        self.assertEqual(payload['notification_items'], [])
+        self.assertEqual(payload['home']['system_health'], [])
+        self.assertFalse(any(item['key'].startswith('integration_failure:') for item in payload['attention']))
+        # Filtering the projection must not delete or retry the other apps' work.
+        self.assertEqual(IntegrationOperation.objects.filter(status=IntegrationOperation.STATUS_DEAD_LETTER).count(), 5)
 
     def test_credit_home_only_prompts_for_credit_reappraisal(self):
         today = timezone.localdate()

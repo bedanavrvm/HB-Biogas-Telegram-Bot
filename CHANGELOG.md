@@ -1,5 +1,19 @@
 # Changelog
 
+## 15 October 2026 - Portal isolation and compact Performance
+
+- Portal Home and the bell now show only Portal-owned background failures.
+  Origination, Complaints and TAT failures remain with their owning workflows.
+- Performance follows TAT Recognition's compact, header-free standings, with
+  aligned scores and rank arrows. Removed obsolete dividers beside the numbers.
+- Score details group the six milestone contributions into a compact two-column
+  view, with scoring guidance behind the shared help control.
+- Branches can list cases awaiting their first JBL visit, ten per page, using
+  current Portal permissions and filters. This live backlog earns no points and
+  never changes a settled period's result.
+- Versioned Portal assets require the normal deployment; no migration or new
+  environment setting is required. No production deployment was performed.
+
 ## 14 October 2026 - Origination usability, signature assets and JBL Apps
 
 - Signature fonts now ship with their hash manifest; the build verifies and

@@ -1,5 +1,25 @@
 # Known Gaps and Verified Workarounds
 
+## Portal isolation and Performance - 15 October 2026
+
+Portal Home/bell background-failure projections are restricted to Portal-owned
+operation types. The compact standings, milestone details and ten-case current
+awaiting-visit list use existing Portal permissions; scoring, snapshots and
+other Mini Apps' roles/data/processors are unchanged. Reopen the Mini App after
+the normal deployment to load the versioned assets; no migration is required.
+
+Local verification: 56 backend tests passed, one PostgreSQL-only concurrency
+test skipped. The 93-test browser regression suite passed, with 13 final layout
+checks and two navigation/dark-mode rechecks after visual refinements. Actual
+production/Telegram-device behaviour and PostgreSQL concurrency remain
+unverified; no production deployment or provider writes were performed.
+See `docs/portal-qa-human-checks.md` for operational acceptance steps.
+
+The tracked-artifact audit still reports 17 pre-existing hash mismatches
+(logo and older Portal snapshots). HEAD already had 19; this change refreshed
+only two inspected synthetic score-details heading snapshots and their exact
+allowlist hashes. The unrelated mismatches were not silently approved.
+
 ## Origination usability and JBL Apps - 14 October 2026
 
 Signature-font packaging, incomplete application copies, queue/filter layout,

@@ -318,7 +318,18 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
                 'action': {'type': 'publication_wake', 'label': 'Resume updates'},
                 'url': '',
             })
-        failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
+        # IntegrationOperation is installation-wide, not a Portal inbox. An
+        # explicit owner/type pair prevents future Mini Apps leaking here too.
+        from core.services.invoice_cleanup import DELETE_OPERATION
+        from core.services.portal_imports import ARCHIVE_OPERATION, SOURCE_MODEL as IMPORT_SOURCE
+        from core.services.portal_publication import MASTER_OPERATION, INTERNAL_ORDER_OPERATION, SOURCE_MODEL
+
+        failed_operations = IntegrationOperation.objects.filter(
+            Q(source_model=SOURCE_MODEL, operation_type__in=[MASTER_OPERATION, INTERNAL_ORDER_OPERATION])
+            | Q(source_model=IMPORT_SOURCE, operation_type=ARCHIVE_OPERATION)
+            | Q(source_model='InvoiceUploadBatch', operation_type=DELETE_OPERATION),
+            status__in=['retryable_failure', 'dead_letter'],
+        )
         portal_types = ('jawabu_master_publish', 'jawabu_internal_order_publish')
         candidate_ids = list(failed_operations.filter(
             source_model='JawabuFarmerMaster', operation_type__in=portal_types,

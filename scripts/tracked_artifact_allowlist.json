@@ -117,7 +117,7 @@
       "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
     },
     "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-1280-light.png": {
-      "sha256": "c17f827db9d14c73cd1017ba3fc95b5bfcff224b4f7631b800927cc15f41203a",
+      "sha256": "dc017330d3ac6c0170837c41d8d8b1118cf51cc852b286fc4759cb7bc24c9c85",
       "classification": "sanitized_test_fixture",
       "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
     },
@@ -137,7 +137,7 @@
       "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
     },
     "core/test_fixtures/sanitized/portal-layout/portal_recognition_layout.spec.js/details-heading-430-light.png": {
-      "sha256": "389e524f69058fdefd1a4749ba5e857622d7ad5f5865c70925f322159d93fe25",
+      "sha256": "6a66c1542ad4b345edd94030b031868421d1d23b9b61c30099cbdcf358c556e2",
       "classification": "sanitized_test_fixture",
       "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
     },

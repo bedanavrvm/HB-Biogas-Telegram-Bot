@@ -2251,6 +2251,7 @@ def portal_performance(request):
             product=str(request.GET.get('product') or ''),
             page=request.GET.get('page') or 1,
             include_people='portal.performance.people.view' in capabilities,
+            awaiting_page=request.GET.get('awaiting_page'),
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'message': str(exc)}, status=400)

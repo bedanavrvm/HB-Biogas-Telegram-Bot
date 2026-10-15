@@ -154,6 +154,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - Before changing unsigned order/payment amendment, cancellation, number reuse or rollback, read `docs/adr/0039-unsigned-finance-workspaces.md`; exact workspace identity and signed-version finality are required.
 - `hb_operations/` — bounded post-order HomeBiogas installation/commissioning state and append-only audit history
 - `portal_recognition/` — settled Portal Performance facts and expiring live-rank checkpoints
+- Portal Performance's awaiting-visit list is current, case-read-authorized Portal backlog, paged ten at a time. It never contributes points or changes settled standings. Portal Home projects only Portal-owned integration-operation types; the shared operation table is not a cross-Mini-App inbox.
 - `report_delivery/` — approved report recipients, schedules, durable Resend deliveries and signed delivery receipts; read `report_delivery/README.md` before changing email disclosure, retries, scheduling or retention.
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints

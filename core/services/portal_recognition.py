@@ -40,6 +40,41 @@ def _scoped_cases(user, capability, access):
     )
 
 
+def _awaiting_visit_cases(user, access):
+    """Live Portal backlog, independently authorized and never scored/frozen."""
+    from django.db.models import Value
+    from django.db.models.functions import Coalesce, NullIf
+    from core.services.jawabu_pipeline import jbl_visit_queue
+
+    return _scoped_cases(user, 'portal.performance.view', access).filter(
+        pk__in=jbl_visit_queue().filter(jbl_visit_date__isnull=True).values('pk'),
+    ).filter(pk__in=_scoped_cases(user, 'portal.case.read', access).values('pk')).annotate(
+        branch_label=Coalesce(NullIf('system_branch', Value('')), NullIf('branch', Value('')),
+                              Value('Unassigned')),
+        product_label=Coalesce(NullIf('product__code', Value('')), NullIf('payment_product', Value('')),
+                               NullIf('hbg_contract_name', Value('')), Value('Unassigned')),
+    ).order_by('hbg_visit_date', 'created_at', 'pk')
+
+
+def _awaiting_visit_payload(cases, *, page=None):
+    from django.core.paginator import Paginator
+    from django.db.models import Count
+    from django.urls import reverse
+
+    counts = list(cases.order_by().values('branch_label').annotate(count=Count('pk')).order_by('branch_label'))
+    payload = {'total': sum(row['count'] for row in counts), 'basis': 'current',
+               'branches': [{'label': row['branch_label'], 'count': row['count']} for row in counts],
+               'rows': [], 'page': 1, 'pages': 1}
+    if page is not None:
+        selected = Paginator(cases, 10).get_page(page)
+        payload.update(page=selected.number, pages=selected.paginator.num_pages,
+                       rows=[{'id': str(case.pk), 'name': case.customer_name, 'branch': case.branch_label,
+                              'product': case.product_label,
+                              'url': reverse('portal_case_history_detail', kwargs={'farmer_id': case.pk})}
+                             for case in selected])
+    return payload
+
+
 def _access_signature(user):
     from core.models import AccessGrant
     from core.services.access_control import policy_version
@@ -262,7 +297,8 @@ def _rank_movement(user, *, context, group_ids, rows, observed_at):
 
 
 def portal_recognition_payload(user, *, access=None, period='', period_kind='month',
-                               view='people', branch='', product='', page=1, include_people=False):
+                               view='people', branch='', product='', page=1, include_people=False,
+                               awaiting_page=None):
     if access is None:
         from core.services.telegram_identity import user_access
         access = user_access(user, 'jawabu_portal')
@@ -277,12 +313,19 @@ def portal_recognition_payload(user, *, access=None, period='', period_kind='mon
         user, 'portal.performance.people.view', access,
     ).values_list('pk', flat=True)} if include_people else set())
     own = [fact for fact in facts if fact['person_id'] == str(user.pk)]
-    branches = sorted({fact['branch'] for fact in facts})
+    awaiting = _awaiting_visit_cases(user, access)
+    awaiting_options = list(awaiting.order_by().values_list('branch_label', 'product_label').distinct())
+    branches = sorted({fact['branch'] for fact in facts} | {item[0] for item in awaiting_options})
     if branch not in branches:
         branch = ''
-    products = sorted({fact['product'] for fact in facts if not branch or fact['branch'] == branch})
+    products = sorted({fact['product'] for fact in facts if not branch or fact['branch'] == branch}
+                      | {item[1] for item in awaiting_options if not branch or item[0] == branch})
     if product not in products:
         product = ''
+    if branch:
+        awaiting = awaiting.filter(branch_label=branch)
+    if product:
+        awaiting = awaiting.filter(product_label=product)
     selected = [fact for fact in facts if (not branch or fact['branch'] == branch)
                 and (not product or fact['product'] == product)]
     personal = (_aggregate(own, key_name='person') or [None])[0]
@@ -307,17 +350,23 @@ def portal_recognition_payload(user, *, access=None, period='', period_kind='mon
     page = min(page, pages)
 
     def public(row):
-        return {key: value for key, value in row.items() if key != 'key'} if row else None
+        if not row:
+            return None
+        return {**{key: value for key, value in row.items() if key != 'key'},
+                'is_current_user': view == 'people' and row['key'] == str(user.pk)}
 
     return {
         'period': key, 'period_kind': kind, 'view': view, 'branch': branch, 'product': product,
         'score_policy_version': SCORE_POLICY_VERSION,
         'filter_options': {'branches': branches, 'products': products,
                            'products_by_branch': {name: sorted({fact['product'] for fact in facts
-                                                               if fact['branch'] == name}) for name in branches}},
+                                                               if fact['branch'] == name}
+                                                              | {item[1] for item in awaiting_options if item[0] == name})
+                                                  for name in branches}},
         'personal': public(personal), 'slice': public(slice_result),
         'rows': [public(row) for row in rows[(page - 1) * 10:page * 10]],
         'page': page, 'pages': pages, 'total': len(rows),
         'people_visible': bool(include_people), 'final': final,
         'captured_at': captured_at, 'calculated_at': observed_at.isoformat(),
+        'awaiting_visits': _awaiting_visit_payload(awaiting, page=awaiting_page) if view == 'branches' else None,
     }
