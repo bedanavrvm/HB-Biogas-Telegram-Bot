@@ -125,6 +125,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('tat.case.search', 'tat_tracker', 'Search TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.correct', 'tat_tracker', 'Correct TAT case details', 'Cases', _roles('BRO', 'IT', BUSINESS_ADMIN_ROLE), ('tat.home.view',)),
     CapabilityDefinition('tat.stage.correct', 'tat_tracker', 'Correct completed TAT stages', 'Cases', _roles('IT'), ('tat.home.view',)),
+    CapabilityDefinition('tat.publication.retry', 'tat_tracker', 'Retry TAT Sheet updates', 'Operations', _roles('IT'), ('tat.home.view',)),
     # Built-in actions must be discoverable even while a product is unavailable
     # or a worker cached the catalogue before its stage configuration changed.
     CapabilityDefinition('tat.stage.bm_analysis_approval.update', 'tat_tracker', 'Record BM analysis approval', 'TAT stages', _roles('BM', 'IT'), ('tat.home.view',)),

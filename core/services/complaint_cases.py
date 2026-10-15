@@ -1528,7 +1528,26 @@ def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]
     return publish_case_snapshot(group_config, case, service)
 
 
-def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> dict[str, Any]:
+def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str, *, request_id='') -> dict[str, Any]:
+    if not complaint_sheet_projection_enabled(group_config):
+        raise ComplaintCaseError('Sheet projection is disabled. Ask Complaint IT to enable it before retrying.')
+    if request_id:
+        # The outer leased receipt deduplicates transport retries. Its result
+        # stores only a sync state, never another copy of complaint details.
+        from core.services.external_resilience import reserve_operation, execute_operation, ExternalOperationError
+        from core.models import IntegrationOperation
+        case = _case_for_group(group_config.group_id, case_id, actor=actor)
+        if not actor_can(group_config, actor, 'complaint.case.sync.retry', case):
+            raise ComplaintCaseError('Your role cannot retry publication for this case.')
+        operation, _ = reserve_operation(integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type='complaint_case.sync_retry_request', source_model='ComplaintCaseControl',
+            source_id=str(ensure_case_control(case, group_config).pk), requested_by=actor.user,
+            deduplication_key=f'complaint-sync-retry:{actor.user.pk}:{case.pk}:{request_id}', max_attempts=1)
+        try:
+            execute_operation(operation, lambda: {'sync_status': retry_case_sync(group_config, actor, case_id)['sync_status']}, attempt_budget=1)
+        except ExternalOperationError as exc:
+            raise ComplaintCaseError('The Sheet update could not be retried. Check App status for help; your complaint is saved.') from exc
+        return case_detail(group_config, case_id, actor)
     if not complaint_sheet_projection_enabled(group_config):
         raise ComplaintCaseError(
             'Sheet projection is disabled. Re-enable it before retrying suspended publications.'

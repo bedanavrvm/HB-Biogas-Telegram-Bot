@@ -246,6 +246,22 @@
     return apiFetch(path, { method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify(body) });
   }
 
+  function openAppStatus() {
+    document.getElementById('origination-settings').showModal();
+    syncTelegramControls();
+    window.MiniAppRecovery?.mount(document.getElementById('origination-recovery'), {
+      prefix: '/api/origination/api/',
+      load: async page => { const result = await apiFetch(`/settings/recovery/?page=${page}`); if (!result.ok) throw new Error(result.data?.error || 'App status could not be loaded.'); return result.data; },
+      request: (endpoint, payload) => postJson(endpoint.slice('/api/origination/api'.length), payload),
+      notify: showToast,
+    });
+  }
+  document.getElementById('origination-settings-open')?.addEventListener('click', openAppStatus);
+  document.addEventListener('click', event => { if (event.target.closest('[data-open-app-status]')) openAppStatus(); });
+  document.getElementById('origination-settings-close')?.addEventListener('click', () => document.getElementById('origination-settings').close());
+  document.getElementById('origination-settings')?.addEventListener('close', syncTelegramControls);
+  window.addEventListener('miniapp:recovery-dialog-change', syncTelegramControls);
+
   function escapeHtml(value) {
     const node = document.createElement('div');
     node.textContent = String(value ?? '');
@@ -418,7 +434,7 @@
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
       try {
-        if (sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
+        if (sheetMode || reviewDialogMode || previewOpen || current || document.querySelector('.recovery-dialog[open]')) tg.BackButton.show?.();
         else tg.BackButton.hide?.();
       } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
@@ -2201,7 +2217,7 @@
     const verified = packageData.verified_signing || {};
     if (current.status === 'draft') return `<div class="section-title"><h3>Draft</h3></div><p>${escapeHtml(current.officer_name || 'The assigned officer')} is completing this application.</p>`;
     if (verified.test_mode) return signingTestMarkup();
-    if (!verified.enabled && current.status !== 'approved') return '<aside class="notice"><strong>Signing is unavailable</strong><span>Ask IT to check signing delivery settings. Your application is saved.</span></aside>';
+    if (!verified.enabled && current.status !== 'approved') return '<aside class="notice"><strong>Signing is unavailable</strong><span>Your application is saved.</span><button type="button" class="btn btn-secondary" data-open-app-status>App status</button></aside>';
     const dispatch = capabilities.can_create && (String(current.officer_id) === String(capabilities.user_id) || capabilities.is_superuser);
     const stampOptions = (verified.production_stamps || []).map(stamp => `<option value="${escapeHtml(stamp.id)}">${escapeHtml(stamp.name)}</option>`).join('');
     let primaryChosen = false;
@@ -3843,6 +3859,7 @@
   syncViewport();
   try {
     tg?.BackButton?.onClick?.(async () => {
+      if (window.MiniAppRecovery?.closeTop()) return;
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
       if (!document.getElementById('document-preview-overlay').hidden) return closePreview();

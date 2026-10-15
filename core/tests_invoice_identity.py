@@ -204,7 +204,7 @@ class InvoiceIdentityWorkflowTests(TestCase):
         self.assertIsNone(invoice.matched_farmer_id)
         self.assertEqual(self.farmer.invoice_number, '')
 
-    def test_replacement_requires_exact_name_and_phone_difference_note(self):
+    def test_replacement_allows_name_variance_and_requires_phone_difference_note(self):
         original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku', customer_phone='0700000000')
         item = start_invoice_correction(
             original, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
@@ -217,13 +217,6 @@ class InvoiceIdentityWorkflowTests(TestCase):
         mark_name_change_sent(
             item.batch, actor='Operations', letter_reference='letter-rules', sent_reference='HB-email-rules',
         )
-        wrong_name = self.invoice(
-            invoice_no='INV-WRONG-NAME', customer_name='Mary Wanjiko', customer_id='12345678',
-            status='unmatched', matched_farmer=None, matched_order_number='',
-        )
-        with self.assertRaisesMessage(ValueError, 'name does not match'):
-            confirm_replacement(item, wrong_name, actor='Operations')
-
         phone_difference = self.invoice(
             invoice_no='INV-PHONE', customer_name='Mary Wanjiku', customer_id='12345678',
             customer_phone='0700111222', status='unmatched', matched_farmer=None, matched_order_number='',
@@ -236,6 +229,189 @@ class InvoiceIdentityWorkflowTests(TestCase):
             verification_note='Confirmed the alternate number with the applicant.',
         )
         self.assertEqual(confirmed.status, 'completed')
+
+    def correction(self, *, sent=True):
+        original = self.invoice(customer_id='87654321', customer_name='Synthetic household person')
+        item = start_invoice_correction(
+            original, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+            expected_invoice_revision=original.revision,
+            expected_application_revision=self.farmer.workflow_revision,
+            client_request_id='synthetic-correction-' + str(original.pk),
+        )
+        if sent:
+            item.batch.legacy_manual_letter_allowed = True
+            item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
+            mark_name_change_sent(item.batch, actor='Operations', letter_reference='synthetic-letter', sent_reference='sent')
+        return original, item
+
+    def test_corrected_invoice_accepts_matching_id_with_name_warning(self):
+        original, item = self.correction()
+        replacement = self.invoice(customer_id='12345678', customer_name='M. Wanjiku',
+            invoice_no='CORRECTED', matched_farmer=None, status='unmatched')
+        confirmed = confirm_replacement(item, replacement, actor='Operations')
+        self.assertEqual(confirmed.status, 'completed')
+        self.assertEqual(identity_gate(replacement, self.farmer)['blocker'], '')
+
+    def test_unmatch_closes_only_its_own_pending_correction(self):
+        from core.services.invoice_parser import unmatch_invoice
+        for sent, expected in [(False, 'cancelled'), (True, 'withdrawn')]:
+            original, item = self.correction(sent=sent)
+            unmatch_invoice(original, actor='Operations')
+            item.refresh_from_db()
+            self.assertEqual(item.status, expected)
+            self.assertTrue(item.closed_at)
+            self.assertEqual(item.closed_by, 'Operations')
+            self.assertFalse(original.identity_reviews.filter(status='pending').exists())
+            unmatch_invoice(original, actor='Operations')
+            item.refresh_from_db()
+            self.assertEqual(item.status, expected)
+
+    def test_duplicate_requires_all_business_fields(self):
+        from core.api.portal_views import _invoice_duplicate_count, _invoice_duplicate_ids
+        one = self.invoice(invoice_amount=Decimal('1000'))
+        two = self.invoice(invoice_no='DIFFERENT', invoice_amount=Decimal('2000'))
+        self.assertEqual(_invoice_duplicate_count(one), 0)
+        copy = self.invoice(invoice_amount=Decimal('1000'))
+        self.assertEqual(_invoice_duplicate_count(one), 1)
+        self.assertEqual(_invoice_duplicate_ids(ParsedInvoice.objects.all()), {one.pk, copy.pk})
+
+    def test_duplicate_fingerprint_distinguishes_every_business_value(self):
+        from core.services.invoice_duplicates import fingerprint
+        base = self.invoice(invoice_date=date(2026, 9, 1), invoice_amount=Decimal('1000'),
+            total_after_discount=Decimal('900'), discount=Decimal('100'), payment=Decimal('300'),
+            balance_due=Decimal('600'), raw_payload={'order_reference':'ORDER-1'})
+        for field, value in {'customer_id':'87654321', 'invoice_no':'OTHER',
+                'invoice_date':date(2026, 9, 2), 'customer_name':'Different Person',
+                'customer_phone':'0799999999', 'invoice_amount':Decimal('1001'),
+                'total_after_discount':Decimal('901'), 'discount':None, 'payment':Decimal('0'),
+                'balance_due':Decimal('601'), 'raw_payload':{'order_reference':'ORDER-2'}}.items():
+            other = self.invoice(**{key:getattr(base, key) for key in (
+                'customer_id','invoice_no','invoice_date','customer_name','customer_phone',
+                'invoice_amount','total_after_discount','discount','payment','balance_due','raw_payload')},
+            )
+            setattr(other, field, value)
+            self.assertNotEqual(fingerprint(base), fingerprint(other), field)
+        base.customer_id = '12 345 678'
+        equivalent = self.invoice(customer_id='12345678')
+        self.assertEqual(fingerprint(base)[0], fingerprint(equivalent)[0])
+
+    def test_replacement_candidates_hide_deleted_and_warn_on_name_difference(self):
+        import json
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+        from core.api.portal_views import portal_invoice_name_change_replacement_candidates
+        original, item = self.correction()
+        deleted = self.invoice(status='deleted', matched_farmer=None)
+        replacement = self.invoice(customer_id='12345678', customer_name='M. Wanjiku',
+            invoice_no='CORRECTED', matched_farmer=None, status='unmatched')
+        request = RequestFactory().get('/synthetic')
+        request.portal_user = get_user_model().objects.create_superuser('synthetic-operations-admin', password=None)
+        response = portal_invoice_name_change_replacement_candidates(request, str(item.pk))
+        self.assertEqual(response.status_code, 200)
+        rows = json.loads(response.content)['candidates']
+        self.assertNotIn(str(deleted.pk), [row['invoice']['id'] for row in rows])
+        candidate = next(row for row in rows if row['invoice']['id'] == str(replacement.pk))
+        self.assertTrue(candidate['selectable'])
+        self.assertTrue(candidate['warnings'])
+
+    def test_replacement_rechecks_deleted_id_and_revision(self):
+        original, item = self.correction()
+        replacement = self.invoice(invoice_no='CORRECTED', customer_id='12345678',
+            matched_farmer=None, status='deleted')
+        with self.assertRaises(ValueError):
+            confirm_replacement(item, replacement, actor='Operations')
+        replacement.status = 'unmatched'
+        replacement.customer_id = '11111111'
+        replacement.save()
+        with self.assertRaisesMessage(ValueError, 'national ID does not match'):
+            confirm_replacement(item, replacement, actor='Operations')
+        replacement.customer_id = '12345678'
+        replacement.save()
+        with self.assertRaisesMessage(ValueError, 'changed'):
+            confirm_replacement(item, replacement, actor='Operations', expected_revision=item.revision + 1)
+        item.refresh_from_db()
+        self.assertEqual(item.status, 'awaiting_replacement')
+
+    def test_replacement_rejects_an_invoice_from_another_group(self):
+        from core.models import GroupSheetConfiguration
+        original, item = self.correction()
+        other_group = GroupSheetConfiguration.objects.create(group_id='synthetic-other-group', workflow='jawabu_portal')
+        upload = InvoiceUploadBatch.objects.create(group_configuration=other_group, original_filename='other.pdf')
+        replacement = self.invoice(batch=upload, invoice_no='OTHER', customer_id='12345678', status='unmatched', matched_farmer=None)
+        with self.assertRaisesMessage(ValueError, 'different group'):
+            confirm_replacement(item, replacement, actor='Operations')
+
+    def test_new_upload_suggests_correction_instead_of_auto_matching(self):
+        from core.services.invoice_parser import auto_match_invoice_batch
+        from core.services.invoice_identity import pending_corrections_for_invoice
+        original, item = self.correction()
+        self.farmer.invoice_number = original.invoice_no
+        self.farmer.save(update_fields=['invoice_number'])
+        upload = InvoiceUploadBatch.objects.create(original_filename='corrected.pdf', status='parsed')
+        replacement = self.invoice(batch=upload, invoice_no='CORRECTED', customer_id='12345678',
+            invoice_date=date(2026, 9, 1), customer_name='M. Wanjiku', matched_farmer=None, status='unmatched')
+        result = auto_match_invoice_batch(upload, farmers=[self.farmer], actor='Operations')
+        self.assertEqual(result['matched'], [])
+        self.assertIn('corrected invoice is ready', result['manual_review'][0]['reason'])
+        self.assertEqual([row.pk for row in pending_corrections_for_invoice(replacement)], [item.pk])
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.invoice_number, original.invoice_no)
+
+    def test_signed_payment_blocks_unmatch_without_cancelling_correction(self):
+        from core.services.invoice_parser import unmatch_invoice
+        from core.models import GroupSheetConfiguration
+        from payments.models import PaymentBatch, PaymentBatchCase
+        original, item = self.correction()
+        group = GroupSheetConfiguration.objects.create(group_id='synthetic-signed-payment', workflow='jawabu_portal')
+        batch = PaymentBatch.objects.create(group_configuration=group, status='completed')
+        PaymentBatchCase.objects.create(batch=batch, farmer=self.farmer, payment_mode='LOAN-JAWABU')
+        with self.assertRaisesMessage(ValueError, 'signed payment'):
+            unmatch_invoice(original, actor='Operations')
+        item.refresh_from_db()
+        self.assertEqual(item.status, 'awaiting_replacement')
+
+    def test_unmatch_invalidates_unsigned_review_and_rematch_has_no_old_correction(self):
+        from core.services.invoice_parser import unmatch_invoice
+        from core.models import GroupSheetConfiguration
+        from payments.models import PaymentBatch, PaymentBatchCase, PaymentCaseReview
+        original, item = self.correction()
+        group = GroupSheetConfiguration.objects.create(group_id='synthetic-unsigned-payment', workflow='jawabu_portal')
+        batch = PaymentBatch.objects.create(group_configuration=group, status='review_complete')
+        member = PaymentBatchCase.objects.create(batch=batch, farmer=self.farmer, payment_mode='LOAN-JAWABU')
+        review = PaymentCaseReview.objects.create(membership=member, decision='approved')
+        unmatch_invoice(original, actor='Operations')
+        review.refresh_from_db()
+        self.assertEqual(review.decision, 'pending')
+        replacement = self.invoice(invoice_no='NEW', customer_id='12345678', matched_farmer=None, status='unmatched')
+        manually_match_invoice(replacement, self.farmer, actor='Operations')
+        self.assertIsNone(identity_gate(replacement, self.farmer)['name_change'])
+        self.assertEqual(identity_gate(replacement, self.farmer)['blocker'], '')
+
+    def test_letter_download_link_keeps_filename_and_current_authorization(self):
+        import json
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+        from core.models import InvoiceNameChangeLetterTemplate, InvoiceNameChangeLetterArtifact
+        from core.api.portal_views import portal_invoice_name_change_download_link, portal_invoice_name_change_download
+        from urllib.parse import unquote
+        original, item = self.correction()
+        template = InvoiceNameChangeLetterTemplate.objects.create(original_filename='synthetic.docx')
+        artifact = InvoiceNameChangeLetterArtifact.objects.create(batch=item.batch, template=template,
+            version=1, filename='Synthetic Letter v1.docx', file_content=b'synthetic-docx', checksum='a'*64)
+        request = RequestFactory().get('/synthetic')
+        actor = get_user_model().objects.create_superuser('synthetic-download-user', password=None)
+        request.portal_user = actor
+        response = portal_invoice_name_change_download_link(request, str(artifact.pk))
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertEqual(data['filename'], artifact.filename)
+        token = unquote(data['download_url'].split('invoice-name-change-download/')[1].rstrip('/'))
+        download = portal_invoice_name_change_download(RequestFactory().get('/synthetic-download'), token)
+        self.assertEqual(download.content, b'synthetic-docx')
+        self.assertIn(artifact.filename, download['Content-Disposition'])
+        actor.is_active = False
+        actor.save(update_fields=['is_active'])
+        self.assertEqual(portal_invoice_name_change_download(RequestFactory().get('/synthetic-download'), token).status_code, 403)
 
     def test_missing_invoice_id_stays_blocked_for_manual_verification(self):
         invoice = self.invoice(customer_id='')

@@ -177,6 +177,7 @@ Key modules:
 - `group_config.py` — Telegram-group/workflow configuration
 - `group_reset.py` — controlled group data resets
 - `invoice_parser.py` — invoice extraction and parsing
+- `invoice_duplicates.py` — exact invoice-content comparison; ID/phone/number-only matches are suggestions, not duplicate-delete authority. Before changing replacement or unmatch handling, read `docs/runbooks/portal-invoice-corrections.md`.
 - `invoice_cleanup.py` — scoped physical invoice deletion, independent audit retention, and durable removal of unused Drive PDFs; payment and identity evidence and shared PDFs remain protected
 - `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
 - `docx_pdf_preview.py` — bounded local companion-PDF rendering of governed invoice-name-change DOCX artifacts for secure Telegram WebView preview
@@ -1280,6 +1281,10 @@ and release record. For example: `python manage.py migrate core 0071_accesscontr
   `core/static/miniapp/utils.js`, and the capability services. Reuse them;
   do not re-invent status colors, icons, feedback, or capability checks per
   Mini App.
+- Recovery controls follow ADR 0052 and `docs/runbooks/miniapp-recovery.md`.
+  Share the App status presentation, not authority or retry execution. New
+  warning types need an owner-scoped repair or a concrete administrator handoff;
+  never replay a business submission or link to a Settings dead end.
 - A cross-workflow identity or access change must be labelled as affecting
   Portal, Complaint Cases, TAT, and/or SPIN rather than treated as local-only.
 

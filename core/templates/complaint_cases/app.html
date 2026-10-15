@@ -28,7 +28,7 @@
       <div style="display:flex;gap:4px;flex-shrink:0"><button id="complaintSettingsBtn" class="icon-button" type="button" aria-label="Settings" title="Settings" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg></button><button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button></div>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <div id="complaintSettingsOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintSettingsTitle" hidden><section class="report-email-sheet"><div class="report-email-head"><h3 id="complaintSettingsTitle">Settings</h3><button id="complaintSettingsClose" class="icon-button" type="button" aria-label="Close settings">×</button></div><div id="complaintReportEmailSettings"></div></section></div>
+    <div id="complaintSettingsOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintSettingsTitle" hidden><section class="report-email-sheet"><div class="report-email-head"><h3 id="complaintSettingsTitle">Settings</h3><button id="complaintSettingsClose" class="icon-button" type="button" aria-label="Close settings">×</button></div><section id="complaintRecovery" aria-label="Recovery updates"></section><div id="complaintReportEmailSettings" hidden></div></section></div>
     <section id="errorBanner" class="error-banner" role="alert" aria-live="assertive" hidden>
       <div class="error-banner-copy"><strong id="errorBannerTitle">Action needed</strong><p id="errorBannerMessage"></p><small id="errorBannerReference" hidden></small></div>
       <div class="error-banner-actions"><button id="errorBannerRetry" type="button" hidden>Try Again</button><button id="errorBannerCloseApp" type="button" hidden>Close Mini App</button><button id="errorBannerDismiss" type="button">Dismiss</button></div>
@@ -152,6 +152,8 @@
   <script src="{% static 'miniapp/report_email_settings.js' %}?v=8"></script>
   <link rel="stylesheet" href="{% static 'miniapp/report_email_export.css' %}?v=1">
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=70"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/miniapp_recovery.css' %}?v=1">
+  <script src="{% static 'miniapp/miniapp_recovery.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=71"></script>
 </body>
 </html>

@@ -127,6 +127,13 @@
 
   function syncBackButton() {
     if (!tg?.BackButton) return;
+    if (document.querySelector('.recovery-dialog[open]')) {
+      clearBackHandler();
+      backHandler = () => window.MiniAppRecovery?.closeTop();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     if (window.MiniAppReportEmailExport?.isOpen()) {
       clearBackHandler();
       backHandler = () => window.MiniAppReportEmailExport.closeActive();
@@ -238,6 +245,7 @@
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('portal:inbox-change', syncBackButton);
   window.addEventListener('portal:dialog-change', syncBackButton);
+  window.addEventListener('miniapp:recovery-dialog-change', () => { syncBackButton(); syncMainButton(); });
   window.addEventListener('portal:case-route-change', () => {
     syncBackButton();
     syncMainButton();

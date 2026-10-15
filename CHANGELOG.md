@@ -1,5 +1,40 @@
 # Changelog
 
+## 15 October 2026 - Portal invoice corrections and payment controls
+
+- Payment preview/cancel are compact header icons; case search and Close share
+  one row, including narrow mobile screens.
+- Corrected uploads offer confirmation before payment. National ID must match;
+  name differences warn, while phone differences retain verification notes.
+  Deleted/superseded invoices are omitted and writes recheck scope/revisions.
+- Unmatching also closes that invoice's unfinished correction, retaining its
+  letters/history. Unsigned payment reviews/workbooks become stale; signed
+  payment evidence cannot be changed through matching/unmatching.
+- Duplicate selection/deletion now requires every captured invoice business
+  value to match. Partial identity matches remain informational suggestions.
+- Confirmation forms retain notes after failure and suspend background panels.
+  Letter downloads refresh authorization/expiry, preserve the actual filename,
+  and fall back when Telegram's download method is unsupported.
+- No invoice schema migration, production provider write or deployment was run.
+  See `docs/runbooks/portal-invoice-corrections.md` for verification and limits.
+
+## 15 October 2026 - Actionable Mini App recovery
+
+- Added compact, ten-entry App status lists to Portal, TAT, Complaints and
+  independent Origination Settings, with confirmation, status checks, recovery
+  guidance and copyable support references. Underlying forms/filters stay open.
+- Portal's bell retains Sheet retry actions. System readiness explains missing
+  template repairs; invoice cleanup retries now select one existing file update.
+- TAT IT can retry Sheet updates/remarks within its complete grant scope.
+  Group-wide target sync remains unavailable to branch/product-only IT grants.
+  Signature/notification authority and all four apps' independent roles remain.
+- Complaint Sheet retries have a leased replay receipt. No recovery recreates
+  a comment, approval, payment, signature or report submission. Scheduled email
+  recovery checks the existing delivery rather than sending another copy.
+- Core migration 0205 provisions the reviewed TAT default and refreshes policy
+  versions; normal deployment is required. No production deployment/provider
+  write was performed during implementation.
+
 ## 15 October 2026 - Portal isolation and compact Performance
 
 - Portal Home and the bell now show only Portal-owned background failures.

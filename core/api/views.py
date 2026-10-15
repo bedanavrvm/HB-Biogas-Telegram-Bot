@@ -1103,11 +1103,12 @@ def tat_tracker_target_sheet_sync(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
-    roles = {str(role or '').strip().upper() for role in (user_payload.get('roles') or [])}
-    if not (getattr(user, 'is_superuser', False) or 'IT' in roles):
-        return JsonResponse({'ok': False, 'error': 'Only IT staff can retry the TAT target sheet sync.'}, status=403)
+    from core.services.tat_recovery import can_retry_targets
+    actor = user.get('_canonical_user')
+    if not can_retry_targets(actor, group_config, access=user.get('_access')):
+        return JsonResponse({'ok': False, 'error': 'This group-wide update requires TAT IT access to every branch and product in this group.'}, status=403)
     from core.services.tat_tracker import sync_tat_target_sheet_mirror
-    result = sync_tat_target_sheet_mirror(group_config, actor=user, force_retry=True)
+    result = sync_tat_target_sheet_mirror(group_config, actor=actor, force_retry=True)
     if result.get('status') != 'synced':
         return JsonResponse({
             'ok': False,
@@ -1120,6 +1121,68 @@ def tat_tracker_target_sheet_sync(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
+def tat_tracker_recovery_status(request):
+    payload = _tat_json_body(request)
+    group_id, group, telegram_user, staff, error = _tat_context(payload)
+    if error:
+        return error
+    if error := _tat_capability_error(staff, 'tat.home.view', group):
+        return error
+    from core.services.tat_recovery import status_payload
+    from core.services.miniapp_recovery import status_response
+    return status_response(status_payload(staff.get('_canonical_user'), group,
+        access=staff.get('_access'), page=payload.get('page', 1)))
+
+
+def _tat_recovery_configuration(group, user, actor):
+    from core.services.miniapp_settings import tat_settings_payload
+    from core.services.tat_recovery import can_retry_targets
+    configuration = tat_settings_payload(group, user)
+    health = configuration.get('target_sheet_sync', {})
+    allowed = can_retry_targets(actor, group, access=user.get('_access'))
+    health['can_retry'] = bool(health.get('can_retry') and allowed)
+    health['can_view'] = allowed
+    return configuration
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
+def tat_tracker_recovery_retry(request):
+    payload = _tat_json_body(request)
+    if error := _bind_miniapp_write_request(request, payload):
+        return error
+    group_id, group, telegram_user, staff, error = _tat_context(payload)
+    if error:
+        return error
+    from django.core.exceptions import PermissionDenied, ObjectDoesNotExist, ValidationError
+    from core.models import TatUpdateSideEffectDispatch, IntegrationOperation, TatTrackerEvent
+    from core.services.tat_recovery import retry_sheet_dispatch
+    from core.services.tat_comments import retry_remark_publication, OPERATION_TYPE, COMMENT_CODE
+    try:
+        if payload.get('dispatch_id'):
+            item = TatUpdateSideEffectDispatch.objects.get(pk=payload['dispatch_id'], case__group_id=group_id)
+            status = retry_sheet_dispatch(item.pk, actor=staff.get('_canonical_user'))
+        elif payload.get('remark_operation_id'):
+            op = IntegrationOperation.objects.get(pk=payload['remark_operation_id'], operation_type=OPERATION_TYPE)
+            TatTrackerEvent.objects.get(pk=op.source_id, transition_code=COMMENT_CODE, case__group_id=group_id)
+            retry_remark_publication(op.pk, actor=staff.get('_canonical_user'))
+            op.refresh_from_db()
+            status = op.status
+        else:
+            raise ValueError('Choose a saved Sheet update to retry.')
+    except PermissionDenied as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+    except (ObjectDoesNotExist, ValidationError):
+        return JsonResponse({'ok': False, 'error': 'This Sheet update is no longer available.'}, status=404)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+    return JsonResponse({'ok': True, 'status': status, 'message': 'Sheet update is queued. Case changes remain saved.'})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
 def tat_tracker_settings(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -1130,7 +1193,6 @@ def tat_tracker_settings(request):
         return capability_error
     from django.contrib.auth import get_user_model
     from core.services.miniapp_settings import account_summary_payload, preference_payload, tat_settings_payload
-    from core.services.tat_update_dispatch import attention_count
     from report_delivery.services import can_manage
     from core.services.workflow_data_mode import WORKFLOW_TAT, serialize_mode
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
@@ -1147,12 +1209,11 @@ def tat_tracker_settings(request):
                 branches=user.get('branches') or [],
                 products=user.get('products') or [],
             ),
-            'configuration': tat_settings_payload(group_config, user),
+            'configuration': _tat_recovery_configuration(group_config, user, actor),
             'workflow_mode': serialize_mode(WORKFLOW_TAT),
-            'dispatch_attention_count': (
-                attention_count(group_id=group_id)
-                if actor.is_superuser or 'IT' in set(user.get('roles') or []) else 0
-            ),
+            # App status now supplies scoped, actionable entries rather than
+            # an unscoped group-wide count with no recovery control.
+            'dispatch_attention_count': 0,
         }})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=409)

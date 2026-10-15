@@ -179,7 +179,7 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   await expect(page.locator('#payments-current-heading h3')).toHaveText('Cases in this payment');
   const headingAndCard = await page.evaluate(() => [document.querySelector('#payments-current-heading h3').getBoundingClientRect().x, document.querySelector('.payment-current-case').getBoundingClientRect().x]);
   expect(headingAndCard[0] - headingAndCard[1]).toBeLessThan(12);
-  await expect(page.locator('#payments-document-actions #payments-preview-sheet')).toBeVisible();
+  await expect(page.locator('.payment-detail-header #payments-preview-sheet')).toBeVisible();
   await expect(page.locator('#payments-primary-action #payments-preview-sheet')).toHaveCount(0);
   await assertNoHorizontalOverflow(page, 320);
   await page.locator('#payments-current-cases summary').first().click();

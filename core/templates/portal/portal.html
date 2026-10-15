@@ -387,7 +387,7 @@
         <aside class="miniapp-sheet" id="invoice-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter invoices">
           <header class="miniapp-sheet-header miniapp-panel-heading"><div><strong>Filter invoices</strong><p>Show invoices that need a specific kind of review.</p></div><button type="button" class="miniapp-icon-button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header>
           <form class="miniapp-sheet-body" id="invoice-filter-form">
-            <label for="invoice-pool-review">Show<select id="invoice-pool-review" name="review"><option value="">All records on this page</option><option value="duplicates">Possible duplicates</option>{% if invoice_view == 'matched' %}<option value="payment_blocked">Payment blocked</option><option value="payment_ready">Payment ready</option>{% endif %}</select></label>
+            <label for="invoice-pool-review">Show<select id="invoice-pool-review" name="review"><option value="">All records on this page</option><option value="duplicates">Duplicates</option>{% if invoice_view == 'matched' %}<option value="payment_blocked">Payment blocked</option><option value="payment_ready">Payment ready</option>{% endif %}</select></label>
             <footer class="miniapp-sheet-actions"><button class="btn btn-secondary" id="invoice-pool-clear" type="button">Reset</button><button class="btn btn-primary" type="submit">Done</button></footer>
           </form>
         </aside>
@@ -432,9 +432,9 @@
       <div id="payments-detail-feedback" class="payment-detail-feedback" role="status" aria-live="polite"><div class="spinner-inline"></div><span>Loading payment batch…</span></div>
       <div id="payments-progress" class="payment-progress"></div>
       {% if active_screen == 'payments' %}<section id="payments-add-panel" class="payment-detail-section payment-add-section" data-required-capability="portal.payment.prepare" aria-label="Add payment cases">
-        <div class="payment-search-row portal-queue-search"><i data-lucide="search" aria-hidden="true"></i><label><span class="sr-only">Add cases: search customer, ID, phone, invoice or order</span><input id="payments-search" type="search" placeholder="Add cases: name, ID, invoice or order" aria-controls="payments-search-results" aria-expanded="false" autocomplete="off"></label></div>
+        <div class="payment-search-row portal-queue-search"><i data-lucide="search" aria-hidden="true"></i><label><span class="sr-only">Add cases: search customer, ID, phone, invoice or order</span><input id="payments-search" type="search" placeholder="Add cases: name, ID, invoice or order" aria-controls="payments-search-results" aria-expanded="false" autocomplete="off"></label><button type="button" id="payments-search-close" class="miniapp-icon-button" aria-label="Close case search" hidden><i data-lucide="x" aria-hidden="true"></i></button></div>
         <div id="payments-search-results" hidden>
-        <header class="miniapp-panel-heading payment-search-results-heading"><span id="payments-result-count" role="status" aria-live="polite"></span><button type="button" id="payments-search-close" class="miniapp-icon-button" aria-label="Close case search"><i data-lucide="x" aria-hidden="true"></i></button></header>
+        <header class="miniapp-panel-heading payment-search-results-heading"><span id="payments-result-count" role="status" aria-live="polite"></span></header>
         <div id="payments-list" class="payment-candidate-list" aria-label="Case search results"></div>
         <nav id="payments-candidate-pagination" aria-label="Case search pages"></nav>
         <div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button type="button" id="payments-clear-selection">Clear</button><button type="button" class="btn btn-primary" id="payments-add-selected">Add selected</button></div>
@@ -631,6 +631,7 @@
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
     <header class="portal-settings-hero"><span class="settings-eyebrow">MY PORTAL</span><h1>Settings</h1><p class="meta">Your account, work defaults, and access information.</p></header>
     <section id="portal-settings-account" class="portal-settings-card miniapp-settings-account" aria-live="polite" hidden></section>
+    <section id="portal-recovery" aria-label="Recovery updates"></section>
     <form id="portal-personal-settings-form" class="portal-settings-card">
       <div class="portal-settings-heading"><span class="settings-eyebrow">MY WORKSPACE</span><h2>Work defaults</h2><p>Open the authorised view and queue that help you begin work fastest.</p></div>
       <div class="portal-settings-grid">

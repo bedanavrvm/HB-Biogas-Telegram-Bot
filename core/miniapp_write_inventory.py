@@ -47,6 +47,22 @@ def _add(
 
 
 _add(
+    'tat_tracker_recovery_status complaint_recovery_status',
+    authentication='Verified owning Mini App Telegram identity and current access grants',
+    capability='tat.home.view or complaint.queue.view, within that app only',
+    scope='Selected group plus the owning workflow current-access projection',
+    request_key_binding='miniapp_write_response',
+    domain_replay='Read-only status projection; POST carries the existing authenticated Mini App context',
+)
+_add(
+    'tat_tracker_recovery_retry',
+    authentication='Verified TAT Telegram identity and current complete grant tuples',
+    capability='tat.publication.retry, Sheet effects only',
+    scope='Selected group, exact existing case/remark, operational data mode and current revision',
+    request_key_binding='miniapp_write_response',
+    domain_replay='Locked existing dispatch/operation; pending/running/completed work is not reset',
+)
+_add(
     'loan_origination_signature_preview',
     authentication='Verified Telegram identity or exact opaque signer-session token',
     capability='Existing Origination staff signing or TEST start capability; public session is signing-only',

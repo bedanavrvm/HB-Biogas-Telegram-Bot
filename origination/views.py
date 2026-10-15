@@ -1717,6 +1717,17 @@ def portal_origination_production_stamp(request, application_id: str):
 
 
 @csrf_exempt
+@require_http_methods(['GET'])
+def portal_origination_recovery_status(request):
+    if error := _capability_error(request, 'origination.view'):
+        return error
+    from origination.services.recovery import status_payload
+    from core.services.miniapp_recovery import status_response
+    return status_response(status_payload(request.origination_user,
+        request.origination_access, page=request.GET.get('page', 1)))
+
+
+@csrf_exempt
 @require_http_methods(['POST'])
 def portal_origination_archive_signed(request, application_id: str):
     application = _application(application_id)

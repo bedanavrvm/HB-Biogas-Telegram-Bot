@@ -49,6 +49,18 @@ async function mountInbox(page, total = 19) {
   await page.addScriptTag({ path: asset('miniapp-nav.js') });
 }
 
+test('An operational warning keeps its recovery action instead of a dead Settings link', async ({ page }) => {
+  await mountInbox(page, 1);
+  await page.locator('#portal-notification-button').click();
+  await expect(page.locator('.portal-notification-row')).toHaveCount(1);
+  await page.evaluate(() => renderPortalNotifications({notification_items:[{
+    key:'repair:synthetic',kind:'system',label:'Sheet update failed',count:1,
+    url:'/portal/s/settings/', action:{type:'publication_retry',label:'Retry sync',operation_ids:['synthetic']},
+  }],notification_count:1,notification_pagination:{page:1,pages:1,total:1,start:1,end:1}}));
+  await expect(page.getByRole('button', {name:'Retry sync'})).toBeVisible();
+  await expect(page.locator('#portal-notification-list a[href="/portal/s/settings/"]')).toHaveCount(0);
+});
+
 for (const width of [320,360,390,430,768,1280]) {
   for (const theme of ['light','dark']) {
     test(`Complete Portal inbox at ${width}px in ${theme}`, async ({page}, testInfo) => {

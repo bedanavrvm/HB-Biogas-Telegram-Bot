@@ -809,10 +809,15 @@
       return;
     }
     button.disabled = true;
+    const originalLabel = button.textContent;
+    if (!await window.MiniAppRecovery.confirm('Retry sync', 'Retry the selected Sheet update? No case or approval will be submitted again.')) {
+      button.disabled = false;
+      return;
+    }
     button.textContent = 'Queuing…';
     let failedMessage = '';
     let needsAttention = false;
-    for (const operationId of operationIds) {
+    try { for (const operationId of operationIds) {
       const result = await portalApi.postJson('/publication/attempt/', {
         operation_id: String(operationId), manual_retry: true,
       }, tg);
@@ -821,7 +826,8 @@
         break;
       }
       needsAttention = needsAttention || Boolean(result.data?.needs_attention);
-    }
+    } } catch (error) { failedMessage = error.message || 'The retry could not be checked. Open App status before trying again.'; }
+    finally { button.disabled = false; button.textContent = originalLabel; }
     if (failedMessage) showToast(`Google Sheet update was not retried: ${failedMessage}`, 'error');
     else if (needsAttention) showToast('Google Sheet update still needs attention. Review the related case before retrying.', 'warning');
     else showToast('Google Sheet update retry queued.', 'success');
@@ -881,7 +887,12 @@
       onError: error => showToast(error.message, 'error'),
       renderItems: (list, rows) => {
         list.innerHTML = rows.length
-          ? rows.map(item => `<a class="portal-notification-row ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml([item.detail, item.context].filter(Boolean).join(' · '))}</small></span>${item.kind === 'system' ? `<b>${escapeHtml(item.count || 0)}</b>` : '<b aria-hidden="true">!</b>'}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
+          ? rows.map(item => {
+            const copy = `<span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml([item.detail, item.context].filter(Boolean).join(' · '))}</small></span>`;
+            if (item.action?.type === 'publication_retry') return `<article class="portal-notification-row">${copy}<button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids || []))}">${escapeHtml(item.action.label || 'Retry sync')}</button></article>`;
+            if (item.action?.type === 'publication_wake') return `<article class="portal-notification-row">${copy}<button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume updates')}</button></article>`;
+            return `<a class="portal-notification-row ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}">${copy}${item.kind === 'system' ? `<b>${escapeHtml(item.count || 0)}</b>` : '<b aria-hidden="true">!</b>'}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`;
+          }).join('')
           : '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
         if (window.lucide) window.lucide.createIcons();
       },
@@ -1354,14 +1365,18 @@
       return;
     }
     const safeFilename = String(filename || 'download').trim() || 'download';
-    if (typeof tg?.downloadFile === 'function') {
-      tg.downloadFile({ url, file_name: safeFilename }, accepted => {
-        showToast(
-          accepted === false ? 'Download cancelled. Select download to try again.' : 'Download started. Check your device downloads.',
-          accepted === false ? 'info' : 'success',
-        );
-      });
-      return;
+    if (typeof tg?.downloadFile === 'function' && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+      try {
+        tg.downloadFile({ url, file_name: safeFilename }, accepted => {
+          showToast(
+            accepted === false ? 'Download cancelled. Select download to try again.' : 'Download requested. Check your device downloads.',
+            accepted === false ? 'info' : 'success',
+          );
+        });
+        return;
+      } catch (_) {
+        // Older Telegram clients may expose the SDK method without supporting it.
+      }
     }
     openPortalLink(url);
     showToast('The file was opened in your browser for download.', 'info');
@@ -2032,6 +2047,28 @@
     };
     const checks = Object.entries(health.checks || {}).map(([key, value]) => `<div class="portal-health-check${value === 'ok' ? '' : ' is-degraded'}"><strong>${escapeHtml(labels[key] || key)}</strong><span>${escapeHtml(value === 'ok' ? 'Ready' : value === 'missing' ? 'Needs configuration' : 'Retry needed')}</span></div>`).join('');
     const retryCount = Number(health.due_order_retries || 0) + Number(health.due_payment_retries || 0);
+    const repairHelp = document.createElement('div');
+    repairHelp.className = 'portal-health-repair-help';
+    for (const [key, value] of Object.entries(health.checks || {})) {
+      if (value === 'ok') continue;
+      const row = document.createElement('p');
+      row.textContent = key === 'requisition_template' ? 'Ask an administrator to activate a validated order template in Django Admin → Requisition templates.'
+        : key === 'payment_template' ? 'Ask an administrator to activate a validated payment template in Django Admin → Payment document templates.'
+        : key === 'database' ? 'The app cannot reach its database. Contact IT with the support reference; do not submit the record again.'
+        : 'Open App status above to check the saved document and retry its storage update.';
+      if (![...repairHelp.children].some(node => node.textContent === row.textContent)) repairHelp.append(row);
+    }
+    if (repairHelp.childElementCount) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-secondary';
+      button.textContent = 'Check app status';
+      button.addEventListener('click', () => {
+        const status = el('portal-recovery');
+        status?.scrollIntoView({block:'start',behavior:'smooth'});
+        status?.querySelector('[data-check]')?.click();
+        status?.querySelector('[data-check]')?.focus({preventScroll:true});
+      });
+      repairHelp.append(button);
+    }
     const status = String(health.status || 'down');
     const statusCopy = {
       live: 'Live — Portal is ready for normal work.',
@@ -2046,6 +2083,7 @@
       <button type="submit" class="btn btn-secondary">Save maintenance mode</button>
     </form>` : '';
     target.innerHTML = `<div class="portal-readiness-heading status-${escapeHtml(status)}"><span class="portal-status-pulse" aria-hidden="true"></span><div><h2>System readiness</h2><p>${escapeHtml(statusCopy)}</p></div></div><details class="portal-readiness-details"${status !== 'live' ? ' open' : ''}><summary>Checks <span>${Object.values(health.checks || {}).filter(value => value !== 'ok').length} need attention</span></summary><div class="portal-health-grid">${checks}</div>${maintenanceControls}</details>`;
+    if (repairHelp.childElementCount) target.querySelector('.portal-readiness-details')?.append(repairHelp);
     const form = target.querySelector('[data-portal-maintenance-form]');
     form?.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -2151,6 +2189,12 @@
   }
 
   async function loadPortalSettings(loadOperations = false) {
+    window.MiniAppRecovery?.mount(el('portal-recovery'), {
+      prefix: '/api/portal/',
+      load: async page => { const result = await apiFetch(`/settings/recovery/?page=${page}`); if (!result.ok) throw new Error(result.data?.error || 'App status could not be loaded.'); return result.data; },
+      request: (endpoint, payload) => portalApi.postJson(endpoint.slice('/api/portal'.length), payload, tg),
+      notify: showToast,
+    });
     const { ok, data } = await apiFetch('/settings/');
     if (!ok || !data.ok) throw new Error(data.error || 'Portal settings could not be loaded.');
     const personal = data.data?.personal || {};

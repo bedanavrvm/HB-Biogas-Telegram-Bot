@@ -137,6 +137,8 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         status__in=['draft', 'awaiting_replacement'],
     ).select_related('batch', 'review').first()
     latest_change = open_change or invoice.name_change_requests.select_related('batch', 'review').order_by('-created_at').first()
+    if latest_change and latest_change.status in {'cancelled', 'withdrawn'}:
+        latest_change = None  # Closure is history, not the current match's status.
     from payments.invoice_agreements import agreement_clears_item
     agreement_accepted = bool(open_change and agreement_clears_item(open_change))
     if not match_eligibility['eligible']:
@@ -911,6 +913,78 @@ def correct_sent_name_change(
     return item
 
 
+def pending_corrections_for_invoice(invoice, *, farmer_ids=None):
+    national_id = normalize_national_id(invoice.customer_id)
+    if not national_id:
+        return []
+    items = InvoiceNameChangeItem.objects.filter(status='awaiting_replacement',
+        batch__status='awaiting_replacements',
+        original_invoice__batch__group_configuration_id=invoice.batch.group_configuration_id,
+    ).select_related('farmer', 'original_invoice__batch', 'batch')
+    if farmer_ids is not None:
+        items = items.filter(farmer_id__in=farmer_ids)
+    return [item for item in items if normalize_national_id(item.farmer.national_id) == national_id
+            and replacement_assessment(item, invoice)['selectable']]
+
+
+def replacement_assessment(item, replacement, *, eligibility=None):
+    """One eligibility contract for suggestions and the locked confirmation."""
+    from core.services.invoice_parser import official_requisition_eligibility
+    farmer = item.farmer
+    eligibility = eligibility or official_requisition_eligibility(farmer)
+    expected = applicant_identity(farmer)
+    id_match = bool(expected['normalized_national_id'] and
+        normalize_national_id(replacement.customer_id) == expected['normalized_national_id'])
+    name_match = normalize_person_name(replacement.customer_name) == expected['normalized_name']
+    phone = normalize_kenyan_phone(replacement.customer_phone)
+    phone_differs = bool(phone and expected['normalized_phone'] and phone != expected['normalized_phone'])
+    blockers, warnings = [], []
+    if not eligibility['eligible']:
+        blockers.append(eligibility['message'])
+    if replacement.pk == item.original_invoice_id:
+        blockers.append('The original invoice cannot replace itself.')
+    if replacement.batch.group_configuration_id != item.original_invoice.batch.group_configuration_id:
+        blockers.append('This invoice belongs to a different group.')
+    if replacement.matched_farmer_id and replacement.matched_farmer_id != farmer.pk:
+        blockers.append('This invoice is already matched to another applicant.')
+    if replacement.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
+        blockers.append('This invoice is not available for matching.')
+    if not id_match:
+        blockers.append('The national ID does not match the applicant.')
+    upload_order = str(replacement.batch.order_number or '').strip()
+    if upload_order and upload_order != eligibility.get('order_number', ''):
+        blockers.append('This invoice was uploaded for a different order.')
+    if not name_match:
+        warnings.append('The name differs. The matching national ID identifies the applicant.')
+    if phone_differs:
+        warnings.append('The phone number differs. Add a verification note when confirming.')
+    return {'id_match': id_match, 'name_match': name_match, 'phone_match': not phone_differs,
+            'phone_note_required': phone_differs, 'conflict': bool(blockers),
+            'selectable': not blockers, 'blockers': blockers, 'warnings': warnings,
+            'status_note': blockers[0] if blockers else warnings[0] if warnings else 'National ID matches.'}
+
+
+def cancel_correction_on_unmatch(invoice, *, actor):
+    """Close only this invoice's unfinished work; retain every sent artifact."""
+    for item in invoice.name_change_requests.select_for_update().filter(
+        status__in=['draft', 'awaiting_replacement'],
+    ).order_by('pk'):
+        batch = InvoiceNameChangeBatch.objects.select_for_update().filter(pk=item.batch_id).first()
+        item.status = 'withdrawn' if item.status == 'awaiting_replacement' else 'cancelled'
+        item.closed_reason = 'Invoice unmatched by staff confirmation.'
+        item.closed_by = actor
+        item.closed_at = timezone.now()
+        item.revision += 1
+        item.save(update_fields=['status', 'closed_reason', 'closed_by', 'closed_at', 'revision', 'updated_at'])
+        _record_case_event(item.farmer, action='invoice_name_change_' + item.status, actor=actor,
+            request_id=f'invoice-unmatch-correction:{item.pk}', metadata={'item_id': str(item.pk), 'source': 'invoice_unmatch'})
+        _refresh_batch_terminal_status(batch)
+    invoice.identity_reviews.filter(status=InvoiceIdentityReview.STATUS_PENDING).update(
+        status=InvoiceIdentityReview.STATUS_CANCELLED, decision_note='Invoice unmatched.',
+        decided_by=actor, decided_at=timezone.now(), updated_at=timezone.now(),
+    )
+
+
 @transaction.atomic
 def confirm_replacement(
     item: InvoiceNameChangeItem,
@@ -918,7 +992,15 @@ def confirm_replacement(
     *,
     actor: str,
     verification_note: str = '',
+    expected_revision=None,
+    expected_invoice_revision=None,
 ) -> InvoiceNameChangeItem:
+    from payments.services import lock_invoice_payment_batches, invalidate_invoice_payment_batches
+    probe = InvoiceNameChangeItem.objects.get(pk=item.pk)
+    if probe.status == 'completed' and probe.replacement_invoice_id == replacement.pk:
+        return probe
+    affected_batches = lock_invoice_payment_batches(probe.farmer_id, [probe.original_invoice_id, replacement.pk])
+    JawabuFarmerMaster.objects.select_for_update().get(pk=probe.farmer_id)
     item = InvoiceNameChangeItem.objects.select_for_update().get(pk=item.pk)
     batch = (
         InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
@@ -941,6 +1023,9 @@ def confirm_replacement(
             'replacement_request_not_ready',
             'This request is not waiting for a corrected invoice. Refresh the invoice record.',
         )
+    if ((expected_revision is not None and int(expected_revision) != item.revision)
+            or (expected_invoice_revision is not None and int(expected_invoice_revision) != replacement.revision)):
+        raise InvoiceIdentityWorkflowError('replacement_changed', 'This correction changed. Refresh before confirming.')
     if replacement.pk == item.original_invoice_id:
         raise InvoiceIdentityWorkflowError(
             'replacement_invoice_conflict', 'The original invoice cannot replace itself.',
@@ -973,13 +1058,9 @@ def confirm_replacement(
             'replacement_invoice_identity_mismatch',
             'The corrected invoice national ID does not match the applicant.',
         )
-    expected_name = normalize_person_name(applicant_identity(farmer)['name'])
-    replacement_name = normalize_person_name(replacement.customer_name)
-    if not replacement_name or replacement_name != expected_name:
-        raise InvoiceIdentityWorkflowError(
-            'replacement_invoice_identity_mismatch',
-            'The corrected invoice name does not match the applicant.',
-        )
+    assessment = replacement_assessment(item, replacement, eligibility=eligibility)
+    if assessment['blockers']:
+        raise InvoiceIdentityWorkflowError('replacement_invoice_conflict', assessment['blockers'][0])
     codes = discrepancy_codes(replacement, farmer)
     verification_note = str(verification_note or '').strip()
     if 'phone_mismatch' in codes and not verification_note:
@@ -1059,4 +1140,5 @@ def confirm_replacement(
     if not batch.items.filter(status__in=['draft', 'awaiting_replacement']).exists():
         batch.status = 'completed'
         batch.save(update_fields=['status', 'updated_at'])
+    invalidate_invoice_payment_batches(affected_batches, invoice_id=replacement.pk, actor_label=actor)
     return item

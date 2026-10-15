@@ -186,17 +186,19 @@ def process_remark_publications(*, limit=50, max_seconds=30):
 def retry_remark_publication(operation_id, *, actor):
     """Requeue only a reviewed failed remark projection; never call Google here."""
     from django.contrib.auth import get_user_model
-    actor = get_user_model().objects.filter(pk=getattr(actor, 'pk', None), is_active=True, is_superuser=True).first()
+    actor = get_user_model().objects.filter(pk=getattr(actor, 'pk', None), is_active=True).first()
     if not actor:
-        raise PermissionDenied('Only an active Superuser can retry failed TAT Sheet updates.')
+        raise PermissionDenied('An active TAT staff account is required.')
     operation = IntegrationOperation.objects.select_for_update().get(
         pk=operation_id, operation_type=OPERATION_TYPE,
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
     )
-    if operation.status not in {IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_DEAD_LETTER}:
-        return False
     event = TatTrackerEvent.objects.get(pk=operation.source_id, transition_code=COMMENT_CODE)
     case = TatTrackerCase.objects.get(pk=event.case_id, is_deleted=False)
+    from core.services.tat_recovery import require_sheet_authority
+    require_sheet_authority(actor, case)
+    if operation.status not in {IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_DEAD_LETTER}:
+        return False
     group_query = GroupSheetConfiguration.objects.filter(enabled=True, group_id=case.group_id)
     if operation.metadata.get('group_configuration_id') is not None:
         group_query = group_query.filter(pk=operation.metadata['group_configuration_id'])
@@ -211,7 +213,7 @@ def retry_remark_publication(operation_id, *, actor):
         subject_type='integration_operation', subject_id=str(operation.pk), actor=actor, authority_user=actor,
         source_model='IntegrationOperation', source_event_id=f'{operation.pk}:retry:{retry_number}',
         deduplication_key=f'tat-comment-retry:{operation.pk}:{retry_number}',
-        before_values={'status': operation.status, 'attempts': operation.attempts},
+        before_values={'status': operation.status, 'attempts': operation.attempts, 'error_code': operation.last_error_code},
         after_values={'status': IntegrationOperation.STATUS_PENDING, 'attempts': 0},
         metadata={'event_id': str(event.pk), 'retry_number': retry_number},
     )

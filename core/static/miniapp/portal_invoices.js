@@ -229,7 +229,7 @@
         canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].filter(Boolean).join('');
       const reviewReason = orderReferenceAlert ? ''
-        : Number(invoice.duplicate_count || 0) > 0 ? `${invoice.duplicate_count} possible duplicate ${Number(invoice.duplicate_count) === 1 ? 'invoice' : 'invoices'}`
+        : Number(invoice.duplicate_count || 0) > 0 ? `${invoice.duplicate_count} duplicate ${Number(invoice.duplicate_count) === 1 ? 'invoice' : 'invoices'}`
         : invoice.status === 'ambiguous' ? 'More than one possible client match'
         : invoice.status === 'unmatched' ? 'No client match yet'
         : typeof readiness.error === 'string' && readiness.error ? readiness.error
@@ -442,6 +442,7 @@
   function renderInvoiceDetail(data, target = el('invoice-detail-content'), { routeMode = false } = {}) {
     if (!target) return;
     const invoice = data.invoice || {};
+    state.detailInvoice = invoice;
     const batch = data.batch || {};
     const events = data.events || [];
     const duplicates = data.duplicates || [];
@@ -526,13 +527,13 @@
     ].join('');
     const duplicateHtml = duplicates.length
       ? duplicates.map(function (dup) {
-        const reasons = (dup.duplicate_reasons || []).join(', ') || 'Possible duplicate';
-        const remove = canWriteInvoices()
+        const reasons = dup.exact_duplicate ? 'All invoice details match' : (dup.duplicate_reasons || []).join(', ');
+        const remove = canWriteInvoices() && dup.exact_duplicate
           ? '<button type="button" class="invoice-duplicate-remove" data-duplicate-ignore="' + escapeHtml(dup.id) + '" aria-label="Remove duplicate invoice ' + escapeHtml(dup.invoice_no || '') + '" title="Remove duplicate from active invoices"><i data-lucide="trash-2" aria-hidden="true"></i></button>'
           : '';
         return '<div class="batch-client-row invoice-duplicate-row"><div><div class="name">Invoice ' + escapeHtml(dup.invoice_no || '-') + '</div><div class="meta">' + escapeHtml(reasons) + ' | ' + escapeHtml(dup.customer_name || '-') + ' | ' + escapeHtml(dup.status || '-') + '</div></div>' + remove + '</div>';
       }).join('')
-      : '<div class="empty-state"><div class="es-title">No likely duplicates</div><div class="es-sub">Checked invoice no, ID, and phone.</div></div>';
+      : '<div class="empty-state"><div class="es-title">No matching invoice details</div></div>';
     const eventHtml = events.length
       ? events.map(function (event) {
         const title = String(event.action || 'Invoice updated').replace(/_/g, ' ').replace(/^./, character => character.toUpperCase());
@@ -556,6 +557,7 @@
       sourceLink || actionButtons ? '<div class="invoice-detail-actions">' + sourceLink + actionButtons + '</div>' : '',
       '</section>',
       identityPanel,
+      correctionActionsHtml(data.correction_suggestions || []),
       '<section class="form-section invoice-record-section">',
       '<div class="invoice-section-heading"><h3>Parsed fields</h3></div>',
       '<div class="invoice-parsed-grid">',
@@ -602,7 +604,7 @@
       '<p class="invoice-record-source-meta">' + escapeHtml(batch.original_filename || invoice.batch_filename || 'No source filename') + (invoice.matched_farmer_name ? ' · ' + escapeHtml(invoice.matched_farmer_name) : '') + '</p>',
       '</section>',
       '<details class="form-section invoice-record-details"' + (duplicates.length ? ' open' : '') + '>',
-      '<summary>Duplicate check' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
+      '<summary>Similar invoices' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
       duplicateHtml,
       '</details>',
       '<details class="form-section invoice-record-details">',
@@ -649,6 +651,7 @@
       } finally { deps.setButtonLoading?.(button, false); }
     });
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
+    bindCorrectionActions(target, data.correction_suggestions || [], function () { loadDetail(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
     target.querySelector('.invoice-detail-delete-action')?.addEventListener('click', async function () {
       state.selectedIds = new Set([invoice.id]);
@@ -664,16 +667,8 @@
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
     target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
     target.querySelector('.invoice-name-change-preview')?.addEventListener('click', function () { openLetterPreview(identity.name_change?.latest_letter); });
-    target.querySelector('.invoice-name-change-download')?.addEventListener('click', async function () {
-      const url = identity.name_change?.latest_letter?.download_url;
-      const filename = identity.name_change?.latest_letter?.filename || 'Change-of-invoice-name-letter.docx';
-      if (!url || !await confirmInvoiceAction('Download letter', filename, 'Download')) return;
-      deps.showToast('Opening ' + filename + ' for download…', 'info');
-      if (url && deps.downloadPortalFile) deps.downloadPortalFile({
-        url,
-        filename,
-      });
-      else if (url && deps.openPortalLink) deps.openPortalLink(url);
+    target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
+      downloadInvoiceLetter(identity.name_change?.latest_letter?.id, this);
     });
     target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
     target.querySelector('.invoice-name-change-agreement')?.addEventListener('click', function () { uploadInvoiceAgreement(identity.name_change, this); });
@@ -700,9 +695,11 @@
     loadDetail(invoiceId);
   }
 
-  function openInvoiceWorkflowSheet(title, fieldsHtml, submitLabel) {
+  function openInvoiceWorkflowSheet(title, fieldsHtml, submitLabel, onSubmit) {
     return new Promise(function (resolve) {
       const previousFocus = document.activeElement;
+      const parents = Array.from(document.querySelectorAll('.sheet-overlay.open')).filter(node => !node.inert);
+      parents.forEach(node => { node.inert = true; });
       const overlay = document.createElement('div');
       overlay.className = 'sheet-overlay open invoice-workflow-overlay';
       overlay.setAttribute('role', 'dialog');
@@ -724,12 +721,14 @@
       function close(value) {
         if (settled) return;
         settled = true;
-        document.removeEventListener('keydown', onKeydown);
+        overlay.removeEventListener('keydown', onKeydown);
         overlay.remove();
+        parents.forEach(node => { node.inert = false; });
         previousFocus?.focus?.();
         resolve(value);
       }
       function onKeydown(event) {
+        event.stopPropagation();
         if (event.key === 'Escape') close(null);
         if (event.key === 'Tab') {
           const focusable = Array.from(overlay.querySelectorAll('button,select,input,textarea')).filter(function (node) { return !node.disabled; });
@@ -742,12 +741,24 @@
       overlay.querySelector('.sheet-close-button').addEventListener('click', function () { close(null); });
       overlay.querySelector('.invoice-workflow-cancel').addEventListener('click', function () { close(null); });
       overlay.addEventListener('click', function (event) { if (event.target === overlay) close(null); });
-      form.addEventListener('submit', function (event) {
+      form.addEventListener('submit', async function (event) {
         event.preventDefault();
-        if (!form.reportValidity()) return;
-        close(Object.fromEntries(new FormData(form).entries()));
+        if (form.dataset.saving || !form.reportValidity()) return;
+        const values = Object.fromEntries(new FormData(form).entries());
+        if (!onSubmit) { close(values); return; }
+        form.dataset.saving = 'true';
+        const button = form.querySelector('[type="submit"]');
+        button.disabled = true;
+        overlay.querySelector('.invoice-workflow-error').textContent = '';
+        try {
+          await onSubmit(values);
+          close(values);
+        } catch (error) {
+          overlay.querySelector('.invoice-workflow-error').textContent = error.message || 'Could not save. Try again.';
+          deps.showToast(error.message || 'Could not save. Try again.', 'error');
+        } finally { delete form.dataset.saving; button.disabled = false; }
       });
-      document.addEventListener('keydown', onKeydown);
+      overlay.addEventListener('keydown', onKeydown);
       setTimeout(function () { overlay.querySelector('select,input,textarea,button')?.focus(); }, 30);
     });
   }
@@ -883,6 +894,53 @@
     if (change?.id) openReplacementSelector(change.id);
   }
 
+  function correctionActionsHtml(rows) {
+    if (!rows.length) return '';
+    return '<section class="invoice-correction-next" aria-label="Corrected invoices">' + rows.map((row, index) =>
+      '<div><strong>' + escapeHtml(row.applicant_name || 'Corrected invoice') + '</strong><button type="button" class="btn btn-primary" data-confirm-correction="' + index + '">Confirm corrected invoice</button></div>'
+    ).join('') + '</section>';
+  }
+
+  function bindCorrectionActions(container, rows, after) {
+    container.querySelectorAll('[data-confirm-correction]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const row = rows[Number(button.dataset.confirmCorrection)];
+        if (await confirmReplacementSelection(row.item_id, row, row.revision)) await after?.(button);
+      });
+    });
+  }
+
+  async function confirmReplacementSelection(itemId, row, revision) {
+    const invoice = row.invoice || {id:row.invoice_id, revision:row.invoice_revision};
+    const warnings = (row.warnings || []).map(text => '<p class="invoice-card-warning">' + escapeHtml(text) + '</p>').join('');
+    return openInvoiceWorkflowSheet('Confirm corrected invoice',
+      '<p>The national ID matches the applicant.</p>' + warnings +
+      '<div class="form-row"><label for="corrected-invoice-note">Phone verification note' + (row.phone_note_required ? ' (required)' : ' (optional)') + '</label><textarea id="corrected-invoice-note" name="verification_note" rows="3" maxlength="500"' + (row.phone_note_required ? ' required' : '') + '></textarea></div>',
+      'Confirm replacement', async values => {
+        const result = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/replacement/', {
+          method:'POST', headers:{'Content-Type':'application/json', ...csrfHeader()},
+          body:JSON.stringify({replacement_invoice_id:invoice.id, revision, invoice_revision:invoice.revision,
+            verification_note:values.verification_note || '', client_request_id:requestId()}),
+        });
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.message || result.data?.error || 'Could not confirm the replacement.');
+        deps.showToast('Corrected invoice confirmed.', 'success');
+      });
+  }
+
+  async function downloadInvoiceLetter(artifactId, button) {
+    if (!artifactId || button?.disabled) return;
+    if (button) button.disabled = true;
+    try {
+      const result = await deps.apiFetch('/invoice-name-changes/' + encodeURIComponent(artifactId) + '/download-link/');
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.message || result.data?.error || 'Could not prepare the letter download.');
+      const file = result.data;
+      if (!await confirmInvoiceAction('Download letter', file.filename, 'Download')) return;
+      if (deps.downloadPortalFile) deps.downloadPortalFile({url:file.download_url, filename:file.filename});
+      else if (deps.openPortalLink) deps.openPortalLink(file.download_url);
+    } catch (error) { deps.showToast(error.message || 'Could not start the download. Try again.', 'error'); }
+    finally { if (button) button.disabled = false; }
+  }
+
   async function uploadInvoiceAgreement(change, button) {
     const letter = change?.latest_letter;
     if (!letter?.id || button?.disabled) return;
@@ -905,6 +963,11 @@
 
   async function createPaymentFromReceipt(receipt, button, container) {
     if (!receipt?.id) return;
+    try {
+      const latest = await deps.apiFetch('/invoice-receipts/' + encodeURIComponent(receipt.id) + '/');
+      if (!latest.ok || !latest.data?.ok) throw new Error('Could not refresh the invoice delivery. Try again.');
+      Object.assign(receipt, latest.data.receipt_batch);
+    } catch (error) { return deps.showToast(error.message || 'Could not refresh the invoice delivery.', 'error'); }
     const matched = (receipt.items || []).filter(function (item) { return item.status === 'matched' && item.farmer_id; });
     if (!matched.length) return deps.showToast('This invoice delivery has no matched invoices ready for payment.', 'error');
     const paymentModes = {};
@@ -1021,19 +1084,21 @@
 
   async function matchInvoiceToFarmer(farmerId, hasConflict) {
     if (!state.selectedInvoice?.id) return;
-    let note = '';
+    const invoiceId = state.selectedInvoice.id;
+    let response;
+    const save = async note => {
+      response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/match/', {
+        method:'POST', headers:{'Content-Type':'application/json', ...csrfHeader()},
+        body:JSON.stringify({farmer_id:farmerId, note}),
+      });
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.message || response.data?.error || 'Could not match invoice.');
+    };
     if (hasConflict) {
-      const values = await openInvoiceWorkflowSheet('Confirm invoice conflict', '<p class="invoice-card-warning">This applicant already has an invoice. Continue only when this is a deliberate correction.</p><div class="form-row"><label>Reason</label><textarea name="note" rows="3" required></textarea></div>', 'Continue matching');
+      const values = await openInvoiceWorkflowSheet('Confirm invoice conflict', '<p class="invoice-card-warning">This applicant already has an invoice. Continue only when this is a deliberate correction.</p><div class="form-row"><label for="invoice-conflict-note">Reason</label><textarea id="invoice-conflict-note" name="note" rows="3" required></textarea></div>', 'Continue matching', values => save(values.note));
       if (!values) return;
-      note = values.note;
-    }
-    const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(state.selectedInvoice.id) + '/match/', {
-      method: 'POST',
-      body: JSON.stringify({ farmer_id: farmerId, note: note }),
-    });
-    if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.message || response.data?.error || 'Could not match invoice.', 'error');
-      return;
+    } else {
+      try { await save(''); }
+      catch (error) { deps.showToast(error.message || 'Could not match invoice.', 'error'); return; }
     }
     deps.showToast(response.data?.drive_archive_warning || 'Invoice matched.', response.data?.drive_archive_warning ? 'warning' : 'success');
     closeMatchOverlay();
@@ -1041,10 +1106,13 @@
   }
 
   async function unmatchInvoice(invoiceId) {
-    if (!await confirmInvoiceAction('Unmatch invoice?', 'This removes the invoice-to-applicant link and clears the applicant invoice fields where applicable.', 'Unmatch invoice')) return;
+    const invoice = readRoute().view === 'detail' && state.detailInvoice?.id === invoiceId ? state.detailInvoice : (state.invoices || []).find(row => row.id === invoiceId);
+    const pending = ['draft', 'awaiting_replacement'].includes(invoice?.identity?.name_change?.status);
+    if (!await confirmInvoiceAction(pending ? 'Unmatch invoice and cancel correction?' : 'Unmatch invoice?',
+      pending ? 'This cancels the unfinished correction and removes the match. Letters and history are kept.' : 'This removes the invoice-to-applicant link and clears the applicant invoice fields where applicable.', 'Unmatch invoice')) return;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/unmatch/', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({revision:invoice?.revision, client_request_id:requestId()}),
     });
     if (!response.ok || !response.data?.ok) {
       deps.showToast(response.data?.message || response.data?.error || 'Could not unmatch invoice.', 'error');
@@ -1135,6 +1203,10 @@
   }
 
   async function cleanupFiles(retry = false, quiet = false) {
+    if (retry) {
+      window.location.assign('/portal/s/settings/?recovery=1');
+      return;
+    }
     try {
       const response = await deps.apiFetch('/invoice-pool/cleanup/', {method: 'POST', body: JSON.stringify({retry})});
       if (!response.ok || !response.data?.ok) throw new Error('Cleanup unavailable');
@@ -1230,7 +1302,7 @@
         primary = batch.latest_letter?.is_current && batch.latest_letter?.drive_url
           ? '<button type="button" class="btn btn-primary name-change-record-sent" data-batch="' + escapeHtml(batch.id) + '">Record sent</button>'
           : '<button type="button" class="btn btn-primary name-change-generate" data-batch="' + escapeHtml(batch.id) + '">Generate letter</button>';
-        secondary = batch.latest_letter?.download_url ? '<button type="button" class="name-change-download" data-url="' + escapeHtml(batch.latest_letter.download_url) + '" data-version="' + escapeHtml(batch.latest_letter.version || 1) + '">Download current letter</button>' : '';
+        secondary = batch.latest_letter?.download_url ? '<button type="button" class="name-change-download" data-artifact="' + escapeHtml(batch.latest_letter.id) + '">Download current letter</button>' : '';
       } else if (item.status === 'awaiting_replacement') {
         primary = '<button type="button" class="btn btn-primary name-change-replacement" data-item="' + escapeHtml(item.id) + '">Select replacement</button>';
         secondary = '<button type="button" class="name-change-close" data-item="' + escapeHtml(item.id) + '" data-action="withdraw">Withdraw request</button>';
@@ -1267,8 +1339,7 @@
     });
     target.querySelectorAll('.name-change-record-sent').forEach(function (button) { button.addEventListener('click', function () { const batch = batchById.get(button.dataset.batch); if (batch) markInvoiceNameChangeSent({ batch_id: batch.id, latest_letter: batch.latest_letter }).then(function () { loadNameChanges(state.nameChangePage); }); }); });
     target.querySelectorAll('.name-change-download').forEach(function (button) { button.addEventListener('click', function () {
-      if (deps.downloadPortalFile) deps.downloadPortalFile({url: button.dataset.url, filename: `Invoice-name-change-v${button.dataset.version || 1}.docx`});
-      else if (deps.openPortalLink) deps.openPortalLink(button.dataset.url);
+      downloadInvoiceLetter(button.dataset.artifact, button);
     }); });
     target.querySelectorAll('.name-change-close').forEach(function (button) { button.addEventListener('click', function () { closeNameChangeRequest(button.dataset.item, button.dataset.action); }); });
     target.querySelectorAll('.name-change-follow-up').forEach(function (button) { button.addEventListener('click', function () { startNameChangeFollowUp(button.dataset.item); }); });
@@ -1351,7 +1422,7 @@
     const overlay = document.createElement('div');
     overlay.className = 'sheet-overlay open invoice-workflow-overlay';
     overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'replacement-sheet-title');
-    overlay.innerHTML = '<div class="sheet-panel invoice-workflow-form"><div class="sheet-handle"></div><div class="sheet-header"><div><h2 id="replacement-sheet-title">Select corrected invoice</h2><p class="sheet-sub">The applicant national ID and full name must both match.</p></div><button type="button" class="sheet-close-button" aria-label="Close">x</button></div><div class="sheet-body"><label class="invoice-search-control"><span class="sr-only">Search replacement invoices</span><input type="search" placeholder="Name, ID, phone, or invoice"></label><div class="replacement-candidate-list farmer-list"></div></div></div>';
+    overlay.innerHTML = '<div class="sheet-panel invoice-workflow-form"><div class="sheet-handle"></div><div class="sheet-header"><div><h2 id="replacement-sheet-title">Select corrected invoice</h2><p class="sheet-sub">The national ID must match. Name differences are shown for review.</p></div><button type="button" class="sheet-close-button miniapp-icon-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button></div><div class="sheet-body"><label class="invoice-search-control"><span class="sr-only">Search replacement invoices</span><input type="search" placeholder="Name, ID, phone, or invoice"></label><div class="replacement-candidate-list farmer-list"></div></div></div>';
     document.body.appendChild(overlay);
     const list = overlay.querySelector('.replacement-candidate-list');
     const input = overlay.querySelector('input');
@@ -1365,7 +1436,7 @@
       if (!rows.length) { list.innerHTML = '<div class="empty-state"><div class="es-title">No replacement invoices found</div><div class="es-sub">Upload the corrected PDF, then search again.</div></div>'; return; }
       list.innerHTML = rows.map(function (row) {
         const inv = row.invoice;
-        const identityMatches = row.id_match && row.name_match;
+        const identityMatches = row.id_match;
         const badge = identityMatches
           ? '<span class="badge badge-green">Identity matches</span>'
           : '<span class="badge badge-grey">Cannot select</span>';
@@ -1373,11 +1444,13 @@
         return '<article class="farmer-card replacement-candidate"><div><div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(inv.invoice_no || '-') + '</div>' + badge + '</div><div class="fc-sub">' + escapeHtml(inv.customer_name || '-') + ' · ID ' + escapeHtml(inv.customer_id || '-') + phone + ' · ' + escapeHtml(inv.status) + '</div>' + (row.status_note ? '<div class="invoice-card-warning">' + escapeHtml(row.status_note) + '</div>' : '') + '</div><button type="button" class="btn btn-primary choose-replacement" data-invoice="' + escapeHtml(inv.id) + '"' + (row.selectable ? '' : ' disabled') + '>Select</button></article>';
       }).join('');
       list.querySelectorAll('.choose-replacement:not([disabled])').forEach(function (button) { button.addEventListener('click', async function () {
-        const values = await openInvoiceWorkflowSheet('Confirm corrected invoice', '<p>The national ID and full name match the applicant.</p><div class="form-row"><label>Phone verification note (required if phone differs)</label><textarea name="verification_note" rows="3" maxlength="500" placeholder="Explain any phone-number difference."></textarea></div>', 'Confirm replacement');
+        const row = rows.find(row => row.invoice.id === button.dataset.invoice);
+        const values = await confirmReplacementSelection(itemId, row, response.data.revision);
         if (!values) return;
-        const result = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/replacement/', { method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() }, body: JSON.stringify({ replacement_invoice_id: button.dataset.invoice, verification_note: values.verification_note || '' }) });
-        if (!result.ok || !result.data?.ok) return deps.showToast(result.data?.message || result.data?.error || 'Could not confirm the replacement.', 'error');
-        close(); deps.showToast('Corrected invoice confirmed.', 'success'); loadNameChanges(state.nameChangePage);
+        close();
+        const route = readRoute();
+        if (route.view === 'detail') loadDetail(route.invoiceId);
+        else loadNameChanges(state.nameChangePage);
       }); });
     }
     overlay.querySelector('.sheet-close-button').addEventListener('click', close); overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
@@ -1615,14 +1688,26 @@
             + (reviewRows.length ? '<h4>Manual review</h4>' + list(reviewRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.reason || 'Review required'); }) : '')
             + (failures.length ? '<h4>Failed files</h4>' + list(failures, function (item) { return (item.filename || 'PDF') + ': ' + (item.error || 'Upload failed'); }) : '')
             + (duplicateRows.length ? '<h4>Already uploaded</h4>' + list(duplicateRows, function (item) { return (item.filename || 'PDF') + ' matches ' + (item.existing_filename || 'an earlier upload') + '; no new Drive file or invoice was created.'; }) : '')
+            + correctionActionsHtml(data.correction_suggestions || [])
             + (receipt.id ? '<div class="invoice-receipt-next"><strong>Invoice delivery recorded</strong><span>' + escapeHtml(receipt.total_count || 0) + ' invoice row(s) stay together for payment.</span>'
-              + (receiptPayable.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div><button type="button" class="btn btn-primary invoice-receipt-create-payment">Create payment batch</button>' : '')
+              + (receiptPayable.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div>' : '')
+              + '<button type="button" class="btn btn-primary invoice-receipt-create-payment"' + (!receiptPayable.length ? ' disabled' : '') + '>Create payment batch</button>'
               + (receiptPayable.some(function (item) { return item.status === 'name_change'; }) ? '<span class="invoice-receipt-hint">An ID correction is still pending for this draft.</span>' : '')
               + (receiptHeld.length ? '<span class="badge badge-orange">' + escapeHtml(receiptHeld.length) + ' held for correction or review</span>' : '')
               + (!receiptPayable.length ? '<span class="invoice-receipt-hint">Resolve a held invoice before it can be added to payment.</span>' : '')
               + '</div>' : '')
             + '</div>';
           resultBox.querySelector('.invoice-receipt-create-payment')?.addEventListener('click', function () { createPaymentFromReceipt(receipt, this, resultBox); });
+          bindCorrectionActions(resultBox, data.correction_suggestions || [], async function (button) {
+            button.disabled = true;
+            button.textContent = 'Correction completed';
+            const payment = resultBox.querySelector('.invoice-receipt-create-payment');
+            if (payment) payment.disabled = false;
+            if (!resultBox.querySelector('[data-confirm-correction]:not(:disabled)')) {
+              resultBox.querySelectorAll('.invoice-receipt-hint').forEach(node => node.remove());
+            }
+            await load(1);
+          });
           resultBox.querySelectorAll('.invoice-receipt-cash-toggle').forEach(function (toggle) {
             toggle.addEventListener('click', function () { toggleReceiptCash(toggle); });
           });

@@ -1045,7 +1045,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(mock_reserve_publication.call_args.args[0].pk, farmer.pk)
         self.assertEqual(
             mock_reserve_publication.call_args.kwargs['request_id'],
-            f'invoice-unmatch:{invoice.id}:{farmer.id}',
+            f'invoice-unmatch:{invoice.id}:{farmer.id}:{invoice.revision - 1}',
         )
 
     def test_manual_invoice_ignore_endpoint_marks_invoice_ignored(self):

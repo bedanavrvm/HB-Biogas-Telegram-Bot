@@ -23,11 +23,13 @@
         <h1>Loan Origination</h1>
         <p>Capture, review and prepare paperless applications</p>
       </div>
+      <button id="origination-settings-open" type="button" class="icon-button" aria-label="Settings" title="Settings"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
     </header>
     <div id="origination-root" aria-live="polite" aria-busy="true">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading applications...</div></div>
     </div>
   </main>
+  <dialog id="origination-settings" class="recovery-dialog" aria-labelledby="origination-settings-title"><header><h2 id="origination-settings-title">Settings</h2><button id="origination-settings-close" type="button" aria-label="Close settings">×</button></header><section id="origination-recovery" aria-label="Recovery updates"></section></dialog>
   <div id="document-preview-overlay" class="preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <header class="preview-header"><div><strong id="preview-title">Filled loan document</strong><small id="preview-page">Loading preview...</small></div><button id="preview-close" class="icon-button" type="button" aria-label="Close preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
     <div class="preview-controls">
@@ -62,6 +64,8 @@
   <script src="{% static 'miniapp/origination_field_rules.js' %}?v=1"></script>
   <script src="{% static 'miniapp/origination_signing_completion.js' %}?v=1"></script>
   <script src="{% static 'miniapp/signature_appearance.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=20261014-2"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/miniapp_recovery.css' %}?v=1">
+  <script src="{% static 'miniapp/miniapp_recovery.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=20261015-1"></script>
 </body>
 </html>

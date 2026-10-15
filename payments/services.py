@@ -47,6 +47,41 @@ EDITABLE_STATUSES = {
 }
 
 
+def lock_invoice_payment_batches(farmer_id, invoice_ids):
+    """Lock affected finance workspaces before changing their invoice evidence."""
+    from django.db.models import Q
+    from core.models import DocumentPhysicalSignoff
+    receipts = PaymentReceiptItem.objects.filter(
+        Q(invoice_id__in=invoice_ids) | Q(replacement_invoice_id__in=invoice_ids),
+    ).values('receipt_batch_id')
+    members = PaymentBatchCase.objects.filter(farmer_id=farmer_id, is_active=True).values('batch_id')
+    batches = list(PaymentBatch.objects.select_for_update().filter(
+        Q(pk__in=members) | Q(receipt_batch_id__in=receipts),
+    ).exclude(status=PaymentBatch.STATUS_CANCELLED).order_by('pk'))
+    for batch in batches:
+        if batch.status == PaymentBatch.STATUS_COMPLETED or (batch.current_document_id and
+                DocumentPhysicalSignoff.objects.filter(payment_document_id=batch.current_document_id,
+                    status='signed_approved').exists()):
+            raise PaymentBatchError('This invoice supports a signed payment. Its match cannot be changed.',
+                code='invoice_payment_signed', status=409)
+    return batches
+
+
+def invalidate_invoice_payment_batches(batches, *, invoice_id, actor_label):
+    for batch in batches:
+        # Receipt replacement may already have invalidated this exact workspace.
+        if PaymentBatch.objects.get(pk=batch.pk).revision != batch.revision:
+            continue
+        _supersede_document(batch)
+        invalidated = _invalidate_current_reviews(batch)
+        batch.status = _status_after_edit(batch)
+        batch.revision += 1
+        _refresh_batch_digest(batch)
+        batch.save()
+        _record(batch, 'invoice_evidence_changed', metadata={'invoice_id': str(invoice_id),
+            'actor_label': actor_label, 'invalidated_reviews': invalidated})
+
+
 def _digest(payload) -> str:
     encoded = json.dumps(payload, cls=DjangoJSONEncoder, sort_keys=True, separators=(',', ':')).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -883,7 +918,7 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
             event_farmer_id = str((event.metadata or {}).get('farmer_id') or '')
             activity.append({
                 'action': event.action,
-                'actor': (actor.get_full_name() or actor.get_username()) if actor else 'System',
+                'actor': (actor.get_full_name() or actor.get_username()) if actor else (event.metadata or {}).get('actor_label') or 'System',
                 'created_at': event.created_at.isoformat(),
                 'revision': event.revision,
                 # The API authorizes current members. Do not reveal a removed

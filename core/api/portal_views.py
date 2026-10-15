@@ -3641,7 +3641,7 @@ def portal_health(request):
     from core.services.portal_health import portal_sync_health
     from core.services.portal_maintenance import current_maintenance_state
 
-    health = portal_sync_health()
+    health = portal_sync_health(actor=getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None))
     checks = {
         'database': 'ok',
         'requisition_template': 'ok' if health['requisition_template_ready'] else 'missing',
@@ -4174,7 +4174,19 @@ def portal_complete_jbl_visit(request, farmer_id: str):
 # ── Durable external publication ────────────────────────────────────────────
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(['GET'])
+def portal_recovery_status(request):
+    if error := _portal_capability_error(request, 'portal.dashboard.view'):
+        return error
+    from core.services.portal_recovery import status_payload
+    from core.services.miniapp_recovery import status_response
+    return status_response(status_payload(
+        getattr(request, 'portal_user', None), getattr(request, 'portal_access', None), page=request.GET.get('page', 1),
+    ))
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_publication_attempt(request):
     """Read a scoped status or queue a reviewed retry without contacting Google."""
     from core.models import IntegrationOperation, JawabuFarmerMaster
@@ -7148,6 +7160,7 @@ def portal_invoice_pool_upload(request):
     first_batch = batches[0]
 
     from payments.receipt_batches import create_receipt_batch, serialize_receipt_batch
+    from core.models import ParsedInvoice
     receipt, receipt_replayed = create_receipt_batch(
         group_configuration=receipt_group, uploads=batches,
         actor=getattr(request, 'portal_user', None), request_id=request_id,
@@ -7159,6 +7172,8 @@ def portal_invoice_pool_upload(request):
         'invoice_batch_ids': [str(batch.id) for batch in batches],
         'receipt_batch': serialize_receipt_batch(receipt, include_items=True),
         'receipt_replayed': receipt_replayed,
+        'correction_suggestions': _invoice_correction_suggestions(request,
+            ParsedInvoice.objects.select_related('batch').filter(batch__in=batches)),
         'drive_url': first_batch.drive_url,
         'status': 'partial' if failures or duplicate_files else 'parsed',
         'order_number': order_number,
@@ -7510,6 +7525,20 @@ def _serialize_invoice_event(event) -> dict:
     }
 
 
+def _invoice_correction_suggestions(request, invoices):
+    from core.services.invoice_identity import pending_corrections_for_invoice, replacement_assessment
+    rows = []
+    for invoice in invoices:
+        for item in pending_corrections_for_invoice(invoice):
+            if _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer):
+                continue
+            rows.append({'item_id': str(item.pk), 'revision': item.revision,
+                'invoice_id': str(invoice.pk), 'invoice_revision': invoice.revision,
+                'applicant_name': item.farmer.imab_customer_name or item.farmer.customer_name,
+                'invoice_no': invoice.invoice_no, **replacement_assessment(item, invoice)})
+    return rows
+
+
 def _invoice_duplicate_query(invoice):
     from django.db.models import Q
 
@@ -7525,11 +7554,12 @@ def _invoice_duplicate_query(invoice):
 
 
 def _invoice_duplicate_reasons(invoice, candidate, phone_digits: str) -> list[str]:
+    from core.services.identifiers import normalize_national_id
     reasons = []
+    if normalize_national_id(invoice.customer_id) and normalize_national_id(candidate.customer_id) == normalize_national_id(invoice.customer_id):
+        reasons.append('Same ID')
     if invoice.invoice_no and str(candidate.invoice_no or '').strip().lower() == invoice.invoice_no.strip().lower():
         reasons.append('Same invoice no')
-    if invoice.customer_id and str(candidate.customer_id or '').strip().lower() == invoice.customer_id.strip().lower():
-        reasons.append('Same ID')
     candidate_phone = re.sub(r'\D', '', candidate.customer_phone or '')[-9:]
     if phone_digits and candidate_phone and candidate_phone == phone_digits[-9:]:
         reasons.append('Same phone')
@@ -7553,29 +7583,29 @@ def _scoped_invoice_duplicates(queryset, request):
 
 def _invoice_duplicate_count(invoice, request=None) -> int:
     from core.models import ParsedInvoice
-
-    query, _phone_digits = _invoice_duplicate_query(invoice)
-    if not query.children:
-        return 0
-    return _scoped_invoice_duplicates(
-        ParsedInvoice.objects.filter(query, batch__group_configuration_id=invoice.batch.group_configuration_id)
-        .exclude(pk=invoice.pk).exclude(status__in=['ignored', 'deleted']), request,
-    ).count()
+    from core.services.invoice_duplicates import exact_peers
+    peers = _scoped_invoice_duplicates(ParsedInvoice.objects.filter(
+        batch__group_configuration_id=invoice.batch.group_configuration_id,
+    ).exclude(status='ignored'), request)
+    return len(exact_peers(invoice, peers))
 
 
 def _invoice_duplicate_candidates(invoice, request=None) -> list[dict]:
     from core.models import ParsedInvoice
+    from core.services.invoice_duplicates import exact_peers, fingerprint
 
     query, phone_digits = _invoice_duplicate_query(invoice)
     if not query.children:
         return []
 
-    candidates = _scoped_invoice_duplicates(
+    scope = _scoped_invoice_duplicates(
         ParsedInvoice.objects.select_related('batch', 'matched_farmer').filter(
-            query, batch__group_configuration_id=invoice.batch.group_configuration_id,
+            batch__group_configuration_id=invoice.batch.group_configuration_id,
         )
-        .exclude(pk=invoice.pk).exclude(status__in=['ignored', 'deleted']), request,
-    ).order_by('-created_at')[:8]
+        .exclude(pk=invoice.pk).exclude(status__in=['ignored', 'deleted', 'superseded']), request,
+    )
+    exact = exact_peers(invoice, scope.order_by('-created_at'))
+    candidates = [*exact[:8], *scope.filter(query).exclude(pk__in=[peer.pk for peer in exact]).order_by('-created_at')[:8]][:8]
     rows = []
     for candidate in candidates:
         if request is not None and _portal_read_access_error(
@@ -7585,6 +7615,8 @@ def _invoice_duplicate_candidates(invoice, request=None) -> list[dict]:
         reasons = _invoice_duplicate_reasons(invoice, candidate, phone_digits)
         serialized = _serialize_parsed_invoice(candidate)
         serialized['duplicate_reasons'] = reasons
+        key = fingerprint(invoice)
+        serialized['exact_duplicate'] = key is not None and key == fingerprint(candidate)
         rows.append(serialized)
     return rows
 
@@ -7594,9 +7626,8 @@ def _invoice_duplicate_ids(queryset, request=None) -> set:
     from django.db.models import Q
     from core.models import ParsedInvoice
 
-    rows = list(queryset.values(
-        'id', 'batch__group_configuration_id', 'invoice_no', 'customer_id', 'customer_phone',
-    ))
+    from core.services.invoice_duplicates import COMPARISON_FIELDS, duplicate_ids
+    rows = list(queryset.exclude(status__in=['deleted', 'superseded']).values(*COMPARISON_FIELDS))
     if not rows:
         return set()
     groups = {row['batch__group_configuration_id'] for row in rows}
@@ -7605,35 +7636,11 @@ def _invoice_duplicate_ids(queryset, request=None) -> set:
         group_scope |= Q(batch__group_configuration_id=group_id) if group_id else Q(batch__group_configuration__isnull=True)
     peers = _scoped_invoice_duplicates(
         ParsedInvoice.objects.filter(group_scope)
-        .exclude(status='deleted')
-        .values('id', 'batch__group_configuration_id', 'invoice_no', 'customer_id', 'customer_phone'),
+        .exclude(status__in=['deleted', 'superseded'])
+        .values(*COMPARISON_FIELDS),
         request,
     )
-    keys_by_group = {}
-    for peer in peers.iterator(chunk_size=1000):
-        group = peer['batch__group_configuration_id']
-        keys = keys_by_group.setdefault(group, {'invoice': {}, 'customer': {}, 'phone': {}})
-        invoice_no = str(peer['invoice_no'] or '').strip().casefold()
-        customer_id = str(peer['customer_id'] or '').strip().casefold()
-        phone_digits = re.sub(r'\D', '', peer['customer_phone'] or '')[-9:]
-        if invoice_no:
-            keys['invoice'].setdefault(invoice_no, set()).add(peer['id'])
-        if customer_id:
-            keys['customer'].setdefault(customer_id, set()).add(peer['id'])
-        if phone_digits:
-            keys['phone'].setdefault(phone_digits, set()).add(peer['id'])
-
-    duplicates = set()
-    for row in rows:
-        keys = keys_by_group.get(row['batch__group_configuration_id'], {})
-        invoice_no = str(row['invoice_no'] or '').strip().casefold()
-        customer_id = str(row['customer_id'] or '').strip().casefold()
-        phone_digits = re.sub(r'\D', '', row['customer_phone'] or '')[-9:]
-        if ((invoice_no and keys.get('invoice', {}).get(invoice_no, set()) - {row['id']})
-                or (customer_id and keys.get('customer', {}).get(customer_id, set()) - {row['id']})
-                or (phone_digits and keys.get('phone', {}).get(phone_digits, set()) - {row['id']})):
-            duplicates.add(row['id'])
-    return duplicates
+    return duplicate_ids(rows, peers.iterator(chunk_size=1000))
 
 
 @require_http_methods(["GET"])
@@ -8035,6 +8042,7 @@ def portal_invoice_detail(request, invoice_id: str):
     return JsonResponse({
         'ok': True,
         'invoice': invoice_data,
+        'correction_suggestions': _invoice_correction_suggestions(request, [invoice]),
         'batch': _serialize_invoice_batch(invoice.batch),
         'source_pdf_url': invoice.batch.drive_url,
         'events': [_serialize_invoice_event(event) for event in events],
@@ -8581,72 +8589,36 @@ def portal_invoice_name_change_follow_up(request, item_id: str):
 
 @require_http_methods(["GET"])
 def portal_invoice_name_change_replacement_candidates(request, item_id: str):
-    from django.db.models import Q
+    from django.db.models import Q, Case, When, Value, IntegerField
+    from django.db.models.functions import Replace
     from core.models import InvoiceNameChangeItem, ParsedInvoice
     from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
-    from core.services.invoice_identity import applicant_identity, normalize_person_name
+    from core.services.invoice_identity import replacement_assessment
     from core.services.invoice_parser import official_requisition_eligibility
 
-    item = InvoiceNameChangeItem.objects.select_related('farmer', 'original_invoice').filter(pk=item_id).first()
+    item = InvoiceNameChangeItem.objects.select_related('farmer', 'original_invoice__batch').filter(pk=item_id).first()
     if not item:
         return JsonResponse({'ok': False, 'error': 'Invoice-name-change request not found.'}, status=404)
     scope_error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
     if scope_error:
         return scope_error
     search = str(request.GET.get('search') or '').strip()
-    invoices = ParsedInvoice.objects.select_related('matched_farmer', 'batch').exclude(pk=item.original_invoice_id)
+    invoices = _scoped_invoice_duplicates(ParsedInvoice.objects.select_related('matched_farmer', 'batch').filter(
+        batch__group_configuration_id=item.original_invoice.batch.group_configuration_id,
+    ).exclude(pk=item.original_invoice_id).exclude(status__in=['deleted', 'superseded']), request)
     if search:
         invoices = invoices.filter(
             Q(invoice_no__icontains=search) | Q(customer_name__icontains=search)
             | Q(customer_id__icontains=search) | Q(customer_phone__icontains=search)
         )
     expected_id = normalize_national_id(item.farmer.national_id)
-    expected_name = normalize_person_name(applicant_identity(item.farmer)['name'])
-    expected_phone = normalize_kenyan_phone(item.farmer.primary_phone)
     applicant_eligibility = official_requisition_eligibility(item.farmer)
     rows = []
-    for invoice in invoices.order_by('-created_at')[:100]:
-        id_match = bool(expected_id and normalize_national_id(invoice.customer_id) == expected_id)
-        name_match = bool(expected_name and normalize_person_name(invoice.customer_name) == expected_name)
-        invoice_phone = normalize_kenyan_phone(invoice.customer_phone)
-        phone_match = bool(expected_phone and invoice_phone and invoice_phone == expected_phone)
-        conflict = bool(invoice.matched_farmer_id and invoice.matched_farmer_id != item.farmer_id)
-        upload_order = str(invoice.batch.order_number or '').strip()
-        order_mismatch = bool(
-            upload_order and upload_order != applicant_eligibility.get('order_number', '')
-        )
-        blockers = []
-        if not applicant_eligibility['eligible']:
-            blockers.append(applicant_eligibility['message'])
-        if conflict:
-            blockers.append('This invoice is already matched to another applicant.')
-        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
-            blockers.append('This invoice is not available for matching.')
-        if not id_match:
-            blockers.append('The national ID does not match the applicant.')
-        if not name_match:
-            blockers.append('The name does not match the applicant.')
-        if order_mismatch:
-            blockers.append('This invoice was uploaded for a different order.')
-        warnings = []
-        if id_match and name_match and expected_phone and invoice_phone and not phone_match:
-            warnings.append('The phone number differs. Add a verification note when confirming.')
-        rows.append({
-            'invoice': _serialize_parsed_invoice(invoice),
-            'id_match': id_match,
-            'name_match': name_match,
-            'phone_match': phone_match,
-            'conflict': conflict,
-            'blockers': blockers,
-            'warnings': warnings,
-            'selectable': not blockers,
-            'status_note': blockers[0] if blockers else (
-                warnings[0] if warnings
-                else 'Ignored - will be restored on confirmation' if invoice.status == 'ignored'
-                else 'Already matched to this applicant' if invoice.matched_farmer_id == item.farmer_id
-                else 'Applicant ID and name match.'
-            ),
-        })
+    invoices = invoices.annotate(_compact_id=Replace(Replace('customer_id', Value(' '), Value('')), Value('-'), Value('')))
+    invoices = invoices.annotate(_id_priority=Case(When(_compact_id=expected_id, then=Value(0)), default=Value(1), output_field=IntegerField()))
+    for invoice in invoices.order_by('_id_priority', '-created_at')[:100]:
+        rows.append({'invoice': _serialize_parsed_invoice(invoice),
+                     **replacement_assessment(item, invoice, eligibility=applicant_eligibility)})
     # Python's sort is stable, so equally ranked results retain the queryset's
     # newest-first order instead of quietly preferring an older upload.
     rows.sort(key=lambda row: (
@@ -8656,6 +8628,7 @@ def portal_invoice_name_change_replacement_candidates(request, item_id: str):
     return JsonResponse({
         'ok': True,
         'candidates': rows[:30],
+        'revision': item.revision,
         'applicant_eligibility': applicant_eligibility,
     })
 
@@ -8698,6 +8671,25 @@ def portal_invoice_name_change_generate(request, batch_id: str):
     return JsonResponse({'ok': True, 'created': created, 'batch': payload}, status=201 if created else 200)
 
 
+@require_http_methods(["GET"])
+def portal_invoice_name_change_download_link(request, artifact_id: str):
+    from datetime import timedelta
+    from core.models import InvoiceNameChangeLetterArtifact
+    artifact = InvoiceNameChangeLetterArtifact.objects.prefetch_related('batch__items__farmer').filter(pk=artifact_id).first()
+    if not artifact or not artifact.file_content:
+        return JsonResponse({'ok': False, 'error': 'Generated letter not found.'}, status=404)
+    items = list(artifact.batch.items.all())
+    if not items:
+        return JsonResponse({'ok': False, 'error': 'This letter is no longer available.'}, status=403)
+    for item in items:
+        error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+        if error:
+            return error
+    return JsonResponse({'ok': True, 'artifact_id': str(artifact.pk), 'filename': artifact.filename,
+        'download_url': _invoice_name_change_download_url(request, artifact.pk),
+        'expires_at': (timezone.now() + timedelta(minutes=15)).isoformat()}, headers={'Cache-Control': 'private, no-store'})
+
+
 @csrf_exempt
 @require_http_methods(["GET", "HEAD"])
 def portal_invoice_name_change_download(request, token: str):
@@ -8738,7 +8730,9 @@ def portal_invoice_name_change_download(request, token: str):
         b'' if request.method == 'HEAD' else bytes(artifact.file_content),
         content_type=artifact.content_type,
     )
-    response['Content-Disposition'] = f'attachment; filename="{artifact.filename}"'
+    from django.utils.http import content_disposition_header
+    response['Content-Disposition'] = content_disposition_header(True, artifact.filename)
+    response['Cache-Control'] = 'private, no-store'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 
@@ -8926,10 +8920,14 @@ def portal_invoice_name_change_replacement(request, item_id: str):
     role_error = _portal_role_error(request, 'invoice_identity.manage', item.farmer)
     if role_error:
         return role_error
+    replacement_scope = _scoped_invoice_duplicates(ParsedInvoice.objects.filter(pk=replacement.pk), request)
+    if not replacement_scope.exists():
+        return JsonResponse({'ok': False, 'error': 'This invoice is outside your access.'}, status=403)
     try:
         item = confirm_replacement(
             item, replacement, actor=_portal_sender_from_request(request),
             verification_note=str(body.get('verification_note') or ''),
+            expected_revision=body.get('revision'), expected_invoice_revision=body.get('invoice_revision'),
         )
     except ValueError as exc:
         return _invoice_domain_error_response(request, exc)
@@ -8953,9 +8951,15 @@ def portal_invoice_unmatch(request, invoice_id: str):
     if role_error:
         return role_error
 
+    if invoice.name_change_requests.filter(status__in=['draft', 'awaiting_replacement']).exists():
+        role_error = _portal_role_error(request, 'invoice_identity.manage', invoice.matched_farmer)
+        if role_error:
+            return role_error
     affected_farmer = invoice.matched_farmer
     try:
-        invoice = unmatch_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
+        invoice = unmatch_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip(), expected_revision=body.get('revision'))
+    except ValueError as exc:
+        return _invoice_domain_error_response(request, exc)
     except Exception as exc:
         logger.exception("Manual invoice unmatch failed")
         return JsonResponse({'ok': False, 'error': 'Invoice unmatch failed. Retry or contact an administrator.'}, status=500)
@@ -9458,15 +9462,42 @@ def portal_invoice_cleanup(request):
     operations = scope_workflow_queryset(operations, getattr(request, 'portal_user', None),
         'jawabu_portal', 'portal.invoice.write', access=getattr(request, 'portal_access', None),
         branch_field='metadata__branch', product_field='metadata__product', group_field='metadata__group_id')
-    if _json_body(request).get('retry'):
-        operations.filter(status=IntegrationOperation.STATUS_DEAD_LETTER).update(status=IntegrationOperation.STATUS_RETRYABLE, attempts=0, next_retry_at=None)
+    body = _portal_request_data(request)
+    if body.get('operation_id'):
+        try:
+            operations = operations.filter(pk=body['operation_id'])
+            if not operations.exists():
+                return JsonResponse({'ok': False, 'error': 'This cleanup is completed or outside your Portal access.'}, status=404)
+        except (ValueError, ValidationError):
+            return JsonResponse({'ok': False, 'error': 'This cleanup is not available.'}, status=404)
+    if body.get('retry'):
+        # One explicit recovery selection; the legacy aggregate button now
+        # opens App status instead of resetting unrelated work in bulk.
+        if not body.get('operation_id'):
+            return JsonResponse({'ok': False, 'error': 'Choose the file update in Settings → App status.'}, status=400)
+        with transaction.atomic():
+            operation = operations.select_for_update().first()
+            if operation and operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
+                from core.services.compliance_audit import record_event
+                record_event(workflow='portal', action='portal.invoice_cleanup.retry', category='configuration', origin='human',
+                    subject_type='integration_operation', subject_id=str(operation.pk), actor=getattr(request, 'portal_user', None),
+                    request_id=_portal_request_id(request), deduplication_key=f'invoice-cleanup-retry:{_portal_request_id(request)}',
+                    before_values={'status': operation.status}, after_values={'status': 'retryable_failure'})
+                operation.status = IntegrationOperation.STATUS_RETRYABLE
+                operation.attempts = 0
+                operation.next_retry_at = None
+                operation.save(update_fields=['status', 'attempts', 'next_retry_at', 'updated_at'])
     operation = operations.filter(Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=timezone.now())).order_by('created_at').first()
     if operation:
         try:
             attempt_pdf_delete(operation)
         except (ExternalOperationError, ExternalCircuitOpen):
             pass
-    return JsonResponse({'ok': True, 'pending_count': operations.exclude(status=IntegrationOperation.STATUS_SUCCEEDED).count()})
+    if operation:
+        operation.refresh_from_db()
+    return JsonResponse({'ok': True, 'status': operation.status if operation else 'pending',
+        'needs_attention': bool(operation and operation.status == IntegrationOperation.STATUS_DEAD_LETTER),
+        'pending_count': operations.exclude(status=IntegrationOperation.STATUS_SUCCEEDED).count()})
 
 
 @csrf_exempt

@@ -7,6 +7,7 @@ import uuid
 from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils import timezone
+from core.services.miniapp_recovery import configuration_failure
 
 from core.models import (
     IntegrationOperation,
@@ -362,8 +363,9 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
             retry_operation_ids = list(matching_operations.values_list('pk', flat=True))
             can_retry = (
                 item['integration'] == IntegrationOperation.INTEGRATION_GOOGLE_SHEETS
+                and item['operation_type'] in portal_types
                 and 'portal.publication.retry' in capabilities
-                and item['last_error_code'] != 'identity_conflict'
+                and not configuration_failure(item['last_error_code'])
             )
             operation = str(item['operation_type'] or 'operation').replace('_', ' ').title()
             integration = integration_labels.get(item['integration'], str(item['integration']).replace('_', ' ').title())
@@ -533,6 +535,14 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
             if source_case
             else reverse('portal_screen', kwargs={'screen': 'settings'}),
         })
+        if source_case:
+            from core.services.portal_recovery import publication_issue
+            recovery = publication_issue(operation, source_case, actor=user, access=access)
+            if recovery['action'] and recovery['status'] != 'Configuration required':
+                notification_items[-1]['action'] = {'type': 'publication_retry', 'label': 'Retry sync', 'operation_ids': [str(operation.pk)]}
+                notification_items[-1]['url'] = ''
+            elif recovery['status'] == 'Configuration required' and operation.last_error_code != 'identity_conflict':
+                notification_items[-1]['url'] = reverse('portal_screen', kwargs={'screen': 'settings'}) + '?recovery=1'
 
     # Home and the bell use the same scoped task definitions. A view-only
     # capability is not an instruction to act. Each workflow task has one key,

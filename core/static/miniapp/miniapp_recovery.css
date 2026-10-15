@@ -1,0 +1,21 @@
+.miniapp-recovery{border:1px solid var(--border,#d9dfe7);border-radius:12px;background:var(--tg-theme-secondary-bg-color,#fff);padding:12px;margin:12px 0;color:var(--tg-theme-text-color,#172338)}
+.miniapp-recovery header,.recovery-dialog header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;text-align:left}
+.workflow-standard .miniapp-recovery>header,.workflow-standard .recovery-dialog header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:0;text-align:left;border:0;background:none}
+.workflow-standard .miniapp-recovery>header h2,.workflow-standard .recovery-dialog h2{margin:0;padding:0;text-align:left;border:0;background:none}
+.miniapp-recovery h2,.recovery-dialog h2{font-size:16px;margin:0;font-weight:650;text-align:left}
+.miniapp-recovery button,.recovery-dialog button{min-height:44px;padding:6px 10px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:var(--tg-theme-secondary-bg-color,#fff);color:var(--tg-theme-button-color,#235ba6);font:inherit;font-size:13px;cursor:pointer;line-height:1.2}
+.miniapp-recovery button:disabled{opacity:.5;cursor:default}.miniapp-recovery button:focus-visible,.recovery-dialog button:focus-visible{outline:2px solid var(--tg-theme-button-color,#235ba6);outline-offset:2px}
+.miniapp-recovery header button,.recovery-actions button[data-guide]{width:44px;flex:0 0 44px;font-size:20px;padding:0}
+.miniapp-recovery header button{margin:0 0 0 auto;max-width:44px}
+.workflow-standard .miniapp-recovery header button{margin:0 0 0 auto;width:44px;max-width:44px;flex:0 0 44px}
+.recovery-list{max-height:420px;overflow-y:auto;overscroll-behavior:contain;margin-top:4px}
+.recovery-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--border,#d9dfe7)}
+.recovery-copy{min-width:0;flex:1;display:grid;gap:3px;font-size:13px;line-height:1.35;overflow-wrap:anywhere}.recovery-copy strong{font-size:14px}.recovery-copy span{color:var(--tg-theme-hint-color,#526277)}.recovery-state{font-size:12px;font-weight:600}
+.recovery-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}.miniapp-recovery nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12px}.recovery-empty{font-size:14px;margin:8px 0 0}
+.miniapp-recovery nav button{flex:0 0 44px;width:44px;max-width:44px}
+.recovery-dialog{box-sizing:border-box;max-width:440px;width:calc(100% - 24px);max-height:85dvh;overflow:auto;border:1px solid var(--border,#cbd5e1);border-radius:14px;background:var(--tg-theme-bg-color,#fff);color:var(--tg-theme-text-color,#172338);padding:16px;font:inherit}
+.recovery-dialog::backdrop{background:#0007}.recovery-dialog p,.recovery-dialog li{font-size:14px;line-height:1.5}.recovery-dialog li+li{margin-top:6px}.recovery-dialog header button{margin-left:auto;width:44px;font-size:22px}.recovery-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.recovery-reference{overflow-wrap:anywhere;font-size:12px!important}
+.origination-header #origination-settings-open{margin-left:auto;flex:0 0 44px;width:44px;height:44px;min-width:44px;min-height:44px}.origination-header #origination-settings-open svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.75}
+.origination-app .origination-header{grid-template-columns:38px minmax(0,1fr) 44px}
+.workflow-standard .recovery-dialog header button{width:44px!important;min-width:44px;max-width:44px;flex:0 0 44px;margin-left:auto;padding:0}
+.miniapp-recovery,.recovery-dialog,.miniapp-recovery button,.recovery-dialog button,.recovery-row{border-color:color-mix(in srgb,var(--tg-theme-text-color,#172338) 18%,transparent)}

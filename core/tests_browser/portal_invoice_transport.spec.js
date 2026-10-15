@@ -98,6 +98,30 @@ test('ordinary Portal reads retain their bounded timeout', async ({page}) => {
   expect(await page.evaluate(() => window.readResult)).toMatchObject({ok: false, status: 0, data: {error: 'The request took too long. Check your connection and try again.'}});
 });
 
+test('upload offers corrected-invoice confirmation before payment and refreshes the outcome', async ({page}, info) => {
+  await page.setViewportSize({width:390,height:844});
+  await mountUpload(page);
+  await page.evaluate(() => {
+    window.fetch = async () => new Response(JSON.stringify({ok:true,total_uploaded:1,manual_review_count:1,
+      correction_suggestions:[{item_id:'correction',revision:2,invoice_id:'corrected',invoice_revision:3,
+        applicant_name:'Synthetic Applicant',invoice_no:'TEST-2',warnings:['Name spelling differs.'],phone_note_required:false}],
+      receipt_batch:{id:'receipt',items:[],total_count:1}}), {headers:{'Content-Type':'application/json'}});
+    window.correctedRequests=[];
+    PortalMiniAppInvoices.init({portalApi:PortalMiniAppApi,tg:{initData:'synthetic-session'},state:{capabilities:new Set()},
+      showToast(){},apiFetch:async(url,options)=>{window.correctedRequests.push({url,body:options?.body});return {ok:true,data:{ok:true,invoices:[],summary:{},pagination:{}}};}});
+  });
+  await page.locator('#invoice-pool-upload-submit').click();
+  const confirm=page.getByRole('button',{name:'Confirm corrected invoice',exact:true});
+  await expect(confirm).toBeVisible();
+  await expect(page.locator('.invoice-receipt-create-payment')).toBeDisabled();
+  await page.screenshot({path:info.outputPath('upload-correction-action.png')});
+  await confirm.click();
+  await page.getByRole('button',{name:'Confirm replacement',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Correction completed',exact:true})).toBeDisabled();
+  await expect(page.locator('.invoice-receipt-create-payment')).toBeEnabled();
+  expect(await page.evaluate(()=>window.correctedRequests.some(row=>row.url.endsWith('/replacement/')))).toBe(true);
+});
+
 for (const width of [320, 430]) test(`payment invoice preview authenticates, retries and preserves delivery choices at ${width}px`, async ({page}, info) => {
   await page.setViewportSize({width, height: 844});
   await page.route('http://127.0.0.1:8007/**', route => route.fulfill({contentType: 'text/html', body: '<body></body>'}));
@@ -120,7 +144,7 @@ for (const width of [320, 430]) test(`payment invoice preview authenticates, ret
       const authenticated = options.headers['X-Telegram-Init-Data'] === initData;
       window.previewAuthenticated = authenticated;
       if (authenticated && window.denyPreview) return new Response(JSON.stringify({error: 'You do not have access to this invoice.'}), {status: 403});
-      return authenticated ? new Response('<html>Only synthetic invoice evidence</html>', {headers: {'Content-Type': 'text/html'}})
+      return authenticated ? new Response('<html><figure><img alt="Synthetic invoice" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jQv8AAAAASUVORK5CYII="></figure></html>', {headers: {'Content-Type': 'text/html'}})
         : new Response(JSON.stringify({error: 'Telegram authentication data is missing.'}), {status: 401});
     };
     PortalMiniAppPayments.init({el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
@@ -133,7 +157,7 @@ for (const width of [320, 430]) test(`payment invoice preview authenticates, ret
   await page.locator('.payment-open-receipt').click();
   await page.locator('[data-payment-receipt-dialog-cash]').click();
   await page.locator('.payment-receipt-invoice-preview').click();
-  await expect(page.locator('#payment-receipt-preview-content iframe')).toHaveCount(1);
+  await expect(page.locator('#payment-receipt-preview-content img')).toHaveCount(1);
   await expect(page.locator('#payment-receipt-preview-content')).not.toContainText('authentication data is missing');
   await expect(page.locator('#payment-receipt-dialog')).toHaveAttribute('open', '');
   expect(await page.evaluate(() => window.previewAuthenticated)).toBe(true);
@@ -143,10 +167,10 @@ for (const width of [320, 430]) test(`payment invoice preview authenticates, ret
   await page.evaluate(() => {window.denyPreview = true;});
   await page.locator('.payment-receipt-invoice-preview').click();
   await expect(page.locator('#payment-receipt-preview-content')).toContainText('You do not have access to this invoice.');
-  await expect(page.locator('#payment-receipt-preview-content iframe')).toHaveCount(0);
+  await expect(page.locator('#payment-receipt-preview-content img')).toHaveCount(0);
   await page.evaluate(() => {window.denyPreview = false;});
   await page.locator('#payment-receipt-preview-content').getByRole('button', {name: 'Retry'}).click();
-  await expect(page.locator('#payment-receipt-preview-content iframe')).toHaveCount(1);
+  await expect(page.locator('#payment-receipt-preview-content img')).toHaveCount(1);
   await page.goBack();
   await expect(page.locator('#payment-receipt-preview')).not.toBeVisible();
   await expect(page.locator('#payment-receipt-dialog')).toHaveAttribute('open', '');

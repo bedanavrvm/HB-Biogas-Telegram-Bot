@@ -428,6 +428,7 @@
   }
 
   function activityLabel(action) {
+    if (action === 'invoice_evidence_changed') return 'Invoice changed; review reopened';
     return ({created: 'Batch created', cases_added: 'Cases added', case_removed: 'Case removed', submitted_for_review: 'Sent for review', case_reviewed: 'Case reviewed', reviews_invalidated: 'Review reopened after changes', case_mode_changed: 'Case payment mode changed', workbook_generated: 'Workbook generated', signed_scan_accepted: 'Signed scan accepted', cancelled: 'Batch cancelled'})[action] || String(action || '').replaceAll('_', ' ');
   }
 
@@ -526,8 +527,16 @@
       el('payments-detail')?.querySelector('.payment-detail-header')?.insertAdjacentElement('afterend', documents);
     }
     documents.innerHTML = '';
+    let headerActions = el('payments-header-actions');
+    if (!headerActions) {
+      headerActions = document.createElement('div');
+      headerActions.id = 'payments-header-actions';
+      headerActions.className = 'payment-header-icon-actions';
+      el('payments-detail')?.querySelector('.payment-detail-header')?.appendChild(headerActions);
+    }
+    headerActions.innerHTML = '';
     if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view') && !(activeBatch.requires_re_review && activeBatch.status === 'awaiting_scan')) {
-      documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary payment-preview-action" id="payments-preview-sheet"><i data-lucide="eye" aria-hidden="true"></i> Preview payment</button>');
+      headerActions.insertAdjacentHTML('beforeend', '<button type="button" class="miniapp-icon-button" id="payments-preview-sheet" aria-label="Preview payment" title="Preview payment"><i data-lucide="eye" aria-hidden="true"></i></button>');
     }
     if (activeBatch.status === 'awaiting_scan' && !activeBatch.requires_re_review && activeBatch.workbook_download_url) {
       documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary" id="payments-open-workbook"><i data-lucide="download" aria-hidden="true"></i> Download workbook</button>');
@@ -536,7 +545,7 @@
       documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary" id="payments-open-signed-copy">Open signed copy</button>');
     }
     if (!approvalMode() && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0 && !['completed', 'cancelled'].includes(activeBatch.status)) {
-      documents.insertAdjacentHTML('beforeend', '<button type="button" class="payment-cancel-link" id="payments-cancel">Cancel batch</button>');
+      headerActions.insertAdjacentHTML('beforeend', '<button type="button" class="miniapp-icon-button payment-cancel-icon" id="payments-cancel" aria-label="Cancel batch" title="Cancel batch"><i data-lucide="trash-2" aria-hidden="true"></i></button>');
     }
     documents.hidden = !documents.childElementCount;
     if (activeBatch.status === 'draft' && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0) {
@@ -577,6 +586,7 @@
     candidatePanelOpen = open;
     const panel = el('payments-search-results');
     if (panel) panel.hidden = !open;
+    if (el('payments-search-close')) el('payments-search-close').hidden = !open;
     el('payments-search')?.setAttribute('aria-expanded', String(open));
     if (!open) { ++candidateLoadVersion; clearTimeout(searchTimer); }
   }

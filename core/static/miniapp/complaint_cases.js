@@ -609,7 +609,8 @@
       const actorRoles = Array.isArray(data.actor.roles) && data.actor.roles.length
         ? data.actor.roles : [data.actor.role].filter(Boolean);
       $('actorLine').textContent = [data.actor.name, ...actorRoles].join(' · ');
-      if ($('complaintSettingsBtn')) $('complaintSettingsBtn').hidden = !(data.report_email_allowed ?? actorRoles.some(role => ['IT', 'SUPERUSER'].includes(String(role).toUpperCase())));
+      if ($('complaintSettingsBtn')) $('complaintSettingsBtn').hidden = false;
+      $('complaintReportEmailSettings').hidden = !(data.report_email_allowed ?? actorRoles.some(role => ['IT', 'SUPERUSER'].includes(String(role).toUpperCase())));
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
@@ -1953,6 +1954,7 @@
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   function returnPrevious() {
+    if (window.MiniAppRecovery?.closeTop()) return;
     if (window.MiniAppReportEmailExport?.closeActive()) return;
     if ($('complaintSettingsOverlay') && !$('complaintSettingsOverlay').hidden) { closeComplaintSettings(); return; }
     if (state.reportFilterSheetOpen) { closeComplaintReportFilters(); return; }
@@ -2099,7 +2101,12 @@
     else telegram?.BackButton?.hide();
   }
   $('complaintSettingsBtn')?.addEventListener('click', () => {
-    window.MiniAppReportEmailSettings?.mount($('complaintReportEmailSettings'), payload => json('settings/reports/', payload));
+    window.MiniAppRecovery?.mount($('complaintRecovery'), {
+      prefix: '/api/complaints/', load: page => json('settings/recovery/', {page}),
+      request: (endpoint, payload) => json(endpoint.slice('/api/complaints/'.length), payload),
+      notify: (message, kind) => notify(message, kind === 'error', 'light'),
+    });
+    if (!$('complaintReportEmailSettings').hidden) window.MiniAppReportEmailSettings?.mount($('complaintReportEmailSettings'), payload => json('settings/reports/', payload));
     $('complaintSettingsOverlay').hidden = false;
     $('complaintSettingsClose').focus();
     telegram?.BackButton?.show();
@@ -2109,6 +2116,7 @@
   document.addEventListener('keydown', event => {
     const overlay=$('complaintSettingsOverlay');
     if(!overlay || overlay.hidden)return;
+    if (document.querySelector('.recovery-dialog[open]')) return;
     if(event.key==='Escape') { event.preventDefault(); closeComplaintSettings(); }
     if(event.key==='Tab') {
       const controls=[...overlay.querySelectorAll('button,input,select,textarea')].filter(n=>!n.disabled && n.offsetParent!==null);

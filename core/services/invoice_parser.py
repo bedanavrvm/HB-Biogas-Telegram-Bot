@@ -1202,7 +1202,10 @@ def auto_match_invoice_batch(
             continue
         candidates = [farmer for farmer in eligible if _exact_invoice_identity_match(invoice, farmer)]
         reason = ''
-        if not invoice.invoice_no or not invoice.invoice_date:
+        from core.services.invoice_identity import pending_corrections_for_invoice
+        if pending_corrections_for_invoice(invoice, farmer_ids=[farmer.pk for farmer in eligible]):
+            reason = 'A corrected invoice is ready to confirm. Complete the correction before matching.'
+        elif not invoice.invoice_no or not invoice.invoice_date:
             reason = 'Invoice number or valid invoice date is missing.'
         elif len(candidates) > 1:
             reason = 'More than one finalized-order case has the same invoice identity.'
@@ -1492,10 +1495,12 @@ def refresh_invoice_batch_counts(batch: InvoiceUploadBatch) -> InvoiceUploadBatc
 
 def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *, actor: str = '', note: str = '') -> ParsedInvoice:
     with transaction.atomic():
+        from payments.services import lock_invoice_payment_batches, invalidate_invoice_payment_batches
+        affected_batches = lock_invoice_payment_batches(farmer.pk, [invoice.pk])
+        farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
         if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored'}:
             raise InvoiceMatchEligibilityError('invoice_not_matchable', 'This invoice is no longer available for matching.')
-        farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
         eligibility = require_official_requisition(farmer, lock=True)
         _apply_invoice_to_farmer(farmer, invoice)
         note_text = str(note or '').strip()
@@ -1522,15 +1527,29 @@ def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *
         from core.services.invoice_identity import ensure_identity_review
         ensure_identity_review(invoice, farmer)
         refresh_invoice_batch_counts(invoice.batch)
+        invalidate_invoice_payment_batches(affected_batches, invoice_id=invoice.pk, actor_label=actor_text)
     return invoice
 
 
-def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
+def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '', expected_revision=None) -> ParsedInvoice:
     with transaction.atomic():
+        from payments.services import lock_invoice_payment_batches, invalidate_invoice_payment_batches
+        probe = ParsedInvoice.objects.get(pk=invoice.pk)
+        affected_batches = lock_invoice_payment_batches(probe.matched_farmer_id, [invoice.pk])
+        old_farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=probe.matched_farmer_id).first()
+        from core.services.invoice_identity import cancel_correction_on_unmatch
+        # Serialize correction cancellation against its confirmation before the invoice lock.
+        list(probe.name_change_requests.select_for_update().filter(status__in=['draft', 'awaiting_replacement']).order_by('pk'))
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
-        old_farmer = None
-        if invoice.matched_farmer_id:
-            old_farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=invoice.matched_farmer_id).first()
+        if invoice.status == 'unmatched' and not invoice.matched_farmer_id:
+            return invoice
+        if invoice.matched_farmer_id != probe.matched_farmer_id:
+            raise InvoiceMatchEligibilityError('invoice_changed', 'This invoice match changed. Refresh before unmatching it.')
+        if expected_revision is not None and int(expected_revision) != invoice.revision:
+            raise InvoiceMatchEligibilityError('invoice_changed', 'This invoice changed. Refresh before unmatching it.')
+        if invoice.status != 'matched':
+            raise InvoiceMatchEligibilityError('invoice_not_matchable', 'Only a matched invoice can be unmatched.')
+        cancel_correction_on_unmatch(invoice, actor=str(actor or 'portal'))
         if old_farmer and str(old_farmer.invoice_number or '').strip() == str(invoice.invoice_no or '').strip():
             old_farmer.invoice_number = ''
             old_farmer.invoice_date = None
@@ -1548,7 +1567,7 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
             ])
             reserve_farmer_publication(
                 old_farmer,
-                request_id=f'invoice-unmatch:{invoice.id}:{old_farmer.id}',
+                request_id=f'invoice-unmatch:{invoice.id}:{old_farmer.id}:{invoice.revision}',
                 requested_by_label=actor,
             )
         note_text = str(note or '').strip()
@@ -1572,6 +1591,18 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
             },
         )
         refresh_invoice_batch_counts(invoice.batch)
+        from django.db.models import Q
+        from payments.models import PaymentReceiptItem, PaymentReceiptBatch
+        receipt_items = PaymentReceiptItem.objects.filter(Q(invoice=invoice) | Q(replacement_invoice=invoice))
+        receipt_ids = list(receipt_items.values_list('receipt_batch_id', flat=True))
+        receipt_items.update(status=PaymentReceiptItem.STATUS_REVIEW,
+            reason='Invoice unmatched. Select a replacement before payment.', updated_at=timezone.now())
+        from payments.receipt_batches import _refresh_status
+        for receipt in PaymentReceiptBatch.objects.select_for_update().filter(pk__in=receipt_ids).order_by('pk'):
+            receipt.revision += 1
+            receipt.save(update_fields=['revision', 'updated_at'])
+            _refresh_status(receipt)
+        invalidate_invoice_payment_batches(affected_batches, invoice_id=invoice.pk, actor_label=actor_text)
     return invoice
 
 
@@ -1642,24 +1673,19 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
 
 def duplicate_deletion_error(invoice: ParsedInvoice, *, preserve_oldest: bool = False) -> str:
     """Shared preview/write eligibility; no financial evidence is discarded."""
-    from django.db.models import Q
     if invoice.status == 'deleted':
         return 'This invoice has already been removed.'
     from core.services.invoice_cleanup import protection_error
     error = protection_error(invoice)
     if error:
         return error
-    peers = ParsedInvoice.objects.filter(batch__group_configuration_id=invoice.batch.group_configuration_id).exclude(pk=invoice.pk).exclude(status='deleted')
-    same = Q()
-    if invoice.invoice_no:
-        same |= Q(invoice_no__iexact=invoice.invoice_no)
-    if invoice.customer_id:
-        same |= Q(customer_id=invoice.customer_id)
-    if invoice.customer_phone:
-        same |= Q(customer_phone=invoice.customer_phone)
-    if not same or not peers.filter(same).exists():
+    from core.services.invoice_duplicates import exact_peers
+    peers = exact_peers(invoice, ParsedInvoice.objects.filter(
+        batch__group_configuration_id=invoice.batch.group_configuration_id,
+    ))
+    if not peers:
         return 'Keep one original invoice. No surviving duplicate was found.'
-    if preserve_oldest and not peers.filter(same).filter(Q(created_at__lt=invoice.created_at) | Q(created_at=invoice.created_at, pk__lt=invoice.pk)).exists():
+    if preserve_oldest and not any((peer.created_at, str(peer.pk)) < (invoice.created_at, str(invoice.pk)) for peer in peers):
         return 'The original invoice is retained.'
     return ''
 

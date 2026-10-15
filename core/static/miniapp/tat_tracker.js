@@ -1696,9 +1696,8 @@
     const node = $('targetSheetSyncStatus');
     if (!node) return;
     const status = String(health?.status || 'not_configured');
-    const canRetry = Boolean(health?.can_retry) && (account.roles || [])
-      .some((role) => String(role || '').toUpperCase() === 'IT');
-    const isAdmin = (account.roles || []).some(role => String(role).toUpperCase() === 'IT');
+    const canRetry = Boolean(health?.can_retry);
+    const isAdmin = Boolean(health?.can_view);
     if (!isAdmin) {
       node.classList.add('hidden');
       node.replaceChildren();
@@ -1723,6 +1722,12 @@
   }
 
   async function loadSettings() {
+    window.MiniAppRecovery?.mount($('tatRecovery'), {
+      prefix: '/api/tat-tracker/',
+      load: page => api('/api/tat-tracker/settings/recovery/', {page}),
+      request: (endpoint, payload) => api(endpoint, payload),
+      notify: (message, kind) => showNotice(message, kind === 'error' ? 'error' : 'info'),
+    });
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
     const configuration = result.data.configuration || {};
@@ -4831,6 +4836,7 @@
   });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
+      if (window.MiniAppRecovery?.closeTop()) return;
       const excelDialog = document.querySelector('.miniapp-excel-dialog[open]');
       if (excelDialog) { excelDialog.close(); return; }
       if (window.MiniAppReportEmailExport?.closeActive()) return;

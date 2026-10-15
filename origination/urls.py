@@ -32,6 +32,7 @@ from .views import (
     portal_origination_staff_signature,
     portal_origination_production_stamp,
     portal_origination_archive_signed,
+    portal_origination_recovery_status,
     portal_origination_signed_packet,
     portal_origination_current_signing_packet,
     portal_origination_test_signing_action,
@@ -48,6 +49,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('origination/api/settings/recovery/', origination_auth_required(portal_origination_recovery_status), name='loan_origination_recovery_status'),
     path('origination/sign/api/signature-preview/', origination_signer_signature_preview, name='loan_origination_signer_signature_preview'),
     path('origination/api/applications/<str:application_id>/signature-preview/', origination_auth_required(portal_origination_signature_preview), name='loan_origination_signature_preview'),
     path('origination/api/download/', portal_origination_download, name='loan_origination_download'),

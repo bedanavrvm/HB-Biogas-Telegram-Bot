@@ -1,5 +1,55 @@
 # Known Gaps and Verified Workarounds
 
+## Portal invoice corrections - 15 October 2026
+
+Corrected-invoice, exact-duplicate, unmatch and letter-download regressions are
+covered locally with synthetic data and actual Mini App renderers. The reported
+uneditable confirmation note did not reproduce before changes in local Chromium;
+foreground focus/input and preservation after server failure are now tested.
+Android/iOS Telegram and a physical file saved on-device still require release
+verification. A download request/acceptance is not proof the device saved a file.
+
+No PostgreSQL test URL is configured locally; SQLite does not verify row locks.
+Run the PostgreSQL-only correction concurrency tests before production release.
+The broader payment-document suite has two baseline failures reproduced with the
+unchanged Portal view code: `test_document_history_lists_and_opens_final_payment_snapshot`
+(an empty historical document list) and
+`test_payment_workbook_generation_uses_ready_farmer_and_preserves_signatures`
+(`BIOGAS` versus expected `BIOGAS PREMIUM`). They remain outside this correction.
+
+No data backfill or silent historical correction closure is performed. Existing
+unfinished requests close when explicitly unmatched; retained letters/agreements
+and previously signed payments remain history.
+
+## Actionable Mini App recovery - 15 October 2026
+
+Portal, TAT, Complaints and Origination now have owner-scoped App status lists
+with ten entries per page, existing retry controls, explicit administrator
+handoffs and support-reference copying. Portal bell actions no longer disappear.
+Core migration 0205 adds only the approved TAT IT Sheet retry default and policy
+version refresh; deploy it through the normal release process. See
+`docs/runbooks/miniapp-recovery.md` and ADR 0052 for exact coverage/rollback.
+
+Credentials, missing templates, unresolved case bindings and identity conflicts
+still require the stated configuration/case repair; recovery does not bypass
+those checks. Historical payment storage and exhausted/missing source uploads
+use an explicit administrator handoff, not a new payment/import. Scheduled
+email issues check an existing delivery, never issue another Send now; one-off
+exports keep their existing owner/status dialog. Pending work still needs its
+existing workflow runner. No scheduler or automatic bulk retry was introduced.
+
+Verification includes 170 passing backend scenarios on a freshly migrated,
+isolated SQLite database, plus the focused recovery rerun. Three concurrency
+checks require PostgreSQL and were skipped, including the new simultaneous TAT
+retry check. All 81 browser scenarios passed; light/dark mobile screenshots were
+inspected and the status-header right alignment is asserted, with real-controller
+checks for Origination and Complaints Settings. Actual Telegram devices, provider recovery and production deployment
+remain unverified. No production provider writes or migrations were run.
+
+Repository-wide checks still fail on the same 34 write-inventory omissions
+confirmed against HEAD and 17 existing artifact allowlist hash mismatches. The
+three new POST routes are inventoried; no allowlist hashes were changed.
+
 ## Portal isolation and Performance - 15 October 2026
 
 Portal Home/bell background-failure projections are restricted to Portal-owned

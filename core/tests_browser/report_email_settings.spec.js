@@ -163,17 +163,19 @@ test('Complaints header settings closes with Back and preserves the report edito
     .replace("{% static 'miniapp/jawabu-logo.png' %}",`data:image/png;base64,${fs.readFileSync(path.join(root,'core/static/miniapp/jawabu-logo.png')).toString('base64')}`)
     .replace(/\{%[^]*?%\}/g,'').replace(/<script[^]*?<\/script>/g,'').replace(/<link[^>]+>/g,'');
   await page.setViewportSize({width:320,height:740});await page.setContent(template);
-  for(const asset of ['base.css','complaint_cases.css','report_email_settings.css'])await page.addStyleTag({path:path.join(root,'core/static/miniapp',asset)});
+  for(const asset of ['base.css','complaint_cases.css','report_email_settings.css','miniapp_recovery.css'])await page.addStyleTag({path:path.join(root,'core/static/miniapp',asset)});
   await page.evaluate(initData=>{
     const app={initData,BackButton:{onClick(fn){window.back=fn;},show(){},hide(){}},onEvent(){}};
     window.MiniAppUtils={initTelegram:()=>app,setCloseProtection(){},haptic(){}};
     window.ComplaintCasesMiniAppApi={async postJson(route){
       if(route==='bootstrap/')return {data:{actor:{name:'Synthetic IT',role:'IT',capabilities:['complaint.queue.view']},counts:{},branches:[],categories:[],category_catalogue:[]}};
+      if(route==='settings/recovery/')return {data:{items:[],pagination:{page:1,pages:1,total:0}}};
       if(route==='settings/reports/')return {data:{enabled:false,presets:['complaints'],groups:[{id:1,label:'Synthetic group'}],schedules:[]}};
       return {cases:[],pagination:{page:1,pages:1,total:0},start_index:0};
     }};
   },initData);
   await page.addScriptTag({content:script});
+  await page.addScriptTag({path:path.join(root,'core/static/miniapp/miniapp_recovery.js')});
   await page.addScriptTag({path:path.join(root,'core/static/miniapp/complaint_cases.js')});
   for(const width of [320,360,390,430]) {
   await page.setViewportSize({width,height:740});
@@ -188,6 +190,7 @@ test('Complaints header settings closes with Back and preserves the report edito
   }
   await page.setViewportSize({width:320,height:740});
   await page.locator('#complaintSettingsBtn').click();await expect(page.locator('#complaintSettingsOverlay')).toBeVisible();
+  await expect(page.locator('#complaintRecovery')).toContainText('No updates need attention.');
   await page.getByRole('button',{name:'Manage reports'}).click();await page.getByRole('button',{name:'Add report'}).click();
   await page.getByLabel('Recipients',{exact:true}).fill('reports@example.invalid');
   await page.screenshot({path:'test-results/complaints-settings-sheet-320.png'});

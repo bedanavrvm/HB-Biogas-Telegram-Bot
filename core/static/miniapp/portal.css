@@ -5158,8 +5158,24 @@ body.portal-app .history-document-header.miniapp-panel-heading{gap:6px;padding:0
 .portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) { min-width:44px; min-height:44px; padding:8px; }
 .portal-app :is(.payment-receipt-cash-toggle,.payment-candidate-cash-toggle) svg { width:18px; height:18px; }
 .portal-app #payments-add-panel{padding:0;border:0}
-.portal-app #payments-add-panel .payment-search-row{display:flex;align-items:center;min-height:44px;position:relative}
+body.portal-app #content #payments-add-panel .payment-search-row{display:flex;flex-wrap:nowrap;align-items:center;min-height:44px;position:relative}
 .portal-app #payments-add-panel .payment-search-row label{flex:1;min-width:0}
+.portal-app #payments-search-close { flex:0 0 40px; width:40px; height:44px; border:0; background:transparent; }
+.portal-app #payments-search-close[hidden] { display:none; }
+.portal-app .payment-detail-header { grid-template-columns:40px minmax(0,1fr) auto !important; grid-template-rows:auto auto; column-gap:4px; row-gap:0; padding:0; }
+.portal-app .payment-detail-header .case-history-back { grid-column:1; grid-row:1 / 3; width:40px; min-width:40px; }
+.portal-app .payment-detail-heading { grid-column:2; grid-row:1; }
+.portal-app .payment-detail-total { grid-column:2; grid-row:2; justify-self:start; margin:0; padding:2px 0; border:0; background:transparent; font-size:12px; }
+.portal-app .payment-header-icon-actions { grid-column:3; grid-row:1 / 3; display:flex; align-items:center; justify-self:end; gap:0; }
+.portal-app .payment-header-icon-actions .miniapp-icon-button { width:40px; min-width:40px; height:44px; padding:0; border:0; background:transparent; }
+body.portal-app #content #payments-header-actions .miniapp-icon-button, body.portal-app #content #payments-search-close { color:var(--tg-theme-text-color, var(--text-primary)); }
+.portal-app .payment-header-icon-actions svg, .portal-app #payments-search-close svg { width:18px; height:18px; }
+body.portal-app #content #payments-header-actions .payment-cancel-icon { color:var(--status-danger, #c0392b); }
+.invoice-workflow-overlay { z-index:var(--portal-z-overlay-nested, 240); }
+.invoice-workflow-overlay textarea { pointer-events:auto; user-select:text; }
+.invoice-correction-next { display:grid; gap:6px; margin:8px 0; }
+.invoice-correction-next > div { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+.invoice-correction-next strong { min-width:0; overflow-wrap:anywhere; }
 .portal-app #payments-search{width:100%;min-width:0;min-height:44px;font-size:14px;padding-left:34px;border:1px solid var(--border-color)}
 .portal-app #payments-search-results{padding:4px 0 8px}
 .portal-app #payments-search-results[hidden]{display:none}

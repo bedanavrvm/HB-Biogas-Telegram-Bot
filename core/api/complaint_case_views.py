@@ -1037,6 +1037,21 @@ def complaint_cases_evidence_access(request, evidence_id: str):
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
 @miniapp_write_response
+def complaint_recovery_status(request):
+    payload = _request_payload(request)
+    group, actor, error = _context(request, payload)
+    if error:
+        return error
+    if error := _capability_error(actor, 'complaint.queue.view', group):
+        return error
+    from core.services.complaint_recovery import status_payload
+    from core.services.miniapp_recovery import status_response
+    return status_response(status_payload(group, actor, page=payload.get('page', 1)))
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_sync_retry(request, case_id: str):
     payload = _request_payload(request)
     key_error = _bind_miniapp_write_request(request, payload)
@@ -1049,7 +1064,8 @@ def complaint_cases_sync_retry(request, case_id: str):
     if capability_error:
         return capability_error
     try:
-        detail = retry_case_sync(group_config, actor, case_id)
+        detail = retry_case_sync(group_config, actor, case_id,
+            request_id=str(payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''))
     except ComplaintCaseError as exc:
         return _complaint_error(request, exc)
     return JsonResponse({'ok': True, 'case': detail, 'message': 'Complaint register publication retried.'})

@@ -43,6 +43,26 @@ async function boot(page, width, empty = false, native = false, locationCatalog 
   await expect(page.locator('.queue-tab')).toHaveCount(2);
 }
 
+test('Origination opens its own recovery panel without leaving application filters', async({page},info)=>{
+  await boot(page,390);
+  await page.addStyleTag({path:path.join(root,'core/static/miniapp/miniapp_recovery.css')});
+  await page.addScriptTag({path:path.join(root,'core/static/miniapp/miniapp_recovery.js')});
+  await page.route('**/api/origination/api/settings/recovery/**',route=>route.fulfill({json:{ok:true,data:{items:[],pagination:{page:1,pages:1,total:0}}}}));
+  await expect(page.locator('.application-card')).toHaveCount(1);
+  await page.evaluate(()=>{
+    window.searchBeforeSettings=document.querySelector('#origination-search input');
+    window.searchBeforeSettings.value='Keep this search';
+  });
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await expect(page.locator('#origination-settings')).toBeVisible();
+  await expect(page.locator('#origination-recovery')).toContainText('No updates need attention.');
+  await page.screenshot({path:info.outputPath('origination-settings-390.png'),fullPage:true});
+  await page.getByRole('button',{name:'Close settings',exact:true}).click();
+  await expect(page.locator('#origination-settings')).toBeHidden();
+  await expect(page.locator('#origination-search input')).toHaveValue('Keep this search');
+  expect(await page.evaluate(()=>window.searchBeforeSettings===document.querySelector('#origination-search input'))).toBe(true);
+});
+
 function placedFormFixture() {
   const script = `
 import os, json
