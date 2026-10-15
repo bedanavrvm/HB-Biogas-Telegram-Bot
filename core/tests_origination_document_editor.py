@@ -60,7 +60,58 @@ class DocumentEditorTests(TestCase):
         config=document.configuration_revisions.latest('revision').configuration
         document=self.save([],key='remove',schema=1,revision=1,configuration=config)
         self.assertEqual(document.signer_rules, [])
-        self.assertTrue(any(task['key'] == 'signers' for task in readiness(document)['tasks']))
+        self.assertFalse(any(task['key'] == 'signers' for task in readiness(document)['tasks']))
+
+    def test_main_and_supporting_documents_publish_without_signers(self):
+        for role in ['primary', 'supporting']:
+            with self.subTest(role=role):
+                document = OriginationDocumentTemplate.objects.create(
+                    name='Unsigned ' + role, document_type='unsigned-' + role, version=1,
+                    document_role=role, document_key=role, status='ready',
+                    form_schema={'fields': [], 'sections': []}, signer_rules=[],
+                    source_filename='synthetic.pdf', source_sha256=self.document.source_sha256,
+                    source_byte_size=len(self.pdf), page_count=1, drive_file_id='synthetic-drive',
+                    placement_config={**deepcopy(self.document.placement_config), 'document_type': 'unsigned-' + role},
+                    created_by=self.actor)
+                saved = save_calibration_draft(template=document, configuration=document.placement_config,
+                    actor=self.actor, expected_revision=0, client_request_id='save-' + role)
+                document.refresh_from_db()
+                self.assertTrue(readiness(document)['can_publish'])
+                self.assertFalse(any(t['section'] == 'signers' for t in readiness(document)['tasks']))
+                published = publish_document(document=document, actor=self.actor, revision=saved.revision,
+                    request_id='publish-' + role, impact_token='')
+                self.assertEqual(published.status, 'active')
+                self.assertEqual(published.signer_rules, [])
+                self.assertEqual(published.placement_config['signature_overlay_manifest']['slots'], {})
+
+    def test_editable_copy_can_remove_all_signers_without_changing_published_source(self):
+        source = self.ready()
+        published = publish_document(document=source, actor=self.actor, revision=2,
+            request_id='source-publish', impact_token='')
+        from origination.services.origination_templates import clone_reusable_template_version
+        from origination.services.origination_fields import template_schema_revision
+        draft, _ = clone_reusable_template_version(published, actor=self.actor)
+        latest = draft.configuration_revisions.latest('revision')
+        draft = save_signers(document=draft, rules=[], actor=self.actor,
+            schema_revision=template_schema_revision(draft), revision=latest.revision,
+            configuration=deepcopy(latest.configuration), request_id='remove-all')
+        self.assertEqual(draft.configuration_revisions.latest('revision').configuration['signature_overlay_manifest']['slots'], {})
+        from origination.services.origination_setup_documents import shared_review
+        updated = publish_document(document=draft, actor=self.actor,
+            revision=draft.configuration_revisions.latest('revision').revision,
+            request_id='unsigned-copy-publish', impact_token=shared_review(draft)['token'])
+        self.assertEqual(updated.signer_rules, [])
+        published.refresh_from_db()
+        self.assertEqual(published.signer_rules[0]['role'], 'borrower')
+        self.assertIn('borrower.signature', published.placement_config['signature_overlay_manifest']['slots'])
+
+    def test_optional_signers_do_not_prevent_publication_without_placements(self):
+        document = self.save([{'role': 'borrower', 'required': False}])
+        self.assertTrue(readiness(document)['can_publish'])
+        self.assertFalse(any(t['key'].startswith('signature:') for t in readiness(document)['tasks']))
+        published = publish_document(document=document, actor=self.actor, revision=1,
+            request_id='optional-signers-publish', impact_token='')
+        self.assertFalse(published.signer_rules[0]['required'])
 
     def test_save_retry_is_idempotent_and_different_retry_rejected(self):
         rules=[{'role':'borrower','required':True}]

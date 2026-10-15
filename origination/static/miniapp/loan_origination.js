@@ -3609,8 +3609,14 @@
     const cards = applications.map(item => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = [identity.national_id ? `<span><small>ID</small><span>${escapeHtml(identity.national_id)}</span></span>` : '', identity.phone ? `<span><small>Phone</small><span data-miniapp-phone>${escapeHtml(identity.phone)}</span></span>` : ''].filter(Boolean).join('');
-      return `<button type="button" class="application-card" data-application-id="${escapeHtml(item.id)}"><span class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></span><span class="application-card-meta"><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span></span>${identifiers ? `<span class="application-card-identifiers">${identifiers}</span>` : ''}<span class="application-card-footer"><small class="application-reference">${escapeHtml(item.reference_number)}</small><span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || '')}</small>${iconSvg('arrowRight')}</span></span>${capabilities.can_review && item.officer_name ? `<small class="application-officer">${escapeHtml(item.officer_name)}</small>` : ''}</button>`;
+      const identifiers = [identity.national_id ? `<span><small>ID</small><span data-card-id-value>${escapeHtml(identity.national_id)}</span></span>` : '', identity.phone ? `<span><small>Phone</small><span data-miniapp-phone>${escapeHtml(identity.phone)}</span></span>` : ''].filter(Boolean).join('');
+      return `<article class="application-card" data-application-id="${escapeHtml(item.id)}">
+        <div class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
+        <div class="application-card-meta"><span class="application-reference">${escapeHtml(item.reference_number)}</span><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span></div>
+        ${identifiers ? `<div class="application-card-identifiers">${identifiers}</div>` : ''}
+        <div class="application-card-footer"><small class="application-officer">${capabilities.can_review && item.officer_name ? escapeHtml(item.officer_name) : ''}</small><span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || 'View application')}</small>${iconSvg('arrowRight')}</span></div>
+        <button type="button" class="application-card-open" data-application-open="${escapeHtml(item.id)}" aria-label="Open application for ${escapeHtml(applicantName)}"></button>
+      </article>`;
     }).join('');
     const alerts = ''; // Alerts belong to their application card, never a duplicate list.
     const queueTabs = [
@@ -3627,7 +3633,10 @@
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
     root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
-    root().querySelector('.list-heading h3').textContent = listState.queue === 'action' ? 'Needs your action' : applicationsLabel;
+    const heading = root().querySelector('.list-heading');
+    heading.classList.add('sr-only');
+    heading.setAttribute('aria-live', 'polite');
+    heading.querySelector('h3').remove();
     root().querySelectorAll('[data-queue]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.queue === listState.queue)));
     for (const item of applications) {
       const card = root().querySelector(`[data-application-id="${CSS.escape(item.id)}"]`);
@@ -3636,7 +3645,7 @@
         const alert = document.createElement('small');
         alert.className = 'application-review-alert';
         alert.textContent = item.review_alert;
-        card.firstElementChild.append(alert);
+        card.append(alert);
       }
     }
     if (!applications.length) {
@@ -3651,15 +3660,18 @@
         button.onclick = () => applyListFilters({queue:'applications'});
       }
     }
-    root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => {
+    root().querySelectorAll('[data-application-open]').forEach(button => button.onclick = async () => {
+      const card = button.closest('.application-card');
       listScrollY = window.scrollY;
       button.disabled = true;
-      const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {});
+      card.setAttribute('aria-busy', 'true');
+      const result = await apiFetch(`/applications/${button.dataset.applicationOpen}/`, {});
       button.disabled = false;
+      card.removeAttribute('aria-busy');
       if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true);
-      if (button.dataset.reviewerAlert) {
-        const seen = await postJson(`/reviewer-notices/${button.dataset.reviewerAlert}/seen/`, {});
-        if (seen.ok) reviewerAlerts = reviewerAlerts.filter(item => item.id !== button.dataset.reviewerAlert);
+      if (card.dataset.reviewerAlert) {
+        const seen = await postJson(`/reviewer-notices/${card.dataset.reviewerAlert}/seen/`, {});
+        if (seen.ok) reviewerAlerts = reviewerAlerts.filter(item => item.id !== card.dataset.reviewerAlert);
       }
       await openEditor(result.data.application, 0);
     });

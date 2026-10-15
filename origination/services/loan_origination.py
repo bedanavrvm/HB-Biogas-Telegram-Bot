@@ -2833,8 +2833,10 @@ def serialize_application(
     )
     payload['applicant_summary'] = {
         'name': str(identity.get('name') or '').strip(),
-        'national_id': _mask_queue_identifier(identity.get('national_id')),
-        'phone': _mask_queue_identifier(identity.get('phone')),
+        'national_id': (_mask_queue_identifier(identity.get('national_id')) if presentation == 'masked'
+                        else str(identity.get('national_id') or '').strip()),
+        'phone': (_mask_queue_identifier(identity.get('phone')) if presentation == 'masked'
+                  else str(identity.get('phone') or '').strip()),
     }
     if include_payload:
         from origination.services.origination_evidence import serialize_evidence

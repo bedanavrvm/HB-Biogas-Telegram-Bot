@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   --laf-green: var(--tg-theme-button-color, #126448);
+  --laf-accent-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #126448));
   --laf-green-strong: #0d513a;
   --laf-green-soft: color-mix(in srgb, var(--laf-green) 11%, var(--tg-theme-bg-color, #fff));
   --laf-on-green: var(--tg-theme-button-text-color, #fff);
@@ -15,7 +16,7 @@
   --origination-live-height: 100vh;
 }
 
-:root[data-telegram-theme="dark"] { color-scheme: dark; }
+:root[data-telegram-theme="dark"] { color-scheme: dark; --laf-accent-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #84d8bb)); }
 
 * { box-sizing: border-box; }
 
@@ -42,7 +43,7 @@ body.origination-modal-open { overflow: hidden; }
   top: 0;
   z-index: 20;
   display: grid !important;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr) 36px;
   align-items: center;
   gap: 9px !important;
   margin: 0 -10px 6px !important;
@@ -162,17 +163,30 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .list-heading { margin: 7px 2px 6px; }
 .list-heading h3 { margin: 0; font-size: .84rem; }
 .list-heading > span { color: var(--laf-muted); font-size: .65rem; font-weight: 650; }
+.list-heading.sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0; }
 .text-button, .preview-link { min-height: 36px; padding: 5px 8px; border: 0; background: transparent; color: var(--laf-green); font-size: .72rem; font-weight: 750; }
 .application-list { display: grid; gap: 7px; }
-.application-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 58px; padding: 10px 11px !important; border: 1px solid var(--laf-line) !important; border-radius: 10px !important; background: var(--laf-surface) !important; color: inherit !important; text-align: left; }
-.application-card > span:first-child { display: grid; gap: 2px; min-width: 0; }
-.application-card strong, .application-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.application-card strong { font-size: .78rem; }
-.application-card small { color: var(--laf-muted); font-size: .68rem; }
-.application-card .application-status-text { margin-top: 2px; color: var(--laf-green); font-weight: 700; white-space: normal; }
-.application-card:active { background: var(--laf-green-soft) !important; }
-.application-card-state { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
-.application-card-state > svg { width: 14px; height: 14px; color: var(--laf-muted); }
+.application-card { position:relative;display:grid;gap:4px;width:100%;min-width:0;padding:9px 10px;border:1px solid var(--laf-line);border-radius:9px;background:var(--laf-surface);color:var(--laf-dark);text-align:left;box-shadow:0 3px 12px rgba(20,38,29,.035); }
+.application-card-header { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px; }
+.application-card-header strong { min-width:0;font-size:.83rem;line-height:1.4;overflow-wrap:anywhere; }
+.application-card-header .status-chip { max-width:118px;font-size:.62rem;line-height:1.3;white-space:normal;text-align:center; }
+.application-card-meta { display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;color:var(--laf-muted);font-size:.66rem;line-height:1.5; }
+.application-card-meta>span { min-width:0;overflow-wrap:anywhere; }
+.application-reference { color:var(--laf-accent-text);font-weight:750;font-variant-numeric:tabular-nums; }
+.application-card-identifiers { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px; }
+.application-card-identifiers>span { display:flex;align-items:center;gap:5px;min-width:0;font-size:.76rem;font-weight:650;line-height:1.4; }
+.application-card-identifiers small { flex:none;font-size:.6rem;font-weight:750;color:var(--laf-muted);text-transform:uppercase; }
+.application-card-identifiers>span>span { display:inline-flex;align-items:center;min-height:30px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere; }
+.application-card-identifiers a { position:relative;z-index:2;display:inline-flex;align-items:center;min-height:30px;white-space:nowrap;color:var(--laf-accent-text);text-decoration:underline;text-underline-offset:2px; }
+.application-card-footer { display:flex;justify-content:space-between;align-items:center;gap:8px; }
+.application-card-footer small { font-size:.67rem;line-height:1.4;overflow-wrap:anywhere; }
+.application-officer { min-width:0;color:var(--laf-muted); }
+.application-card-state { display:flex;min-width:0;justify-content:flex-end;align-items:center;gap:4px;color:var(--laf-accent-text);font-weight:650;text-align:right; }
+.application-card-state>svg { width:14px;height:14px;flex:none; }
+.origination-app .application-card-open { position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;margin:0;padding:0!important;border:0!important;border-radius:inherit;background:transparent!important;color:inherit;cursor:pointer; }
+.application-card-open:focus-visible { outline:2px solid var(--laf-green);outline-offset:2px; }
+.application-card:has(.application-card-open:active) { background:var(--laf-green-soft); }
+.application-card[aria-busy=true] { opacity:.65; }
 
 .queue-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 4px 0 6px; }
 .queue-tabs::-webkit-scrollbar { display: none; }
@@ -180,7 +194,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .queue-tab.active { border-color: var(--laf-green) !important; background: var(--laf-green-soft) !important; color: var(--laf-green) !important; }
 .queue-tabs .queue-tab { justify-content: center; min-width: 0; font-size: .78rem !important; }
 .queue-tabs .queue-tab span { white-space: normal; }
-.application-card .application-review-alert { white-space: normal; color: var(--laf-muted); }
+.application-card .application-review-alert { font-size:.69rem;line-height:1.4;white-space:normal;color:var(--laf-muted); }
 .queue-tab strong { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, currentColor 10%, transparent); color: inherit; font-size: .6rem; }
 .list-filters { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .7fr) minmax(120px, .7fr) auto; gap: 7px; padding: 9px; border: 1px solid var(--laf-line); border-radius: 10px; background: var(--laf-surface); }
 .list-filters input, .list-filters select, .list-filters .btn { min-height: 38px; }

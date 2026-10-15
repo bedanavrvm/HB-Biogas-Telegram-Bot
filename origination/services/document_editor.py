@@ -115,8 +115,6 @@ def readiness(document):
         task('published', 'Create an editable version to change this document', 'pdf', blocking=True)
     if not schema.get('fields'):
         task('fields', 'Add a field', 'fields')
-    if document.document_role == 'primary' and not signers:
-        task('signers', 'Add a signer', 'signers')
     for role in schema.get('required_signer_roles', []):
         if not any(rule.get('role') == role and rule.get('required', True) for rule in signers):
             task('required-signer:' + role, 'Review signer: ' + role.replace('_', ' '), 'signers')

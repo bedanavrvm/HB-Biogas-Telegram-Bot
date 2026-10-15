@@ -93,6 +93,7 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-sidebar > #document-pdf, .calibration-sidebar > #document-signers {padding:8px;border:1px solid var(--cal-border);border-radius:7px;background:var(--cal-surface);}
 .calibration-sidebar summary {cursor:pointer;}
 .document-signer-controls {display:grid;gap:6px;padding-top:7px;}
+.document-signer-controls .help {margin:0;font-size:12px;line-height:1.4;}
 .document-signer-row {display:grid;grid-template-columns:minmax(0,1fr) auto 34px;align-items:center;gap:4px;margin:6px 0;}
 .document-signer-row label {display:flex!important;align-items:center;gap:3px;}
 .document-signer-row input[type=checkbox] {width:16px!important;min-height:16px!important;}

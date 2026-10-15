@@ -606,16 +606,24 @@ def portal_origination_applications(request):
             } for item in OriginationReviewerNotice.objects.select_related('application').filter(
                 recipient=user, seen_at__isnull=True, application__in=scoped,
             ).order_by('-created_at')[:10]]
+        application_cards = []
+        for item in items:
+            mode = application_presentation_mode(item, user=user, access=access)
+            if mode == DENIED:
+                continue
+            card = serialize_application(item, include_payload=False, presentation=mode, actor=user)
+            card.update({
+                'next_action': next_actions.get(str(item.pk), ''),
+                'status_label': STATUS_LABELS.get(item.status, card['status_text']),
+                'review_alert': next((a['message'] for a in reviewer_alerts
+                                      if a['application_id'] == str(item.pk)), ''),
+                'review_alert_id': next((a['id'] for a in reviewer_alerts
+                                         if a['application_id'] == str(item.pk)), ''),
+            })
+            application_cards.append(card)
         return JsonResponse({
             'ok': True,
-            'applications': [{**serialize_application(item, include_payload=False, actor=user),
-                              'next_action': next_actions.get(str(item.pk), ''),
-                              'status_label': serialize_application(item, include_payload=False, actor=user)['status_text'],
-                              'review_alert': next((a['message'] for a in reviewer_alerts
-                                                    if a['application_id'] == str(item.pk)), ''),
-                              'review_alert_id': next((a['id'] for a in reviewer_alerts
-                                                       if a['application_id'] == str(item.pk)), '')}
-                             for item in items],
+            'applications': application_cards,
             'tab_counts': tab_counts,
             'applications_label': 'My applications' if officer_only else 'Applications',
             'status_options': [{'value': value, 'label': label} for value, label in STATUS_LABELS.items()],

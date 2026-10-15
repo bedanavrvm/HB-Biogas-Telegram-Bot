@@ -18,7 +18,7 @@ async function boot(page, width, empty = false, native = false, locationCatalog 
     if (url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],location_catalog:locationCatalog,capabilities:{can_create:true,user_id:1}}});
     if (url.pathname.endsWith('/applications/')) {
       const filtered = url.searchParams.has('status') || url.searchParams.has('q');
-      const app = {id:'00000000-0000-0000-0000-000000000001',applicant_summary:{name:'Synthetic applicant with a long name',national_id:'••••0001',phone:'••••0002'},
+      const app = {id:'00000000-0000-0000-0000-000000000001',applicant_summary:{name:'Synthetic applicant with a long name',national_id:'12345678',phone:'0712345678'},
         product_name:'Training product',branch:'Embu',reference_number:'ORG-TRAINING-1',status:'correction_required',
         status_label:'Changes requested',next_action:'Make corrections',review_alert:'Please check the repayment details.'};
       const apps = empty || filtered ? [] : [app];
@@ -153,6 +153,48 @@ for (const width of [320,360,390,430,1280]) {
     await expect(page.locator('.application-card')).toHaveCount(1);
   });
 }
+for (const width of [320,390,430,1280]) for (const dark of [false,true]) {
+  test(`Origination compact cards show usable identity at ${width}px ${dark?'dark':'light'}`, async ({page},info) => {
+    await boot(page,width);
+    if(dark) await page.evaluate(()=>{
+      document.documentElement.dataset.telegramTheme='dark';
+      document.documentElement.dataset.miniappColorScheme='dark';
+      for(const [key,value] of Object.entries({'bg-color':'#17201e','secondary-bg-color':'#111816','text-color':'#f4f7f5','hint-color':'#a7b5af'}))
+        document.documentElement.style.setProperty(`--tg-theme-${key}`,value);
+    });
+    const card=page.locator('article.application-card');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.application-card-identifiers')).toContainText('12345678');
+    const phone=card.getByRole('link',{name:'Call 0712345678'});
+    await expect(phone).toHaveAttribute('href','tel:+254712345678');
+    await expect(card.getByRole('button',{name:/Open application for Synthetic applicant/})).toBeVisible();
+    await expect(card.locator('button a')).toHaveCount(0);
+    expect(await page.locator('.list-heading').evaluate(node=>node.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
+    const header=await page.locator('.origination-header').evaluate(node=>{
+      const title=node.querySelector('h1').getBoundingClientRect();
+      const settings=node.querySelector('#origination-settings-open').getBoundingClientRect();
+      return {titleTop:title.top,titleBottom:title.bottom,settingsTop:settings.top,settingsBottom:settings.bottom};
+    });
+    expect(header.settingsTop).toBeLessThan(header.titleBottom);
+    expect(header.settingsBottom).toBeGreaterThan(header.titleTop);
+    const geometry=await card.evaluate(node=>{
+      const id=node.querySelector('[data-card-id-value]').getBoundingClientRect();
+      const phone=node.querySelector('a[href^="tel:"]').getBoundingClientRect();
+      return {idTop:id.top,phoneTop:phone.top,height:node.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth};
+    });
+    expect(Math.abs(geometry.idTop-geometry.phoneTop)).toBeLessThanOrEqual(2);
+    expect(geometry.height).toBeLessThan(180);
+    expect(geometry.overflow).toBe(false);
+    let opens=0;
+    await page.route('**/applications/00000000-0000-0000-0000-000000000001/',route=>{opens++;return route.abort();});
+    await phone.click({noWaitAfter:true});
+    expect(opens).toBe(0);
+    await page.screenshot({path:info.outputPath(`cards-${width}-${dark?'dark':'light'}.png`)});
+    await card.getByRole('button',{name:/Open application for/}).click({position:{x:10,y:10}});
+    await expect.poll(()=>opens).toBe(1);
+  });
+}
+
 test('Caught up state links directly to applications', async ({page}) => {
   await boot(page,390,true);
   await expect(page.getByText('You’re caught up')).toBeVisible();

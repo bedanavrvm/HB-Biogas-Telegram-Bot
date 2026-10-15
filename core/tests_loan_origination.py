@@ -582,7 +582,7 @@ class LoanOriginationServiceTests(TestCase):
                 request_id='submit-blank',
             )
 
-    def test_queue_identity_summary_uses_canonical_applicant_values_and_masks_identifiers(self):
+    def test_queue_identity_summary_uses_canonical_values_and_respects_presentation(self):
         self.product.form_schema = {
             'identity_contract': 'applicant_v1',
             'fields': [
@@ -613,8 +613,11 @@ class LoanOriginationServiceTests(TestCase):
         summary = serialize_application(application, include_payload=False)['applicant_summary']
 
         self.assertEqual(summary['name'], 'Synthetic Applicant')
-        self.assertEqual(summary['national_id'], '••••5678')
-        self.assertEqual(summary['phone'], '••••••5678')
+        self.assertEqual(summary['national_id'], '12345678')
+        self.assertEqual(summary['phone'], '0712345678')
+        restricted = serialize_application(application, include_payload=False, presentation='masked')['applicant_summary']
+        self.assertEqual(restricted['national_id'], '••••5678')
+        self.assertEqual(restricted['phone'], '••••••5678')
 
     def test_applicant_identity_contract_uses_explicit_borrower_mappings(self):
         schema = {

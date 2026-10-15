@@ -102,6 +102,33 @@ class OriginationQueueTests(TestCase):
         self.assertEqual(len(data['status_options']), len(LoanOriginationApplication.STATUS_CHOICES))
         self.assertNotIn('_', ''.join(STATUS_LABELS.values()))
 
+    def test_owned_application_cards_show_full_identity(self):
+        access = self.access(self.officer, 'JBL_OFFICER')
+        self.application(identity_snapshot={'name': 'Synthetic applicant', 'national_id': '12345678',
+                                            'phone': '0712345678'})
+        request = RequestFactory().get('/api/origination/api/applications/', {'queue': 'applications'})
+        request.origination_user, request.origination_access = self.officer, access
+        response = portal_origination_applications(request)
+        self.assertEqual(response.status_code, 200)
+        summary = json.loads(response.content)['applications'][0]['applicant_summary']
+        self.assertEqual(summary['national_id'], '12345678')
+        self.assertEqual(summary['phone'], '0712345678')
+
+    def test_view_only_application_cards_keep_their_restricted_identity(self):
+        from core.models import WorkflowRoleCapability
+        access = self.access(self.viewer, 'OPERATIONS_ADMIN')
+        WorkflowRoleCapability.objects.filter(workflow='loan_origination', role='OPERATIONS_ADMIN',
+            capability_key__in=['origination.review', 'origination.signing.start']).update(effect='deny', enabled=False)
+        self.application(identity_snapshot={'name': 'Synthetic applicant', 'national_id': '12345678',
+                                            'phone': '0712345678'})
+        request = RequestFactory().get('/api/origination/api/applications/', {'queue': 'applications'})
+        request.origination_user, request.origination_access = self.viewer, access
+        response = portal_origination_applications(request)
+        self.assertEqual(response.status_code, 200)
+        summary = json.loads(response.content)['applications'][0]['applicant_summary']
+        self.assertNotEqual(summary['national_id'], '12345678')
+        self.assertNotEqual(summary['phone'], '0712345678')
+
     def test_every_status_filter_and_invalid_status(self):
         access = self.access(self.officer, 'JBL_OFFICER')
         for status, _ in LoanOriginationApplication.STATUS_CHOICES:

@@ -1,5 +1,51 @@
 # Known Gaps and Verified Workarounds
 
+## Origination non-OTP readiness review - 15 October 2026
+
+Origination is not given unconditional production sign-off. The detailed review,
+reproductions, evidence and recommended order are in
+`docs/audits/origination-readiness-2026-10-15.md`.
+
+- Evidence HTTP 202/pending can incorrectly show "Evidence uploaded securely."
+  Replaying an abandoned pending reservation does not resume storage. Verify
+  the saved evidence list; neither the toast nor repeated same-key retries prove
+  completion. Recovery needs a bounded lease/reconciliation fix, not blind retries.
+- Withdraw for changes returns to Draft; it is not ordinary cancellation. There
+  is no officer discard/cancel action. Testing deletion is not a business workaround.
+- Ten-row paging still calculates actionability over the authorized workload.
+  A synthetic Operations probe made 162 SQL queries for 10 authorized legacy
+  applications and 267 for 100, returning ten rows in each. This is not a latency
+  or deployed load test.
+- Broad pre-change baseline: 545 checks, 525 passed, 12 failed, 3 errored and
+  5 skipped. Many failures are outdated assertions/fixtures; the report records
+  their categories. Concise queue status labels are now fixed and tested.
+- Real Admin maintenance passed. The custom-PDF browser script stops at the
+  intentionally removed lending-fields shortcut. The attachment fixture lacks
+  its required applicant signer and correctly cannot publish the product. These
+  two unsuccessful journeys are not current end-to-end production evidence.
+
+The requested card/identity/publication changes separately passed 127 focused
+checks on fresh SQLite/Python 3.14, with one PostgreSQL-only skip, and all 46
+browser checks. An intermediate cached-database rerun lost migration-seeded
+singletons after live-server test flushing; its resulting access/audit failures
+did not reproduce on the fresh final database and are not application findings.
+
+Only authorized full-access Origination views show unredacted identifiers.
+Publishing with no signature requirements does not remove a product/application's
+separate signing requirements or rewrite any existing signed document. Source
+integrity, valid geometry, scope, revision and shared-change checks remain.
+
+Production Python 3.12/PostgreSQL, native Telegram Android/iOS downloads/camera,
+idle/restart runner recovery and actual OTP/carrier delivery remain unverified.
+Normal code/static deployment is required; no schema or environment change, live
+provider write, deployment or historical data conversion was performed here.
+
+Repository-wide gates still report 34 existing write-route inventory omissions
+and 17 artifact allowlist hash mismatches. None of those routes/artifacts or
+their allowlist entries were changed here. The documented
+`scripts/check_repository_artifacts.py` command is absent; the actual
+`scripts/audit_tracked_artifacts.py` checker was run. These gates are not green.
+
 ## Portal confirmations and direct IT settings - 15 October 2026
 
 Local SQLite/Python 3.14 checks cover routine confirmations, invoice holds,

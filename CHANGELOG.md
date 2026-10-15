@@ -1,5 +1,29 @@
 # Changelog
 
+## 15 October 2026 - Origination cards and unsigned document publication
+
+- Origination application cards show full IDs and dialable phone numbers for
+  users already entitled to full case access. Explicitly restricted views remain
+  masked; Portal and the independent Mini App role policies are unchanged.
+- Cards use a compact, aligned identity/status layout with clearer dark-mode
+  links. Removed competing card overrides and the repeated queue heading/count;
+  Settings remains at the right of the header.
+- Documents can publish without signers or with optional signers only. The
+  editor explicitly says "No signatures required" instead of warning to add a
+  signer. Editable-copy changes preserve the original published layout and
+  historical application/signing requirements; publication is not loan approval.
+- Verification: 127 focused backend tests passed on a freshly migrated SQLite
+  database; one PostgreSQL-only test was skipped. All 46 browser checks passed;
+  mobile, dark-mode and desktop screenshots were inspected. Python/JavaScript
+  syntax, Django configuration, migration drift and diff checks passed.
+- The broader non-OTP audit does not give production sign-off: interrupted
+  evidence uploads, ordinary cancellation, queue scaling and deployed recovery
+  still need work or verification. Baseline failures and real Admin journey
+  limitations are documented in
+  `docs/audits/origination-readiness-2026-10-15.md` and `KNOWN_GAPS.md`.
+- Deploy the versioned code/static assets normally. No migration or environment
+  change is required. No production deployment or provider write was performed.
+
 ## 15 October 2026 - Routine confirmations and immediate IT settings
 
 - Portal uses one compact confirmation for routine invoice actions and removing

@@ -193,3 +193,53 @@ test('alignment warnings allow publication and placed items stay compact and gre
   expect(publishRequest.revision).toBe(2);
   expect(configuration.field_overlay_manifest.fields.email.box).toEqual({x:50,y:50,width:180,height:20});
 });
+
+for (const optional of [false, true]) {
+  test(`Document publication allows ${optional ? 'optional signers only' : 'no signers'}`, async ({page}, info) => {
+    const markup = '<!doctype html><meta charset="utf-8">' + render('editor');
+    const configuration = {document_type:'unsigned',version:1,
+      field_overlay_manifest:{fields:{}},signature_overlay_manifest:{slots:{}},sample_context:{}};
+    const readiness = {can_publish:true,blockers:[],tasks:[
+      {key:'fields',label:'Add a field',section:'fields',blocking:false}]};
+    const signers = optional ? [{role:'borrower',label:'Borrower',required:false}] : [];
+    let published = false;
+    let revision = 1;
+    await page.route(/^https?:\/\//, route => {
+      const url = new URL(route.request().url());
+      if (url.origin !== 'http://127.0.0.1:8124') return route.abort();
+      if (url.pathname === '/') return route.fulfill({contentType:'text/html',body:markup});
+      if (url.pathname.endsWith('/calibration-state/')) return route.fulfill({json:{configuration,revision:1,schema_revision:1,
+        page_sizes:[{page_number:1,width:595,height:842}],context_keys:[],readiness,signers,
+        signer_roles:[['borrower','Borrower']],signature_slots:[],
+        details:{name:'Unsigned document',products:[]},shared_review:{required:false}}});
+      if (url.pathname.endsWith('/calibration-page/')) return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842"><rect width="100%" height="100%" fill="white"/></svg>'});
+      if (url.pathname.endsWith('/editor-readiness/')) return route.fulfill({json:{readiness,shared_review:{required:false}}});
+      if (url.pathname.endsWith('/calibration-save/')) return route.fulfill({json:{revision:++revision,
+        configuration:route.request().postDataJSON().configuration,readiness}});
+      if (url.pathname.endsWith('/calibration-publish/')) {
+        published = true;
+        return route.fulfill({json:{ok:true,revision}});
+      }
+      return route.abort();
+    });
+    await page.goto('http://127.0.0.1:8124/');
+    await page.addStyleTag({content:'body{font:14px/1.4 Arial,sans-serif;margin:0;background:#f5f7fa}button,input{font:inherit}'});
+    await page.addStyleTag({path:path.join(root,'origination/static/admin/origination_calibration.css')});
+    await page.addScriptTag({path:path.join(root,'origination/static/admin/origination_calibration.js')});
+    await expect(page.locator('#calibration-publish')).toBeEnabled();
+    await expect(page.locator('#document-signer-list')).toContainText('No signatures required.');
+    for (const width of [390,1280]) {
+      await page.setViewportSize({width,height:900});
+      if (width < 761) await page.locator('#cal-mobile-fields').click();
+      await expect(page.locator('#document-signer-list')).toBeVisible();
+      await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
+      await expect(page.locator('#calibration-publish')).toBeEnabled();
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:info.outputPath(`unsigned-document-${width}.png`)});
+      if (width < 761) await page.keyboard.press('Escape');
+    }
+    await page.locator('#calibration-publish').click();
+    await expect(page.locator('#calibration-status')).toContainText('Document published');
+    expect(published).toBe(true);
+  });
+}
