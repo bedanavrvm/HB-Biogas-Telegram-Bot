@@ -1,8 +1,8 @@
-"""Controlled personal preferences and maker-checker TAT configuration.
+"""Controlled personal preferences and audited TAT configuration.
 
 Definitions remain in code so an admin can never create an unvalidated live
-setting through a Mini App.  High-impact values are proposed first and applied
-only by a different authorised reviewer.
+setting through a Mini App. Authorized TAT IT saves apply directly; legacy
+configuration proposals retain their independent review path.
 """
 from __future__ import annotations
 
@@ -195,6 +195,13 @@ def _capable(actor: dict, capability: str) -> bool:
     return capability in set(actor.get('capabilities') or [])
 
 
+def can_save_tat_configuration_directly(actor: dict, setting_key: str) -> bool:
+    capabilities = SETTING_CAPABILITIES.get(setting_key)
+    roles = {str(role or '').strip().upper() for role in (actor.get('roles') or [])}
+    return bool(capabilities and ('IT' in roles or actor.get('technical_override'))
+                and all(_capable(actor, capability) for capability in capabilities))
+
+
 def _request_user(actor: dict):
     user_id = actor.get('user_id')
     user = get_user_model().objects.filter(pk=user_id).first()
@@ -232,6 +239,14 @@ def _escalation_snapshot(config) -> dict[str, Any]:
         {'threshold_percent': rule.threshold_percent, 'routing_role': rule.routing_role, 'branch': rule.branch}
         for rule in config.tat_escalation_rules.filter(active=True).order_by('branch', 'threshold_percent')
     ]}
+
+
+def _configuration_snapshot(config, setting_key: str) -> dict[str, Any]:
+    if setting_key == WorkflowConfigurationChangeRequest.SETTING_TARGETS:
+        return {'targets': (config.workflow or {}).get('tat_targets_minutes') or {}}
+    if setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
+        return _holiday_snapshot()
+    return _escalation_snapshot(config)
 
 
 def _normalise_holidays(payload: Any) -> dict[str, Any]:
@@ -322,7 +337,10 @@ def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
         pending = pending.exclude(setting_key=WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS)
     cards = {}
     for setting_key, (propose, approve) in SETTING_CAPABILITIES.items():
-        cards[setting_key] = {'can_propose': _capable(actor, propose), 'can_approve': _capable(actor, approve)}
+        cards[setting_key] = {
+            'can_propose': _capable(actor, propose), 'can_approve': _capable(actor, approve),
+            'can_save_directly': can_save_tat_configuration_directly(actor, setting_key),
+        }
     if not presentation['business_time_enabled']:
         cards[WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS] = {
             'can_propose': False, 'can_approve': False, 'available': False,
@@ -367,13 +385,16 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
         before, after = _holiday_snapshot(), _normalise_holidays(proposed)
     else:
         before, after = _escalation_snapshot(config), _normalise_escalation(proposed)
-    if before == after:
-        raise ValueError('The proposed setting is unchanged.')
     requester = _request_user(actor)
     if request_id:
         existing = WorkflowConfigurationChangeRequest.objects.filter(requested_by=requester, request_id=request_id).first()
         if existing:
+            if (existing.group_configuration_id != config.pk or existing.setting_key != setting_key
+                    or existing.proposed_snapshot != after):
+                raise ValueError('This save identifier was already used for a different settings change.')
             return existing
+    if before == after:
+        raise ValueError('The proposed setting is unchanged.')
     return WorkflowConfigurationChangeRequest.objects.create(
         setting_key=setting_key, group_configuration=config, before_snapshot=before, proposed_snapshot=after,
         reason=reason, requested_by=requester, request_id=request_id,
@@ -381,22 +402,56 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
 
 
 @transaction.atomic
+def save_tat_configuration(config, actor: dict, *, setting_key: str, proposed: Any,
+                           reason: str = '', request_id: str = ''):
+    """Apply authorized IT saves atomically; preserve the legacy proposal path."""
+    direct = can_save_tat_configuration_directly(actor, setting_key)
+    requester = _request_user(actor)
+    if not requester.is_active:
+        raise PermissionError('Your staff account is inactive.')
+    config = _tat_database_configuration(config)
+    config = GroupSheetConfiguration.objects.select_for_update().get(pk=config.pk)
+    proposal = create_tat_configuration_request(
+        config, actor, setting_key=setting_key, proposed=proposed,
+        reason=str(reason or '').strip() or ('Settings saved by authorized IT.' if direct else ''),
+        request_id=request_id,
+    )
+    if direct and proposal.status == WorkflowConfigurationChangeRequest.STATUS_PENDING:
+        if _configuration_snapshot(config, setting_key) != proposal.before_snapshot:
+            raise ValueError('These settings changed elsewhere. Refresh before saving again.')
+        return review_tat_configuration_request(
+            str(proposal.pk), actor, approve=True,
+            review_comment='Saved directly by authorized IT.',
+        )
+    return proposal
+
+
+@transaction.atomic
 def review_tat_configuration_request(request_id: str, actor: dict, *, approve: bool, review_comment: str = ''):
-    # group_configuration is nullable, so load it only through the explicit
-    # locked lookup below instead of outer-joining it into FOR UPDATE.
+    # Use the same configuration-before-request lock order as a direct save.
+    # The nullable relation must not be outer-joined into FOR UPDATE.
+    config_id = WorkflowConfigurationChangeRequest.objects.values_list(
+        'group_configuration_id', flat=True,
+    ).get(pk=request_id)
+    config = GroupSheetConfiguration.objects.select_for_update().get(pk=config_id) if config_id else None
     request = WorkflowConfigurationChangeRequest.objects.select_for_update().select_related('requested_by').get(pk=request_id)
+    if request.group_configuration_id != config_id:
+        raise ValueError('This settings change moved elsewhere. Refresh before trying again.')
     if request.setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
         from core.services.tat_presentation import business_time_enabled
         if not business_time_enabled():
             raise ValueError('Business Calendar reviews are unavailable while business-hours TAT is globally hidden.')
     approve_capability = SETTING_CAPABILITIES[request.setting_key][1]
     actor_roles = {str(role or '').strip().upper() for role in (actor.get('roles') or [])}
-    if not actor_roles.intersection({BUSINESS_ADMIN_ROLE, 'IT'}) or not _capable(actor, approve_capability):
+    reviewer = _request_user(actor)
+    superuser_override = reviewer.is_active and reviewer.is_superuser
+    if not reviewer.is_active or (not superuser_override and (
+        not actor_roles.intersection({BUSINESS_ADMIN_ROLE, 'IT'}) or not _capable(actor, approve_capability)
+    )):
         raise PermissionError('Only an authorised Business Admin or scoped IT user can approve this setting change.')
-    it_override = 'IT' in actor_roles
+    it_override = 'IT' in actor_roles or superuser_override
     if it_override and len(str(review_comment or '').strip()) < 8:
         raise ValueError('IT override approval requires a reason of at least 8 characters.')
-    reviewer = _request_user(actor)
     if reviewer.pk == request.requested_by_id and not it_override:
         raise PermissionError('A different authorised Business Admin or scoped IT user must review this change.')
     if request.status != WorkflowConfigurationChangeRequest.STATUS_PENDING:
@@ -408,7 +463,10 @@ def review_tat_configuration_request(request_id: str, actor: dict, *, approve: b
         request.status = WorkflowConfigurationChangeRequest.STATUS_REJECTED
         request.save(update_fields=['reviewed_by', 'reviewed_at', 'review_comment', 'status'])
         return request
-    config = GroupSheetConfiguration.objects.select_for_update().get(pk=request.group_configuration_id)
+    if config is None:
+        raise ValueError('The TAT group configuration is no longer available.')
+    if _configuration_snapshot(config, request.setting_key) != request.before_snapshot:
+        raise ValueError('These settings changed elsewhere. Refresh before saving again.')
     if request.setting_key == WorkflowConfigurationChangeRequest.SETTING_TARGETS:
         workflow = dict(config.workflow or {})
         workflow['tat_targets_minutes'] = request.proposed_snapshot['targets']

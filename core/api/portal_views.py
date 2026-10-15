@@ -8551,6 +8551,8 @@ def portal_invoice_name_change_close(request, item_id: str):
         return scope_error
     body = _json_body(request)
     action = str(body.get('action') or '').strip().lower()
+    if action not in {'cancel', 'withdraw'}:
+        return JsonResponse({'ok': False, 'error': 'Choose cancel or withdraw.'}, status=400)
     try:
         item = close_name_change(
             item,
@@ -8558,6 +8560,7 @@ def portal_invoice_name_change_close(request, item_id: str):
             reason=str(body.get('reason') or ''),
             hb_communication_reference=str(body.get('hb_communication_reference') or ''),
             withdraw=action == 'withdraw',
+            hb_notified=body.get('hb_notified') is True,
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)

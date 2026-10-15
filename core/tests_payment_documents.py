@@ -218,7 +218,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         )
         return batch
 
-    def test_payment_readiness_keeps_catalogue_mapping_as_an_advisory(self):
+    def test_payment_readiness_does_not_surface_internal_catalogue_mapping(self):
         farmer = self.farmer(payment_product='Legacy Biogas Package')
         self.invoice_batch(farmer)
 
@@ -226,7 +226,23 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
         self.assertEqual(readiness['ready_count'], 1)
         self.assertEqual(readiness['blocked_count'], 0)
-        self.assertIn('Global product mapping is pending', readiness['ready'][0]['warnings'])
+        self.assertNotIn('Global product mapping is pending', readiness['ready'][0]['warnings'])
+        self.assertEqual(readiness['ready'][0]['row']['product'], 'LEGACY BIOGAS PACKAGE')
+
+    def test_sysup_product_label_without_mapping_is_selectable_and_addable(self):
+        from core.services.portal_payment_candidates import payment_candidate_rows
+        from payments.services import add_cases, create_batch
+        farmer = self.farmer(payment_product='SysUp Loan Plan', product=None, product_version=None)
+        self.invoice_batch(farmer)
+        batch = create_batch(group_configuration=GroupSheetConfiguration.objects.get(group_id='-100payment-documents-test'))
+        rows = payment_candidate_rows([farmer], batch=batch, pending_reviews={})
+        self.assertTrue(rows[0]['selectable'])
+        self.assertEqual(rows[0]['unavailable_reason'], '')
+        self.assertEqual(rows[0]['row']['product'], 'SYSUP LOAN PLAN')
+        batch = add_cases(batch.pk, farmer_ids=[str(farmer.pk)],
+                          payment_modes={str(farmer.pk): 'LOAN-JAWABU'}, expected_revision=batch.revision,
+                          request_id='add-unmapped-sysup-product')
+        self.assertTrue(batch.case_memberships.filter(farmer=farmer, is_active=True).exists())
 
     def test_payment_readiness_uses_canonical_invoice_match_when_legacy_case_lacks_invoice_number(self):
         farmer = self.farmer(invoice_number='')

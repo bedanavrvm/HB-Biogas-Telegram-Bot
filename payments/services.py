@@ -491,9 +491,7 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
 
 @transaction.atomic
 def remove_case(batch_id, farmer_id, *, reason: str, expected_revision, actor=None, request_id=''):
-    reason = str(reason or '').strip()
-    if not reason:
-        raise PaymentBatchError('Give a reason for removing this case from the payment batch.')
+    reason = str(reason or '').strip() or 'Case removed by staff confirmation.'
     replayed = _replayed_batch(
         request_id, action='case_removed', batch_id=batch_id,
         metadata={'farmer_id': str(farmer_id), 'reason': reason},

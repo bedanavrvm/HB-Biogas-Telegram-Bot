@@ -159,8 +159,8 @@
       '/api/tat-tracker/tasks/resolve/': 'Opening the assigned task',
       '/api/tat-tracker/settings/': 'Loading TAT settings',
       '/api/tat-tracker/settings/personal/': 'Saving your TAT settings',
-      '/api/tat-tracker/settings/proposals/': 'Saving the settings proposal',
-      '/api/tat-tracker/settings/proposals/review/': 'Reviewing the settings proposal',
+      '/api/tat-tracker/settings/proposals/': 'Saving settings',
+      '/api/tat-tracker/settings/proposals/review/': 'Updating settings',
       '/api/tat-tracker/target-settings/': 'Saving TAT targets',
       '/api/tat-tracker/target-settings/sync/': 'Synchronising the TAT target sheet',
       '/api/tat-tracker/recognition/': 'Loading recognition standings',
@@ -1656,25 +1656,21 @@
       list.innerHTML = '';
       return;
     }
-    list.innerHTML = `<div class="form-heading"><h2>Pending configuration reviews</h2><p>${isItOverride ? 'IT overrides require confirmation and an audit reason.' : 'Approve only changes you did not propose.'}</p></div>${pending.map((item) => `
+    list.innerHTML = `<div class="form-heading"><h2>Pending settings changes</h2><p>${isItOverride ? 'Apply or discard an earlier change.' : 'Review changes submitted for approval.'}</p></div>${pending.map((item) => `
       <article class="settings-review-item">
         <strong>${escapeHtml(item.setting_key.replace(/_/g, ' '))}</strong>
         <span>${escapeHtml(item.reason)}</span>
         <small>${escapeHtml(item.requested_by)} · ${escapeHtml(item.requested_at)}</small>
-        <div class="form-actions"><button class="secondary" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="true">Approve</button><button class="ghost-btn" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="false">Reject</button></div>
+        <div class="form-actions"><button class="secondary" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="true">${isItOverride ? 'Apply change' : 'Approve'}</button><button class="ghost-btn" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="false">${isItOverride ? 'Discard' : 'Reject'}</button></div>
       </article>`).join('')}`;
     list.classList.remove('hidden');
     list.querySelectorAll('[data-review-setting]').forEach((button) => button.addEventListener('click', async () => {
       try {
         let reviewComment = '';
         if (isItOverride) {
-          const decision = button.dataset.reviewApprove === 'true' ? 'approve and apply' : 'reject';
-          if (!window.confirm(`Use scoped IT override to ${decision} this configuration change?`)) return;
-          reviewComment = String(window.prompt('Record the reason for this IT override:') || '').trim();
-          if (reviewComment.length < 8) {
-            setStatus('IT override reason must be at least 8 characters.', 'error');
-            return;
-          }
+          const decision = button.dataset.reviewApprove === 'true' ? 'apply' : 'discard';
+          if (!window.confirm(`${decision === 'apply' ? 'Apply' : 'Discard'} this settings change?`)) return;
+          reviewComment = `Settings change ${decision === 'apply' ? 'applied' : 'discarded'} by authorized IT confirmation.`;
         }
         setButtonLoading(button, true, button.dataset.reviewApprove === 'true' ? 'Approving' : 'Rejecting');
         await api('/api/tat-tracker/settings/proposals/review/', {
@@ -1753,14 +1749,26 @@
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
+    setSettingsSaveMode(targetCard, 'targetSettingsReason', 'saveTargetSettingsBtn', 'Save targets', 'Submit target change');
     if (targetCard.can_propose) {
       renderTargetSettings(configuration.targets || []);
       renderTargetSheetSync(configuration.target_sheet_sync || {}, result.data.account || {});
     }
     const escalationCard = (configuration.cards || {}).tat_escalation || {};
     $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
+    setSettingsSaveMode(escalationCard, 'escalationSettingsReason', 'saveEscalationSettingsBtn', 'Save escalation rules', 'Submit escalation change');
     if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
     renderConfigurationReviews(configuration, result.data.account || {});
+  }
+
+  function setSettingsSaveMode(card, reasonId, buttonId, directLabel, proposalLabel) {
+    const reason = $(reasonId);
+    if (reason) {
+      reason.required = !card.can_save_directly;
+      reason.closest('label').hidden = Boolean(card.can_save_directly);
+      reason.closest('label').classList.toggle('hidden', Boolean(card.can_save_directly));
+    }
+    if ($(buttonId)) $(buttonId).textContent = card.can_save_directly ? directLabel : proposalLabel;
   }
 
   async function saveTargetSettings() {
@@ -1768,13 +1776,13 @@
       targets: targetSettingsPayload(), reason: $('targetSettingsReason').value.trim(),
     });
     $('targetSettingsReason').value = '';
-    setStatus(`Target change proposed (${result.data.proposal_id}). Awaiting a different authorised Business Admin.`, 'ok');
+    setStatus(result.data.status === 'approved' ? 'Targets saved.' : 'Target change submitted for approval.', 'ok');
     await loadSettings();
   }
 
   async function saveConfigurationSettings(settingKey, proposed, reason) {
     const result = await api('/api/tat-tracker/settings/proposals/', { setting_key: settingKey, proposed, reason });
-    setStatus(`Configuration change proposed (${result.data.proposal_id}). Awaiting a different authorised Business Admin.`, 'ok');
+    setStatus(result.data.status === 'approved' ? 'Settings saved.' : 'Settings change submitted for approval.', 'ok');
     await loadSettings();
   }
 

@@ -481,12 +481,16 @@ class PaymentBatchServiceTests(TestCase):
             remove_case(batch.id, farmer.id, reason='Too late', expected_revision=batch.revision)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
-    def test_remove_requires_reason(self, _readiness):
+    def test_remove_uses_confirmation_without_a_manual_audit_note(self, _readiness):
         farmer = self.farmer('07')
         batch = self.batch()
         batch = self.add(batch, farmer)
-        with self.assertRaisesMessage(PaymentBatchError, 'Give a reason'):
-            remove_case(batch.id, farmer.id, reason='', expected_revision=batch.revision)
+        result = remove_case(batch.id, farmer.id, reason='', expected_revision=batch.revision,
+                             actor=self.user, request_id='remove-by-confirmation')
+        membership = result.case_memberships.get(farmer=farmer)
+        self.assertFalse(membership.is_active)
+        self.assertEqual(membership.removed_by, self.user)
+        self.assertEqual(membership.removed_reason, 'Case removed by staff confirmation.')
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_cancelling_releases_case_but_keeps_membership_history(self, _readiness):

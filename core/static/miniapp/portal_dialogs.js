@@ -122,5 +122,49 @@
     }
   });
 
-  window.PortalDialogs = { topOverlay };
+  function confirmAction(title, message, confirmLabel = 'Confirm') {
+    if (document.querySelector('.invoice-action-confirm-overlay')) return Promise.resolve(false);
+    return new Promise(resolve => {
+      const previousFocus = document.activeElement;
+      const parents = Array.from(document.querySelectorAll('.sheet-overlay.open')).filter(node => !node.inert);
+      parents.forEach(node => { node.inert = true; });
+      const overlay = document.createElement('div');
+      overlay.className = 'invoice-action-confirm-overlay';
+      overlay.innerHTML = '<section class="invoice-action-confirm" role="dialog" aria-modal="true" aria-labelledby="invoice-action-confirm-title">'
+        + '<h2 id="invoice-action-confirm-title"></h2><p></p><div class="invoice-action-confirm-buttons">'
+        + '<button type="button" class="btn btn-secondary" data-confirm-cancel>Cancel</button>'
+        + '<button type="button" class="btn btn-primary" data-confirm-yes></button></div></section>';
+      overlay.querySelector('h2').textContent = title;
+      overlay.querySelector('p').textContent = message;
+      overlay.querySelector('[data-confirm-yes]').textContent = confirmLabel;
+      document.body.appendChild(overlay);
+      let settled = false;
+      function close(confirmed) {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKeydown, true);
+        overlay.remove();
+        parents.forEach(node => { node.inert = false; });
+        if (previousFocus?.isConnected) previousFocus.focus();
+        resolve(confirmed);
+      }
+      function onKeydown(event) {
+        if (event.key === 'Escape') {
+          event.preventDefault(); event.stopImmediatePropagation(); close(false);
+        } else if (event.key === 'Tab') {
+          event.stopImmediatePropagation();
+          const buttons = Array.from(overlay.querySelectorAll('button'));
+          if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[1].focus(); }
+          else if (!event.shiftKey && document.activeElement === buttons[1]) { event.preventDefault(); buttons[0].focus(); }
+        }
+      }
+      overlay.querySelector('[data-confirm-cancel]').onclick = () => close(false);
+      overlay.querySelector('[data-confirm-yes]').onclick = () => close(true);
+      overlay.onclick = event => { if (event.target === overlay) close(false); };
+      document.addEventListener('keydown', onKeydown, true);
+      overlay.querySelector('[data-confirm-cancel]').focus();
+    });
+  }
+
+  window.PortalDialogs = { topOverlay, confirmAction };
 })();

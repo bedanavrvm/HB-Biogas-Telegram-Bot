@@ -285,13 +285,13 @@
       <form id="targetSettingsForm" class="form-card hidden">
         <div class="form-heading">
           <h2>TAT Targets</h2>
-          <p>Set every product stage in minutes. Total target is optional and otherwise uses the applicable loan-cycle stage sum. A different authorised Business Admin must approve changes.</p>
+          <p>Set stage targets in minutes. Changes apply when a case enters its next stage.</p>
         </div>
         <div id="targetSheetSyncStatus" class="settings-attention hidden" role="status" aria-live="polite"></div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
         <label>Reason for change<textarea id="targetSettingsReason" required placeholder="Why is this target changing?"></textarea></label>
         <div class="form-actions">
-          <button id="saveTargetSettingsBtn" type="submit" class="primary">Propose target change</button>
+          <button id="saveTargetSettingsBtn" type="submit" class="primary">Save targets</button>
         </div>
       </form>
       <form id="escalationSettingsForm" class="form-card hidden">
@@ -302,7 +302,7 @@
         <div id="escalationSettingsList" class="settings-row-list" aria-live="polite"></div>
         <button id="addEscalationSettingBtn" type="button" class="secondary">Add escalation rule</button>
         <label>Reason for change<textarea id="escalationSettingsReason" required placeholder="Why is this escalation route changing?"></textarea></label>
-        <div class="form-actions"><button id="saveEscalationSettingsBtn" type="submit" class="primary">Propose escalation change</button></div>
+        <div class="form-actions"><button id="saveEscalationSettingsBtn" type="submit" class="primary">Save escalation rules</button></div>
       </form>
       <section id="configurationReviewList" class="form-card hidden" aria-live="polite"></section>
     </section>
@@ -487,6 +487,6 @@
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
 <link rel="stylesheet" href="{% static 'miniapp/miniapp_recovery.css' %}?v=1">
 <script src="{% static 'miniapp/miniapp_recovery.js' %}?v=1"></script>
-<script src="{% static 'miniapp/tat_tracker.js' %}?v=131"></script>
+<script src="{% static 'miniapp/tat_tracker.js' %}?v=132"></script>
 </body>
 </html>

@@ -1076,14 +1076,14 @@ def tat_tracker_target_settings(request):
     if error:
         return error
     from core.services.tat_tracker import tat_target_settings
-    from core.services.miniapp_settings import create_tat_configuration_request
+    from core.services.miniapp_settings import save_tat_configuration
     capability_error = _tat_capability_error(user, 'tat.settings.targets.propose', group_config)
     if capability_error:
         return capability_error
     if 'targets' not in payload:
         return JsonResponse({'ok': True, 'data': {'targets': tat_target_settings(group_config.workflow)}})
     try:
-        proposal = create_tat_configuration_request(
+        proposal = save_tat_configuration(
             group_config, user, setting_key='tat_targets', proposed=payload.get('targets'),
             reason=payload.get('reason', ''), request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
         )
@@ -1253,9 +1253,9 @@ def tat_tracker_settings_request(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
-    from core.services.miniapp_settings import create_tat_configuration_request
+    from core.services.miniapp_settings import save_tat_configuration
     try:
-        proposal = create_tat_configuration_request(
+        proposal = save_tat_configuration(
             group_config, user, setting_key=str(payload.get('setting_key') or ''),
             proposed=payload.get('proposed') or {}, reason=payload.get('reason') or '',
             request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
@@ -1281,6 +1281,13 @@ def tat_tracker_settings_review(request):
     from core.models import WorkflowConfigurationChangeRequest
     from core.services.miniapp_settings import review_tat_configuration_request
     try:
+        from uuid import UUID
+        from core.services.telegram_identity import database_group_configuration
+        if not WorkflowConfigurationChangeRequest.objects.filter(
+            pk=UUID(str(payload.get('proposal_id') or '')),
+            group_configuration=database_group_configuration(group_config),
+        ).exists():
+            raise PermissionError('This settings change is outside the selected TAT group.')
         proposal = review_tat_configuration_request(
             str(payload.get('proposal_id') or ''), user,
             approve=str(payload.get('approve') or '').strip().lower() in {'1', 'true', 'yes', 'approve'},

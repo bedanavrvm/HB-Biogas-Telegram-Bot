@@ -431,12 +431,9 @@ def _row_payload(
     if not _final_approval_satisfies_payment_readiness(farmer):
         missing.append('Current final approval')
 
-    if farmer.payment_product and not farmer.product_version_id:
-        # Product mapping is catalogue governance work, not a reason to hold
-        # an already reviewed payment draft. The signed scan is the point at
-        # which the physical payment document becomes final.
-        warnings.append('Global product mapping is pending')
-    elif farmer.product_version_id:
+    # SysUp's saved product label is sufficient for the payment workbook.
+    # Catalogue administration is not an officer-facing payment warning.
+    if farmer.product_version_id:
         from core.services.product_catalog import missing_product_requirements
 
         product_missing = missing_product_requirements(

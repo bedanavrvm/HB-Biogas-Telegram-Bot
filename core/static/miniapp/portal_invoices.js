@@ -683,13 +683,21 @@
 
   async function decideInvoiceIdentity(invoiceId, outcome) {
     const title = outcome === 'same_person_confirmed' ? 'Confirm same person' : outcome === 'flagged_for_review' ? 'Flag for specialist review' : 'Confirm different person';
+    if (outcome === 'flagged_for_review') {
+      if (!await confirmInvoiceAction(title, 'Keep this invoice on hold for identity review?', 'Flag for review')) return;
+      return saveInvoiceIdentityDecision(invoiceId, outcome, '');
+    }
     const values = await openInvoiceWorkflowSheet(title, [
       '<div class="form-row"><label>Verification note</label><textarea name="note" rows="4" required placeholder="Record the evidence and reason for this decision."></textarea></div>',
-    ].join(''), outcome === 'flagged_for_review' ? 'Flag for review' : 'Save decision');
+    ].join(''), 'Save decision');
     if (!values) return;
+    return saveInvoiceIdentityDecision(invoiceId, outcome, values.note.trim());
+  }
+
+  async function saveInvoiceIdentityDecision(invoiceId, outcome, note) {
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/identity-review/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
-      body: JSON.stringify({ outcome: outcome, note: values.note.trim(), client_request_id: requestId() }),
+      body: JSON.stringify({ outcome, note, client_request_id: requestId() }),
     });
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Identity verification failed.', 'error');
     loadDetail(invoiceId);
@@ -764,42 +772,9 @@
   }
 
   function confirmInvoiceAction(title, message, confirmLabel) {
-    return new Promise(function (resolve) {
-      const previousFocus = document.activeElement;
-      const overlay = document.createElement('div');
-      overlay.className = 'invoice-action-confirm-overlay';
-      overlay.innerHTML = [
-        '<section class="invoice-action-confirm" role="dialog" aria-modal="true" aria-labelledby="invoice-action-confirm-title">',
-        '<h2 id="invoice-action-confirm-title">' + escapeHtml(title) + '</h2>',
-        '<p>' + escapeHtml(message) + '</p>',
-        '<div class="invoice-action-confirm-buttons"><button type="button" class="btn btn-secondary" data-confirm-cancel>Cancel</button>',
-        '<button type="button" class="btn btn-primary" data-confirm-yes>' + escapeHtml(confirmLabel) + '</button></div>',
-        '</section>',
-      ].join('');
-      document.body.appendChild(overlay);
-      let settled = false;
-      function close(confirmed) {
-        if (settled) return;
-        settled = true;
-        document.removeEventListener('keydown', onKeydown);
-        overlay.remove();
-        previousFocus?.focus?.();
-        resolve(confirmed);
-      }
-      function onKeydown(event) {
-        if (event.key === 'Escape') close(false);
-        if (event.key === 'Tab') {
-          const buttons = Array.from(overlay.querySelectorAll('button'));
-          if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1].focus(); }
-          else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0].focus(); }
-        }
-      }
-      overlay.querySelector('[data-confirm-cancel]').addEventListener('click', function () { close(false); });
-      overlay.querySelector('[data-confirm-yes]').addEventListener('click', function () { close(true); });
-      overlay.addEventListener('click', function (event) { if (event.target === overlay) close(false); });
-      document.addEventListener('keydown', onKeydown);
-      overlay.querySelector('[data-confirm-cancel]').focus();
-    });
+    return window.PortalDialogs?.confirmAction
+      ? window.PortalDialogs.confirmAction(title, message, confirmLabel)
+      : Promise.resolve(window.confirm(title + '\n\n' + message));
   }
 
   async function startInvoiceNameChange(invoice) {
@@ -913,10 +888,7 @@
   async function confirmReplacementSelection(itemId, row, revision) {
     const invoice = row.invoice || {id:row.invoice_id, revision:row.invoice_revision};
     const warnings = (row.warnings || []).map(text => '<p class="invoice-card-warning">' + escapeHtml(text) + '</p>').join('');
-    return openInvoiceWorkflowSheet('Confirm corrected invoice',
-      '<p>The national ID matches the applicant.</p>' + warnings +
-      '<div class="form-row"><label for="corrected-invoice-note">Phone verification note' + (row.phone_note_required ? ' (required)' : ' (optional)') + '</label><textarea id="corrected-invoice-note" name="verification_note" rows="3" maxlength="500"' + (row.phone_note_required ? ' required' : '') + '></textarea></div>',
-      'Confirm replacement', async values => {
+    const save = async values => {
         const result = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/replacement/', {
           method:'POST', headers:{'Content-Type':'application/json', ...csrfHeader()},
           body:JSON.stringify({replacement_invoice_id:invoice.id, revision, invoice_revision:invoice.revision,
@@ -924,7 +896,17 @@
         });
         if (!result.ok || !result.data?.ok) throw new Error(result.data?.message || result.data?.error || 'Could not confirm the replacement.');
         deps.showToast('Corrected invoice confirmed.', 'success');
-      });
+    };
+    if (!row.phone_note_required) {
+      const message = ['Use invoice ' + (invoice.invoice_no || '') + ' as the corrected invoice?', ...(row.warnings || [])].join(' ');
+      if (!await confirmInvoiceAction('Confirm corrected invoice', message, 'Confirm replacement')) return false;
+      try { await save({}); return true; }
+      catch (error) { deps.showToast(error.message || 'Could not confirm the replacement.', 'error'); return false; }
+    }
+    return openInvoiceWorkflowSheet('Confirm corrected invoice',
+      '<p>The national ID matches the applicant.</p>' + warnings +
+      '<div class="form-row"><label for="corrected-invoice-note">Phone verification note (required)</label><textarea id="corrected-invoice-note" name="verification_note" rows="3" maxlength="500" required></textarea></div>',
+      'Confirm replacement', save);
   }
 
   async function downloadInvoiceLetter(artifactId, button) {
@@ -1094,12 +1076,10 @@
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.message || response.data?.error || 'Could not match invoice.');
     };
     if (hasConflict) {
-      const values = await openInvoiceWorkflowSheet('Confirm invoice conflict', '<p class="invoice-card-warning">This applicant already has an invoice. Continue only when this is a deliberate correction.</p><div class="form-row"><label for="invoice-conflict-note">Reason</label><textarea id="invoice-conflict-note" name="note" rows="3" required></textarea></div>', 'Continue matching', values => save(values.note));
-      if (!values) return;
-    } else {
-      try { await save(''); }
-      catch (error) { deps.showToast(error.message || 'Could not match invoice.', 'error'); return; }
+      if (!await confirmInvoiceAction('Replace matched invoice?', 'This applicant already has an invoice. Continue only if the selected invoice should replace it.', 'Replace invoice')) return;
     }
+    try { await save(''); }
+    catch (error) { deps.showToast(error.message || 'Could not match invoice.', 'error'); return; }
     deps.showToast(response.data?.drive_archive_warning || 'Invoice matched.', response.data?.drive_archive_warning ? 'warning' : 'success');
     closeMatchOverlay();
     load(state.page);
@@ -1391,14 +1371,13 @@
 
   async function closeNameChangeRequest(itemId, action) {
     const withdraw = action === 'withdraw';
-    const values = await openInvoiceWorkflowSheet(withdraw ? 'Withdraw sent request' : 'Cancel request', [
-      '<div class="form-row"><label>Reason</label><textarea name="reason" rows="4" required></textarea></div>',
-      withdraw ? '<div class="form-row"><label>HB communication reference</label><input name="hb_communication_reference" required><span class="field-help">Record the email, message, or call reference confirming withdrawal.</span></div>' : '',
-    ].join(''), withdraw ? 'Withdraw request' : 'Cancel request');
-    if (!values) return;
+    const message = withdraw
+      ? 'Confirm that HB has been told to disregard the sent request. Existing letters remain in history; this does not approve the invoice or release its identity hold.'
+      : 'Cancel this unsent request? No letter will be sent. The invoice and its history will remain.';
+    if (!await confirmInvoiceAction(withdraw ? 'Withdraw sent request?' : 'Cancel request?', message, withdraw ? 'Confirm withdrawal' : 'Cancel request')) return;
     const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/close/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
-      body: JSON.stringify({ action: action, reason: values.reason, hb_communication_reference: values.hb_communication_reference || '' }),
+      body: JSON.stringify({ action, hb_notified: withdraw, client_request_id: requestId() }),
     });
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not close the request.', 'error');
     deps.showToast(withdraw ? 'Request withdrawn.' : 'Request cancelled.', 'success');
@@ -1406,8 +1385,7 @@
   }
 
   async function startNameChangeFollowUp(itemId) {
-    const values = await openInvoiceWorkflowSheet('Start follow-up request', '<p>The previous record and sent artifacts stay unchanged. Identity must be verified again before this follow-up can enter a new letter.</p>', 'Start follow-up');
-    if (!values) return;
+    if (!await confirmInvoiceAction('Start follow-up request?', 'The previous request and letters remain unchanged. Identity must be verified again before preparing a new letter.', 'Start follow-up')) return;
     const key = requestId();
     const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/follow-up/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, ...csrfHeader() }, body: JSON.stringify({ client_request_id: key }),

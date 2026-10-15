@@ -477,6 +477,8 @@ def decide_identity_review(review: InvoiceIdentityReview, *, outcome: str, actor
     }:
         raise ValueError('Unsupported identity review outcome.')
     note = str(note or '').strip()
+    if not note and outcome == InvoiceIdentityReview.STATUS_FLAGGED:
+        note = 'Flagged for identity review by staff confirmation.'
     if not note:
         raise ValueError('A verification note is required.')
     invoice_id = normalize_national_id(review.invoice.customer_id)
@@ -678,31 +680,33 @@ def _refresh_batch_terminal_status(batch: InvoiceNameChangeBatch | None) -> None
 @transaction.atomic
 def close_name_change(
     item: InvoiceNameChangeItem, *, actor: str, reason: str,
-    hb_communication_reference: str = '', withdraw: bool = False,
+    hb_communication_reference: str = '', withdraw: bool = False, hb_notified: bool = False,
 ) -> InvoiceNameChangeItem:
     item = InvoiceNameChangeItem.objects.select_for_update().select_related('farmer').get(pk=item.pk)
     prior_batch = (
         InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
         if item.batch_id else None
     )
-    reason = str(reason or '').strip()
+    reason = str(reason or '').strip() or (
+        'Sent request withdrawn by staff confirmation.' if withdraw
+        else 'Unsent request cancelled by staff confirmation.'
+    )
     communication = str(hb_communication_reference or '').strip()
-    if not reason:
-        raise ValueError('A reason is required.')
+    target = 'withdrawn' if withdraw else 'cancelled'
+    if item.status == target:
+        return item
     if withdraw:
+        if item.status != 'awaiting_replacement':
+            raise ValueError('Only an outstanding sent request can be withdrawn.')
         if not prior_batch or prior_batch.status not in {'sent_to_hb', 'awaiting_replacements'}:
             raise ValueError('Only a request whose letter was sent to HB can be withdrawn.')
-        if not communication:
-            raise ValueError('The HB communication reference is required for withdrawal.')
-        target = 'withdrawn'
+        if not communication and hb_notified is not True:
+            raise ValueError('Confirm that HB has been notified before withdrawing the sent request.')
         action = 'invoice_name_change_withdrawn'
     else:
         if item.status != 'draft' or (prior_batch and prior_batch.status != 'draft'):
             raise ValueError('Only an unsent request can be cancelled.')
-        target = 'cancelled'
         action = 'invoice_name_change_cancelled'
-    if item.status == target:
-        return item
     item.status = target
     item.closed_reason = reason
     item.hb_communication_reference = communication
@@ -721,7 +725,8 @@ def close_name_change(
     _record_case_event(
         item.farmer, action=action, actor=actor,
         request_id=f'{action}:{item.id}:{item.revision}',
-        metadata={'item_id': str(item.id), 'reason': reason, 'hb_reference': communication},
+        metadata={'item_id': str(item.id), 'reason': reason, 'hb_reference': communication,
+                  'hb_notified': bool(communication) or hb_notified is True},
     )
     _refresh_batch_terminal_status(prior_batch)
     return item

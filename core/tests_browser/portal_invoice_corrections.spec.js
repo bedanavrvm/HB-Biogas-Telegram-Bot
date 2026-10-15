@@ -51,12 +51,12 @@ for (const width of [320, 390, 430, 1280]) {
   });
 }
 
-async function mountCorrection(page) {
+async function mountCorrection(page, phoneNoteRequired = false) {
   await page.setViewportSize({width:390,height:844});
   await mountPortalShell(page, '<div id="portal-screen" data-screen="invoices" data-invoice-view="detail" data-invoice-id="synthetic-invoice"><div id="invoice-detail-page"></div></div>');
   await page.evaluate(() => document.body.classList.add('portal-app','workflow-standard'));
   for (const name of ['utils.js','portal_dialogs.js','portal_invoices.js']) await page.addScriptTag({path:asset(name)});
-  await page.evaluate(async () => {
+  await page.evaluate(async phoneNoteRequired => {
     const person={name:'Synthetic Applicant',national_id:'12345678'};
     window.saveAttempts=[];
     window.letterLinkRequests=0;
@@ -74,17 +74,17 @@ async function mountCorrection(page) {
         }
         if (url.includes('replacement-candidates')) return {ok:true,data:{ok:true,revision:3,candidates:[{
           invoice:{id:'replacement',revision:7,invoice_no:'TEST-2',customer_name:'S. Applicant',customer_id:'12345678',status:'unmatched'},
-          id_match:true,name_match:false,selectable:true,phone_note_required:false,warnings:['The name differs. National ID matches.']}]}};
+          id_match:true,name_match:false,selectable:true,phone_note_required:phoneNoteRequired,warnings:['The name differs. National ID matches.']}]}};
         return {ok:true,data:{ok:true,invoice:{id:'synthetic-invoice',revision:4,status:'matched',invoice_no:'TEST-1',customer_name:person.name,
           identity:{invoice_identity:person,applicant_identity:person,name_change:{id:'correction',status:'awaiting_replacement',
             latest_letter:{id:'letter-artifact',filename:'Old label.docx',download_url:'https://example.invalid/expired'}}}},batch:{},events:[],duplicates:[]}};
       }});
     await PortalMiniAppInvoices.load();
-  });
+  }, phoneNoteRequired);
 }
 
 test('corrected invoice accepts name warning and preserves editable note after failure', async ({page},info) => {
-  await mountCorrection(page);
+  await mountCorrection(page, true);
   await page.locator('.invoice-name-change-replacement').click();
   await expect(page.locator('.choose-replacement')).toBeEnabled();
   await page.locator('.choose-replacement').click();
@@ -110,6 +110,21 @@ test('letter download refreshes the link, names the actual file and respects can
   await page.locator('.invoice-name-change-download').click();
   await page.locator('[data-confirm-yes]').click();
   expect(await page.evaluate(()=>window.downloads)).toEqual([{url:'https://example.invalid/fresh-2',filename:'Synthetic Letter v2.docx'}]);
+});
+
+test('corrected invoice without a phone discrepancy uses a confirmation with no note', async ({page}, info) => {
+  await mountCorrection(page);
+  await page.locator('.invoice-name-change-replacement').click();
+  await page.locator('.choose-replacement').click();
+  await expect(page.locator('.invoice-action-confirm')).toContainText(/national ID matches/i);
+  await expect(page.locator('.invoice-action-confirm input, .invoice-action-confirm textarea')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath('corrected-invoice-confirmation.png')});
+  await page.locator('[data-confirm-cancel]').click();
+  expect(await page.evaluate(() => window.saveAttempts)).toHaveLength(0);
+  await page.locator('.choose-replacement').click();
+  await page.locator('[data-confirm-yes]').click();
+  expect(await page.evaluate(() => window.saveAttempts)).toHaveLength(1);
+  await expect(page.locator('.choose-replacement')).toBeEnabled();
 });
 
 test('download handler falls back when Telegram exposes an unsupported download method', () => {

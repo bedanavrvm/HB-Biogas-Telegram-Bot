@@ -815,9 +815,12 @@
   }
 
   async function removeCase(card, button) {
-    const reason = window.prompt('Why are you removing this case from the payment batch?', '');
-    if (!reason?.trim()) return;
-    await mutate(`/payments/batches/${activeBatch.id}/cases/${card.dataset.paymentCase}/remove/`, {reason: reason.trim()}, button, 'Removing...');
+    const message = 'Remove this case from the unsigned payment? It can be added to another payment. This payment will need review again.';
+    const confirmed = window.PortalDialogs?.confirmAction
+      ? await window.PortalDialogs.confirmAction('Remove case?', message, 'Remove case')
+      : window.confirm(message);
+    if (!confirmed) return;
+    await mutate(`/payments/batches/${activeBatch.id}/cases/${card.dataset.paymentCase}/remove/`, {}, button, 'Removing...');
   }
 
   async function cancelBatch(button) {

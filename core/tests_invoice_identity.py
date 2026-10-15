@@ -535,6 +535,39 @@ class InvoiceIdentityWorkflowTests(TestCase):
             farmer=self.farmer, code='duplicate_related_person_national_id', active=True,
         ).exists())
 
+    def test_sent_request_withdrawal_requires_hb_notification_but_no_typed_reference(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        review = ensure_identity_review(original, self.farmer)
+        decide_identity_review(review, outcome='different_person_confirmed', actor='Operations', note='Confirmed spouse.')
+        item = create_name_change(
+            review, actor='Operations', relationship_type='spouse', related_name='Jane Wanjiku',
+            related_national_id='87654321', related_phone='0700000000',
+            attestation_note='Relationship verified.', evidence_reference='synthetic-evidence',
+            client_request_id='withdraw-confirmation-request',
+        )
+        batch = item.batch
+        batch.legacy_manual_letter_allowed = True
+        batch.save(update_fields=['legacy_manual_letter_allowed'])
+        mark_name_change_sent(batch, actor='Operations', letter_reference='synthetic-letter', sent_reference='')
+        item.refresh_from_db()
+        with self.assertRaisesRegex(ValueError, 'HB has been notified'):
+            close_name_change(item, actor='Operations', reason='', withdraw=True)
+        result = close_name_change(item, actor='Operations', reason='', withdraw=True, hb_notified=True)
+        self.assertEqual(result.status, 'withdrawn')
+        self.assertEqual(result.hb_communication_reference, '')
+        self.assertEqual(result.closed_reason, 'Sent request withdrawn by staff confirmation.')
+        self.assertTrue(identity_gate(original, self.farmer)['blocker'])
+        replay = close_name_change(item, actor='Operations', reason='', withdraw=True, hb_notified=True)
+        self.assertEqual(replay.revision, result.revision)
+
+    def test_flag_for_review_does_not_require_retyping_the_action_as_a_note(self):
+        invoice = self.invoice(customer_id='87654321', customer_name='Synthetic invoice holder')
+        review = ensure_identity_review(invoice, self.farmer)
+        result = decide_identity_review(review, outcome='flagged_for_review', actor='Operations', note='')
+        self.assertEqual(result.status, 'flagged_for_review')
+        self.assertEqual(result.decision_note, 'Flagged for identity review by staff confirmation.')
+        self.assertTrue(identity_gate(invoice, self.farmer)['blocker'])
+
     def test_cancelled_request_can_start_linked_follow_up_that_requires_reverification(self):
         original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
         review = ensure_identity_review(original, self.farmer)
@@ -548,7 +581,10 @@ class InvoiceIdentityWorkflowTests(TestCase):
             related_phone='0700000000', attestation_note='Relationship verified.',
             evidence_reference='evidence-1', client_request_id='cancel-request-1',
         )
-        close_name_change(item, actor='Operations', reason='Request was opened in error.')
+        closed = close_name_change(item, actor='Operations', reason='')
+        self.assertEqual(closed.closed_reason, 'Unsent request cancelled by staff confirmation.')
+        replay = close_name_change(item, actor='Operations', reason='')
+        self.assertEqual(closed.revision, replay.revision)
 
         follow_up = create_name_change_follow_up(
             item, actor='Operations', client_request_id='follow-up-request-1',

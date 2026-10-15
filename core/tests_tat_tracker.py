@@ -2490,6 +2490,154 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Emergency IT override', reviewed.review_comment)
         self.assertEqual(self.config.workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'], 30)
 
+    def test_it_settings_save_applies_without_waiting_for_approval(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        result = save_tat_configuration(
+            self.config, actor, setting_key='tat_targets', reason='',
+            proposed={'business': {'total_minutes': '1440', 'stages': {'mpesa_to_admin': '30'}}},
+            request_id='direct-it-targets-save',
+        )
+        self.config.refresh_from_db()
+        self.assertEqual(result.status, WorkflowConfigurationChangeRequest.STATUS_APPROVED)
+        self.assertEqual(result.reviewed_by_id, self.it_user.pk)
+        self.assertIsNotNone(result.applied_at)
+        self.assertEqual(self.config.workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'], 30)
+
+    def test_direct_it_settings_replay_is_bound_to_group_setting_and_values(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        proposed = {'business': {'total_minutes': '1440', 'stages': {'mpesa_to_admin': '30'}}}
+        first = save_tat_configuration(self.config, actor, setting_key='tat_targets', proposed=proposed,
+                                       request_id='direct-target-replay')
+        self.config.refresh_from_db()
+        version = self.config.workflow['settings_version']
+        replay = save_tat_configuration(self.config, actor, setting_key='tat_targets', proposed=proposed,
+                                        request_id='direct-target-replay')
+        self.assertEqual(first.pk, replay.pk)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.workflow['settings_version'], version)
+        with self.assertRaisesRegex(ValueError, 'different settings change'):
+            save_tat_configuration(self.config, actor, setting_key='tat_targets',
+                                   proposed={'business': {'total_minutes': '1800'}},
+                                   request_id='direct-target-replay')
+        with self.assertRaisesRegex(ValueError, 'different settings change'):
+            save_tat_configuration(
+                self.config, actor, setting_key='tat_escalation',
+                proposed={'rules': [{'threshold_percent': 150, 'routing_role': 'BRANCH_MANAGER', 'branch': ''}]},
+                request_id='direct-target-replay',
+            )
+        other = GroupSheetConfiguration.objects.create(
+            group_id='-100-other-setting-replay', display_name='Other TAT', workflow=self.config.workflow,
+        )
+        with self.assertRaisesRegex(ValueError, 'different settings change'):
+            save_tat_configuration(other, actor, setting_key='tat_targets', proposed=proposed,
+                                   request_id='direct-target-replay')
+
+    def test_direct_it_escalation_and_calendar_saves_apply_and_retain_history(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        request = save_tat_configuration(
+            self.config, actor, setting_key='tat_escalation',
+            proposed={'rules': [{'threshold_percent': 150, 'routing_role': 'BRANCH_MANAGER', 'branch': ''}]},
+            request_id='direct-escalation-save',
+        )
+        self.assertEqual(request.status, WorkflowConfigurationChangeRequest.STATUS_APPROVED)
+        self.assertTrue(self.config.tat_escalation_rules.filter(active=True, threshold_percent=150).exists())
+        with patch('core.services.tat_presentation.business_time_enabled', return_value=True):
+            request = save_tat_configuration(
+                self.config, actor, setting_key='business_calendar',
+                proposed={'holidays': [{'date': (timezone.localdate() + timedelta(days=5)).isoformat(),
+                                       'name': 'Synthetic holiday', 'active': True}]},
+                request_id='direct-calendar-save',
+            )
+        self.assertEqual(request.status, WorkflowConfigurationChangeRequest.STATUS_APPROVED)
+        self.assertIsNotNone(request.applied_at)
+
+    def test_portal_it_grant_does_not_authorize_tat_settings(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        AccessGrant.objects.create(user=self.bro_user, workflow='jawabu_portal', role='IT',
+                                   group_configuration=self.config)
+        actor = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        with self.assertRaises(PermissionError):
+            save_tat_configuration(self.config, actor, setting_key='tat_targets',
+                                   proposed={'business': {'total_minutes': '1440'}},
+                                   request_id='unauthorized-portal-it-save')
+
+    def test_inactive_it_account_cannot_apply_settings(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        self.it_user.is_active = False
+        self.it_user.save(update_fields=['is_active'])
+        with self.assertRaisesRegex(PermissionError, 'inactive'):
+            save_tat_configuration(self.config, actor, setting_key='tat_targets',
+                                   proposed={'business': {'total_minutes': '1440'}}, request_id='inactive-it-save')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_it_target_settings_endpoint_saves_directly_and_replays(self):
+        from core.api.views import tat_tracker_target_settings
+        payload = {
+            'group_id': self.config.group_id, 'init_data': self.signed_init_data('444', 'it_user'),
+            'client_request_id': 'direct-target-api-save',
+            'targets': {'business': {'total_minutes': '1440', 'stages': {'mpesa_to_admin': '45'}}},
+        }
+        for _attempt in range(2):
+            request = RequestFactory().post(reverse('tat_tracker_target_settings'),
+                                             data=json.dumps(payload), content_type='application/json')
+            response = tat_tracker_target_settings(request)
+            self.assertEqual(response.status_code, 200, response.content.decode())
+            self.assertEqual(json.loads(response.content)['data']['status'], 'approved')
+        self.assertEqual(WorkflowConfigurationChangeRequest.objects.filter(request_id='direct-target-api-save').count(), 1)
+
+    def test_active_superuser_settings_save_does_not_need_a_synthetic_it_grant(self):
+        from core.services.miniapp_settings import SETTING_CAPABILITIES, save_tat_configuration
+        root = get_user_model().objects.create_superuser('direct-settings-root', password='synthetic-only')
+        actor = {'user_id': root.pk, 'technical_override': True, 'roles': [],
+                 'capabilities': list(SETTING_CAPABILITIES['tat_targets'])}
+        result = save_tat_configuration(self.config, actor, setting_key='tat_targets',
+                                        proposed={'business': {'total_minutes': '1440'}},
+                                        request_id='direct-root-setting-save')
+        self.assertEqual(result.status, 'approved')
+        self.assertEqual(result.reviewed_by, root)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_settings_review_cannot_cross_the_selected_tat_group(self):
+        from core.api.views import tat_tracker_settings_review
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        proposal = create_tat_configuration_request(
+            self.config, actor, setting_key='tat_targets', reason='Synthetic legacy change.',
+            proposed={'business': {'total_minutes': '1440'}}, request_id='legacy-group-setting',
+        )
+        other = GroupSheetConfiguration.objects.create(group_id='-100-other-settings', display_name='Other TAT',
+                                                       workflow={'type': 'tat_tracker'})
+        WorkflowConfigurationChangeRequest.objects.filter(pk=proposal.pk).update(group_configuration=other)
+        request = RequestFactory().post(reverse('tat_tracker_settings_review'), data=json.dumps({
+            'group_id': self.config.group_id, 'init_data': self.signed_init_data('444', 'it_user'),
+            'proposal_id': str(proposal.pk), 'approve': True, 'review_comment': 'Apply existing change.',
+            'client_request_id': 'cross-group-settings-review',
+        }), content_type='application/json')
+        response = tat_tracker_settings_review(request)
+        self.assertEqual(response.status_code, 403)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, 'pending')
+
+    def test_stale_pending_settings_cannot_overwrite_a_direct_save(self):
+        from core.services.miniapp_settings import save_tat_configuration
+        actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        pending = create_tat_configuration_request(
+            self.config, actor, setting_key='tat_targets', reason='Earlier proposed target.',
+            proposed={'business': {'total_minutes': '1200'}}, request_id='earlier-pending-target',
+        )
+        save_tat_configuration(self.config, actor, setting_key='tat_targets',
+                               proposed={'business': {'total_minutes': '1800'}}, request_id='newer-direct-target')
+        with self.assertRaisesRegex(ValueError, 'changed elsewhere'):
+            review_tat_configuration_request(str(pending.pk), actor, approve=True,
+                                             review_comment='Apply earlier settings.')
+        self.config.refresh_from_db()
+        pending.refresh_from_db()
+        self.assertEqual(self.config.workflow['tat_targets_minutes']['business']['total'], 1800)
+        self.assertEqual(pending.status, 'pending')
+
     def test_stage_target_is_frozen_when_case_enters_stage(self):
         self.config.workflow['tat_targets_minutes'] = {'business': {'stages': {'mpesa_to_admin': 30}}}
         self.config.save(update_fields=['workflow', 'updated_at'])

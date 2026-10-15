@@ -252,7 +252,7 @@ Key modules:
 - `miniapp_requests.py` — shared canonical Mini App request-key binding, strict-mode policy, and response metadata
 - `miniapp_idempotency.py` — privacy-safe daily legacy-write aggregates used by production readiness
 - `miniapp_messages.py` — versioned plain-language Mini App message catalogue, compatibility contract, correlation references, and privacy-safe error boundary
-- `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
+- `miniapp_settings.py` — typed preferences and audited TAT settings; authorized IT saves apply immediately. Before changing routine confirmations or direct settings saves, read ADR 0053; access grants and loan/payment approvals remain separate.
 - `tat_presentation.py` — global audited TAT Mini App presentation policy, including the optional business-hours visibility switch
 - `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
 - `request_throttling.py` — database-backed focused abuse limits using only keyed identity/network digests; never applies to Telegram webhook retries

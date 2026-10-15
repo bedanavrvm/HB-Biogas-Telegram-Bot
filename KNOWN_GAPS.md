@@ -1,5 +1,20 @@
 # Known Gaps and Verified Workarounds
 
+## Portal confirmations and direct IT settings - 15 October 2026
+
+Local SQLite/Python 3.14 checks cover routine confirmations, invoice holds,
+payment eligibility with a SysUp product label, direct TAT IT saves and scoped
+denials. Browser screenshots cover 320-1280px, keyboard operation and both themes.
+Production Python 3.12/PostgreSQL locks and actual Telegram devices remain
+unverified. Run the affected suites on staging before release; do not remove
+identity, signed-document or financial approval guards to bypass a failure.
+The two baseline payment-document failures below remain unchanged.
+
+The product-mapping message was advisory in the inspected code, not the actual
+selection blocker. It is removed from payment readiness. If an existing case
+still cannot be added, use its stated readiness reason to correct the order,
+invoice, identity or approval facts; arbitrary product text never grants access.
+
 ## Portal invoice corrections - 15 October 2026
 
 Corrected-invoice, exact-duplicate, unmatch and letter-download regressions are

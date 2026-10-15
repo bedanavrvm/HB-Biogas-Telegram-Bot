@@ -1,5 +1,27 @@
 # Changelog
 
+## 15 October 2026 - Routine confirmations and immediate IT settings
+
+- Portal uses one compact confirmation for routine invoice actions and removing
+  a case from an unsigned payment. Cancel makes no change. Identity evidence,
+  actual corrections, uploads and financial decision comments remain inputs.
+- Withdrawing a sent invoice-name request confirms that HB was notified; staff
+  no longer type a communication reference. The invoice hold and history remain.
+- A saved SysUp product label no longer shows an internal catalogue-mapping
+  warning in payment readiness. Ready cases can be selected and added without a
+  global product version; actual invoice, order and approval checks remain.
+- Authorized TAT IT saves settings immediately, retaining validation and audit
+  history. Replays cannot change the setting/group/values, and stale pending
+  changes cannot overwrite a newer save. Other apps' roles, access-grant review,
+  and business/payment/signing approvals are unchanged.
+- Verification: 184 backend checks passed; the two existing payment-document
+  failures listed in `KNOWN_GAPS.md` remain. All 15 browser checks passed, with
+  mobile/desktop light/dark screenshots inspected. JavaScript syntax, Django
+  configuration and migration-drift checks passed. See
+  `docs/runbooks/portal-action-confirmations.md` for scope and rollout limits.
+- No schema, dependency or environment changes. No production deployment or
+  provider writes were performed; PostgreSQL and Telegram-device checks remain.
+
 ## 15 October 2026 - Accurate Origination SMS feedback
 
 - Signing invitations and verification codes require confirmed provider
