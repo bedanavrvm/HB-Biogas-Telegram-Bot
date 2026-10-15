@@ -126,7 +126,9 @@ def _perform(operation):
         result = _send_sms('JBL: your signing request was withdrawn for changes. Your application was not rejected. '
                            'Please wait for a new signing link; the earlier link and signatures are no longer valid.',
                            session.phone_normalized)
-        if not result.get('id') or str(result.get('status', '')).casefold() not in {'success', 'accepted', 'sent', 'queued', '101'}:
+        if not result.get('id') or str(result.get('status', '')).casefold() not in {
+            'success', 'accepted', 'processed', 'sent', 'queued', '100', '101', '102',
+        }:
             raise RuntimeError('The SMS provider did not accept the withdrawal notification.')
         return result
     notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').filter(pk=operation.source_id).first()

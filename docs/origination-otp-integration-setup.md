@@ -136,12 +136,13 @@ Important rules:
 - `ORIGINATION_SIGNING_BASE_URL` is optional. When set, it must be an approved
   HTTPS origin routing to this Django service and its host must be included in
   `ALLOWED_HOSTS`. Leave it blank to use `APP_BASE_URL`.
-- Sandbox runtime works only when `SENTRY_ENVIRONMENT` is one of `development`,
-  `dev`, `local`, `test`, `testing`, or `staging`. Readiness additionally
-  requires `RELEASE_ENVIRONMENT` to use one of those non-production values.
 - Sandbox requires `AFRICASTALKING_USERNAME=sandbox`.
 - Production requires `AFRICASTALKING_SMS_ENVIRONMENT=production`, a live
-  non-sandbox username/API key, and `SENTRY_ENVIRONMENT=production`.
+  non-sandbox username/API key, a funded account and an approved Sender ID
+  (or an explicitly provider-approved shared sender).
+- Logging/release labels describe the deployment, not the SMS account. Keep
+  `SENTRY_ENVIRONMENT` and `RELEASE_ENVIRONMENT` as staging/testing when using
+  live SMS for a controlled test; they do not enable or disable OTP delivery.
 - Any mismatch fails closed and the Mini App reports that verified signing is
   disabled or not configured.
 - New invitations use compact `/s/#<token>` URLs. The secret remains in the
@@ -542,7 +543,7 @@ are immutable.
 
 | Problem | Check |
 |---|---|
-| Verified signing is disabled | Confirm the enable flag, provider environment, username, API key, `SENTRY_ENVIRONMENT`, and redeployment. All must agree. |
+| Verified signing is disabled | Confirm the enable flag, provider environment, matching username/API key and redeployment. Logging environment labels are independent. |
 | Sandbox SMS does not arrive on a real phone | This is expected. Check the registered number's Africa's Talking simulator inbox. |
 | Nothing appears in the simulator | Confirm the simulator session is logged in, the same number is registered, and that exact number is in the signer's mapped canonical field. |
 | `InvalidPhoneNumber` | Confirm a complete Kenyan `01...`, `07...`, or `+2541...`/`+2547...` mobile number. |
@@ -554,6 +555,32 @@ are immutable.
 | Stamp is not listed | Confirm it is active, marked `Production`, and either global or assigned to the application's branch. |
 | Provider says Sent but signer received nothing | Sent/Accepted is not Delivered. Inspect the later delivery report and carrier behavior. |
 | Archive failed | Verify Drive credentials/folder access, then retry archival. Do not ask signers to sign again. |
+
+### SMS acceptance and delivery feedback
+
+An SMS submission needs an explicit accepted result and a message ID. The
+documented immediate codes 100, 101 and 102 mean processed, sent and queued;
+none proves delivery to the phone. A rejected response is recorded as failed.
+A missing/malformed response or network timeout remains unconfirmed, because
+the message might still arrive. Raw SMS contents and provider bodies are not
+copied into the integration error record.
+
+Only a later `Success` or `Delivered` delivery report confirms handset receipt.
+`Sent`, `Submitted` and `Buffered` remain accepted/awaiting delivery. Delayed
+intermediate/unknown reports cannot overwrite a final delivered/failed result.
+These callbacks never verify an OTP, add a signature or approve an application.
+Historical delivery rows are not bulk-reclassified by this change; existing
+signatures and signed documents are untouched.
+
+Repeating the same request does not send another SMS and never changes an
+unconfirmed/rejected send into success. For codes, wait for the existing
+cooldown before requesting a fresh code; contact the JBL officer if the problem
+continues. For failed invitations, correct the provider issue first, then use
+the existing Reset / reissue action. Do not automatically retry a timed-out
+send: it may already have been accepted and charged.
+
+Provider references: [SMS response and delivery codes](https://help.africastalking.com/en/articles/16150386-messaging-error-codes),
+[delivery stages](https://help.africastalking.com/en/articles/742491-why-did-my-messages-fail).
 
 ## Production activation checklist
 
@@ -574,8 +601,9 @@ Do not switch to production until all Sandbox checks pass.
 - [ ] Africa's Talking live username, API key, balance, and approved Sender ID
       are ready.
 - [ ] Production environment variables are configured with
-      `AFRICASTALKING_SMS_ENVIRONMENT=production` and
-      `SENTRY_ENVIRONMENT=production`.
+      `AFRICASTALKING_SMS_ENVIRONMENT=production` and the matching live
+      application username/API key. Set logging/release labels to production
+      only when the deployment itself is production.
 - [ ] A separately approved, small real-SMS smoke test is scheduled using
       controlled Safaricom and Airtel numbers.
 - [ ] `ORIGINATION_ESIGN_ENABLED` remains easy to disable if the smoke test

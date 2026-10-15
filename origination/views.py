@@ -1496,7 +1496,7 @@ def origination_signer_otp(request):
             challenge = dispatch_otp(challenge, code)
         session = challenge.session
     except ExternalOperationError as exc:
-        return _public_signing_error(request, exc, fallback_code='service_unavailable')
+        return _public_signing_error(request, exc, fallback_code='signing_code_send_failed')
     except (OriginationError, TypeError, ValueError) as exc:
         return _public_signing_error(request, exc)
     return _public_signing_response(request, JsonResponse({
@@ -1575,7 +1575,7 @@ def portal_origination_signer_session(request, application_id: str):
             participant_id=str(body.get('participant_id') or ''),
         )
         invitation = {}
-        if not replayed and session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
+        if session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
             invitation = send_signing_invitation(session, raw_token, request_id=_request_id(request, body))
         url = signing_url(raw_token)
     except OriginationSigningPackage.DoesNotExist:

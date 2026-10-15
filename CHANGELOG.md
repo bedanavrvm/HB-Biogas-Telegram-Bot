@@ -1,5 +1,22 @@
 # Changelog
 
+## 15 October 2026 - Accurate Origination SMS feedback
+
+- Signing invitations and verification codes require confirmed provider
+  acceptance and a message ID. Rejected or malformed responses no longer appear
+  successful; repeated failed requests do not send another SMS or claim success.
+- Sent, Submitted and Buffered are awaiting delivery, not proof of receipt.
+  Delayed intermediate reports cannot erase a final delivery/failure result.
+- Signers receive a clear retry/contact-officer message when a code's send
+  cannot be confirmed. Delivery reports still never sign or approve anything.
+- Verification: 119 focused tests passed; two PostgreSQL-only concurrency tests
+  were skipped on local SQLite/Python 3.14. Python compilation and diff checks
+  passed. Ruff was unavailable locally; Python 3.12/PostgreSQL and live carrier
+  checks remain unverified.
+- No schema or environment changes are required. No credentials were changed,
+  paid SMS sent or production deployment performed. Deploy the code, then run a
+  separately authorized live SMS check before broad production use.
+
 ## 15 October 2026 - Portal invoice corrections and payment controls
 
 - Payment preview/cancel are compact header icons; case search and Close share

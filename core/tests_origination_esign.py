@@ -1,7 +1,7 @@
 from datetime import timedelta
 import hashlib
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pypdf import PdfReader, PdfWriter
 
@@ -9,6 +9,8 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
+from core.models import IntegrationOperation
+from core.services.external_resilience import ExternalOperationError
 from origination.models import (
     LoanOriginationApplication,
     OriginationOtpChallenge,
@@ -25,10 +27,12 @@ from origination.services.origination_esign import (
     _legacy_session_token,
     _session_token,
     create_signer_session,
+    dispatch_otp,
     esign_enabled,
     issue_otp,
     resolve_session,
     reset_signer_session,
+    record_delivery_report,
     record_consent_and_signature,
     send_signing_invitation,
     signed_package_content,
@@ -43,6 +47,7 @@ from origination.services.origination_signing import (
 )
 from origination.views import (
     portal_origination_current_signing_packet,
+    portal_origination_signer_session,
     portal_origination_signed_packet,
 )
 
@@ -516,6 +521,202 @@ class OriginationVerifiedSigningTests(TestCase):
         )
         challenge.refresh_from_db()
         self.assertEqual(challenge.delivery_status, OriginationOtpChallenge.DELIVERY_DELIVERED)
+
+    def test_sent_receipt_does_not_claim_handset_delivery(self):
+        session, _token, _ = self._session('sent-receipt-session')
+        challenge = OriginationOtpChallenge.objects.create(
+            session=session, code_hash='synthetic-hash', binding_sha256='a' * 64,
+            provider_message_id='synthetic-sent-message', send_sequence=1,
+            request_id='sent-receipt-otp', expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        response = self.client.post(
+            '/api/origination/webhooks/africastalking/delivery/',
+            {'id': challenge.provider_message_id, 'status': 'Sent'},
+        )
+        self.assertEqual(response.status_code, 200)
+        challenge.refresh_from_db()
+        self.assertEqual(challenge.delivery_status, OriginationOtpChallenge.DELIVERY_ACCEPTED)
+        self.assertIsNone(challenge.verified_at)
+        self.assertFalse(OriginationSigningAction.objects.filter(package=self.package).exists())
+
+    def _sms_session(self, key):
+        session, token, _ = self._session(key)
+        record_consent_and_signature(
+            raw_token=token, consent=True, access_mode='self_service', ip_hash='synthetic-sms-ip',
+            request_id=f'{key}-consent', reviewed_pages=[1, 2],
+            signature_capture={'method': 'typed', 'name': 'Synthetic Borrower'},
+        )
+        return session, token
+
+    def _otp_request(self, token, key):
+        return self.client.post(
+            '/api/origination/sign/api/otp/', {}, content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {token}', HTTP_X_REQUEST_ID=key,
+        )
+
+    def test_rejected_otp_and_its_request_replay_never_report_success(self):
+        session, token = self._sms_session('rejected-otp-session')
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': [{
+            'statusCode': 405, 'status': 'InsufficientBalance', 'messageId': '',
+        }]}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            for _attempt in range(2):
+                response = self._otp_request(token, 'rejected-otp-request')
+                self.assertEqual(response.status_code, 503)
+                self.assertFalse(response.json()['ok'])
+                self.assertEqual(response.json()['code'], 'signing_code_send_failed')
+                self.assertIn('JBL officer', response.json()['message'])
+        sdk.SMS.send.assert_called_once()
+        challenge = session.otp_challenges.get()
+        self.assertEqual(challenge.delivery_status, OriginationOtpChallenge.DELIVERY_FAILED)
+        self.assertEqual(challenge.provider_status, 'InsufficientBalance')
+        self.assertEqual(challenge.provider_message_id, '')
+        operation = IntegrationOperation.objects.get(operation_type='origination_signing_otp')
+        self.assertEqual(operation.status, IntegrationOperation.STATUS_DEAD_LETTER)
+        self.assertEqual(operation.attempts, 1)
+        self.assertIsNone(challenge.verified_at)
+        self.assertFalse(self.package.actions.exists())
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'signing_pending')
+
+    def test_unconfirmed_otp_response_does_not_report_success_on_retry(self):
+        session, token = self._sms_session('unconfirmed-otp-session')
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': []}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            first = self._otp_request(token, 'unconfirmed-otp-request')
+            replay = self._otp_request(token, 'unconfirmed-otp-request')
+        self.assertEqual(first.status_code, 503)
+        self.assertEqual(replay.status_code, 503)
+        sdk.SMS.send.assert_called_once()
+        self.assertEqual(session.otp_challenges.get().delivery_status, OriginationOtpChallenge.DELIVERY_UNKNOWN)
+
+    def test_otp_timeout_remains_unknown_and_does_not_resend_on_retry(self):
+        session, token = self._sms_session('timeout-otp-session')
+        sdk = Mock()
+        sdk.SMS.send.side_effect = TimeoutError('Synthetic network timeout')
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            first = self._otp_request(token, 'timeout-otp-request')
+            replay = self._otp_request(token, 'timeout-otp-request')
+        self.assertEqual(first.status_code, 503)
+        self.assertEqual(replay.status_code, 503)
+        sdk.SMS.send.assert_called_once()
+        self.assertEqual(session.otp_challenges.get().delivery_status, OriginationOtpChallenge.DELIVERY_UNKNOWN)
+
+    def test_inflight_otp_is_not_reported_as_sent(self):
+        session, token = self._sms_session('inflight-otp-session')
+        with patch('core.services.external_resilience.execute_operation', return_value=None):
+            first = self._otp_request(token, 'inflight-otp-request')
+            replay = self._otp_request(token, 'inflight-otp-request')
+        self.assertEqual(first.status_code, 503)
+        self.assertEqual(replay.status_code, 503)
+        self.assertEqual(session.otp_challenges.get().delivery_status, OriginationOtpChallenge.DELIVERY_UNKNOWN)
+
+    def test_successful_otp_retry_sends_once_and_keeps_final_receipt(self):
+        session, token = self._sms_session('accepted-otp-session')
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': [{
+            'statusCode': 102, 'status': 'Queued', 'messageId': 'synthetic-accepted-otp',
+        }]}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            first = self._otp_request(token, 'accepted-otp-request')
+            replay = self._otp_request(token, 'accepted-otp-request')
+            self.assertEqual(first.status_code, 201)
+            self.assertEqual(replay.status_code, 200)
+            self.assertEqual(first.json()['session']['otp']['delivery_status'], 'accepted')
+            challenge = session.otp_challenges.get()
+            self.assertTrue(record_delivery_report(
+                provider_message_id=challenge.provider_message_id, provider_status='Delivered',
+            ))
+            # A stale local object plus an operation replay cannot erase Delivered.
+            dispatch_otp(challenge, '000000')
+        sdk.SMS.send.assert_called_once()
+        challenge.refresh_from_db()
+        self.assertEqual(challenge.delivery_status, OriginationOtpChallenge.DELIVERY_DELIVERED)
+        self.assertEqual(challenge.provider_status, 'Delivered')
+        self.assertIsNone(challenge.verified_at)
+        self.assertFalse(self.package.actions.exists())
+
+    def test_callback_statuses_are_informational_and_terminal_receipts_do_not_regress(self):
+        session, _token, _ = self._session('receipt-order-session')
+        challenge = OriginationOtpChallenge.objects.create(
+            session=session, code_hash='synthetic-hash', binding_sha256='a' * 64,
+            provider_message_id='synthetic-ordered-message', send_sequence=1,
+            request_id='receipt-order-otp', expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        for status, expected in (
+            ('Sent', 'accepted'), ('Submitted', 'accepted'), ('Buffered', 'accepted'),
+            ('Unknown', 'accepted'), ('Failed', 'failed'), ('Sent', 'failed'),
+            ('Unknown', 'failed'), ('Success', 'delivered'), ('Rejected', 'delivered'),
+            ('Sent', 'delivered'), ('Unknown', 'delivered'), ('Delivered', 'delivered'),
+        ):
+            with self.subTest(status=status, expected=expected):
+                self.client.post('/api/origination/webhooks/africastalking/delivery/', {
+                    'messageId': challenge.provider_message_id, 'deliveryStatus': status,
+                }, content_type='application/json')
+                challenge.refresh_from_db()
+                self.assertEqual(challenge.delivery_status, expected)
+                self.assertIsNone(challenge.verified_at)
+        self.assertFalse(self.package.actions.exists())
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'signing_pending')
+
+    def test_invitation_rejection_stays_failed_without_duplicate_sms(self):
+        session, token, _ = self._session('rejected-invitation-session')
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': [{
+            'statusCode': 402, 'status': 'InvalidSenderId', 'messageId': '',
+        }]}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            for _attempt in range(2):
+                with self.assertRaises(ExternalOperationError):
+                    send_signing_invitation(session, token, request_id='rejected-invitation-request')
+        sdk.SMS.send.assert_called_once()
+        operation = IntegrationOperation.objects.get(operation_type='origination_signing_invitation')
+        self.assertEqual(operation.status, IntegrationOperation.STATUS_DEAD_LETTER)
+        self.assertFalse(self.package.actions.exists())
+
+    def test_inflight_invitation_is_not_reported_as_sent(self):
+        session, token, _ = self._session('inflight-invitation-session')
+        with patch('core.services.external_resilience.execute_operation', return_value=None):
+            with self.assertRaises(ExternalOperationError):
+                send_signing_invitation(session, token, request_id='inflight-invitation-request')
+
+    def _invitation_request(self, key):
+        request = RequestFactory().post(
+            f'/api/origination/api/applications/{self.application.pk}/signer-sessions/',
+            {'package_id': str(self.package.pk), 'signer_role': 'borrower'},
+            content_type='application/json', HTTP_X_REQUEST_ID=key,
+        )
+        request.origination_user = self.actor
+        return portal_origination_signer_session(request, str(self.application.pk))
+
+    def test_invitation_endpoint_does_not_turn_failed_retry_into_success(self):
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': [{
+            'statusCode': 402, 'status': 'InvalidSenderId', 'messageId': '',
+        }]}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            first = self._invitation_request('rejected-invitation-api')
+            replay = self._invitation_request('rejected-invitation-api')
+        self.assertEqual(first.status_code, 502)
+        self.assertEqual(replay.status_code, 502)
+        sdk.SMS.send.assert_called_once()
+        self.assertEqual(self.package.signer_sessions.count(), 1)
+
+    def test_invitation_endpoint_success_is_idempotent(self):
+        sdk = Mock()
+        sdk.SMS.send.return_value = {'SMSMessageData': {'Recipients': [{
+            'statusCode': 101, 'status': 'Success', 'messageId': 'synthetic-invitation-api',
+        }]}}
+        with patch.dict('sys.modules', {'africastalking': sdk}):
+            first = self._invitation_request('accepted-invitation-api')
+            replay = self._invitation_request('accepted-invitation-api')
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(replay.status_code, 200)
+        sdk.SMS.send.assert_called_once()
+        self.assertEqual(self.package.signer_sessions.count(), 1)
 
     def test_audited_reset_revokes_old_session(self):
         old, _token, _ = self._session('reset-old')

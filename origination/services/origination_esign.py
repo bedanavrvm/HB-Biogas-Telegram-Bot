@@ -27,6 +27,7 @@ from origination.models import (
     OriginationStampAsset,
 )
 from core.models import IntegrationOperation
+from core.services.external_resilience import ExternalOperationError
 from core.services.identifiers import normalize_kenyan_phone
 from origination.services.loan_origination import (
     OriginationConflict, OriginationError, _record_event, _require_request_id,
@@ -92,6 +93,15 @@ class OriginationSigningProblem(OriginationError):
         self.code = code
         self.details = dict(details or {})
         self.status = status
+
+
+class OriginationSmsSubmissionError(ExternalOperationError):
+    """Safe submission evidence, without retaining the SMS or raw response."""
+
+    def __init__(self, provider_status: str, *, rejected: bool = False):
+        super().__init__('The SMS provider did not confirm sending the message.')
+        self.provider_status = provider_status
+        self.rejected = rejected
 
 
 def _require_approved_package(package: OriginationSigningPackage) -> None:
@@ -428,10 +438,37 @@ def _send_sms(message: str, phone: str) -> dict[str, str]:
     )
     sender = str(getattr(settings, 'AFRICASTALKING_SENDER_ID', '') or '').strip() or None
     response = africastalking.SMS.send(message, [f'+{phone}'], sender_id=sender, enqueue=False)
-    recipients = ((response or {}).get('SMSMessageData') or {}).get('Recipients') or []
-    recipient = recipients[0] if recipients else {}
-    status = str(recipient.get('status') or recipient.get('statusCode') or 'Accepted')
-    message_id = str(recipient.get('messageId') or recipient.get('message_id') or '')
+    data = response.get('SMSMessageData') if isinstance(response, dict) else None
+    recipients = data.get('Recipients') if isinstance(data, dict) else None
+    if not isinstance(recipients, list) or len(recipients) != 1 or not isinstance(recipients[0], dict):
+        raise OriginationSmsSubmissionError('send_unconfirmed')
+    recipient = recipients[0]
+    code = str(recipient.get('statusCode') or '').strip()
+    status = str(recipient.get('status') or '').strip()
+    accepted_statuses = {'success', 'accepted', 'processed', 'sent', 'queued'}
+    rejection_codes = {
+        '401': 'RiskHold', '402': 'InvalidSenderId', '403': 'InvalidPhoneNumber',
+        '404': 'UnsupportedNumberType', '405': 'InsufficientBalance',
+        '406': 'UserInBlacklist', '407': 'CouldNotRoute', '500': 'InternalServerError',
+        '501': 'GatewayError', '502': 'RejectedByGateway',
+    }
+    normalized = status.casefold().replace(' ', '')
+    rejection_statuses = {value.casefold(): value for value in rejection_codes.values()}
+    rejection_statuses.update({'failed': 'Failed', 'rejected': 'Rejected'})
+    # An explicit failure code wins even when the text misleadingly says Success.
+    rejected_status = rejection_codes.get(code) or rejection_statuses.get(normalized)
+    if rejected_status:
+        raise OriginationSmsSubmissionError(rejected_status, rejected=True)
+    # 100/101/102 mean processed/sent/queued, NOT delivery to the handset.
+    if (code and code not in {'100', '101', '102'}) or (
+        normalized and normalized not in accepted_statuses
+    ) or (not code and normalized not in accepted_statuses):
+        raise OriginationSmsSubmissionError('send_unconfirmed')
+    message_id = recipient.get('messageId') or recipient.get('message_id')
+    if not isinstance(message_id, str) or not message_id.strip() or len(message_id) > 255:
+        raise OriginationSmsSubmissionError('send_unconfirmed')
+    message_id = message_id.strip()
+    status = status or {'100': 'Processed', '101': 'Sent', '102': 'Queued'}[code]
     return {'id': message_id, 'status': status}
 
 
@@ -450,7 +487,10 @@ def send_signing_invitation(session: OriginationSignerSession, raw_token: str, *
         f'JBL signing {session.package.external_reference}\n{url}\nDo not share this link.',
         session.phone_normalized,
     ), attempt_budget=1)
-    return dict(result or {})
+    if not result or not result.get('id'):
+        # An in-flight execution lease is a safe no-op, not a confirmed send.
+        raise ExternalOperationError('The invitation SMS has not been confirmed.')
+    return dict(result)
 
 
 def resolve_session(raw_token: str, *, for_update: bool = False) -> OriginationSignerSession:
@@ -599,6 +639,12 @@ def issue_otp(*, raw_token: str, request_id: str, ip_hash: str) -> tuple[Origina
     )
     replay = session.otp_challenges.filter(request_id=request_id).first()
     if replay:
+        if replay.delivery_status not in {
+            OriginationOtpChallenge.DELIVERY_ACCEPTED, OriginationOtpChallenge.DELIVERY_DELIVERED,
+        } and not replay.verified_at:
+            raise OriginationSigningProblem(
+                'signing_code_send_failed', 'The original OTP send was not confirmed.', status=503,
+            )
         return replay, '', True
     if session.status == session.STATUS_VERIFIED:
         raise OriginationError('This signer has already completed the packet.')
@@ -638,15 +684,34 @@ def dispatch_otp(challenge: OriginationOtpChallenge, code: str) -> OriginationOt
             f'JBL verification code: {code}. It expires in 10 minutes. Do not share it with anyone except when you are personally signing on an assisted JBL device.',
             session.phone_normalized,
         ), attempt_budget=1) or {}
-    except Exception:
-        challenge.delivery_status = OriginationOtpChallenge.DELIVERY_UNKNOWN
-        challenge.provider_status = 'send_error'
-        challenge.save(update_fields=['delivery_status', 'provider_status'])
+        if not result.get('id'):
+            raise OriginationSmsSubmissionError('send_unconfirmed')
+    except Exception as exc:
+        provider_error = exc if isinstance(exc, OriginationSmsSubmissionError) else exc.__cause__
+        rejected = isinstance(provider_error, OriginationSmsSubmissionError) and provider_error.rejected
+        OriginationOtpChallenge.objects.filter(
+            pk=challenge.pk, delivery_status__in=[
+                OriginationOtpChallenge.DELIVERY_PENDING, OriginationOtpChallenge.DELIVERY_UNKNOWN,
+            ],
+        ).update(
+            delivery_status=(OriginationOtpChallenge.DELIVERY_FAILED if rejected
+                             else OriginationOtpChallenge.DELIVERY_UNKNOWN),
+            provider_status=(provider_error.provider_status
+                             if isinstance(provider_error, OriginationSmsSubmissionError) else 'send_error'),
+        )
+        challenge.refresh_from_db()
         raise
-    challenge.provider_message_id = str(result.get('id') or '')
-    challenge.provider_status = str(result.get('status') or 'Accepted')[:80]
-    challenge.delivery_status = OriginationOtpChallenge.DELIVERY_ACCEPTED
-    challenge.save(update_fields=['provider_message_id', 'provider_status', 'delivery_status'])
+    # Replays/late dispatch responses must not overwrite a final delivery receipt.
+    OriginationOtpChallenge.objects.filter(
+        pk=challenge.pk, delivery_status__in=[
+            OriginationOtpChallenge.DELIVERY_PENDING, OriginationOtpChallenge.DELIVERY_UNKNOWN,
+        ],
+    ).update(
+        provider_message_id=str(result['id']),
+        provider_status=str(result.get('status') or 'Accepted')[:80],
+        delivery_status=OriginationOtpChallenge.DELIVERY_ACCEPTED,
+    )
+    challenge.refresh_from_db()
     return challenge
 
 
@@ -657,8 +722,10 @@ def record_delivery_report(*, provider_message_id: str, provider_status: str) ->
     if not message_id:
         return False
     normalized = status.casefold().replace(' ', '')
-    if normalized in {'success', 'delivered', 'sent'}:
+    if normalized in {'success', 'delivered'}:
         delivery_status = OriginationOtpChallenge.DELIVERY_DELIVERED
+    elif normalized in {'accepted', 'processed', 'sent', 'submitted', 'buffered', 'queued'}:
+        delivery_status = OriginationOtpChallenge.DELIVERY_ACCEPTED
     elif normalized in {
         'failed', 'rejected', 'expired', 'undeliverable', 'insufficientbalance',
     }:
@@ -670,6 +737,10 @@ def record_delivery_report(*, provider_message_id: str, provider_status: str) ->
     queryset = OriginationOtpChallenge.objects.filter(provider_message_id=message_id)
     if delivery_status != OriginationOtpChallenge.DELIVERY_DELIVERED:
         queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_DELIVERED)
+    if delivery_status in {OriginationOtpChallenge.DELIVERY_ACCEPTED, OriginationOtpChallenge.DELIVERY_UNKNOWN}:
+        queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_FAILED)
+    if delivery_status == OriginationOtpChallenge.DELIVERY_UNKNOWN:
+        queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_ACCEPTED)
     return bool(queryset.update(provider_status=status, delivery_status=delivery_status))
 
 
