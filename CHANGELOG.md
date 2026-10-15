@@ -1,5 +1,25 @@
 # Changelog
 
+## 15 October 2026 - Signed payment upload confirmation
+
+- Payment Preparation now asks for a simple confirmation that the selected copy
+  is complete, signed, stamped, readable and matches the current payment document.
+  The upload includes the attestation already required by the server; its omission
+  was causing valid signed-copy submissions to return HTTP 400.
+- Cancel keeps the selected file. Repeated clicks cannot start a second upload,
+  and a changed payment must be reopened before confirmation can proceed. A saved
+  scan awaiting Drive retry is clearly distinguished from payment completion and
+  directs staff to the existing Document History retry action.
+- Current-review, document-version, access and file checks remain unchanged.
+  No payment facts, saved documents or production data were modified.
+- Verification: 64 affected backend tests passed on isolated SQLite and 32 browser
+  checks passed, including PDF/JPG/PNG requests, cancellation, repeat clicks and
+  retained-upload recovery. Narrow-phone light/dark screenshots were inspected.
+  Python/JavaScript syntax, Django configuration and diff checks passed.
+- Deploy the versioned code/static assets normally; no migration or environment
+  change is needed. Production deployment, real Telegram/Drive upload and
+  PostgreSQL were not exercised; this is not a full-repository test run.
+
 ## 15 October 2026 - Payment preview reference
 
 - Payment previews identify the payment with Payment No., rather than showing

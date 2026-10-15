@@ -832,15 +832,32 @@
   }
 
   async function uploadScan(button) {
+    if (button.disabled || !activeBatch) return;
+    const batchId = activeBatch.id;
+    const documentId = activeBatch.current_document_id;
     const file = el('payments-scan-file')?.files?.[0];
     if (!file) return deps.showToast('Select the signed PDF, JPG or PNG first.', 'error');
-    const data = new FormData(); data.append('signed_scan', file);
-    deps.setButtonLoading(button, true, 'Uploading...');
+    button.disabled = true;
     try {
-      const response = await deps.portalApi.postForm(`/document-signoffs/payment/${activeBatch.current_document_id}/upload/`, data, deps.tg, {'X-CSRFToken': deps.getCookie('csrftoken') || ''});
+      const message = `Confirm that this copy is complete, signed, stamped, readable and matches the current document for Payment #${activeBatch.payment_number}.`;
+      const confirmed = window.PortalDialogs?.confirmAction
+        ? await window.PortalDialogs.confirmAction('Upload signed copy?', message, 'Upload')
+        : window.confirm(message);
+      if (!confirmed) return;
+      if (activeBatch?.id !== batchId || activeBatch.current_document_id !== documentId || activeBatch.status !== 'awaiting_scan') {
+        return deps.showToast('The payment changed. Reopen it before uploading the signed copy.', 'warning');
+      }
+      const data = new FormData();
+      data.append('signed_scan', file);
+      data.append('attested_complete', 'true');
+      deps.setButtonLoading(button, true, 'Uploading...');
+      const response = await deps.portalApi.postForm(`/document-signoffs/payment/${documentId}/upload/`, data, deps.tg, {'X-CSRFToken': deps.getCookie('csrftoken') || ''});
+      if (response.data?.pending_retry) {
+        return deps.showToast('Signed copy saved. Payment is not complete yet. Retry the Drive upload in Document History.', 'warning');
+      }
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not upload the signed copy.');
       deps.showToast('Signed copy accepted. Payment completed.', 'success');
-      await openBatch(activeBatch.id, {quiet: true});
+      if (activeBatch?.id === batchId) await openBatch(batchId, {quiet: true});
       const list = await deps.apiFetch('/payments/batches/');
       if (list.ok && list.data?.ok) batches = list.data.batches || [];
     } catch (error) { deps.showToast(error.message || 'Could not upload the signed copy.', 'error'); }
