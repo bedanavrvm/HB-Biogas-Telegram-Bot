@@ -1,5 +1,19 @@
 # Changelog
 
+## 15 October 2026 - Payment preview reference
+
+- Payment previews identify the payment with Payment No., rather than showing
+  an HB/Eco source order number in the header. Drafts show Not assigned until
+  normal workbook generation allocates the official payment number. Source
+  order numbers remain on individual rows; order previews are unchanged.
+- The Portal script version is bumped for normal deployment. No migration,
+  financial-number allocation or saved document is changed by this UI fix.
+- Verification: all eight new real-button/renderer HB/Eco checks passed at
+  320px and 1280px; screenshots inspected. Broader finance browser checks:
+  21 passed, one unchanged invoice-label assertion failed (expects "possible
+  duplicate invoices" rather than the current "duplicate invoices"). JavaScript
+  syntax and diff checks pass; production deployment was not performed.
+
 ## 15 October 2026 - Origination document downloads and unsigned completion
 
 - Download the combined application, Main LAF or an individual selected

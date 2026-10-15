@@ -189,9 +189,8 @@
       <td>${paymentValue(row.product)}</td><td>${paymentValue(row.call_up_comments)}</td><td>${paymentValue(row.payment_mode)}</td>
     </tr>`).join('');
     const totals = preview.totals || {};
-    const orderLabel = (preview.order_numbers || []).join(', ') || preview.order_number || '-';
     return `<article class="payment-print-preview">
-      <header><h3>JBL Payment Schedule ${preview.draft ? '— Draft' : '#' + deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(orderLabel)}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      <header><h3>JBL Payment Schedule${preview.draft ? ' — Draft' : ''}</h3><div><strong>Payment No:</strong> ${preview.draft ? 'Not assigned' : deps.escapeHtml(preview.payment_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
       ${preview.draft ? '<p class="payment-preview-draft">Draft preview only. No official payment number has been assigned.</p>' : ''}
       ${(preview.blocked || []).length ? `<details class="payment-preview-warning"><summary>${deps.escapeHtml(preview.blocked.length)} selected case(s) need attention before generation</summary><ul>${preview.blocked.map(item => `<li><strong>${deps.escapeHtml(item.customer_name || 'Unnamed customer')}</strong>: ${deps.escapeHtml((item.missing || []).join(', ') || 'Review payment details')}</li>`).join('')}</ul></details>` : ''}
       <div class="payment-total-strip"><span>Balance due <strong>${paymentAmount(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentAmount(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentAmount(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentAmount(totals.deposit_paid_jbl) || '0'}</strong></span></div>

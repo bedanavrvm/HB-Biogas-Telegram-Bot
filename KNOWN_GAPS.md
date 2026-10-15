@@ -1,5 +1,13 @@
 # Known Gaps and Verified Workarounds
 
+## Portal finance browser wording assertion - 15 October 2026
+
+`portal_nested_finance_layout.spec.js` expects "2 possible duplicate invoices"
+in its invoice-review test; the current invoice card says "2 duplicate invoices".
+The test and invoice implementation match HEAD and are unchanged by the payment
+preview-reference fix. All eight new payment-preview identity checks pass. This
+wording assertion remains unresolved; do not claim the entire finance suite passes.
+
 ## Origination application copies and unsigned completion - 15 October 2026
 
 - Multiple different supporting documents are supported; repeated instances of
