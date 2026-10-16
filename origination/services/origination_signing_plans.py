@@ -146,6 +146,42 @@ def initialize_plan(application):
         application.signing_plan_revision = updated.signing_plan_revision
 
 
+def reconcile_document_plan(application, previous_keys):
+    """Refresh draft obligations, retaining staff assignments, not granting new ones."""
+    if application.signing_policy_snapshot != POLICY:
+        return
+    before = deepcopy(application.signing_plan or {})
+    old_ids = before.get('participants', [])
+    old_rows = {row.participant_key: row for row in application.signing_participants.filter(pk__in=old_ids)}
+    # Projection must see new document roles before a successor plan exists.
+    application.signing_plan = {}
+    available = candidates(application) if enabled(application) else {}
+    defaults = {item['participant_key']: item for item in default_choices(application)} if available else {}
+    required = {key for key, config in available.items() if config.get('required')
+                or any(slot.get('required') for slot in config.get('slots', []))}
+    chosen = set(old_rows).intersection(available) | (set(defaults) - previous_keys) | required
+    ids = []
+    for key, config in available.items():
+        if key not in chosen:
+            continue
+        old = old_rows.get(key)
+        staff_id = (old.staff_user_id if old and old.role == config['role']
+                    else defaults.get(key, {}).get('staff_user_id'))
+        if old and old.role == config['role'] and old.configuration == config and old.staff_user_id == staff_id:
+            row = old
+        else:
+            row = OriginationSigningParticipant.objects.create(application=application,
+                participant_key=key, role=config['role'], configuration=deepcopy(config),
+                staff_user_id=staff_id, created_by=None)
+        ids.append(str(row.pk))
+    if ids == old_ids:
+        application.signing_plan = before
+        return
+    application.signing_plan_revision += 1
+    application.signing_plan = {'version': 1, 'revision': application.signing_plan_revision, 'participants': ids}
+    application.save(update_fields=['signing_plan', 'signing_plan_revision', 'updated_at'])
+
+
 def freeze_plan(application):
     """Resolve live draft values once; package snapshots never resolve them again."""
     from origination.services.loan_origination import OriginationError

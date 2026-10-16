@@ -1,5 +1,20 @@
 # Known Gaps and Verified Workarounds
 
+## Origination document management verification - 16 October 2026
+
+Manage documents and supporting-form changes pass 164 focused PostgreSQL checks
+and 100 browser checks using synthetic data. Six failures in the broader legacy
+Origination suites reproduced against HEAD service/source in memory: repeated
+number validation wording, Published reusable document wording, remote-signing
+copy, and three stale editor/stylesheet cache-version expectations. See
+`test-results/document-management-baseline.log`; these checks were not weakened.
+
+Real Telegram and deployed-font verification remain outstanding. No production
+or external-service writes were made. See the document-management section of
+`docs/runbooks/origination-ui-and-downloads.md` for the shipped behaviour and
+source-bound screenshots. Repeated copies of one supporting template, such as
+two independent guarantor documents, remain outside this change.
+
 ## Advanta SMS deployment verification - 16 October 2026
 
 Advanta remains optional and no live SMS was sent during implementation. An

@@ -91,6 +91,90 @@ Use a synthetic application, not customer data:
 The app does not control Telegram's downloaded-file viewer or OS associations.
 Local intercepted-browser tests cannot certify this client-owned behaviour.
 
+## Manage documents and supporting forms
+
+In an editable application, use the documents icon beside Preview/Download.
+The same chooser is available in Supporting documents; another Main LAF is not
+required just to add or remove supporting documents. Current selections show
+their document versions.
+
+- Keep the Main LAF selected to update supporting documents on the same
+  application. Saved answers and uploaded evidence remain recoverable. Removed
+  documents no longer supply form sections, required checks or signing duties.
+- An eligible document type published after the draft was created can be added.
+  Its exact published schema, signers and alignment are captured at that point.
+  A newer version of an already captured type does not silently replace it.
+- Supporting forms use the same placement-driven projection as the Main LAF:
+  configured sections, typed controls and applicable validation. Shared values
+  are entered once; document-only fields belong to the selected document.
+  Unplaced non-essential fields remain absent, including their required checks.
+- Choosing another Main LAF requires one explicit warning. Confirmation cancels
+  the old draft and creates a blank replacement. No answers, uploads, identity
+  copies or application-specific signer assignments move to it. Cancelling that
+  dialog leaves the draft and chooser unchanged.
+- Submitted applications must follow the existing withdrawal flow before
+  changes. Approved/completed applications are not editable. Existing signatures
+  and historical document versions never change.
+
+The authenticated application-scoped choices endpoint is
+`GET /api/origination/api/applications/<id>/documents/choices/`.
+The selection endpoint accepts `supporting_template_ids`, `catalogue_revision`,
+application `revision` and a stable request key; the old `selected_keys` shape
+remains supported but cannot be mixed with the new shape. Main LAF changes use
+the existing restart endpoint with `confirm_blank_restart: true`. Cached older
+clients must refresh before starting a newly blank replacement. Exact accepted
+retries return the saved result even if the catalogue later changes.
+
+No new migration, environment variable, command or external write is needed.
+Deploy the code and cache-versioned assets normally. Rolling the UI back cannot
+restore answers into a deliberately blank replacement; the cancelled source and
+its history remain available.
+
+### Document-management review evidence
+
+This change reuses the existing Origination sheet, field/grid, icon and wizard
+patterns. It does not adopt candidate tokens or start Phase 6 migration. Its
+source hashes are recorded as a bounded change in the UI source ratchet, not as
+new approved screenshot baselines.
+
+Reproduce synthetic real-shell browser evidence with:
+
+```powershell
+npx playwright test core/tests_browser/origination_queues.spec.js --grep 'Manage documents|Main LAF change|failed document selection|supporting forms use|Cancel makes no document writes' --workers=1
+```
+
+Playwright retains `manage-documents-360-light.png`,
+`manage-documents-360-dark.png`, `supporting-form-360.png`,
+`main-laf-blank-replacement-360.png` and
+`manage-documents-failure-360.png` in the matching test output directories.
+Review at real size: exactly one Main LAF, preselected support choices, version
+labels, no horizontal overflow, section headings and correct controls, blank
+replacement inputs, preserved failure choices and identical retry keys.
+Remote-font fallback is intentional in this local harness; real Telegram,
+production fonts and deployment remain separate checks.
+
+### Local verification - 16 October 2026
+
+- 164 focused PostgreSQL checks passed, including real row-lock concurrency,
+  document selection, shared/local form projection, typed validation, evidence,
+  signing plans, unsigned completion and combined/individual copy regression.
+  Test data was synthetic in a loopback-only temporary PostgreSQL cluster.
+- 100 browser checks passed across the Origination queue/editor, signing plan
+  and download journeys. Mobile light/dark chooser, supporting-form, failure and
+  blank-replacement screenshots were inspected. Preview remains a 44px icon;
+  configured sections do not introduce another full-screen journey.
+- Django checks, migration drift, affected Python lint, JavaScript syntax,
+  source-ratchet and whitespace checks pass. No migration is generated.
+- The broader 194-test exploration exposed six older failures in Admin wording,
+  validation wording and source/cache-version expectations. All six reproduced
+  with the HEAD service restored in memory and source assertions reading HEAD;
+  they are not suppressed or counted as passing. Evidence:
+  `test-results/document-management-postgres.log` and
+  `test-results/document-management-baseline.log`.
+- Production, real Telegram interactions and production fonts are unverified.
+  No SMS, email, Telegram, Sheets or Drive writes were made. Existing local
+  environment-file edits were left untouched.
+
 ## Local verification record - 14 October 2026
 
 - Backend: 85 passed, one PostgreSQL-only signing concurrency check skipped on

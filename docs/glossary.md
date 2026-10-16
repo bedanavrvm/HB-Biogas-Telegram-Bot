@@ -10,6 +10,11 @@ respective service modules.
 
 ## Canonical staff access
 
+**Origination Manage documents:** The assigned officer's draft-only Main LAF and
+supporting-document chooser. Supporting selection preserves recoverable answers
+and captured versions; changing the Main LAF starts a confirmed blank replacement
+and cancels the source. Submitted applications use existing withdrawal rules.
+
 **Origination signing-link SMS provider:** The SMS provider retained by one
 external signing link for its invitations, verification codes and withdrawal
 notices. A new deployment default applies only to newly created links. Delivery

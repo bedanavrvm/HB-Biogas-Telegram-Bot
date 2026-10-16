@@ -685,6 +685,9 @@ def portal_origination_restart(request, application_id: str):
         return access_error
     try:
         body = _body(request)
+        if application.status != application.STATUS_CANCELLED and body.get('confirm_blank_restart') is not True:
+            return JsonResponse({'ok': False, 'outdated_client': True,
+                'error': 'Refresh the app and confirm that changing the Main LAF starts a blank application.'}, status=428)
         if (
             not str(body.get('primary_template_id') or '').strip()
             or not str(body.get('catalogue_revision') or '').strip()
@@ -1959,6 +1962,24 @@ def portal_origination_evidence_download(request, evidence_id: str):
 
 
 @csrf_exempt
+@require_http_methods(['GET'])
+def portal_origination_document_choices(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'origination.create', application)) is not None:
+        return error
+    if (error := _application_access_error(request, application)) is not None:
+        return error
+    if application.officer_id != request.origination_user.pk:
+        return JsonResponse({'ok': False, 'error': 'Only the assigned officer may manage these documents.'}, status=403)
+    if application.status != application.STATUS_DRAFT:
+        return JsonResponse({'ok': False, 'error': 'Documents can only be changed in a draft application.'}, status=400)
+    from origination.services.origination_document_choices import document_choices
+    return JsonResponse({'ok': True, **document_choices(application)})
+
+
+@csrf_exempt
 @require_http_methods(['POST'])
 def portal_origination_document_selection(request, application_id: str):
     application = _application(application_id)
@@ -1971,10 +1992,14 @@ def portal_origination_document_selection(request, application_id: str):
         return access_error
     try:
         body = _body(request)
+        if 'selected_keys' in body and 'supporting_template_ids' in body:
+            raise OriginationError('Choose one document selection format.')
         saved = select_documents(
             application_id=application.pk, actor=request.origination_user,
             selected_keys=body.get('selected_keys'), expected_revision=int(body.get('revision')),
             request_id=_request_id(request, body),
+            supporting_template_ids=body.get('supporting_template_ids'),
+            expected_catalogue_revision=str(body.get('catalogue_revision') or ''),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)

@@ -1,5 +1,21 @@
 # Changelog
 
+## 16 October 2026 - Origination draft document management
+
+- Replaced Change Main LAF with one Manage documents chooser, including when
+  only one Main LAF is available. Officers can add/remove supporting documents
+  and capture eligible newly published types without upgrading captured versions.
+- Supporting changes retain the application, saved answers and evidence. Visible
+  fields/sections, required evidence, signing obligations and preview validity
+  follow the selected documents. Supporting forms honour their placed fields,
+  configured section headings and input types; section navigation saves edits.
+- A confirmed Main LAF change cancels the source and creates a blank application.
+  Answers, uploads and custom signing assignments do not transfer. Accepted
+  historical retries still return their original replacement without erasing it.
+- Reused the existing compact sheet and controls, with phone light/dark and
+  failure/retry evidence. No design-token migration, schema migration, role
+  changes, provider calls or production deployment are included.
+
 ## 16 October 2026 - Optional Advanta Origination SMS
 
 - Added environment-selected Advanta transactional SMS alongside Africa's

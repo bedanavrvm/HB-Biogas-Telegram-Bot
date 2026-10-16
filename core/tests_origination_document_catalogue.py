@@ -439,7 +439,7 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertEqual(frozen.template_id, support_v1.pk)
         self.assertNotEqual(frozen.template_id, support_v2.pk)
 
-    def test_restart_prefills_matching_values_and_cancels_source(self):
+    def test_restart_starts_blank_and_cancels_source(self):
         first = self._template(family='restart_first', name='Restart First')
         second_schema = self.schema
         second = self._template(family='restart_second', name='Restart Second', schema=second_schema)
@@ -471,8 +471,9 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertFalse(replayed)
         self.assertEqual(source.status, source.STATUS_CANCELLED)
         self.assertEqual(replacement.supersedes_application_id, source.pk)
-        self.assertEqual(replacement.form_payload['loan_amount'], '25000')
-        self.assertEqual(replacement.form_payload['repayment_tenor'], '6')
+        self.assertNotIn('loan_amount', replacement.form_payload)
+        self.assertNotIn('repayment_tenor', replacement.form_payload)
+        self.assertEqual(source.form_payload['loan_amount'], '25000')
         self.assertFalse(replacement.requirement_evidence_files.exists())
         self.assertFalse(replacement.signing_packages.exists())
         replay, was_replayed = restart_application_with_main_laf(

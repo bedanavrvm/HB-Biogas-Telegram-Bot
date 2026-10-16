@@ -1305,6 +1305,7 @@ def create_application(
         document_requirements = resolved_document_requirements(definition)
     if document_requirements:
         terms_snapshot = json.loads(json.dumps(terms_snapshot or {}))
+        terms_snapshot['_document_requirements_base'] = deepcopy(terms_snapshot.get('requirements', []))
         requirements = [
             item for item in terms_snapshot.get('requirements', []) if isinstance(item, dict)
         ]
@@ -1447,7 +1448,8 @@ def restart_application_with_main_laf(
     *, application_id, officer, primary_template_id, supporting_template_ids,
     expected_revision: int, expected_catalogue_revision: str, client_request_id: str,
 ) -> tuple[LoanOriginationApplication, bool]:
-    """Replace a draft while copying only type-compatible user-entered values."""
+    """Cancel a draft and start blank; historical completed requests still replay."""
+    client_request_id = _require_request_id(client_request_id)
     # product_version and branch_ref are nullable and must not be included in
     # the row-locking query on PostgreSQL.
     source = LoanOriginationApplication.objects.select_for_update().select_related(
@@ -1468,18 +1470,19 @@ def restart_application_with_main_laf(
         ).first()
         if not existing:
             raise OriginationError('This draft was already cancelled and cannot be restarted again.')
-        # Re-enter the digest-bound creation path so a reused request ID with
-        # different document choices is still rejected.
-        return create_application(
-            product_key=source.product_definition.product_key,
-            officer=officer,
-            branch=source.branch_ref.name if source.branch_ref_id else source.branch,
-            client_request_id=client_request_id,
+        # Do not re-resolve today's catalogue/product on an accepted historical
+        # retry, or erase answers entered on the replacement since its creation.
+        from origination.services.origination_document_catalogue import selection_digest
+        digest = selection_digest(
+            branch=existing.branch, product_version_id=existing.product_version_id,
+            catalogue_revision_value=expected_catalogue_revision,
             primary_template_id=primary_template_id,
             supporting_template_ids=supporting_template_ids,
-            expected_catalogue_revision=expected_catalogue_revision,
-            supersedes_application=source,
+            supersedes_application_id=source.pk,
         )
+        if digest != existing.creation_request_digest:
+            raise OriginationConflict('This retry contains different document choices.')
+        return existing, True
     if source.status != source.STATUS_DRAFT:
         raise OriginationError('Only a draft application can be restarted with another Main LAF.')
     if int(expected_revision) != source.revision:
@@ -1499,45 +1502,9 @@ def restart_application_with_main_laf(
     if replayed:
         return replacement, True
 
-    source_fields = {
-        str(item.get('key') or ''): item
-        for item in _schema_fields(source.schema_snapshot)
-        if str(item.get('key') or '')
-    }
-    from origination.services.origination_value_contracts import application_input_schema
-    target_schema = application_input_schema(replacement)
-    target_fields = {
-        str(item.get('key') or ''): item
-        for item in _schema_fields(target_schema)
-        if str(item.get('key') or '')
-    }
-    safe_values = {}
-    copied_keys = []
-    for key, target_field in target_fields.items():
-        source_field = source_fields.get(key)
-        if not source_field or key not in (source.form_payload or {}):
-            continue
-        if str(source_field.get('type') or 'text') != str(target_field.get('type') or 'text'):
-            continue
-        if str(source_field.get('source_type') or 'user_input') == 'system':
-            continue
-        if str(target_field.get('source_type') or 'user_input') == 'system':
-            continue
-        safe_values[key] = deepcopy(source.form_payload[key])
-        copied_keys.append(key)
-    normalized = normalize_form_payload(target_schema, safe_values)
-    validation = validate_form_payload(target_schema, normalized, require_complete=False)
-    if not validation.valid:
-        raise OriginationError('Matching draft values could not be safely transferred.', errors=validation.errors)
-    replacement.form_payload = normalized
-    replacement.identity_snapshot = applicant_identity_snapshot(
-        normalized, schema=replacement.schema_snapshot,
-        signer_rules=replacement.signer_rules_snapshot,
-    )
-    replacement.save(update_fields=['form_payload', 'identity_snapshot', 'updated_at'])
     _record_event(
         replacement, 'restarted_with_main_laf', actor=officer,
-        after={'source_application_id': str(source.pk), 'copied_field_keys': sorted(copied_keys)},
+        after={'source_application_id': str(source.pk), 'copied_field_keys': [], 'blank_restart': True},
     )
     source.status = source.STATUS_CANCELLED
     source.save(update_fields=['status', 'updated_at'])

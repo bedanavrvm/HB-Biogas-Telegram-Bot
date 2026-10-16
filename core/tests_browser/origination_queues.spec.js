@@ -63,7 +63,7 @@ test('Origination opens its own recovery panel without leaving application filte
   expect(await page.evaluate(()=>window.searchBeforeSettings===document.querySelector('#origination-search input'))).toBe(true);
 });
 
-function placedFormFixture() {
+function placedFormFixture(supportingDetails = false) {
   const script = `
 import os, json
 os.environ['DJANGO_SETTINGS_MODULE']='config.settings'
@@ -77,6 +77,16 @@ main['fields'][2].update(section_key='request',label='Loan purpose')
 main['sections'] += [{'key':'request','label':'Request'}, {'key':'unused_section','label':'Unused section'}]
 support=N(document_key='support',selected=True,applicable=True,document_role='supporting',signer_rules_snapshot=[],
     schema_snapshot=schema(field('private_note',scope='document')),template_snapshot={'configuration':layout('private_note')})
+if ${supportingDetails ? 'True' : 'False'}:
+    details=[field('private_note',scope='document',required=True),field('visit_phone',scope='document',type='phone'),
+             field('visit_outcome',scope='document',type='choice'),field('unused_local',scope='document',required=True),
+             field('visit_location')]
+    for item in details: item['section_key']='visit_details'
+    details[1]['section_key']='visit_contact'
+    details[2]['options']=[{'code':'confirmed','label':'Confirmed'},{'code':'pending','label':'Pending'}]
+    support.schema_snapshot=schema(*details)
+    support.schema_snapshot['sections']=[{'key':'visit_details','label':'Visit details'}, {'key':'visit_contact','label':'Visit contact'}]
+    support.template_snapshot={'configuration':layout('private_note','visit_phone','visit_outcome','visit_location')}
 app=application(main, layout('purpose'),support)
 print(json.dumps({'form_schema':application_input_schema(app),'document_schema':application_document_schema(app,support)}))
 `;
@@ -85,6 +95,169 @@ print(json.dumps({'form_schema':application_input_schema(app),'document_schema':
       DJANGO_SECRET_KEY:'synthetic-projection-browser-only-'.padEnd(64,'x'),ORIGINATION_LAF_BOOTSTRAP_ENABLED:'false'},
   }));
 }
+
+async function bootDocumentManager(page, {dark=false, alternative=false, status='draft'}={}) {
+  await boot(page,360);
+  if(dark) await page.evaluate(()=>{
+    document.documentElement.dataset.telegramTheme='dark';
+    document.documentElement.dataset.miniappColorScheme='dark';
+    for(const [key,value] of Object.entries({'bg-color':'#17201e','secondary-bg-color':'#111816','text-color':'#f4f7f5','hint-color':'#a7b5af'}))
+      document.documentElement.style.setProperty(`--tg-theme-${key}`,value);
+  });
+  const id='00000000-0000-0000-0000-000000000001';
+  const app={id,officer_id:1,revision:1,status,reference_number:'ORG-SYNTHETIC-1',product_name:'Training loan',branch:'Training',
+    form_schema:{sections:[{key:'applicant',label:'Applicant'}],fields:[{key:'applicant_full_name',type:'text',label:'Applicant name',section_key:'applicant'}]},
+    form_payload:{applicant_full_name:'Synthetic Applicant'},product_terms:{},
+    document_packet:{documents:[{key:'primary',role:'primary',name:'Application form',template_id:'main-1',template_version:3,selected:true,applicable:true},
+      {key:'guarantee',role:'supporting',name:'Guarantee',template_id:'support-1',template_version:2,selected:true,applicable:true,inclusion_mode:'optional',schema:{fields:[]}}]}};
+  const choices={ok:true,revision:1,primary_template_id:'main-1',catalogue_revision:'synthetic-catalogue',
+    main_lafs:[{id:'main-1',name:'Application form',version:3,selected:true},...(alternative?[{id:'main-2',name:'Alternative application form',version:4,selected:false}]:[])],
+    supporting_documents:[{id:'support-1',key:'guarantee',name:'Guarantee',version:2,selected:true,available:true,compatible_main_ids:['main-1','main-2']},
+      {id:'support-2',key:'visit',name:'Newly published home visit form',version:1,selected:false,available:true,compatible_main_ids:['main-1','main-2']}]};
+  await page.route(`**/applications/${id}/`,route=>route.fulfill({json:{ok:true,application:app}}));
+  await page.route(`**/applications/${id}/documents/choices/`,route=>route.fulfill({json:choices}));
+  await page.locator('.application-card').click();
+  return {app,choices,id};
+}
+
+for(const dark of [false,true]) test(`Manage documents works with one Main LAF and fits a phone ${dark?'dark':'light'}`,async({page},info)=>{
+  const {app,id}=await bootDocumentManager(page,{dark});
+  let body;
+  await page.route(`**/applications/${id}/documents/selection/`,route=>{
+    body=route.request().postDataJSON();
+    return route.fulfill({json:{ok:true,application:{...app,revision:2}}});
+  });
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage documents',exact:true})).toBeVisible();
+  await expect(page.locator('#origination-documents-form input[type=radio]')).toHaveCount(1);
+  await page.locator('[name=supporting_template_ids][value=support-1]').uncheck();
+  await page.locator('[name=supporting_template_ids][value=support-2]').check();
+  await expect(page.getByText('Newly published home visit form',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`manage-documents-360-${dark?'dark':'light'}.png`),fullPage:true});
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  expect(body.supporting_template_ids).toEqual(['support-2']);
+  expect(body.revision).toBe(1);
+  expect(body).not.toHaveProperty('selected_keys');
+  await expect(page.locator('[data-field=applicant_full_name]')).toHaveValue('Synthetic Applicant');
+});
+
+test('Main LAF change cancels once before sending and starts a blank replacement',async({page},info)=>{
+  const {app,id}=await bootDocumentManager(page,{alternative:true});
+  let requests=0,body;
+  await page.route(`**/applications/${id}/restart/`,route=>{
+    requests++;body=route.request().postDataJSON();
+    return route.fulfill({json:{ok:true,application:{...app,id:'00000000-0000-0000-0000-000000000099',reference_number:'ORG-SYNTHETIC-NEW',form_payload:{}}}});
+  });
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=primary_template_id][value=main-2]').check();
+  page.once('dialog',async dialog=>{
+    expect(dialog.message()).toContain('blank application');await dialog.dismiss();
+  });
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  expect(requests).toBe(0);
+  await expect(page.locator('[name=primary_template_id][value=main-2]')).toBeChecked();
+  page.once('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  expect(requests).toBe(1);expect(body.primary_template_id).toBe('main-2');
+  await expect(page.locator('[data-field=applicant_full_name]')).toHaveValue('');
+  await page.screenshot({path:info.outputPath('main-laf-blank-replacement-360.png'),fullPage:true});
+});
+
+test('failed document selection keeps choices and retries the identical request',async({page},info)=>{
+  const {app,id}=await bootDocumentManager(page);
+  const bodies=[];
+  await page.route(`**/applications/${id}/documents/selection/`,route=>{
+    bodies.push(route.request().postDataJSON());
+    return bodies.length===1?route.fulfill({status:503,json:{ok:false,error:'Could not connect. Your choices are kept; try again.'}})
+      :route.fulfill({json:{ok:true,application:{...app,revision:2}}});
+  });
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=supporting_template_ids][value=support-2]').check();
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-toast')).toBeVisible();
+  await expect(page.locator('[name=supporting_template_ids][value=support-2]')).toBeChecked();
+  await page.screenshot({path:info.outputPath('manage-documents-failure-360.png'),fullPage:true});
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  expect(bodies[1]).toEqual(bodies[0]);
+});
+
+test('supporting forms use placed fields and sections and restore saved answers after reselecting',async({page},info)=>{
+  const {app,choices,id}=await bootDocumentManager(page);
+  const initial=placedFormFixture(), selected=placedFormFixture(true);
+  Object.assign(app,{value_contract_version:2,form_projection_version:1,form_schema:initial.form_schema});
+  const support={key:'visit',name:'Home visit',role:'supporting',applicable:true,selected:false,
+    schema:selected.document_schema,field_payload:{},template_id:'support-2',template_version:1};
+  app.document_packet.documents.push(support);
+  choices.supporting_documents[1].name='Home visit';
+  choices.supporting_documents[0].selected=false;
+  app.document_packet.documents[1].selected=false;
+  await page.locator('#origination-back').click();
+  await page.locator('.application-card').click();
+  let fieldWrites=[];
+  await page.route(`**/applications/${id}/documents/selection/`,route=>{
+    support.selected=route.request().postDataJSON().supporting_template_ids.includes('support-2');
+    choices.supporting_documents[1].selected=support.selected;
+    choices.revision=++app.revision;
+    app.form_schema=support.selected?selected.form_schema:initial.form_schema;
+    return route.fulfill({json:{ok:true,application:app}});
+  });
+  await page.route(`**/applications/${id}/documents/visit/fields/`,route=>{
+    const body=route.request().postDataJSON();fieldWrites.push(body.payload);
+    support.field_payload=body.payload;choices.revision=++app.revision;
+    return route.fulfill({json:{ok:true,application:app}});
+  });
+  const chooseVisit=async()=>{
+    await page.getByRole('button',{name:'Choose application section'}).click();
+    await page.getByRole('button',{name:/Home visit/}).click();
+  };
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=supporting_template_ids][value=support-2]').check();
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await chooseVisit();
+  await expect(page.getByRole('heading',{name:'Visit details',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Visit contact',exact:true})).toBeVisible();
+  await expect(page.locator('[data-document-field=unused_local]')).toHaveCount(0);
+  await expect(page.locator('[data-document-field=visit_phone]')).toHaveAttribute('type','tel');
+  expect((await page.locator('[data-support-preview]').boundingBox()).width).toBe(44);
+  await page.locator('[data-document-field=private_note]').fill('Saved visit note');
+  await page.locator('[data-document-field=visit_phone]').fill('0700000000');
+  await page.locator('[data-document-field=visit_outcome]').selectOption('confirmed');
+  await page.screenshot({path:info.outputPath('supporting-form-360.png'),fullPage:true});
+  await page.getByRole('button',{name:'Choose application section'}).click();
+  await page.getByRole('button',{name:/Supporting documents/}).click();
+  expect(fieldWrites.at(-1)).toEqual({private_note:'Saved visit note',visit_phone:'0700000000',visit_outcome:'confirmed'});
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=supporting_template_ids][value=support-2]').uncheck();
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await page.getByRole('button',{name:'Choose application section'}).click();
+  await expect(page.locator('[data-section-index]').filter({hasText:'Home visit'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=supporting_template_ids][value=support-2]').check();
+  await page.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await chooseVisit();
+  await expect(page.locator('[data-document-field=private_note]')).toHaveValue('Saved visit note');
+});
+
+test('Cancel makes no document writes and approved applications have no management action',async({page})=>{
+  const {id}=await bootDocumentManager(page);
+  let writes=0;
+  await page.route(`**/applications/${id}/documents/selection/`,route=>{writes++;return route.abort();});
+  await page.getByRole('button',{name:'Manage documents',exact:true}).click();
+  await page.locator('[name=supporting_template_ids][value=support-2]').check();
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  expect(writes).toBe(0);
+  await page.reload();
+  await bootDocumentManager(page,{status:'approved'});
+  await expect(page.getByRole('button',{name:'Manage documents',exact:true})).toHaveCount(0);
+});
 
 for(const width of [320,430,1280]) for(const dark of [false,true]) {
   test(`Placement-driven form stays compact at ${width}px ${dark?'dark':'light'}`,async({page},info)=>{

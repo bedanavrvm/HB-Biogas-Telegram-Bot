@@ -400,17 +400,25 @@ def serialize_packet(application: LoanOriginationApplication) -> dict[str, Any]:
 
 
 @transaction.atomic
-def select_documents(*, application_id, actor, selected_keys: Any, expected_revision: int, request_id: str):
+def select_documents(*, application_id, actor, selected_keys: Any = None, expected_revision: int,
+                     request_id: str, supporting_template_ids: Any = None,
+                     expected_catalogue_revision: str = ''):
     from origination.services.loan_origination import OriginationConflict, OriginationError, _record_event, _require_request_id
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
     from origination.services.origination_value_contracts import enabled, packet_contract, person_fields, PERSON_LINKS_KEY, request_fingerprint, ValueContractError
     shared_values = enabled(application.schema_snapshot)
-    if shared_values and (not isinstance(selected_keys, list) or any(not isinstance(key, str) for key in selected_keys)):
+    catalogue_request = supporting_template_ids is not None
+    values = supporting_template_ids if catalogue_request else selected_keys
+    if (shared_values or catalogue_request) and (not isinstance(values, list) or any(not isinstance(key, str) for key in values)):
         raise OriginationError('Choose the supporting documents from the list.')
-    fingerprint = request_fingerprint(sorted(selected_keys)) if shared_values else ''
+    if catalogue_request and (selected_keys is not None or len(values) != len(set(values))):
+        raise OriginationError('Choose each supporting document once using one selection format.')
+    fingerprint = request_fingerprint(
+        ['templates', sorted(values), expected_catalogue_revision] if catalogue_request else sorted(values)
+    ) if shared_values or catalogue_request else ''
     if application.events.filter(request_id=request_id).exists():
-        if shared_values:
+        if fingerprint:
             replay = application.events.get(request_id=request_id)
             if application.officer_id != actor.pk or replay.metadata.get('value_request_sha256') != fingerprint:
                 raise OriginationConflict('This retry contains different document choices.')
@@ -423,10 +431,18 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         raise OriginationError('Supporting-document selection is locked during a targeted correction.')
     if application.status != LoanOriginationApplication.STATUS_DRAFT:
         raise OriginationError('Supporting documents cannot be selected in this application state.')
+    added = []
+    if catalogue_request:
+        from origination.services.origination_document_choices import attach_requested_documents
+        selected_keys, added = attach_requested_documents(application, values, expected_catalogue_revision)
+    before_keys = list(application.packet_documents.filter(selected=True).values_list('document_key', flat=True))
+    previous_signer_keys = {str(rule.get('participant_key') or rule.get('role'))
+        for row in application.packet_documents.filter(selected=True)
+        for rule in row.signer_rules_snapshot or [] if isinstance(rule, dict)}
     requested = {str(key) for key in (selected_keys or [])}
     allowed = set()
     required = set()
-    changed = False
+    changed = bool(added)
     for document in application.packet_documents.select_for_update().all():
         if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
             continue
@@ -445,6 +461,7 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
     unknown = requested - allowed - required
     if unknown:
         raise OriginationError('One or more supporting documents cannot be selected for this application.')
+    application._prefetched_objects_cache = {}
     from origination.services.origination_document_catalogue import validate_snapshot_combination
     primary = application.packet_documents.filter(
         document_role=OriginationDocumentTemplate.ROLE_PRIMARY, selected=True,
@@ -470,7 +487,7 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
             application.form_payload = {**application.form_payload, PERSON_LINKS_KEY: {
                 target: source for target, source in links.items() if target not in detached_roles}}
             changed = True
-    metadata = {'value_request_sha256': fingerprint} if shared_values else {}
+    metadata = {'value_request_sha256': fingerprint} if fingerprint else {}
     if not changed:
         _record_event(application, 'document_selection_unchanged', actor=actor, request_id=request_id, metadata=metadata)
         return application
@@ -480,8 +497,14 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
     application.packet_documents.filter(selected=True).update(
         previewed_application_revision=None, updated_at=timezone.now(),
     )
+    from origination.services.origination_document_choices import reconcile_document_requirements
+    from origination.services.origination_signing_plans import reconcile_document_plan
+    reconcile_document_requirements(application)
+    reconcile_document_plan(application, previous_signer_keys)
     _record_event(application, 'document_selection_updated', actor=actor, request_id=request_id,
-        after={'selected_keys': sorted(requested), **({'detached_person_roles': detached_roles} if detached_roles else {})}, metadata=metadata)
+        before={'selected_keys': before_keys},
+        after={'selected_keys': list(application.packet_documents.filter(selected=True).values_list('document_key', flat=True)),
+               'added_template_ids': added, **({'detached_person_roles': detached_roles} if detached_roles else {})}, metadata=metadata)
     return application
 
 

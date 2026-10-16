@@ -931,50 +931,99 @@
     syncPrimaryAction();
   }
 
-  async function openRestartSheet(trigger) {
-    const result = await apiFetch(`/products/?branch=${encodeURIComponent(current.branch)}`, {});
-    if (!result.ok) return showToast(result.data?.error || 'Could not load the document catalogue.', true);
-    const product = (result.data.products || []).find(item => item.product_key === current.product_key);
-    const catalogue = product?.document_catalogue || {};
-    if (!catalogue.ready) return showToast((catalogue.reasons || ['No compatible Main LAF is available.']).join(' '), true);
-    const selectedSupporting = new Set((current.document_packet?.documents || [])
-      .filter(item => item.role === 'supporting' && item.selected)
-      .map(item => item.template_id));
-    const currentPrimaryId = (current.document_packet?.documents || [])
-      .find(item => item.role === 'primary' && item.selected)?.template_id;
-    const replacementMains = (catalogue.main_lafs || []).filter(item => item.id !== currentPrimaryId);
-    if (!replacementMains.length) return showToast('No other compatible Main LAF is currently available.', true);
-    const mains = replacementMains.map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}" required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF · version ${escapeHtml(item.version)}</small></span></label>`).join('');
-    const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"${selectedSupporting.has(item.id) ? ' checked' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>Optional supporting document · version ${escapeHtml(item.version)}</small></span></label>`).join('');
+  async function openDocumentSheet(trigger) {
+    if (!current || current.status !== 'draft') return;
+    window.clearTimeout(saveTimer);
+    const activeSection = wizardSections()[step];
+    const saved = activeSection?.key?.startsWith('document:')
+      ? await saveSupportingDocument(activeSection.key.slice(9)) : await saveDraft(true);
+    if (!saved) return;
+    const applicationId = current.id;
+    trigger.disabled = true;
+    let result;
+    try { result = await apiFetch(`/applications/${applicationId}/documents/choices/`, {}); }
+    finally { trigger.disabled = false; }
+    if (!result.ok) return showToast(result.data?.error || 'Could not load the document choices. Try again.', 'error');
+    if (current.id !== applicationId) return;
+    const catalogue = result.data;
+    const currentPrimaryId = catalogue.primary_template_id;
+    const mains = (catalogue.main_lafs || []).map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}"${item.selected ? ' checked' : ''} required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF${item.version ? ` · version ${escapeHtml(item.version)}` : ''}</small></span></label>`).join('');
+    const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"${item.selected ? ' checked' : ''}${item.required || !item.available ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small data-document-choice-hint="${escapeHtml(item.id)}">${escapeHtml(item.reason || (item.required ? 'Required' : 'Optional'))}${item.version ? ` · version ${escapeHtml(item.version)}` : ''}</small></span></label>`).join('');
     openSheet({
-      mode: 'restart-laf', eyebrow: current.reference_number, title: 'Change Main LAF',
-      hint: 'Starts a replacement draft with matching answers. Uploads and signatures stay with the current application.', trigger,
-      body: `<form id="origination-restart-form" class="sheet-form"><div class="section-title"><div><h3>Main LAF</h3><p>Choose the replacement legal form.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}</form>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="submit" form="origination-restart-form" class="btn btn-primary">Change form</button>',
+      mode: 'manage-documents', eyebrow: current.reference_number, title: 'Manage documents',
+      hint: 'Choose one Main LAF and any supporting documents.', trigger,
+      body: `<form id="origination-documents-form" class="sheet-form"><div class="section-title"><h3>Main LAF</h3></div>${mains}<div class="section-title"><h3>Supporting documents</h3></div>${supporting || '<p class="muted">No supporting documents are available.</p>'}</form>`,
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="submit" form="origination-documents-form" class="btn btn-primary">Save changes</button>',
     });
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    document.getElementById('origination-restart-form').onsubmit = async event => {
+    const form = document.getElementById('origination-documents-form');
+    const syncChoices = () => {
+      const primaryId = form.querySelector('[name="primary_template_id"]:checked')?.value;
+      for (const item of catalogue.supporting_documents || []) {
+        const input = [...form.querySelectorAll('[name="supporting_template_ids"]')].find(node => node.value === item.id);
+        const compatible = item.compatible_main_ids.includes(primaryId);
+        // An incompatible selected document must remain removable.
+        input.disabled = (item.required && primaryId === currentPrimaryId) || ((!item.available || !compatible) && !input.checked);
+        input.setAttribute('aria-invalid', String(input.checked && !compatible));
+        const hint = input.closest('label').querySelector('small');
+        hint.textContent = `${item.reason || (!compatible ? 'Not compatible with this Main LAF. Remove this choice.' : item.required && primaryId === currentPrimaryId ? 'Required' : 'Optional')}${item.version ? ` · version ${item.version}` : ''}`;
+      }
+    };
+    form.addEventListener('change', syncChoices);
+    syncChoices();
+    let saving = false;
+    form.onsubmit = async event => {
       event.preventDefault();
-      const values = new FormData(event.currentTarget);
+      if (saving) return;
+      const values = new FormData(form);
       const primaryId = values.get('primary_template_id');
-      if (!primaryId) return showToast('Choose the replacement Main LAF.', true);
-      const supportingIds = values.getAll('supporting_template_ids');
-      const identity = `${current.id}:${primaryId}:${supportingIds.slice().sort().join(',')}:${catalogue.catalogue_revision}`;
-      const storageKey = `origination-restart-request:${identity}`;
-      const restartKey = storageGet(storageKey) || requestKey('restart');
-      storageSet(storageKey, restartKey);
-      const restarted = await postJson(`/applications/${current.id}/restart/`, {
-        revision: current.revision,
-        primary_template_id: primaryId,
-        supporting_template_ids: supportingIds,
-        catalogue_revision: catalogue.catalogue_revision,
-        client_request_id: restartKey,
-      });
-      if (!restarted.ok) return showToast(restarted.data?.error || 'Could not restart the application.', true);
-      storageRemove(storageKey);
-      closeSheet({ restoreFocus: false });
-      await openEditor(restarted.data.application, 0);
-      showToast('Replacement draft created. Matching fields were safely prefilled.');
+      if (!primaryId) return showToast('Choose a Main LAF.', 'error');
+      const supportingIds = [...form.querySelectorAll('[name="supporting_template_ids"]:checked')].map(input => input.value);
+      if (form.querySelector('[name="supporting_template_ids"][aria-invalid="true"]'))
+        return showToast('Remove the documents that are not compatible with this Main LAF.', 'warning');
+      const restarting = primaryId !== currentPrimaryId;
+      saving = true;
+      const submit = document.querySelector('[form="origination-documents-form"]');
+      const controls = [...form.querySelectorAll('input'), document.querySelector('[data-sheet-cancel]'), document.getElementById('origination-sheet-close')].filter(Boolean);
+      const previousDisabled = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
+      submit.disabled = true;
+      try {
+        if (restarting) {
+          const message = 'Changing the Main LAF will cancel this draft and start a blank application. You will need to enter the details and upload documents again.';
+          const confirmed = typeof tg?.showPopup === 'function'
+            ? await new Promise(resolve => tg.showPopup({title:'Change Main LAF?',message,
+              buttons:[{id:'change',type:'destructive',text:'Start new draft'},{type:'cancel'}]}, id => resolve(id === 'change')))
+            : window.confirm(message);
+          if (!confirmed) return;
+        }
+        const identity = `${applicationId}:${catalogue.revision}:${primaryId}:${supportingIds.slice().sort().join(',')}:${catalogue.catalogue_revision}`;
+        const storageKey = `origination-document-request:${identity}`;
+        const key = storageGet(storageKey) || requestKey('documents');
+        storageSet(storageKey, key);
+        const updated = await postJson(`/applications/${applicationId}/${restarting ? 'restart/' : 'documents/selection/'}`, {
+          revision: catalogue.revision,
+          ...(restarting ? {primary_template_id:primaryId,confirm_blank_restart:true} : {}),
+          supporting_template_ids:supportingIds, catalogue_revision:catalogue.catalogue_revision,
+          client_request_id:key, request_id:key,
+        });
+        if (!updated.ok) return showToast(updated.data?.error || 'Could not save document choices. Your choices are kept; try again.', 'error');
+        storageRemove(storageKey);
+        closeSheet({restoreFocus:false});
+        let targetStep = 0;
+        if (!restarting) {
+          const previousSection = wizardSections()[step]?.key;
+          current = updated.data.application;
+          const sections = wizardSections();
+          targetStep = sections.findIndex(section => section.key === previousSection);
+          if (targetStep < 0) targetStep = Math.max(0, sections.findIndex(section => section.key === 'document_selection'));
+        }
+        await openEditor(updated.data.application, targetStep);
+        showToast(restarting ? 'New blank application started. Enter the details again.' : 'Documents updated.', 'success');
+      } finally {
+        saving = false; submit.disabled = false;
+        controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
+      }
     };
   }
 
@@ -1028,7 +1077,9 @@
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
     document.querySelectorAll('[data-section-index]').forEach(button => button.onclick = async () => {
       const editable = ['draft', 'correction_required'].includes(current.status);
-      if (editable && !(await saveDraft(true))) return;
+      const activeSection = wizardSections()[step];
+      if (editable && !(activeSection?.key.startsWith('document:')
+        ? await saveSupportingDocument(activeSection.key.slice(9)) : await saveDraft(true))) return;
       const target = Number(button.dataset.sectionIndex);
       closeSheet({ restoreFocus: false });
       renderEditor(current, target);
@@ -1104,7 +1155,10 @@
   }
 
   async function openEditor(application, requestedStep) {
-    if (String(current?.id || '') !== String(application.id)) {
+    const changingApplication = String(current?.id || '') !== String(application.id);
+    if (changingApplication) {
+      dirty = false;
+      pendingSaveRequestId = '';
       window.clearTimeout(commercialQuoteTimer);
       commercialQuoteState = null;
       commercialQuoteGeneration += 1;
@@ -1122,6 +1176,11 @@
     await recoverDraft(application);
     if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved', 'completed'].includes(application.status)) {
       requestedStep = wizardSections().length - 1;
+    }
+    // collectPayload reads live inputs during ordinary section navigation. A
+    // different application must never inherit the previous form's DOM values.
+    if (changingApplication) {
+      root()?.replaceChildren();
     }
     renderEditor(current, requestedStep);
   }
@@ -2294,8 +2353,8 @@
       ? '' : `<small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small>`;
     const contextChip = statusHasPersistentBanner
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
-    const restartAction = application.status === 'draft'
-      ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Change Main LAF" aria-label="Change Main LAF"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
+    const restartAction = editable && application.status === 'draft'
+      ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
     root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
@@ -2319,7 +2378,8 @@
       });
     }
     window.MiniAppUtils?.bindAccessibleForm?.(root());
-    document.getElementById('origination-restart-laf')?.addEventListener('click', event => openRestartSheet(event.currentTarget));
+    document.getElementById('origination-restart-laf')?.addEventListener('click', event => openDocumentSheet(event.currentTarget));
+    root().querySelectorAll('[data-manage-documents]').forEach(button => button.addEventListener('click', event => openDocumentSheet(event.currentTarget)));
     syncTelegramControls();
     scheduleSigningRefresh();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -2327,12 +2387,9 @@
 
   function documentSelectionMarkup(editable) {
     const packet = current?.document_packet || {};
-    const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable);
-    const rows = documents.map(item => {
-      const locked = item.inclusion_mode !== 'optional';
-      return `<label class="packet-document-option${item.selected ? ' selected' : ''}"><input type="checkbox" data-document-select="${escapeHtml(item.key)}"${item.selected ? ' checked' : ''}${locked || !editable ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${locked ? 'Required for this application' : 'Optional supporting document'}</small></span><span class="status-chip">${item.selected ? 'Included' : 'Not included'}</span></label>`;
-    }).join('');
-    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Add or remove optional documents until submission; preview the selected documents together before submission.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents are available.</div>'}</div>`;
+    const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable && item.selected);
+    const rows = documents.map(item => `<article class="packet-document-option"><span><strong>${escapeHtml(item.name)}</strong><small>${item.template_version ? `Version ${escapeHtml(item.template_version)}` : 'Supporting document'}</small></span></article>`).join('');
+    return `<div class="section-title"><div><h3>Supporting documents</h3></div>${editable ? '<button type="button" class="icon-button" data-manage-documents aria-label="Manage supporting documents" title="Manage documents">'+iconSvg('documents')+'</button>' : ''}</div><div class="packet-document-list">${rows || '<p class="muted">No supporting documents selected.</p>'}</div>`;
   }
 
   function repeatableItemLabel(field) {
@@ -2443,14 +2500,24 @@
   }
 
   function supportingDocumentMarkup(document, editable) {
-    if (current?.value_contract_version === 2) {
-      const local = (document?.schema?.fields || []).filter(field => field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered');
-      const generated = (document?.schema?.fields || []).filter(field => field.value_contract?.source !== 'entered');
-      const values = generated.map(field => {const value = document.resolved_values?.[field.key]; return `<div class="laf-field"><span>${escapeHtml(field.label || field.key)}</span><strong>${escapeHtml(value === '' || value == null ? 'Not yet available' : value)}</strong></div>`;}).join('');
-      return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div><div class="laf-grid">${local.map(field => supportingDocumentField(field, document, editable)).join('') || '<div class="empty-state">Uses the application details above.</div>'}${values}</div>`;
-    }
-    const fields = (document?.schema?.fields || []).map(field => supportingDocumentField(field, document, editable)).join('');
-    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3><p>Shared LAF values are locked. Complete the remaining fields, save, then preview this document.</p></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div><div class="laf-grid">${fields || '<div class="empty-state">This document uses only values already collected in the main LAF.</div>'}</div>`;
+    const sharedValues = current?.value_contract_version === 2;
+    const fields = (document?.schema?.fields || []).filter(field => !sharedValues
+      || field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered');
+    const configured = document?.schema?.sections || [];
+    const sectionKeys = [...new Set([...configured.map(section => section.key), ...fields.map(field => field.section_key || '')])];
+    const sections = sectionKeys.map(key => {
+      const items = fields.filter(field => (field.section_key || '') === key);
+      if (!items.length) return '';
+      const section = configured.find(item => item.key === key);
+      const heading = section ? `<div class="section-title"><div><h4>${escapeHtml(section.label || key)}</h4>${section.help_text ? `<p>${escapeHtml(section.help_text)}</p>` : ''}</div></div>` : '';
+      return `<section class="supporting-form-section">${heading}<div class="laf-grid">${items.map(field => supportingDocumentField(field, document, editable)).join('')}</div></section>`;
+    }).join('');
+    const generated = sharedValues ? (document?.schema?.fields || []).filter(field => field.value_contract?.source !== 'entered') : [];
+    const values = generated.map(field => {
+      const value = document.resolved_values?.[field.key];
+      return `<div class="laf-field"><span>${escapeHtml(field.label || field.key)}</span><strong>${escapeHtml(value === '' || value == null ? 'Not yet available' : value)}</strong></div>`;
+    }).join('');
+    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div>${sections || '<div class="empty-state">Uses the application details above.</div>'}${values ? `<div class="laf-grid">${values}</div>` : ''}`;
   }
 
   function correctionTargetStep(identity) {
@@ -2879,6 +2946,7 @@
   }
 
   async function saveDocumentSelection() {
+    if (!root().querySelector('[data-document-select]')) return true;
     // Required documents are displayed as checked, disabled controls. They are
     // already selected by the server and are not part of the optional-choice
     // API contract; :checked alone also matches disabled controls.
