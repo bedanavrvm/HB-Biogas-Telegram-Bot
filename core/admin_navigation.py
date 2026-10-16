@@ -378,6 +378,8 @@ def get_admin_navigation(request) -> list[dict]:
         _custom_item("Add staff user", "admin:auth_user_add_staff", "person_add", _superuser),
     ]
     technical = [
+        _custom_item('Design Lab', 'ui_review_lab', 'palette',
+                     lambda request: _superuser(request) and bool(getattr(settings, 'UI_DESIGN_LAB_ENABLED', False))),
         _model_item("qa_tracker.TestCycle", "QA release checklists", "fact_check"),
         _model_item("qa_tracker.TestCase", "QA test registry", "checklist"),
         _model_item("qa_tracker.TestRun", "QA run history", "history"),

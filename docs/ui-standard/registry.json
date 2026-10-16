@@ -1,0 +1,429 @@
+{
+  "format": 1,
+  "status": "pending_review",
+  "migration_authorized": false,
+  "pattern_keys": [
+    "foundations",
+    "shell",
+    "tabs",
+    "cards",
+    "identity",
+    "status",
+    "search",
+    "filters",
+    "pagination",
+    "forms",
+    "required",
+    "dropdowns",
+    "validation",
+    "drafts",
+    "actions",
+    "confirmations",
+    "feedback",
+    "loading",
+    "empty",
+    "recovery",
+    "notifications",
+    "camera",
+    "uploads",
+    "preview",
+    "downloads",
+    "kpis",
+    "charts",
+    "tables",
+    "recognition",
+    "history",
+    "signing"
+  ],
+  "operational_templates": [
+    "core/templates/base_shell.html",
+    "core/templates/complaint_cases/app.html",
+    "core/templates/complaint_cases/lucide_icons.html",
+    "core/templates/complaint_cases/partials/case_list.html",
+    "core/templates/miniapp_diagnostics.html",
+    "core/templates/portal/partials/batch_card.html",
+    "core/templates/portal/partials/batch_list.html",
+    "core/templates/portal/partials/farmer_card.html",
+    "core/templates/portal/partials/farmer_list.html",
+    "core/templates/portal/partials/navigation.html",
+    "core/templates/portal/partials/queue_tools.html",
+    "core/templates/portal/portal.html",
+    "core/templates/portal/portal_screen_full.html",
+    "core/templates/tat_tracker/app.html",
+    "core/templates/tat_tracker/partials/case_list.html",
+    "origination/templates/loan_origination/app.html",
+    "origination/templates/loan_origination/sign.html"
+  ],
+  "legacy_sources": [
+    {
+      "path": "core/static/miniapp/activity_changes.css",
+      "sha256": "cd2d3309763142ddea94e1295972917a84a94526d789dae0c7831b09909e8e3e"
+    },
+    {
+      "path": "core/static/miniapp/activity_changes.js",
+      "sha256": "af8383ccb12fe93b8af6ad005df604c533957bb5f6b6fe220ea80e4faed1addf"
+    },
+    {
+      "path": "core/static/miniapp/ag_grid_zoom.js",
+      "sha256": "54c906d3be9b93cc51c730f2cd003b809f3f4f48554f01729069dc26ed61eb2a"
+    },
+    {
+      "path": "core/static/miniapp/asset_loader.js",
+      "sha256": "4d34e3c0926fc1f7e554378b50363cd448943b5883a14909ab36161844ee1e49"
+    },
+    {
+      "path": "core/static/miniapp/base.css",
+      "sha256": "ee7395c23acb159d7ab826bb94789a84008b5a92d7b7f1fc579693e1749387c1"
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.css",
+      "sha256": "310e2ab91385dd6e5129a8c6fa08f8a3ec46ec73087bd2f3b3fe094a12643d23"
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "4c91e592d2e43bdb3ef1f08765d5f99689ec6ce049526591f7331f8f570a552c"
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases_api.js",
+      "sha256": "3e26d581e17a509f21729abdd79ea5e570b44a79c6f26aea8f6e0783b0693056"
+    },
+    {
+      "path": "core/static/miniapp/complaint_report_charts.js",
+      "sha256": "44e72daf7998356b03c50b8a15010c613207cf93c35259af152fd851a94fed8b"
+    },
+    {
+      "path": "core/static/miniapp/components.css",
+      "sha256": "9d204a2c994a2cee03675e6ff01cb23439eda1a3c0c5dabe5199b6445aeddebd"
+    },
+    {
+      "path": "core/static/miniapp/components.js",
+      "sha256": "ccbd554b4d664efa09f82366ab8ccbc50ca3e0d832804beb8f74205d652463d9"
+    },
+    {
+      "path": "core/static/miniapp/diagnostics.js",
+      "sha256": "e60b11dbea4cc9075b49ec537ecd0e8efbc37180dd599dbfb19aa531b3419c62"
+    },
+    {
+      "path": "core/static/miniapp/farmup_review.css",
+      "sha256": "14c24cb05e58a4b88852af08708f7e004f3a4f4cd438a7c991b9d00e885b14d6"
+    },
+    {
+      "path": "core/static/miniapp/farmup_review.js",
+      "sha256": "146aa070b1d41b590eaa3d461eae4b2b47229e0d1ee750f8a0c58ff22f591d0a"
+    },
+    {
+      "path": "core/static/miniapp/fca_review.css",
+      "sha256": "2b45fe7a6815ad8847932d0dfa7302de70b6dfba5873c978f95f98e570702d39"
+    },
+    {
+      "path": "core/static/miniapp/fca_review.js",
+      "sha256": "21caf1ccfb5f40d4414ae7e13d62dd2a6db03f0f364affecedee8c6bb1211725"
+    },
+    {
+      "path": "core/static/miniapp/miniapp-nav.js",
+      "sha256": "a274268548b1ee4a00dc86443a792e758366fb59258789bc5e2693a15b3c9155"
+    },
+    {
+      "path": "core/static/miniapp/miniapp_launcher.css",
+      "sha256": "8e261a6a37dc1d03d969363558ed11cb1bc0b9df715b276697fc5d3f4ef9090d"
+    },
+    {
+      "path": "core/static/miniapp/miniapp_launcher.js",
+      "sha256": "943406d70eaf7ad069ce14187a3f3059f54eb19a3a10def7b6712c1e76f85dd0"
+    },
+    {
+      "path": "core/static/miniapp/miniapp_recovery.css",
+      "sha256": "cadd1bd85d8b363c934f081b83e9627b92de0ebfa9ee88421bb2b285b4736ab2"
+    },
+    {
+      "path": "core/static/miniapp/miniapp_recovery.js",
+      "sha256": "9b2584f3410eaebf05f5da5382797a0d5e3488753f77e917e3893d55d7bde6d3"
+    },
+    {
+      "path": "core/static/miniapp/order_approval_api.js",
+      "sha256": "fa697ef9861e5f616ebcf7b6d6f5eb377286facb51ba5c4b9927cf7176aaf670"
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "44fe46dd1385a200f5c8e46f4922830a40475fa80c848538fbfdf34bb10aacf4"
+    },
+    {
+      "path": "core/static/miniapp/portal.js",
+      "sha256": "78afcdb566394b0c3ab31c0c2fc4a68efd673b4d5de2fd028e2d4610de60305c"
+    },
+    {
+      "path": "core/static/miniapp/portal_api.js",
+      "sha256": "02e7c70d9846fdad6eeb409bc99f5526af4e378d606f0a328a6a5aa8e14a00fc"
+    },
+    {
+      "path": "core/static/miniapp/portal_case_history.js",
+      "sha256": "7489c7f2aa364a10ce3442ca84c3284ed2bf61ccc368f005e5fce2c0f7b7d1e7"
+    },
+    {
+      "path": "core/static/miniapp/portal_case_navigation.js",
+      "sha256": "f7e41292b84d2faed42194018250227f89f28e118dca693270c250c2bf59793c"
+    },
+    {
+      "path": "core/static/miniapp/portal_curated_reports.js",
+      "sha256": "648e0bc40893af54b66bd201ca0a33a8d3f92b0bc4f4eaf9c966dc36bd00e68d"
+    },
+    {
+      "path": "core/static/miniapp/portal_dialogs.js",
+      "sha256": "c9103ad76d6d0296b17935e2ae83adb6df2faaa95275ff0386fdddef087e6d53"
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "f256bafd0de4ce7e2beb94716e8b44778285fd4a14e255261a1a24dc44c23165"
+    },
+    {
+      "path": "core/static/miniapp/portal_farmup.js",
+      "sha256": "157fbe842a7d9b5a7e86b1f85dfee28d3d4a45e1b0f5a92ecf964a70fe7f3275"
+    },
+    {
+      "path": "core/static/miniapp/portal_filters.js",
+      "sha256": "ef17e1749684b4788ca87b258d04483eeabebc96f1e59e3f69e9250d969f659e"
+    },
+    {
+      "path": "core/static/miniapp/portal_hb_actions.js",
+      "sha256": "267e1bd55c2473978e91c5604a3fae119402005e5f8e5a3397be9805924f36d2"
+    },
+    {
+      "path": "core/static/miniapp/portal_helpers.js",
+      "sha256": "c41019280753de5381b5af5465815d0a159cc21aa35364b24321b9259cff3e94"
+    },
+    {
+      "path": "core/static/miniapp/portal_imports.js",
+      "sha256": "24fe798d0065db2ec89b93913da6acba8f47c8d976e6639e0017bcff4c71c7a8"
+    },
+    {
+      "path": "core/static/miniapp/portal_invoices.js",
+      "sha256": "e4fb951eb2da9ea11d3193358bffba5a1ddb1cd32d3fe9841db4d4f41bb58db0"
+    },
+    {
+      "path": "core/static/miniapp/portal_payments.js",
+      "sha256": "eb884cd57b535cb38e930d650c0ae7428617220dfc1e1936ecb9cd40cc7145b6"
+    },
+    {
+      "path": "core/static/miniapp/portal_queues.js",
+      "sha256": "3040141088c1d4a95a96d2709de49a72343c69e4e8cf17b91d0f720e0a2d0d4a"
+    },
+    {
+      "path": "core/static/miniapp/portal_recognition.js",
+      "sha256": "52dd161b2fb8cc3b0b20fc263a34cc3f84b6dc3c997b4afdaf6bba9d3b592e2f"
+    },
+    {
+      "path": "core/static/miniapp/portal_report_insights.css",
+      "sha256": "fed3e174d74953d9bac90a4d2cdf4d067bf426c02fc70158bfff48da7387268b"
+    },
+    {
+      "path": "core/static/miniapp/portal_reports.js",
+      "sha256": "2224f2665ff57a278108aaecc4e5176c929bc818398f8ac73bdff3e1eaca3bc4"
+    },
+    {
+      "path": "core/static/miniapp/portal_requisitions.js",
+      "sha256": "79c0d3cd19b871262b1997f68b82660211def20324898781d8418da3e233a4c6"
+    },
+    {
+      "path": "core/static/miniapp/report_email_export.css",
+      "sha256": "5a7ed2f4c0b0c313c9e53121c2c0a85d2cd065701a37bd9730d16ec94c8aacf3"
+    },
+    {
+      "path": "core/static/miniapp/report_email_export.js",
+      "sha256": "3e97b112640433c18089ace97504227403f4cdbeb952586bb31bd444d7ce68e9"
+    },
+    {
+      "path": "core/static/miniapp/report_email_settings.css",
+      "sha256": "f8cc502d7b04b48098ad3fdde37d9d481e50a047b95e3b10e19b04e2dec60b19"
+    },
+    {
+      "path": "core/static/miniapp/report_email_settings.js",
+      "sha256": "7928e18e3c3611c49838e0e52ae7dc3d1e8239a34b07fae947c815311cc24a07"
+    },
+    {
+      "path": "core/static/miniapp/runtime.js",
+      "sha256": "3cccb3bfd41b4b3dcc795624dd540f768e2d235c9bba55a782da9f7358185982"
+    },
+    {
+      "path": "core/static/miniapp/secure_media_viewer.js",
+      "sha256": "8b48f6d0df77e7c88e0f56c2bdfeccc87ce8de04dce0379769d3f2fce2088d3e"
+    },
+    {
+      "path": "core/static/miniapp/spin_api.js",
+      "sha256": "429f0ffd2e965a3704c2cd2ae3922893051f6ccf2ed7c04fe30d06576cc12557"
+    },
+    {
+      "path": "core/static/miniapp/spin_form.css",
+      "sha256": "176171eef89a6bc65cc896180fef6d9198207c7a7f37d92214edc03889eccf87"
+    },
+    {
+      "path": "core/static/miniapp/spin_form.js",
+      "sha256": "ec2beb9b89fcba3e8d695dd65a08027d05baa21b521d54c5c2569eabbe214c7f"
+    },
+    {
+      "path": "core/static/miniapp/system_export_review.js",
+      "sha256": "c6b7f4d37077f85e635462796fc12358c9c3eacda175353285902ac50a7997bb"
+    },
+    {
+      "path": "core/static/miniapp/tat_api.js",
+      "sha256": "fc6a4e6d83d3bde9cfa726379b30ba8ab5b152bee74b2d858fbff94d19b80d38"
+    },
+    {
+      "path": "core/static/miniapp/tat_bro_assignment.js",
+      "sha256": "9d5f01e0e820b95e488e1d0856bfeadf853090acf4d5414e98c2b60f50649313"
+    },
+    {
+      "path": "core/static/miniapp/tat_case_validation.js",
+      "sha256": "d3e864f20dddca0f5cf1570dd7a2519657248dccb8336e5bd7d5ab435f6681c0"
+    },
+    {
+      "path": "core/static/miniapp/tat_formatters.js",
+      "sha256": "97cf36da763c484a1fba4c37bb4be9b5de4fe10d4c2e2f08ed42365dc7d300c3"
+    },
+    {
+      "path": "core/static/miniapp/tat_tracker.css",
+      "sha256": "ded4803bcb11b01ad5469ddead9c6412721ca2b054faf79b863127f6c49708e9"
+    },
+    {
+      "path": "core/static/miniapp/tat_tracker.js",
+      "sha256": "55ce144578682180e492da439a735619990d943b7b9ef9db9bfdd5a55303fc07"
+    },
+    {
+      "path": "core/static/miniapp/telegram.js",
+      "sha256": "902a1357e94d449de6130649e1d155d3c953497f05098c60863af911a2969c06"
+    },
+    {
+      "path": "core/static/miniapp/theme.css",
+      "sha256": "486cd301a9e2e5d0bfac9e943084da7232a4f932b041f70cb59fb5cccc7aaca6"
+    },
+    {
+      "path": "core/static/miniapp/utils.js",
+      "sha256": "20d535aa20dab750d611cb717ebdce1b0adaa5992885aa4e1e3c8394c2acdab2"
+    },
+    {
+      "path": "core/static/miniapp/workflow_standard.css",
+      "sha256": "86c93e9b511a249c8493e3f41bebd4dcaf57a8c4e5177f9465b5f278b8da4fbf"
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "03ed7d28d141fe54f97018f971d5fa15b8b60fc19f52bc35502ad08c6200f576"
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "ea08b17648440db8124bae0f6780b5dd0deb0383505043e00f7c78598f3d416d"
+    },
+    {
+      "path": "core/templates/complaint_cases/lucide_icons.html",
+      "sha256": "13d509032d4f8f73e46aacf988edd3d64d847132d646fcea26be0eadab911e2e"
+    },
+    {
+      "path": "core/templates/complaint_cases/partials/case_list.html",
+      "sha256": "1a9473104fc5e695a4f92779ecfa3f3980d1af16f6294c1edff5fc8e50cb7ad6"
+    },
+    {
+      "path": "core/templates/miniapp_diagnostics.html",
+      "sha256": "8589a296525456a5de71d868e090f64eed069509a5d021750996bdbe9f691fed"
+    },
+    {
+      "path": "core/templates/portal/partials/batch_card.html",
+      "sha256": "8ae2fee5ba53d53660f90106a21c9e85fd56c0ce3ccf39491a8c1c91fcbf1dec"
+    },
+    {
+      "path": "core/templates/portal/partials/batch_list.html",
+      "sha256": "72bc35ea0e1f9d67ac27349e23b25fd2efcdc33e6e04ed52fbb93d9af83b7008"
+    },
+    {
+      "path": "core/templates/portal/partials/farmer_card.html",
+      "sha256": "861b6cc7f2e988b8c82308d6638776fad0463be70462338522f6c0fa3c0afd1c"
+    },
+    {
+      "path": "core/templates/portal/partials/farmer_list.html",
+      "sha256": "d84260d920f178ca784f9b63e467513b470e6d244a2fd97f6e968d138520177e"
+    },
+    {
+      "path": "core/templates/portal/partials/navigation.html",
+      "sha256": "78a1767afee55017477610b7c1f7116e6b9031d5d2f303e3d45728d23b860c52"
+    },
+    {
+      "path": "core/templates/portal/partials/queue_tools.html",
+      "sha256": "d0713a6806e0a8382e9211bc5ffabfae79692c544e98faf0dd242c76cecdb04e"
+    },
+    {
+      "path": "core/templates/portal/portal.html",
+      "sha256": "44cbe955fbf73c66bf5acad254120009c4415c71a62077e1bdccd10eb59c4796"
+    },
+    {
+      "path": "core/templates/portal/portal_screen_full.html",
+      "sha256": "992de844faead7c51d1e51794744575db4c831aa7cfc8db52034e58b99780300"
+    },
+    {
+      "path": "core/templates/tat_tracker/app.html",
+      "sha256": "ae43b22517cd8a1fa3eace479f28785e15652743ad08c926766f09aecad4854a"
+    },
+    {
+      "path": "core/templates/tat_tracker/partials/case_list.html",
+      "sha256": "12b9137228ae3fa6c020cef2a485d380d652099d6bed8ed49a6d86bacb7afc78"
+    },
+    {
+      "path": "origination/static/miniapp/loan_origination.css",
+      "sha256": "381d96e009a8f66faf3e966937ce3904e460351d7bd945828830799367a062c5"
+    },
+    {
+      "path": "origination/static/miniapp/loan_origination.js",
+      "sha256": "2337822207423e906551d49914761bf6411b6ccd8a884c9b58c638d9d8a548a1"
+    },
+    {
+      "path": "origination/static/miniapp/origination_compact.css",
+      "sha256": "7a12c1cacfa585461998ef363ec984aa9b2df974abaf5fc95e6f7903c7de9ced"
+    },
+    {
+      "path": "origination/static/miniapp/origination_field_rules.js",
+      "sha256": "2642bd3c7ad893252c0c8d9e6fc36bd3d4f8575ff8b986b2ca24fe94936bfb6f"
+    },
+    {
+      "path": "origination/static/miniapp/origination_signing.css",
+      "sha256": "c2df4da6f5cf891c2d80bd2d4ad3490a5fc03d5335912d4b1b7a74dbb6a49eae"
+    },
+    {
+      "path": "origination/static/miniapp/origination_signing.js",
+      "sha256": "4605af242ee6f3925ee8b8a271abe358cd9c6cf923e6b1408f79976c2065f340"
+    },
+    {
+      "path": "origination/static/miniapp/origination_signing_completion.css",
+      "sha256": "49ce66ba9c54920d3f0e71af2117afba3ad3fe007cddeea2051d2941805287aa"
+    },
+    {
+      "path": "origination/static/miniapp/origination_signing_completion.js",
+      "sha256": "6057a8cd1d7aa6ef2b394507ab757b5eb3e613161fd732646e147122ef0039e9"
+    },
+    {
+      "path": "origination/static/miniapp/origination_signing_feedback.css",
+      "sha256": "cf7a31775bfea8fdb9bf89e90f21199f2ed4e6d41feb942a484c47c28f43eacb"
+    },
+    {
+      "path": "origination/static/miniapp/signature_appearance.css",
+      "sha256": "e47b12a12f5fcf834011888ccd05697d797e39d51e2b088cceb14b90a0eb62d5"
+    },
+    {
+      "path": "origination/static/miniapp/signature_appearance.js",
+      "sha256": "00bf101cdfaddeb664545f1bc4735426866b2911aab87e9fd410b2fc4758f81f"
+    },
+    {
+      "path": "origination/templates/loan_origination/app.html",
+      "sha256": "d0ef14a431865520ee7e0af8b3eea5cd2b2cdd229836e292f76b55b08a7b8a33"
+    },
+    {
+      "path": "origination/templates/loan_origination/sign.html",
+      "sha256": "91e58f0b433a38daa62842e723db15866707a9fce1574e238a6375e7144b437b"
+    }
+  ],
+  "changes": [],
+  "source_roots": [
+    "core/static/miniapp",
+    "origination/static/miniapp",
+    "core/templates/portal",
+    "core/templates/tat_tracker",
+    "core/templates/complaint_cases",
+    "origination/templates/loan_origination"
+  ],
+  "source_hash_format": "lf-text-v1"
+}

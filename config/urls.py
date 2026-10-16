@@ -7,6 +7,7 @@ urlpatterns = [
     path('favicon.ico', lambda request: HttpResponse(status=204)),
     path('admin/', admin.site.urls),
     path('ops/health/', include('health_check.urls')),
+    path('ui-lab/', include('ui_review.urls')),
     path('api/', include('core.api.urls')),
     path('', include('core.api.browser_urls')),
     path('', include('core.api.legacy_urls')),

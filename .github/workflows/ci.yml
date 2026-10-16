@@ -48,7 +48,7 @@ jobs:
         run: python scripts/check_dependency_vulnerabilities.py
 
       - name: Run narrow Python correctness lint
-        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker
+        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker ui_review
 
       - name: Check migrations
         env:
@@ -66,13 +66,14 @@ jobs:
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
-          python -m compileall config core origination
+          python -m compileall config core origination ui_review
           python manage.py check
           python manage.py collectstatic --noinput
 
       - name: Check governed routes, settings, dependencies, and boundaries
         run: |
           python scripts/check_architecture_boundaries.py
+          python scripts/check_ui_standard.py
           python scripts/check_database_governance.py
           python manage.py generate_database_catalog --check
           python scripts/check_miniapp_write_inventory.py
@@ -88,6 +89,24 @@ jobs:
       - name: Run Mini App browser tests
         run: npm run test:browser
 
+      - name: Capture synthetic current UI review specimens
+        if: ${{ !cancelled() }}
+        env:
+          UI_AUDIT_SCENES: queue
+          UI_AUDIT_STATES: one
+        run: |
+          python manage.py export_ui_audit
+          node scripts/capture_ui_audit.js test-results/ui-audit
+
+      - name: Upload unapproved synthetic UI audit evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-design-audit-unapproved
+          path: test-results/ui-audit/
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Run Django tests with branch coverage
         env:
           DJANGO_SECRET_KEY: ci-secret-key-for-tests-only-change-in-production
@@ -95,7 +114,7 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
           coverage erase
-          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker manage.py test
+          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker,ui_review manage.py test
           coverage json -o coverage.json
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
@@ -165,4 +184,4 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py makemigrations --check --dry-run
-          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions --noinput --verbosity 1
+          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review --noinput --verbosity 1

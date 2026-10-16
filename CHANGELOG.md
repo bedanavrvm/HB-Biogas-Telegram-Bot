@@ -1,5 +1,29 @@
 # Changelog
 
+## 16 October 2026 - Source-bound Mini App Design Lab
+
+- Added a disabled-by-default, active-Superuser-only `/ui-lab/` workspace for
+  Portal, TAT Tracker, Complaints and Origination. It includes a 31-pattern
+  catalogue, source-backed specimens, three candidate densities, Telegram/JBL
+  theme previews, comparison controls and explicit Telegram device checks.
+- Added immutable source/evidence revisions, append-only design decisions,
+  review filters, private synthetic screenshot uploads and reviewed-standard
+  exports. Changes requested are not approval; source drift invalidates current
+  adoption without deleting earlier decisions. Retries retain one meaning.
+- Added reproducible source/capture tools, CI evidence artifacts, the UI source
+  ratchet, scoped release/token checks and agent reuse guidance. Business I/O,
+  page redirects and native controls are isolated inside synthetic specimens.
+- Operational Mini App appearance, permissions and workflow rules are unchanged.
+  No designs are pre-approved. **Phase 6 migration is not started or authorised.**
+- Normal deployment requires the checked-in `ui_review` migration and
+  `UI_DESIGN_LAB_ENABLED=True`. The lab then appears in Superuser Admin/JBL Apps
+  navigation; no new bot is required. This work was not deployed.
+- Verification: 21 focused backend, 15 browser and five UI-guard tests passed.
+  Light/dark narrow-phone screenshots were inspected. Broader checks expose
+  unchanged existing index, route-inventory, settings-parity and API-boundary
+  issues. Specialised fixtures, font/native-device checks and human approvals
+  remain explicit gaps; see `docs/ui-standard/implementation-status.md`.
+
 ## 15 October 2026 - Signed payment upload confirmation
 
 - Payment Preparation now asks for a simple confirmation that the selected copy

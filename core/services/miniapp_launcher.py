@@ -49,4 +49,8 @@ def available_apps(user):
                 destinations.append({'label': label, 'url': url})
         if destinations:
             result.append({'key': key, 'label': label, 'description': description, 'destinations': destinations})
+    if user.is_superuser and getattr(settings, 'UI_DESIGN_LAB_ENABLED', False):
+        result.append({'key': 'design_lab', 'label': 'Design Lab',
+                       'description': 'Review synthetic UI examples; live apps unchanged',
+                       'destinations': [{'label': 'Design Lab', 'url': reverse('ui_review_lab')}]})
     return result

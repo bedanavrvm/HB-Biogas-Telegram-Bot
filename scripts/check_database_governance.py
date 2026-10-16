@@ -28,6 +28,7 @@ NAME_PATTERN = re.compile(r'^[a-z][a-z0-9]*_[a-z0-9_]+$')
 BOUNDED_DOMAIN_APPS = {
     'origination', 'tat', 'complaints', 'jawabu', 'catalog', 'access',
     'integration', 'audit', 'platform', 'spin', 'order_approval',
+    'ui_review',
 }
 
 

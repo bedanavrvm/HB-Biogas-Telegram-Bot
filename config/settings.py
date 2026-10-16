@@ -65,7 +65,11 @@ INSTALLED_APPS = [
     'tat_recognition',
     'portal_recognition',
     'report_delivery',
+    'ui_review',
 ]
+
+# Internal synthetic design review only; never enables operational UI migration.
+UI_DESIGN_LAB_ENABLED = config('UI_DESIGN_LAB_ENABLED', default=False, cast=bool)
 
 # Resend report delivery is independent of Gmail appraisal ingestion.
 REPORT_EMAIL_DELIVERY_ENABLED = config('REPORT_EMAIL_DELIVERY_ENABLED', default=False, cast=bool)

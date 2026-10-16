@@ -47,6 +47,16 @@ def _add(
 
 
 _add(
+    'ui_review_revision ui_review_decision ui_review_upload ui_review_release',
+    authentication='Verified Telegram initData or CSRF-checked authenticated Django session',
+    capability='Current active Django Superuser only; feature flag required; no workflow role inheritance',
+    scope='Source-bound synthetic design revision only; never operational customer records',
+    request_key_binding='ui_review_auth_required plus canonical source/evidence fingerprints or exact actor-bound UUID request key',
+    domain_replay='Unique revision digest, evidence-content deduplication, or immutable decision/release request-key replay; conflicting meaning rejected',
+)
+
+
+_add(
     'tat_tracker_recovery_status complaint_recovery_status',
     authentication='Verified owning Mini App Telegram identity and current access grants',
     capability='tat.home.view or complaint.queue.view, within that app only',

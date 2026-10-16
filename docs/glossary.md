@@ -10,6 +10,11 @@ respective service modules.
 
 ## Canonical staff access
 
+**Design Lab:** The active-Superuser-only synthetic UI review workspace. A review
+revision freezes source/evidence; decisions are append-only. An approved UI
+standard release is not deployment or authorisation to migrate an operational
+Mini App. Workflow roles remain independent.
+
 **Approved report recipient:** An email destination explicitly permitted to receive
 reports for one Mini App, group and its approved branch/product scope. This
 approval does not grant Mini App access or transfer to another workflow.

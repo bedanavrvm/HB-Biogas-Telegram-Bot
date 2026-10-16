@@ -15,6 +15,7 @@ URLS_FILE = API_ROOT / 'urls.py'
 UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 KEY_BOUNDARIES = frozenset({
     'miniapp_write_response', 'miniapp_idempotency_boundary', 'portal_auth_required', 'origination_auth_required',
+    'ui_review_auth_required',
 })
 
 
@@ -38,7 +39,7 @@ def _decorator_name(node: ast.expr) -> str:
 
 def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
     contracts: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
-    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'origination' / 'views.py']):
+    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'origination' / 'views.py', ROOT / 'ui_review/views.py']):
         tree = ast.parse(source_path.read_text(encoding='utf-8'), filename=str(source_path))
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -60,7 +61,8 @@ def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
 
 def discover_write_routes() -> dict[str, DiscoveredRoute]:
     contracts = _view_contracts()
-    tree = ast.parse(URLS_FILE.read_text(encoding='utf-8') + '\n' + (ROOT / 'origination/urls.py').read_text(encoding='utf-8'))
+    tree = ast.parse(URLS_FILE.read_text(encoding='utf-8') + '\n' + (ROOT / 'origination/urls.py').read_text(encoding='utf-8')
+                     + '\n' + (ROOT / 'ui_review/urls.py').read_text(encoding='utf-8'))
     discovered: dict[str, DiscoveredRoute] = {}
     for node in ast.walk(tree):
         if not (
@@ -86,9 +88,10 @@ def discover_write_routes() -> dict[str, DiscoveredRoute]:
         if isinstance(view_node, ast.Call) and view_node.args:
             url_boundary = _decorator_name(view_node)
             view_node = view_node.args[0]
-        if not route_name or not isinstance(view_node, ast.Name):
+        if not route_name or not isinstance(view_node, (ast.Name, ast.Attribute)):
             continue
-        methods, decorators = contracts.get(view_node.id, (frozenset(), frozenset()))
+        view_name = view_node.id if isinstance(view_node, ast.Name) else view_node.attr
+        methods, decorators = contracts.get(view_name, (frozenset(), frozenset()))
         unsafe = frozenset(methods & UNSAFE_METHODS)
         if not unsafe:
             continue
@@ -98,7 +101,7 @@ def discover_write_routes() -> dict[str, DiscoveredRoute]:
         discovered[route_name] = DiscoveredRoute(
             name=route_name,
             path=route_path,
-            view_name=view_node.id,
+            view_name=view_name,
             methods=unsafe,
             key_boundary=boundary,
         )

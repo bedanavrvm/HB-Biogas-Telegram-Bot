@@ -1,0 +1,18 @@
+/* Candidate tokens. Only the Design Lab loads this file before migration. */
+[data-ui-standard="candidate"] {
+  --ui-space-1:4px; --ui-space-2:8px; --ui-space-3:12px; --ui-space-4:16px; --ui-space-5:24px; --ui-space-6:32px;
+  --ui-caption:12px; --ui-body:14px; --ui-label:13px; --ui-title:20px; --ui-number:28px;
+  --ui-radius-control:8px; --ui-radius-card:12px; --ui-radius-pill:999px;
+  --ui-touch:44px; --ui-glyph:18px; --ui-line-height:1.5;
+  --ui-bg:var(--tg-theme-bg-color,#f4f6f8); --ui-surface:var(--tg-theme-secondary-bg-color,#ffffff);
+  --ui-text:var(--tg-theme-text-color,#17212b); --ui-muted:#586575; --ui-accent:var(--tg-theme-button-color,#176ca5);
+  --ui-button-text:var(--tg-theme-button-text-color,#ffffff); --ui-border:#d8dfe6;
+  --ui-positive:#167235; --ui-negative:#b42318; --ui-warning:#805800;
+  --ui-focus:3px solid var(--ui-accent); --ui-shadow:0 4px 18px #13243414;
+}
+[data-ui-mode="dark"] {--ui-bg:#151921;--ui-surface:#202630;--ui-text:#f2f5f8;--ui-muted:#b3bfcd;--ui-border:#485362;--ui-accent:#72bff4;--ui-button-text:#102331;--ui-positive:#82dfa0;--ui-negative:#ffa39d;--ui-warning:#f1cd76;}
+[data-ui-theme="jbl"] {--ui-bg:#f4f6f8;--ui-surface:#ffffff;--ui-text:#17212b;--ui-muted:#586575;--ui-border:#d8dfe6;--ui-accent:#2e3480;--ui-button-text:#ffffff;}
+[data-ui-theme="jbl"][data-ui-mode="dark"] {--ui-bg:#151921;--ui-surface:#202630;--ui-text:#f2f5f8;--ui-muted:#b3bfcd;--ui-border:#485362;--ui-accent:#b6baff;--ui-button-text:#191d50;}
+[data-ui-density="compact"] {--ui-card-padding:var(--ui-space-3);--ui-card-gap:var(--ui-space-2);}
+[data-ui-density="comfortable"] {--ui-card-padding:var(--ui-space-4);--ui-card-gap:var(--ui-space-3);}
+[data-ui-density="spacious"] {--ui-card-padding:var(--ui-space-5);--ui-card-gap:var(--ui-space-4);}

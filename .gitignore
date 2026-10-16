@@ -40,6 +40,7 @@ Thumbs.db
 credentials.json
 *.json
 !docs/database/catalog.json
+!docs/ui-standard/registry.json
 !scripts/architecture_boundaries_baseline.json
 !scripts/tracked_artifact_allowlist.json
 !scripts/coverage_baseline.json
