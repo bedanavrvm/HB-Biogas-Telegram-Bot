@@ -5,6 +5,7 @@ enter this module. A participant is an individual; a role is only authority.
 """
 from copy import deepcopy
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
@@ -243,7 +244,7 @@ def workspace(application, package=None, actor=None):
         obligations = [slot for slot in item.get('slots', []) if slot.get('required', item.get('required', True))]
         done = bool(obligations) and all((slot.get('document_key', 'primary'), slot['key']) in complete for slot in obligations)
         can_sign = False
-        if actor and package and not package.test_mode and esign_enabled() and application.status in {'signing_pending', 'partially_signed'} and item['role'] in STAFF_SIGNER_ROLES and not done:
+        if actor and package and not package.test_mode and settings.ORIGINATION_ESIGN_ENABLED and application.status in {'signing_pending', 'partially_signed'} and item['role'] in STAFF_SIGNER_ROLES and not done:
             try:
                 guard_participant(package, item, actor)
                 can_sign = True
@@ -262,7 +263,7 @@ def workspace(application, package=None, actor=None):
     status_labels = {'draft':'Draft','correction_required':'Changes requested','approved':'Approved',
         'cancelled':'Cancelled','expired':'Expired','declined':'Declined'}
     return {'policy': POLICY, 'revision': application.signing_plan_revision, 'participants': rows,
-        'signing_available': esign_enabled(),
+        'signing_available': bool(settings.ORIGINATION_ESIGN_ENABLED), 'delivery_available': esign_enabled(),
         'required_count': len(rows), 'completed_count': sum(row['complete'] for row in rows),
         'status_label': status_labels.get(application.status, 'Awaiting signatures'),
         'can_configure': bool(actor and actor.is_active and actor.is_superuser and application.status == 'draft'),

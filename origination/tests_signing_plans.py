@@ -182,6 +182,18 @@ class SigningPlanTests(TestCase):
         self.assertEqual(self.application.events.filter(action='signatures_completed').count(),1)
         self.assertEqual(workspace(self.application,package,self.officer)['completed_count'],5)
 
+    def test_authenticated_staff_signing_does_not_require_sms_credentials(self):
+        package = self.package()
+        with override_settings(ORIGINATION_SMS_PROVIDER='advanta', ORIGINATION_ADVANTA_API_KEY='',
+                               AFRICASTALKING_API_KEY=''):
+            row = next(item for item in workspace(self.application, package, self.officer)['participants']
+                       if item['staff_user_id'] == self.officer.pk)
+            self.assertTrue(row['can_sign'])
+            self.assertTrue(serialize_verified_signing(package)['enabled'])
+            self.assertFalse(serialize_verified_signing(package)['delivery_available'])
+            self.sign_staff(package, package.participants_snapshot[2], self.officer)
+        self.assertTrue(package.actions.filter(actor=self.officer).exists())
+
     def test_independent_staff_cannot_fill_two_participants(self):
         package=self.package(); people=package.participants_snapshot
         self.sign_staff(package,people[3],self.admin)

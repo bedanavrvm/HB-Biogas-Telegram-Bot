@@ -13,9 +13,21 @@ def status_payload(actor, access, *, page=1):
     if not signing_available(settings):
         rows.append(issue('signing-configuration', 'Signing delivery', status='Configuration required',
             detail='Applications can be saved. Signing delivery is not available yet.',
-            steps=['Ask Origination IT to enable signing and check the configured Africa’s Talking SMS environment, username and API key.',
+            steps=['Ask Origination IT to check ORIGINATION_SMS_PROVIDER and that provider\'s credentials in deployment settings.',
                    'These are deployment settings, not fields you need to fill in this application.',
                    'After they are repaired, check status and continue with the saved application.']))
+    from django.utils import timezone
+    from origination.models import OriginationSignerSession
+    from origination.services.origination_signing_configuration import provider_configuration_issues
+    from origination.services.origination_sms import selected_provider
+    for provider in set(OriginationSignerSession.objects.filter(
+            package__application__in=applications, is_active=True, token_expires_at__gt=timezone.now(),
+        ).values_list('sms_provider', flat=True)) - {selected_provider()}:
+        if provider_configuration_issues(settings, provider=provider):
+            rows.append(issue(f'signing-provider-{provider}', 'Existing signing links',
+                status='Configuration required', detail='Some links still use the previous SMS provider.',
+                steps=['Ask Origination IT to restore that provider\'s deployment credentials.',
+                       'Changing the default provider does not change existing links. Replace a link explicitly only if necessary.']))
     for package in OriginationSigningPackage.objects.filter(application__in=applications,
             application__status='approved', archive_status__in=['failed', 'pending'],
             status=OriginationSigningPackage.STATUS_FULLY_SIGNED).select_related('application').order_by('-updated_at'):

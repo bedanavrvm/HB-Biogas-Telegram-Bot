@@ -7096,11 +7096,13 @@ class IntegrationOperation(models.Model):
     INTEGRATION_GOOGLE_DRIVE = 'google_drive'
     INTEGRATION_TELEGRAM = 'telegram'
     INTEGRATION_AFRICAS_TALKING = 'africas_talking'
+    INTEGRATION_ADVANTA = 'advanta'
     INTEGRATION_CHOICES = [
         (INTEGRATION_GOOGLE_SHEETS, 'Google Sheets'),
         (INTEGRATION_GOOGLE_DRIVE, 'Google Drive'),
         (INTEGRATION_TELEGRAM, 'Telegram'),
         (INTEGRATION_AFRICAS_TALKING, "Africa's Talking"),
+        (INTEGRATION_ADVANTA, 'Advanta'),
     ]
     STATUS_PENDING = 'pending'
     STATUS_RUNNING = 'running'

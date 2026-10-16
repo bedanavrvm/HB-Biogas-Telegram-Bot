@@ -1,4 +1,4 @@
-"""Verified Origination signing sessions and Africa's Talking OTP delivery."""
+"""Verified Origination signing sessions and provider-pinned OTP delivery."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ from origination.models import (
 from core.models import IntegrationOperation
 from core.services.external_resilience import ExternalOperationError
 from core.services.identifiers import normalize_kenyan_phone
+from origination.services.origination_sms import OriginationSmsSubmissionError, selected_provider
+from origination.services.origination_sms_delivery import confirmed_submission, initial_metadata, submit_once
 from origination.services.loan_origination import (
     OriginationConflict, OriginationError, _record_event, _require_request_id,
     _slot_request_id,
@@ -93,15 +95,6 @@ class OriginationSigningProblem(OriginationError):
         self.code = code
         self.details = dict(details or {})
         self.status = status
-
-
-class OriginationSmsSubmissionError(ExternalOperationError):
-    """Safe submission evidence, without retaining the SMS or raw response."""
-
-    def __init__(self, provider_status: str, *, rejected: bool = False):
-        super().__init__('The SMS provider did not confirm sending the message.')
-        self.provider_status = provider_status
-        self.rejected = rejected
 
 
 def _require_approved_package(package: OriginationSigningPackage) -> None:
@@ -343,8 +336,6 @@ def create_signer_session(
     participant_id='',
 ) -> tuple[OriginationSignerSession, str, bool]:
     request_id = _require_request_id(request_id)
-    if not esign_enabled():
-        raise OriginationError('Signing is unavailable. Ask IT to configure OTP delivery, then try again.')
     application_id = OriginationSigningPackage.objects.values_list('application_id', flat=True).get(pk=package_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
     package = OriginationSigningPackage.objects.select_for_update().get(pk=package_id)
@@ -357,6 +348,8 @@ def create_signer_session(
                 'This request key was already used for a different signer session.'
             )
         return replay, _replayed_session_token(replay, request_id), True
+    if not esign_enabled():
+        raise OriginationError('Signing is unavailable. Ask Origination IT to configure the selected SMS provider.')
     if package.test_mode:
         raise OriginationError('Create a verified package; test packages cannot dispatch signing sessions.')
     if package.status not in {package.STATUS_PENDING, package.STATUS_IN_PROGRESS}:
@@ -400,6 +393,7 @@ def create_signer_session(
     ttl = max(1, min(168, int(getattr(settings, 'ORIGINATION_SIGNING_LINK_TTL_HOURS', SESSION_TTL_DEFAULT_HOURS) or SESSION_TTL_DEFAULT_HOURS)))
     session = OriginationSignerSession.objects.create(
         package=package, signer_role=signer_role, participant_id=participant_id or None, identity_snapshot=identity,
+        sms_provider=selected_provider(),
         phone_normalized=phone, phone_hash=_digest(f'phone:{phone}'), phone_last4=phone[-4:],
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         token_expires_at=now + timedelta(hours=ttl), access_mode=access_mode,
@@ -431,62 +425,28 @@ def signing_url(raw_token: str) -> str:
     return f'{base}/s/#{quote(raw_token)}'
 
 
-def _send_sms(message: str, phone: str) -> dict[str, str]:
-    import africastalking
-    africastalking.initialize(
-        str(settings.AFRICASTALKING_USERNAME), str(settings.AFRICASTALKING_API_KEY),
-    )
-    sender = str(getattr(settings, 'AFRICASTALKING_SENDER_ID', '') or '').strip() or None
-    response = africastalking.SMS.send(message, [f'+{phone}'], sender_id=sender, enqueue=False)
-    data = response.get('SMSMessageData') if isinstance(response, dict) else None
-    recipients = data.get('Recipients') if isinstance(data, dict) else None
-    if not isinstance(recipients, list) or len(recipients) != 1 or not isinstance(recipients[0], dict):
-        raise OriginationSmsSubmissionError('send_unconfirmed')
-    recipient = recipients[0]
-    code = str(recipient.get('statusCode') or '').strip()
-    status = str(recipient.get('status') or '').strip()
-    accepted_statuses = {'success', 'accepted', 'processed', 'sent', 'queued'}
-    rejection_codes = {
-        '401': 'RiskHold', '402': 'InvalidSenderId', '403': 'InvalidPhoneNumber',
-        '404': 'UnsupportedNumberType', '405': 'InsufficientBalance',
-        '406': 'UserInBlacklist', '407': 'CouldNotRoute', '500': 'InternalServerError',
-        '501': 'GatewayError', '502': 'RejectedByGateway',
-    }
-    normalized = status.casefold().replace(' ', '')
-    rejection_statuses = {value.casefold(): value for value in rejection_codes.values()}
-    rejection_statuses.update({'failed': 'Failed', 'rejected': 'Rejected'})
-    # An explicit failure code wins even when the text misleadingly says Success.
-    rejected_status = rejection_codes.get(code) or rejection_statuses.get(normalized)
-    if rejected_status:
-        raise OriginationSmsSubmissionError(rejected_status, rejected=True)
-    # 100/101/102 mean processed/sent/queued, NOT delivery to the handset.
-    if (code and code not in {'100', '101', '102'}) or (
-        normalized and normalized not in accepted_statuses
-    ) or (not code and normalized not in accepted_statuses):
-        raise OriginationSmsSubmissionError('send_unconfirmed')
-    message_id = recipient.get('messageId') or recipient.get('message_id')
-    if not isinstance(message_id, str) or not message_id.strip() or len(message_id) > 255:
-        raise OriginationSmsSubmissionError('send_unconfirmed')
-    message_id = message_id.strip()
-    status = status or {'100': 'Processed', '101': 'Sent', '102': 'Queued'}[code]
-    return {'id': message_id, 'status': status}
+def _send_sms(message: str, phone: str, *, provider=None) -> dict[str, str]:
+    """Compatibility seam; all workflow callers supply the pinned provider."""
+    from origination.services.origination_sms import submit
+    return submit(message, phone, provider=selected_provider() if provider is None else provider)
 
 
 def send_signing_invitation(session: OriginationSignerSession, raw_token: str, *, request_id: str) -> dict[str, str]:
     from core.services.external_resilience import execute_operation, reserve_operation
     url = signing_url(raw_token)
     operation, _ = reserve_operation(
-        integration=IntegrationOperation.INTEGRATION_AFRICAS_TALKING,
+        integration=session.sms_provider,
         operation_type='origination_signing_invitation',
         deduplication_key=f'origination-signing-invite:{session.pk}',
         source_model='origination.OriginationSignerSession', source_id=str(session.pk),
         request_id=request_id, requested_by=session.created_by,
         operation_payload=(str(session.pk), session.phone_hash), max_attempts=1,
+        metadata=initial_metadata(session.sms_provider),
     )
-    result = execute_operation(operation, lambda: _send_sms(
+    result = confirmed_submission(operation) or execute_operation(operation, lambda: submit_once(operation, lambda: _send_sms(
         f'JBL signing {session.package.external_reference}\n{url}\nDo not share this link.',
-        session.phone_normalized,
-    ), attempt_budget=1)
+        session.phone_normalized, provider=session.sms_provider,
+    )), attempt_budget=1)
     if not result or not result.get('id'):
         # An in-flight execution lease is a safe no-op, not a confirmed send.
         raise ExternalOperationError('The invitation SMS has not been confirmed.')
@@ -655,6 +615,9 @@ def issue_otp(*, raw_token: str, request_id: str, ip_hash: str) -> tuple[Origina
     now = timezone.now()
     if session.locked_until and session.locked_until > now:
         raise OriginationSigningProblem('signing_code_locked', 'OTP requested while signer session is locked.', status=429)
+    from origination.services.origination_signing_configuration import signing_available
+    if not signing_available(settings, provider=session.sms_provider):
+        raise OriginationSigningProblem('signing_code_send_failed', 'The link\'s SMS provider is not configured.', status=503)
     _otp_send_limits(session)
     session.otp_challenges.filter(verified_at__isnull=True, invalidated_at__isnull=True).update(invalidated_at=now)
     code = f'{secrets.randbelow(1_000_000):06d}'
@@ -672,18 +635,19 @@ def dispatch_otp(challenge: OriginationOtpChallenge, code: str) -> OriginationOt
     from core.services.external_resilience import execute_operation, reserve_operation
     session = challenge.session
     operation, _ = reserve_operation(
-        integration=IntegrationOperation.INTEGRATION_AFRICAS_TALKING,
+        integration=session.sms_provider,
         operation_type='origination_signing_otp',
         deduplication_key=f'origination-otp:{challenge.pk}',
         source_model='origination.OriginationOtpChallenge', source_id=str(challenge.pk),
         request_id=challenge.request_id, requested_by=session.created_by,
         operation_payload=(str(challenge.pk), session.phone_hash), max_attempts=1,
+        metadata=initial_metadata(session.sms_provider),
     )
     try:
-        result = execute_operation(operation, lambda: _send_sms(
+        result = confirmed_submission(operation) or execute_operation(operation, lambda: submit_once(operation, lambda: _send_sms(
             f'JBL verification code: {code}. It expires in 10 minutes. Do not share it with anyone except when you are personally signing on an assisted JBL device.',
-            session.phone_normalized,
-        ), attempt_budget=1) or {}
+            session.phone_normalized, provider=session.sms_provider,
+        )), attempt_budget=1) or {}
         if not result.get('id'):
             raise OriginationSmsSubmissionError('send_unconfirmed')
     except Exception as exc:
@@ -715,33 +679,35 @@ def dispatch_otp(challenge: OriginationOtpChallenge, code: str) -> OriginationOt
     return challenge
 
 
-def record_delivery_report(*, provider_message_id: str, provider_status: str) -> bool:
+def record_delivery_report(*, provider_message_id: str, provider_status: str, provider='africas_talking') -> bool:
     """Store an Africa's Talking delivery receipt without changing signing state."""
     message_id = str(provider_message_id or '').strip()[:255]
     status = str(provider_status or '').strip()[:80]
     if not message_id:
         return False
-    normalized = status.casefold().replace(' ', '')
-    if normalized in {'success', 'delivered'}:
-        delivery_status = OriginationOtpChallenge.DELIVERY_DELIVERED
-    elif normalized in {'accepted', 'processed', 'sent', 'submitted', 'buffered', 'queued'}:
-        delivery_status = OriginationOtpChallenge.DELIVERY_ACCEPTED
-    elif normalized in {
-        'failed', 'rejected', 'expired', 'undeliverable', 'insufficientbalance',
-    }:
-        delivery_status = OriginationOtpChallenge.DELIVERY_FAILED
-    else:
-        delivery_status = OriginationOtpChallenge.DELIVERY_UNKNOWN
+    from origination.services.origination_sms import delivery_state
+    delivery_status = delivery_state(provider, status)
+    if delivery_status == 'unknown':
+        status = 'Unknown'
     # Deliberately updates delivery evidence only. A provider callback can never
     # verify an OTP, create a signature action, or advance a package/application.
-    queryset = OriginationOtpChallenge.objects.filter(provider_message_id=message_id)
+    queryset = OriginationOtpChallenge.objects.filter(provider_message_id=message_id, session__sms_provider=provider)
+    ids = list(queryset.values_list('pk', flat=True)[:2])
+    if len(ids) > 1:
+        return False
+    from origination.services.origination_sms_delivery import record_provider_receipt
+    recorded = record_provider_receipt(provider=provider, message_id=message_id, status=status)
+    if recorded is False or not ids:
+        return bool(recorded)
+    queryset = queryset.filter(pk=ids[0])
     if delivery_status != OriginationOtpChallenge.DELIVERY_DELIVERED:
         queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_DELIVERED)
     if delivery_status in {OriginationOtpChallenge.DELIVERY_ACCEPTED, OriginationOtpChallenge.DELIVERY_UNKNOWN}:
         queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_FAILED)
     if delivery_status == OriginationOtpChallenge.DELIVERY_UNKNOWN:
         queryset = queryset.exclude(delivery_status=OriginationOtpChallenge.DELIVERY_ACCEPTED)
-    return bool(queryset.update(provider_status=status, delivery_status=delivery_status))
+    updated = queryset.update(provider_status=status, delivery_status=delivery_status)
+    return bool(recorded or updated)
 
 
 def _update_package_status(package: OriginationSigningPackage) -> None:
@@ -1069,7 +1035,8 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         active=True, environment=OriginationStampAsset.ENV_PRODUCTION,
     ).filter(models.Q(branch__isnull=True) | models.Q(branch=package.application.branch_ref))
     return {
-        'enabled': esign_enabled(), 'test_mode': package.test_mode,
+        'enabled': bool(settings.ORIGINATION_ESIGN_ENABLED),
+        'delivery_available': esign_enabled(), 'test_mode': package.test_mode,
         'participants': participants,
         'production_stamps': [{
             'id': str(item.pk), 'name': item.name, 'version': item.version,
@@ -1121,8 +1088,8 @@ def complete_staff_signatures(
     from origination.services.origination_approval import guard_staff_signature
     participant = _participant(package, signer_role, participant_id)
     if participant_id:
-        if not esign_enabled():
-            raise OriginationError('Verified signing is unavailable. Ask IT to check signing delivery settings.')
+        if not settings.ORIGINATION_ESIGN_ENABLED:
+            raise OriginationError('Verified signing is unavailable. Ask Origination IT to enable signing.')
         if consent is not True:
             raise OriginationError('Confirm that you reviewed and agree to sign these documents.')
         from origination.services.origination_signing_plans import guard_participant

@@ -332,6 +332,7 @@ class ProductionReadinessTests(SimpleTestCase):
 
         self.assertEqual(options['release'], '33df0bc')
         self.assertFalse(options['send_default_pii'])
+        self.assertFalse(options['include_local_variables'])
         self.assertEqual(options['traces_sample_rate'], 0.0)
         self.assertIs(options['before_send'], scrub_event)
         self.assertIs(options['before_send_transaction'], scrub_transaction)

@@ -280,15 +280,15 @@
         window.MiniAppUtils?.setCloseProtection?.('signing-capture', false);
         const verification = await api('otp/', {method: 'POST', body: '{}'});
         session = verification.session;
-      }, { loadingLabel: 'Saving and sending code', successLabel: 'Code sent' });
+      }, { loadingLabel: 'Saving and sending code', successLabel: 'Code requested' });
       render();
       syncSignatureProtection();
-      show(`Signature saved. Enter the code sent to ${session.phone_masked} to finish signing.`, 'info');
+      show(`Signature saved. A code is being sent to ${session.phone_masked}. Enter it to finish signing.`, 'info');
       document.getElementById('otp-code').focus();
     } catch (error) {
       await recoverSession(error);
       render();
-      if (session.status !== 'verified') show(captureSaved ? `Signature saved. ${error.message} Use Resend code to finish signing.` : error.message, error.presentation?.tone || 'error');
+      if (session.status !== 'verified') show(captureSaved ? `Signature saved. ${error.message}` : error.message, error.presentation?.tone || 'error');
     }
   };
 
@@ -298,7 +298,7 @@
       await window.MiniAppUtils.runButtonAction(button, async () => {
         const data = await api('otp/', { method: 'POST', body: '{}' });
         session = data.session;
-      }, { loadingLabel: 'Sending code', successLabel: 'Code sent' });
+      }, { loadingLabel: 'Sending code', successLabel: 'Code requested' });
       render();
       show(`Your six-digit verification code is being sent to ${session.phone_masked}.`, 'success');
       document.getElementById('otp-code').focus();

@@ -1,5 +1,45 @@
 # Known Gaps and Verified Workarounds
 
+## Advanta SMS deployment verification - 16 October 2026
+
+Advanta remains optional and no live SMS was sent during implementation. An
+approved sender and enabled transactional route must be confirmed with Advanta.
+No documented authenticated callback contract or provider idempotency token is
+assumed; authenticated polling and single-attempt submissions are supported.
+
+Provision `process_origination_deliveries --apply` once per minute and verify
+its heartbeat before relying on delivery tracking. Hosting scheduler setup and
+real handset delivery remain unverified until an authorized rollout. Existing
+links retain their provider, so keep its credentials until expiry/replacement.
+An uncertain invitation needs an explicitly replaced link, not replayed sending.
+See `docs/origination-otp-integration-setup.md` for cutover and rollback.
+
+## Existing regression gates checked during Advanta work - 16 October 2026
+
+An untouched `34a13822` worktree on a fresh synthetic PostgreSQL database ran
+390 tests with three failures, also observed in the broader SMS worktree run:
+
+- `core.tests_reliability.MiniAppWritePolicyTests.test_tat_create_returns_categorized_validation_without_raw_input`:
+  a synthetic phone value is echoed inside field-level validation details.
+- `core.tests_reliability.MiniAppWritePolicyTests.test_tat_update_accepts_header_retry_key`:
+  the existing mocked TAT update path returns 500 instead of the expected 200.
+- `core.tests_production.ConditionalApprovalProductionReadinessTests.test_conditional_approval_requires_an_active_integrity_checked_policy`:
+  the test still expects the historical consent-policy requirement for new
+  applications; current short-acknowledgement readiness no longer emits it.
+
+These are not fixed by changing SMS providers. The same untouched HEAD also
+has 119 environment-example parity findings, 12 undefined names in the Portal
+JBL visit path around lines 7980-7994, and existing PNG artifact-allowlist hash
+mismatches. No operational UI baselines or artifact hashes were replaced to
+hide these findings. Focused SMS checks and broad regression results must be
+reported separately; none proves production readiness for the entire platform.
+
+Reusing `--keepdb` after transaction/migration suites can leave migration-seeded
+reference rows absent and produce additional access/notices/compliance fixture
+failures. A fresh synthetic PostgreSQL selection of 72 tests covering those
+paths plus Advanta passed. Recreate an isolated test database before interpreting
+such failures; do not repair production grants to compensate for test fixtures.
+
 ## Portal finance browser wording assertion - 15 October 2026
 
 `portal_nested_finance_layout.spec.js` expects "2 possible duplicate invoices"

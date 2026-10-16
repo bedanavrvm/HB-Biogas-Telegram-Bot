@@ -902,7 +902,8 @@
       "used_by": [
         "core/services/durable_jobs.py",
         "core/services/portal_publication.py",
-        "core/services/tat_full_reset.py"
+        "core/services/tat_full_reset.py",
+        "origination/services/origination_sms_delivery.py"
       ]
     },
     {
@@ -1165,6 +1166,8 @@
         "core/services/portal_full_reset.py",
         "origination/services/origination_dispatch.py",
         "origination/services/origination_laf_bootstrap.py",
+        "origination/services/origination_sms_delivery.py",
+        "origination/tests_advanta_sms.py",
         "origination/tests_approval.py",
         "origination/tests_laf_bootstrap.py"
       ],
@@ -1204,11 +1207,15 @@
         "core/services/tat_recovery.py",
         "core/services/tat_setup.py",
         "core/services/tat_tracker.py",
+        "origination/migrations/0009_signer_sms_provider.py",
         "origination/services/origination_dispatch.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_laf_bootstrap.py",
+        "origination/services/origination_sms_delivery.py",
+        "origination/tests_advanta_sms.py",
         "origination/tests_approval.py",
-        "origination/tests_laf_bootstrap.py"
+        "origination/tests_laf_bootstrap.py",
+        "origination/tests_signing_migrations.py"
       ]
     },
     {
@@ -3187,7 +3194,9 @@
       "column_count": 16,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "origination/services/origination_esign.py"
+        "origination/services/origination_esign.py",
+        "origination/services/origination_sms_delivery.py",
+        "origination/tests_advanta_sms.py"
       ],
       "django_model": "origination.OriginationOtpChallenge",
       "domain": "origination",
@@ -3207,7 +3216,9 @@
         "origination/migrations/0001_domain_ownership.py",
         "origination/models.py",
         "origination/services/origination_esign.py",
-        "origination/services/origination_god_mode.py"
+        "origination/services/origination_god_mode.py",
+        "origination/services/origination_sms_delivery.py",
+        "origination/tests_advanta_sms.py"
       ]
     },
     {
@@ -3512,7 +3523,7 @@
         "origination.OriginationSigningRequestEvent"
       ],
       "classification": "authoritative_record",
-      "column_count": 29,
+      "column_count": 30,
       "cross_domain_parents": [
         "auth.User"
       ],
@@ -3544,6 +3555,8 @@
         "origination/services/origination_dispatch.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_god_mode.py",
+        "origination/services/origination_production.py",
+        "origination/services/recovery.py",
         "origination/tests_approval.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",

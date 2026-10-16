@@ -1,5 +1,21 @@
 # Changelog
 
+## 16 October 2026 - Optional Advanta Origination SMS
+
+- Added environment-selected Advanta transactional SMS alongside Africa's
+  Talking, which remains the default. Existing signing links retain their SMS
+  provider; OTP rules, document bytes and independent Mini App roles remain intact.
+- Bound all SMS submissions, including withdrawal notices, to one automatic
+  attempt. Unknown sends are not blindly retried or routed to another provider.
+- Added authenticated, bounded Advanta delivery lookups to the Origination
+  runner, provider-aware recovery/readiness and redacted delivery evidence.
+- Signing feedback distinguishes an accepted send from confirmed handset
+  delivery and keeps saved signatures/code entry usable after uncertain sends.
+- Disabled Sentry frame-local capture so OTP text and API credentials cannot be
+  collected from transport stack variables; existing error grouping is retained.
+- Deployment needs the checked-in SMS migrations, provider credentials and a
+  once-per-minute delivery runner. No live SMS or production changes were made.
+
 ## 16 October 2026 - Source-bound Mini App Design Lab
 
 - Added a disabled-by-default, active-Superuser-only `/ui-lab/` workspace for

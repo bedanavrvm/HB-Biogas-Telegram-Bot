@@ -1383,7 +1383,7 @@ def _public_signing_response(request, response):
     return normalize_miniapp_response(request, response, workflow='public_signing')
 
 
-def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'invalid_request'):
+def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'invalid_request', user_message=None):
     from origination.services.origination_esign import OriginationSigningRateLimited
     from core.services.miniapp_messages import miniapp_error_response
     code = str(getattr(exc, 'code', '') or fallback_code)
@@ -1398,6 +1398,7 @@ def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'inva
     return miniapp_error_response(
         request, code, workflow='public_signing', status=status,
         details=details,
+        user_message=user_message,
         developer_message=f'{type(exc).__name__}:{code}', exception=exc,
     )
 
@@ -1505,7 +1506,12 @@ def origination_signer_otp(request):
             challenge = dispatch_otp(challenge, code)
         session = challenge.session
     except ExternalOperationError as exc:
-        return _public_signing_error(request, exc, fallback_code='signing_code_send_failed')
+        from origination.services.origination_sms import OriginationSmsSubmissionError
+        cause = exc if isinstance(exc, OriginationSmsSubmissionError) else exc.__cause__
+        rejected = isinstance(cause, OriginationSmsSubmissionError) and cause.rejected
+        return _public_signing_error(request, exc, fallback_code='signing_code_send_failed',
+            user_message=('We could not send your code. Your signature is saved. Contact your JBL officer, '
+                          'or request a new code when the resend timer allows.') if rejected else None)
     except (OriginationError, TypeError, ValueError) as exc:
         return _public_signing_error(request, exc)
     return _public_signing_response(request, JsonResponse({
@@ -1544,7 +1550,7 @@ def origination_africastalking_delivery_report(request):
         message_id = payload.get('id') or payload.get('messageId') or payload.get('message_id')
         status = payload.get('status') or payload.get('deliveryStatus') or ''
         matched = record_delivery_report(
-            provider_message_id=message_id, provider_status=status,
+            provider_message_id=message_id, provider_status=status, provider='africas_talking',
         )
     except (OriginationError, TypeError, ValueError):
         # Keep the provider retry contract stable without exposing internals.

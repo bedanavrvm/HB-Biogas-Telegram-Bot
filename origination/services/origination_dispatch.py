@@ -23,13 +23,17 @@ OP_TYPES = ('origination_approval_alert', 'origination_withdrawal_sms', 'origina
 
 
 def _reserve(kind, source, actor, *, retry=False):
-    integration = {'origination_approval_alert': 'telegram', 'origination_withdrawal_sms': 'africas_talking',
-                   'origination_approved_archive': 'google_drive'}[kind]
+    is_sms = kind == 'origination_withdrawal_sms'
+    integration = source.sms_provider if is_sms else {
+        'origination_approval_alert': 'telegram', 'origination_approved_archive': 'google_drive'}[kind]
+    from origination.services.origination_sms_delivery import initial_metadata
     operation, _ = reserve_operation(
         integration=integration, operation_type=kind, source_model=source._meta.label,
-        source_id=str(source.pk), requested_by=actor, deduplication_key=f'{kind}:{source.pk}', max_attempts=5,
+        source_id=str(source.pk), requested_by=actor, deduplication_key=f'{kind}:{source.pk}',
+        max_attempts=1 if is_sms else 5,
+        metadata=initial_metadata(integration) if is_sms else None,
     )
-    if retry:
+    if retry and not is_sms:
         IntegrationOperation.objects.filter(pk=operation.pk, status='dead_letter').update(
             status='pending', attempts=0, next_retry_at=None,
         )
@@ -123,14 +127,11 @@ def _perform(operation):
             return {'cancelled': True}
         if session.package.status != 'cancelled':
             return {'cancelled': True}
-        result = _send_sms('JBL: your signing request was withdrawn for changes. Your application was not rejected. '
-                           'Please wait for a new signing link; the earlier link and signatures are no longer valid.',
-                           session.phone_normalized)
-        if not result.get('id') or str(result.get('status', '')).casefold() not in {
-            'success', 'accepted', 'processed', 'sent', 'queued', '100', '101', '102',
-        }:
-            raise RuntimeError('The SMS provider did not accept the withdrawal notification.')
-        return result
+        from origination.services.origination_sms_delivery import submit_once
+        return submit_once(operation, lambda: _send_sms(
+            'JBL: signing was withdrawn for changes, not rejected. '
+            'The old link and signatures are no longer valid. Please wait for a new signing link.',
+            session.phone_normalized, provider=session.sms_provider))
     notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').filter(pk=operation.source_id).first()
     if notice is None:
         return {'cancelled': True}

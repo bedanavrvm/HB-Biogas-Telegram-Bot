@@ -201,8 +201,8 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
         tone="warning",
     ),
     "signing_code_send_failed": MiniAppMessage(
-        "We could not confirm that your code was sent. Wait a minute before trying again. "
-        "If this continues, contact your JBL officer.", 503,
+        "We could not confirm sending your code. If a code arrives, you can still enter it. "
+        "Otherwise wait a minute before requesting a new code or contact your JBL officer.", 503,
     ),
     "signing_packet_changed": MiniAppMessage(
         "The documents or signature changed before verification. Request a new code and try again.", 409,

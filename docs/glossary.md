@@ -10,6 +10,11 @@ respective service modules.
 
 ## Canonical staff access
 
+**Origination signing-link SMS provider:** The SMS provider retained by one
+external signing link for its invitations, verification codes and withdrawal
+notices. A new deployment default applies only to newly created links. Delivery
+confirmation is not signature verification or application approval.
+
 **Design Lab:** The active-Superuser-only synthetic UI review workspace. A review
 revision freezes source/evidence; decisions are append-only. An approved UI
 standard release is not deployment or authorisation to migrate an operational

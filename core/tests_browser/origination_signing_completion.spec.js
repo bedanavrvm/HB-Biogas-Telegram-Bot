@@ -45,6 +45,8 @@ async function mount(page, options = {}) {
     if(url.pathname.endsWith('/otp/')) {
       if(options.smsFailure) return route.fulfill({status:502,json:{ok:false,message:'Code delivery failed.'}});
       session.otp={expires_at:'2099-01-01T00:00:00Z',resend_available_at:'2000-01-01T00:00:00Z'};
+      if(options.smsUnknown) return route.fulfill({status:503,json:{ok:false,
+        message:'We could not confirm sending your code. If a code arrives, you can still enter it.'}});
       return route.fulfill({json:{ok:true,session}});
     }
     if(url.pathname.endsWith('/verify/')) {
@@ -161,6 +163,21 @@ test('SMS failure keeps capture and never shows completion',async({page})=>{
   await expect(page.locator('#sign-status')).toContainText('Signature saved. Code delivery failed.');
   await expect(page.getByRole('button',{name:'Resend code'})).toBeEnabled();
   await expect(page.locator('#sign-completion')).toBeHidden();
+});
+
+for(const colorScheme of ['light','dark']) test(`uncertain SMS preserves capture and permits a received code ${colorScheme}`,async({page},info)=>{
+  await page.setViewportSize({width:360,height:740});
+  await page.emulateMedia({colorScheme});
+  const audit=await mount(page,{smsUnknown:true});
+  await save(page);
+  await expect(page.locator('#sign-status')).toContainText('If a code arrives, you can still enter it.');
+  await expect(page.locator('#otp-panel')).toBeVisible();
+  await expect(page.locator('#sign-completion')).toBeHidden();
+  await page.screenshot({path:info.outputPath(`sms-unconfirmed-360-${colorScheme}.png`),fullPage:true});
+  await page.getByLabel('Six-digit code').fill('123456');
+  await page.getByRole('button',{name:'Finish signing',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Signature saved'})).toBeVisible();
+  expect(audit.errors).toEqual([]);
 });
 test('failed signature capture preserves input; wrong OTP is not completion',async({page})=>{
   const audit=await mount(page,{captureFailure:true}); await save(page);

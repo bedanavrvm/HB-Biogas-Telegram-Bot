@@ -5,7 +5,7 @@
 This guide explains how to configure and test verified OTP signing for the Loan
 Origination Mini App. It covers:
 
-- Africa's Talking Sandbox and production setup;
+- optional Advanta and Africa's Talking Sandbox/production setup;
 - how the main LAF and supporting loan forms must be configured;
 - which phone number receives each OTP;
 - self-service and assisted signing;
@@ -16,6 +16,171 @@ Origination Mini App. It covers:
 This guide is for Django Superusers, Origination administrators, Operations,
 and developers. Complete the Sandbox procedure with synthetic data before
 enabling production SMS.
+
+## SMS provider selection and Advanta
+
+Africa's Talking remains the default. Select Advanta for **new signing links**
+only with these deployment environment values:
+
+```dotenv
+ORIGINATION_ESIGN_ENABLED=True
+ORIGINATION_SMS_PROVIDER=advanta
+ORIGINATION_ADVANTA_PARTNER_ID=<account-partner-id>
+ORIGINATION_ADVANTA_API_KEY=<server-only-api-key>
+ORIGINATION_ADVANTA_SENDER_ID=<approved-transactional-sender>
+```
+
+Store the values in the approved deployment secret store, never in Django
+Admin or source control. Advanta must approve/assign the sender and enable the
+transactional route for the account. Confirm account data-handling terms and
+any outbound IP allowlist with the provider before production. No Advanta
+sandbox, throughput guarantee or TTL control is assumed from the public docs.
+Local tests mock all provider calls; live handset tests need explicit approval.
+
+Each new external signing link captures its SMS provider. Invitations, OTPs,
+resends and withdrawal notices all use that provider. Existing links are
+classified as Africa's Talking by migration. Changing the selector requires a
+normal deployment/restart and does not rewrite links or resend messages.
+Keep original-provider credentials while its links remain active. Replaying a
+create request returns the same link/provider; deliberately replacing a link
+creates a new session using the current selector.
+
+The configured account can rotate its API key. Delivery lookup stops if the
+account identity changes: do not query an old message ID in a different account.
+Review the original account manually and preserve its evidence. There is one
+configured account per provider, not a multi-account routing system.
+
+### Submission and delivery
+
+Advanta sends JSON by HTTPS POST to
+`https://quicksms.advantasms.com/api/services/sendotp`. Required fields are
+`apikey`, `partnerID`, `mobile`, `message`, and `shortcode`. One request contains
+one recipient; HTTP 200 is not acceptance without a valid successful recipient
+result and matching number/message ID. The route supports OTP and other
+transactional messages, not promotional traffic.
+
+Delivery is fetched by authenticated POST to `/api/services/getdlr`, using
+`apikey`, `partnerID` and the returned `messageID`. No new public Advanta
+callback is exposed because the published callback contract does not specify
+authentication. Existing Africa's Talking callbacks remain provider-scoped;
+ambiguous message IDs are ignored rather than modifying multiple records.
+
+The existing redacted Integration operations register retains provider,
+submission/delivery state, message ID and safe error category. It never retains
+OTP plaintext, message bodies, signing tokens, API credentials or raw responses.
+Signer sessions in Origination Admin show their pinned provider read-only.
+
+Authenticated staff signatures do not require SMS credentials. The signing
+projection's existing `enabled`/`signing_available` flags describe the master
+signing gate; the additive `delivery_available` flag describes new-link SMS
+configuration. External link creation/sending still checks its relevant
+provider server-side. These flags grant no role or signing authority.
+
+- Accepted/queued/SentToNetwork is not proof of handset delivery.
+- DeliveredToTerminal confirms handset delivery only, never signing/approval.
+- Explicit rejection and uncertain submission are different failures.
+- No automatic submission retry or cross-provider failover occurs. An unknown
+  result may still arrive. A correct code remains usable until expiry, regardless
+  of the delivery report. Explicit resend invalidates the previous code and
+  remains subject to existing cooldown, phone, session and verification limits.
+- Unknown invitation delivery is resolved by reviewing evidence and explicitly
+  replacing the link if needed, not retrying the original send operation.
+- Old withdrawal operations keep their historical attempts, but their automatic
+  budget is reduced to one. Schema reversal intentionally does not restore an
+  unsafe larger retry budget.
+
+Official API references:
+[send OTP/transactional messages](https://developers.advantasms.com/sms-api/send-otp.html),
+[delivery lookup](https://developers.advantasms.com/sms-api/delivery.html),
+[delivery statuses](https://developers.advantasms.com/sms-api/delivery-status.html),
+[response codes](https://developers.advantasms.com/sms-api/codes.html).
+
+### Scheduled delivery runner
+
+Provision this command in the hosting scheduler **once per minute**:
+
+```text
+python manage.py process_origination_deliveries --apply
+```
+
+Without `--apply`, it only reports due work. Apply handles at most five due
+lookups/notifications in a 50-second external-call budget. Expiring database
+leases prevent overlapping runs from duplicating lookups or SMS submissions.
+Receipt work never reopens the send operation. The existing approved-document
+storage and Telegram work retains its own retry rules.
+
+Advanta lookup times are 1, 3, 10, 30, 120, 480 and 1500 minutes after submission;
+late runners resume the schedule without busy-looping. Definitive delivery or
+failure stops polling; no report after the final check stays unconfirmed. This
+does not extend the ten-minute OTP or invalidate an already verified signature.
+
+Verify the `origination_deliveries` Durable job runner heartbeat is fresh with
+all browser pages closed. The readiness command below reports stale runner,
+missing original-provider credentials and account-change warnings without
+making external calls. A warning does not block saving/editing/downloading an
+application or verifying a valid code.
+
+```text
+python manage.py check_origination_signing_readiness --json
+```
+
+### Troubleshooting and safe rollout
+
+| Safe diagnostic | Administrator action |
+|---|---|
+| configuration_required / invalid_credentials | Check the selected or link-pinned provider credentials in deployment settings; restart after repair. |
+| invalid_sender | Confirm the exact approved sender and transactional-route permission with Advanta. |
+| invalid_recipient | Have the owning officer check the signer's saved Kenyan mobile number; never substitute the officer's number. |
+| network_not_allowed | Confirm the recipient network and account route with Advanta. |
+| account_unavailable | Check the account's ability to send with the provider. |
+| send_unconfirmed | Review provider evidence. A code may still arrive; do not blindly repeat the send. |
+| account_changed | Restore/check the original account for old-message evidence; do not query it in the replacement account. |
+| lookup_unavailable / report_unavailable | Keep delivery unconfirmed; check provider availability. This is not failed signing. |
+| stale/never-run heartbeat | Provision/repair the once-per-minute runner, then check the existing records. |
+
+Deploy first with `africas_talking` selected. Apply the checked-in migrations
+through the normal release process; no staff role/shell repair is required.
+Then configure Advanta in a controlled environment and explicitly authorize
+handset checks for the borrower and two guarantors, invitation, OTP, resend,
+withdrawal, network variation and delayed/failed delivery. Do not claim live
+readiness based on mocked tests or screenshots.
+
+Normal rollback sets `ORIGINATION_SMS_PROVIDER=africas_talking` and restarts.
+Existing Advanta links still use Advanta; retain credentials until expiry or
+authorized replacement. Preserve additive schema and historical evidence.
+Before schema reversal, stop/expire active Advanta links and export evidence:
+
+```text
+python manage.py migrate origination 0008_unsigned_application_completion
+python manage.py migrate core 0205_tat_publication_retry_capability
+```
+
+Older code must not serve active Advanta links. Production deployment and
+migration remain separately authorized actions.
+
+### SMS feedback verification
+
+The approved implementation changes only SMS feedback wording in the existing
+signing shell: requesting/sending is not labelled confirmed delivery. Saved
+signature capture and code entry survive uncertain sends. No layout, tokens,
+typography, permissions or new signing steps are introduced. The UI source
+ratchet records this copy-only exception, not a foundation approval or Phase 6
+migration. Synthetic light/dark 360px failure screenshots are produced by
+`origination_signing_completion.spec.js` under ignored `test-results/playwright`.
+Real Telegram/SMS behaviour still requires the authorized handset checks above.
+
+Local verification on 16 October 2026 used synthetic fixtures and mocked
+provider calls. The PostgreSQL acceptance selection passed 131 tests, including
+provider concurrency, signing-plan/unsigned-completion behaviour and migration
+upgrade/reversal. A refreshed provider-only run passed 27 tests and the signing
+browser selection passed 31 tests, including light/dark uncertain-SMS recovery.
+A fresh PostgreSQL selection of 72 access/notices/evidence/Portal/SMS tests also
+passed; it distinguishes missing reference fixtures in reused test databases
+from application regressions.
+Source-ratchet, migration-graph, model/migration-drift, database-catalogue and
+changed-module lint checks passed. These are implementation evidence, not live
+SMS delivery evidence. Broader pre-existing failures are recorded in
+`KNOWN_GAPS.md`; no production deployment or provider test was performed.
 
 ## What the integration does
 
@@ -92,8 +257,10 @@ Deploy the current requirements and migration:
 .\.venv\Scripts\python.exe manage.py check
 ```
 
-The integration uses the pinned `africastalking` Python SDK and migration
-`core.0123_origination_verified_signing`.
+Africa's Talking uses the pinned Python SDK. Advanta uses the existing requests
+dependency. The original signing schema is `core.0123_origination_verified_signing`;
+provider selection adds `core.0206_advanta_integration` and
+`origination.0009_signer_sms_provider` through the normal migration chain.
 
 Running the migration does not send SMS, upload documents, or modify existing
 application payloads.

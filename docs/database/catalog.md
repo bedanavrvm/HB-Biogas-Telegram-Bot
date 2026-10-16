@@ -511,7 +511,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/durable_jobs.py`
-- Used by: `core/services/durable_jobs.py`, `core/services/portal_publication.py`, `core/services/tat_full_reset.py`
+- Used by: `core/services/durable_jobs.py`, `core/services/portal_publication.py`, `core/services/tat_full_reset.py`, `origination/services/origination_sms_delivery.py`
 
 ### `core_emergencyaccessgrant`
 
@@ -565,8 +565,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/miniapp_deletion.py`, `core/services/portal_full_reset.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/invoice_cleanup.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_recovery.py`, `core/services/tat_comments.py`, `core/services/tat_recovery.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/miniapp_deletion.py`, `core/services/portal_full_reset.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_laf_bootstrap.py`, `origination/services/origination_sms_delivery.py`, `origination/tests_advanta_sms.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/external_resilience.py`, `core/services/invoice_cleanup.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_recovery.py`, `core/services/tat_comments.py`, `core/services/tat_recovery.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `origination/migrations/0009_signer_sms_provider.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_laf_bootstrap.py`, `origination/services/origination_sms_delivery.py`, `origination/tests_advanta_sms.py`, `origination/tests_approval.py`, `origination/tests_laf_bootstrap.py`, `origination/tests_signing_migrations.py`
 
 ### `core_invoiceidentityreview`
 
@@ -1115,8 +1115,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `origination.OriginationSignerSession`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `origination/services/origination_esign.py`
-- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`
+- Direct ORM writers: `origination/services/origination_esign.py`, `origination/services/origination_sms_delivery.py`, `origination/tests_advanta_sms.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/models.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_sms_delivery.py`, `origination/tests_advanta_sms.py`
 
 ### `core_originationproductdefinition`
 
@@ -1193,7 +1193,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `origination.OriginationOtpChallenge`, `origination.OriginationSigningAction`, `origination.OriginationSigningRequestEvent`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `origination/services/origination_esign.py`, `origination/tests_approval.py`, `origination/tests_signing_plans.py`
-- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/tests_approval.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/views.py`
+- Used by: `core/services/miniapp_deletion_registry.py`, `origination/admin.py`, `origination/catalogue.py`, `origination/migrations/0001_domain_ownership.py`, `origination/migrations/0007_originationsigningparticipant_and_more.py`, `origination/models.py`, `origination/services/origination_dispatch.py`, `origination/services/origination_esign.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_production.py`, `origination/services/recovery.py`, `origination/tests_approval.py`, `origination/tests_signing_migrations.py`, `origination/tests_signing_plans.py`, `origination/views.py`
 
 ### `core_originationsigningaction`
 

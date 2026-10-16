@@ -1775,6 +1775,11 @@ class OriginationSignerSession(models.Model):
         OriginationSigningPackage, on_delete=models.PROTECT, related_name='signer_sessions',
     db_comment='Reference to core_originationsigningpackage; deletion behavior: PROTECT.')
     signer_role = models.CharField(max_length=80, db_comment='Signer role (CharField).')
+    sms_provider = models.CharField(
+        max_length=32, choices=[('africas_talking', "Africa's Talking"), ('advanta', 'Advanta')],
+        default='africas_talking', editable=False,
+        db_comment='Immutable SMS provider captured for this link; historical links use Africa\'s Talking.',
+    )
     identity_snapshot = models.JSONField(default=dict, blank=True, db_comment='Identity snapshot (JSONField).')
     phone_normalized = models.CharField(max_length=16, blank=True, default='', db_comment='Phone normalized (CharField).')
     phone_hash = models.CharField(max_length=64, blank=True, default='', db_index=True, db_comment='Phone hash (CharField).')
@@ -1827,6 +1832,15 @@ class OriginationSignerSession(models.Model):
                 name='unique_origination_signer_session_request',
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        fields = kwargs.get('update_fields')
+        if not self._state.adding and (fields is None or 'sms_provider' in fields):
+            previous = type(self).objects.filter(pk=self.pk).values_list('sms_provider', flat=True).first()
+            if previous is not None and previous != self.sms_provider:
+                from django.core.exceptions import ValidationError
+                raise ValidationError('A signing link retains its original SMS provider. Create a replacement link instead.')
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.package.external_reference}: {self.signer_role}'

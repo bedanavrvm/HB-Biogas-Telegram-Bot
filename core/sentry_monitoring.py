@@ -144,6 +144,8 @@ def sentry_init_options(settings) -> dict[str, Any]:
         'release': settings.APP_RELEASE or None,
         'traces_sample_rate': settings.SENTRY_TRACES_SAMPLE_RATE,
         'send_default_pii': False,
+        # Transport stack locals can contain OTP text and credential-bearing JSON.
+        'include_local_variables': False,
         'before_send': scrub_event,
         'before_send_transaction': scrub_transaction,
     }

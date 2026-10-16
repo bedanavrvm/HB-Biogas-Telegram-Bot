@@ -3730,10 +3730,10 @@ class OriginationSigningActionInvalidationAdmin(_AppendOnlyOriginationAdmin):
 @admin.register(OriginationSignerSession)
 class OriginationSignerSessionAdmin(_AppendOnlyOriginationAdmin):
     list_display = (
-        'package', 'signer_role', 'status', 'access_mode', 'masked_phone',
+        'package', 'signer_role', 'status', 'sms_provider', 'access_mode', 'masked_phone',
         'shared_phone_approved_by', 'verified_at', 'created_at',
     )
-    list_filter = ('status', 'access_mode', 'signer_role', 'is_active')
+    list_filter = ('status', 'sms_provider', 'access_mode', 'signer_role', 'is_active')
     search_fields = ('package__external_reference', 'package__application__reference_number', 'phone_last4')
     exclude = ('token_hash', 'phone_normalized', 'phone_hash', 'signature_capture')
 

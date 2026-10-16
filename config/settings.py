@@ -627,6 +627,11 @@ AFRICASTALKING_SMS_ENVIRONMENT = config(
 AFRICASTALKING_USERNAME = config('AFRICASTALKING_USERNAME', default='').strip()
 AFRICASTALKING_API_KEY = config('AFRICASTALKING_API_KEY', default='')
 AFRICASTALKING_SENDER_ID = config('AFRICASTALKING_SENDER_ID', default='').strip()
+# Selection affects new signer links only; active sessions retain their provider.
+ORIGINATION_SMS_PROVIDER = config('ORIGINATION_SMS_PROVIDER', default='africas_talking').strip().casefold()
+ORIGINATION_ADVANTA_PARTNER_ID = config('ORIGINATION_ADVANTA_PARTNER_ID', default='').strip()
+ORIGINATION_ADVANTA_API_KEY = config('ORIGINATION_ADVANTA_API_KEY', default='')
+ORIGINATION_ADVANTA_SENDER_ID = config('ORIGINATION_ADVANTA_SENDER_ID', default='').strip()
 ORIGINATION_SIGNING_LINK_TTL_HOURS = config(
     'ORIGINATION_SIGNING_LINK_TTL_HOURS', default=48, cast=int,
 )

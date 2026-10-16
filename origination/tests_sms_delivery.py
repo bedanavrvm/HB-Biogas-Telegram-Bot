@@ -9,6 +9,7 @@ from origination.services.origination_esign import _send_sms
 
 
 @override_settings(
+    ORIGINATION_SMS_PROVIDER='africas_talking', AFRICASTALKING_SMS_ENVIRONMENT='production',
     AFRICASTALKING_USERNAME='synthetic-live-app',
     AFRICASTALKING_API_KEY='synthetic-key',
     AFRICASTALKING_SENDER_ID='SYNTHETIC',

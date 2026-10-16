@@ -416,7 +416,20 @@
       "sha256": "91e58f0b433a38daa62842e723db15866707a9fce1574e238a6375e7144b437b"
     }
   ],
-  "changes": [],
+  "changes": [
+    {
+      "path": "origination/static/miniapp/origination_signing.js",
+      "sha256": "0cb6e6269f1b43a54955585d63621fc685025e6bb05eea5be28b12dd227b166a",
+      "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
+      "reason": "User-approved Advanta implementation plan: copy-only SMS acceptance wording in the existing feedback pattern; no layout/token migration. Synthetic failure/recovery screenshots and tests accompany this change."
+    },
+    {
+      "path": "origination/templates/loan_origination/sign.html",
+      "sha256": "742ff776b31a68a09ad84d13ca861fdb7f13b3fd8c8dae29b54e121f1984cfaf",
+      "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
+      "reason": "Nonvisual cache-version update for the approved SMS feedback copy; existing source baselines and Phase 6 hold remain unchanged."
+    }
+  ],
   "source_roots": [
     "core/static/miniapp",
     "origination/static/miniapp",
