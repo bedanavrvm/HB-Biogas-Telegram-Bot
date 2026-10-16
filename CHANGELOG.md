@@ -1,5 +1,16 @@
 # Changelog
 
+## 16 October 2026 - Accurate Origination SMS schema readiness
+
+- Delivery readiness now checks the migration register before reading the new
+  SMS schema. Expected pending SMS migrations are deferred during pre-deploy,
+  then rechecked after migration before a release can be recorded as completed.
+- Missing migrations are named explicitly. Database connectivity, permissions
+  or query failures have a separate safe diagnostic instead of incorrectly
+  claiming migrations are missing. No database exception text or secrets leak.
+- Configuration errors, provider retention checks and stale-runner warnings
+  remain intact. No new migration, signing-policy change or SMS send is added.
+
 ## 16 October 2026 - Origination draft document management
 
 - Replaced Change Main LAF with one Manage documents chooser, including when

@@ -1,15 +1,22 @@
 """Read-only production readiness for enabled Origination e-signing."""
 
 from core.production import production_security_readiness_issues
+from django.db import connection
+from django.db.migrations.recorder import MigrationRecorder
 
 
 _ORIGINATION_CODES = (
     'origination-esign-',
     'conditional-approval-',
 )
+_SMS_MIGRATIONS = (
+    ('core', '0206_advanta_integration'),
+    ('origination', '0009_signer_sms_provider'),
+)
 
 
-def origination_signing_readiness_issues(settings):
+def origination_signing_readiness_issues(settings, *, allow_pending_migrations=False):
+    """Defer new-schema reads only during the release's pre-migration phase."""
     if not bool(getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)):
         return []
     issues = [
@@ -24,7 +31,16 @@ def origination_signing_readiness_issues(settings):
     from origination.services.origination_signing_configuration import provider_configuration_issues
     from origination.services.origination_sms import ADVANTA, selected_provider
     from origination.services.origination_sms_delivery import runner_health
+    applied = None
     try:
+        applied = MigrationRecorder(connection).applied_migrations()
+        pending = [f'{app}.{name}' for app, name in _SMS_MIGRATIONS if (app, name) not in applied]
+        if pending:
+            if not allow_pending_migrations:
+                issues.append(ReadinessIssue('error', 'origination-esign-delivery-schema',
+                    'SMS database migrations are pending: ' + ', '.join(pending)
+                    + '. Complete the normal release.sh pre-deploy process, then rerun check_origination_signing_readiness.'))
+            return issues
         active_providers = set(OriginationSignerSession.objects.filter(
             is_active=True, token_expires_at__gt=timezone.now(),
         ).values_list('sms_provider', flat=True).distinct())
@@ -41,6 +57,10 @@ def origination_signing_readiness_issues(settings):
             issues.append(ReadinessIssue('warning', 'origination-esign-provider-account-changed',
                 'Delivery tracking found a changed SMS account. Review the original account in the SMS delivery runbook; do not resend the application.'))
     except DatabaseError:
-        issues.append(ReadinessIssue('warning', 'origination-esign-delivery-schema',
-            'Apply the checked-in SMS migrations before checking existing-link delivery readiness.'))
+        detail = ('SMS migrations are recorded as applied. Check database connectivity, permissions and schema consistency.'
+                  if applied is not None else
+                  'The migration register could not be read. Check DATABASE_URL, database connectivity and permissions.')
+        issues.append(ReadinessIssue('error', 'origination-esign-delivery-database',
+            'Could not check the SMS delivery database. ' + detail
+            + ' Retry check_origination_signing_readiness after resolving the database issue.'))
     return issues

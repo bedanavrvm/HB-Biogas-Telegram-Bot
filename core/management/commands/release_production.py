@@ -78,7 +78,7 @@ class Command(BaseCommand):
         if getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False):
             self._check(
                 'origination_signing',
-                origination_signing_readiness_issues(settings),
+                origination_signing_readiness_issues(settings, allow_pending_migrations=True),
                 readiness,
             )
         else:
@@ -182,6 +182,12 @@ class Command(BaseCommand):
         self.stdout.write('7/9 Post-migration Django check')
         try:
             django_call_command('check', deploy=True, fail_level='ERROR')
+            if getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False):
+                self._check(
+                    'origination_signing_post_migration',
+                    origination_signing_readiness_issues(settings),
+                    readiness,
+                )
         except Exception as exc:
             self._record_failure(
                 status=ProductionReleaseAudit.STATUS_POST_CHECK_FAILED,

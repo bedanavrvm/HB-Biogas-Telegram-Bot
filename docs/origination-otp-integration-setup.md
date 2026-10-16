@@ -124,6 +124,30 @@ application or verifying a valid code.
 python manage.py check_origination_signing_readiness --json
 ```
 
+The release's pre-migration check reads Django's migration register first. If
+`core.0206_advanta_integration` or `origination.0009_signer_sms_provider` is still
+pending, it defers only the delivery queries that need that schema. Normal
+configuration checks still run. After migration, `release.sh` rechecks signing
+and delivery readiness before bootstrap or recording a completed release.
+
+Outside that pre-migration phase, unapplied SMS migrations are a readiness error
+that names the exact missing migrations and directs the operator to the normal
+release process. A connection, permission or query failure instead reports
+`origination-esign-delivery-database`; it never guesses that migrations are
+missing. Database exception text, connection strings and credentials are not
+printed. If migrations are recorded as applied but the queries fail, verify
+database connectivity, permissions and actual schema consistency before retrying.
+
+Local verification on 16 October 2026: 64 focused PostgreSQL checks passed for
+the migration/register diagnostics, release sequencing, Advanta transport and
+delivery handling. Tests include simulated connection/query failures, an actual
+pending migration-register entry, redaction and post-migration release failure.
+An exploratory 81-test run also hit the unchanged older consent-policy
+expectation in `core.tests_production`; its service and test match HEAD.
+No new migration, production deployment or real provider call was made.
+Evidence: `test-results/origination-readiness-schema-final.log` and
+`test-results/origination-readiness-schema-postgres.log`.
+
 ### Troubleshooting and safe rollout
 
 | Safe diagnostic | Administrator action |
@@ -137,6 +161,8 @@ python manage.py check_origination_signing_readiness --json
 | account_changed | Restore/check the original account for old-message evidence; do not query it in the replacement account. |
 | lookup_unavailable / report_unavailable | Keep delivery unconfirmed; check provider availability. This is not failed signing. |
 | stale/never-run heartbeat | Provision/repair the once-per-minute runner, then check the existing records. |
+| origination-esign-delivery-schema | Finish `release.sh` through its migration step, then rerun the signing readiness check. Only genuinely pending SMS migrations are listed. |
+| origination-esign-delivery-database | Check the deployment's database connection/permissions; if migrations are recorded as applied, check actual schema consistency. Retry after repair rather than reapplying migrations blindly. |
 
 Deploy first with `africas_talking` selected. Apply the checked-in migrations
 through the normal release process; no staff role/shell repair is required.

@@ -118,9 +118,44 @@ class ProductionReleaseCommandTests(TestCase):
 
         self.assertEqual(
             events,
-            ['general', 'tat', 'origination', 'plan', 'migrate', 'check', 'bootstrap'],
+            ['general', 'tat', 'origination', 'plan', 'migrate', 'check', 'origination', 'bootstrap'],
         )
         tat.assert_called_once_with(settings, allow_pending_migrations=True)
+
+    def test_origination_schema_is_deferred_before_migrations_and_checked_afterwards(self):
+        _, origination, _, _, bootstrap = self._successful_patches()
+        call_command('release_production', stdout=io.StringIO())
+        self.assertEqual(origination.call_args_list, [
+            call(settings, allow_pending_migrations=True), call(settings),
+        ])
+        bootstrap.assert_called_once()
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertTrue(audit.readiness_results['origination_signing_post_migration']['passed'])
+
+    def test_origination_post_migration_failure_records_evidence_and_skips_bootstrap(self):
+        _, origination, _, django_command, bootstrap = self._successful_patches()
+        origination.side_effect = [[], [ReadinessIssue('error', 'origination-esign-delivery-schema',
+            'Synthetic SMS migration remains unapplied.')]]
+        with self.assertRaisesMessage(CommandError, 'bootstrap was not run'):
+            call_command('release_production', stdout=io.StringIO())
+        self.assertEqual(django_command.call_args_list, [call('migrate', interactive=False),
+            call('check', deploy=True, fail_level='ERROR')])
+        bootstrap.assert_not_called()
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertEqual(audit.status, ProductionReleaseAudit.STATUS_POST_CHECK_FAILED)
+        self.assertFalse(audit.post_migration_check_passed)
+        self.assertFalse(audit.readiness_results['origination_signing_post_migration']['passed'])
+
+    def test_origination_preflight_database_failure_does_not_run_migrations(self):
+        _, origination, plan, django_command, bootstrap = self._successful_patches()
+        origination.return_value = [ReadinessIssue('error', 'origination-esign-delivery-database',
+            'Synthetic database unavailable.')]
+        with self.assertRaises(CommandError):
+            call_command('release_production', stdout=io.StringIO())
+        plan.assert_not_called()
+        django_command.assert_not_called()
+        bootstrap.assert_not_called()
+        self.assertFalse(ProductionReleaseAudit.objects.exists())
 
     def test_tat_failure_stops_before_plan_or_migration(self):
         with patch(

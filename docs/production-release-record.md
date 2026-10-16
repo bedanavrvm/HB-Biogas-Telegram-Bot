@@ -48,6 +48,7 @@ the completed record in the approved private operations location, not in Git.
 - `release.sh` pre-deploy result:
 - Durable release-audit status, attempt count, and Admin evidence review:
 - Migration state after release:
+- Post-migration Origination signing/delivery readiness (when signing is enabled):
 - `/api/health/` result:
 - Protected readiness result:
 - Authorized Portal read-only case flow:
