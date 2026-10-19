@@ -24,6 +24,8 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/SETTING_INDEX.json` | Environment variable names, source lines and casts; intentionally excludes configured values. |
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Research-only assessment of Telegram/channel independence, existing identity and authorization, browser-session security, and a proposed phased pilot. Not an approved architecture change or implementation. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Proposed staffed timeline, milestones, opt-in cohorts, Telegram compatibility contract, deployment gates, and rollback for optional browser access. Documentation only; no rollout authorization. |
 | `codebase-analysis-docs/assets/build_source_inventory.py` | Standard-library-only static inventory builder and bounded source reader; imports no Django code and contacts no provider. |
 | `codebase-analysis-docs/assets/validate_analysis.py` | Read-only validation of source hashes/ranges, explicit repository paths, inventory continuity, required master sections and compact diagrams. |
 
