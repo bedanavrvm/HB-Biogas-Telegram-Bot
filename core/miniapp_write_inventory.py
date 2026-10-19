@@ -47,6 +47,15 @@ def _add(
 
 
 _add(
+    'loan_origination_phone_identity_checks',
+    authentication='origination_auth_required; verified Telegram identity and active account',
+    capability='origination.identity.phone.verify plus scoped IT-only pilot restriction',
+    scope='Full saved application; one complete Origination IT group/branch/product tuple',
+    request_key_binding='origination_auth_required plus canonical Mini App request identity',
+    domain_replay='Immutable application request receipt; shared subject lock, unique in-flight check and single-dispatch fencing',
+)
+
+_add(
     'ui_review_revision ui_review_decision ui_review_upload ui_review_release',
     authentication='Verified Telegram initData or CSRF-checked authenticated Django session',
     capability='Current active Django Superuser only; feature flag required; no workflow role inheritance',

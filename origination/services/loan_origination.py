@@ -912,10 +912,10 @@ def _missing_application_requirements(
 
 def _record_event(
     application, action: str, *, actor, request_id: str = '', before=None,
-    after=None, metadata=None,
+    after=None, metadata=None, adopt_form_projection: bool = True,
 ) -> None:
     metadata = dict(metadata or {})
-    if ('field_overlay_manifest' in (application.template_configuration_snapshot or {})
+    if (adopt_form_projection and 'field_overlay_manifest' in (application.template_configuration_snapshot or {})
             and (application.status == 'draft' or (before or {}).get('status') == 'draft')):
         # Retain adoption after an existing draft is submitted, without changing
         # its immutable schema/layout snapshots or older submitted applications.
@@ -2793,9 +2793,13 @@ def serialize_application(
                 'signed_packet_accessed': 'Signed application opened',
                 'signed_packet_archived': 'Signed documents saved',
                 'fields_saved': 'Details saved'}
+            activity_events = application.events.exclude(action='signing_plan_confirmed')
+            from origination.services.phone_identity import allowed as phone_check_allowed
+            if not phone_check_allowed(application, actor):
+                activity_events = activity_events.exclude(action__startswith='phone_id_check_')
             payload['activity'] = [{'label': labels.get(event.action, event.action.replace('_', ' ').capitalize()),
                 'actor': event.actor.get_full_name() or event.actor.get_username() if event.actor_id else 'Signer',
-                'at': event.occurred_at.isoformat()} for event in application.events.exclude(action='signing_plan_confirmed').select_related('actor').order_by('-occurred_at')[:20]]
+                'at': event.occurred_at.isoformat()} for event in activity_events.select_related('actor').order_by('-occurred_at')[:20]]
     if application.approval_roles_snapshot and not payload['completion_without_signing']:
         from origination.services.origination_approval import signing_progress
         progress = signing_progress(latest_package) if latest_package else {}
@@ -2919,4 +2923,9 @@ def serialize_application(
             }
         else:
             payload['signing_package'] = None
+    if include_payload and presentation == 'full':
+        from origination.services.phone_identity import projection as phone_check_projection
+        phone_checks = phone_check_projection(application, actor)
+        if phone_checks is not None:
+            payload['phone_id_checks'] = phone_checks
     return payload

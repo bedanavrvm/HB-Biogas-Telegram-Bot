@@ -1,5 +1,25 @@
 # Changelog
 
+## 19 October 2026 - Optional Origination phone registration IT pilot
+
+- Added a disabled-by-default, scoped-IT-only advisory check beside saved
+  Applicant primary/alternate phones, including read-only applications. One
+  operator confirmation is required; this does not assert customer consent.
+- Exact conclusive phone/National-ID results can be reused across Origination
+  applications for thirty days with application-local audited receipts. Atomic
+  Nairobi-day dispatch accounting caps the pilot at fifty calls; there are no
+  automatic paid retries or application/signing-state changes.
+- Added core migration 0207 and Origination 0010/0011, governed independent
+  evidence tables, safe Daraja adapter, capability seeding/policy refresh and
+  synthetic tests. No production migration, provider call or deployment ran.
+- Deployment and review gates: `codebase-analysis-docs/assets/PHONE_ID_CHECKS.md`.
+  Operational rollback disables the feature. Destructive reversal, after
+  authorized backup/export and checking later migrations: `python manage.py
+  migrate origination 0009_signer_sms_provider`, then `python manage.py migrate
+  core 0206_advanta_integration`. Never delete counters to release allowance.
+- PostgreSQL concurrency, live-provider/commercial onboarding and human/native
+  UI review remain activation gates; see the verification record for results.
+
 ## 16 October 2026 - Accurate Origination SMS schema readiness
 
 - Delivery readiness now checks the migration register before reading the new

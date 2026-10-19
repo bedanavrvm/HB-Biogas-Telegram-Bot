@@ -1,0 +1,13 @@
+erDiagram
+  User ||--o| UserProfile : identity
+  User ||--o{ AccessGrant : authorized_scope
+  GroupSheetConfiguration ||--o{ AccessGrant : restricts
+  Product ||--o{ ProductVersion : versions
+  JawabuCustomer ||--o{ JawabuFarmerMaster : customer
+  ProductVersion ||--o{ JawabuFarmerMaster : captured_terms
+  JawabuFarmerMaster ||--o{ JawabuPipelineEvent : history
+  JawabuFarmerMaster ||--o| HomeBiogasAction : fulfillment
+  PaymentBatch ||--o{ PaymentBatchCase : members
+  JawabuFarmerMaster ||--o{ PaymentBatchCase : case
+  RequisitionBatch ||--o{ OrderWorkbookVersion : versions
+  RequisitionBatch ||--o{ DocumentPhysicalSignoff : attested_scan

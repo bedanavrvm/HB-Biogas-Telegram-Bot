@@ -518,6 +518,8 @@ def column_comment(field) -> str:
 # The bounded app declares its own governance metadata.
 from origination.catalogue import MODEL_METADATA
 MODEL_OVERRIDES.update(MODEL_METADATA)
+from origination.catalogue import PHONE_IDENTITY_METADATA
+MODEL_OVERRIDES.update(PHONE_IDENTITY_METADATA)
 from report_delivery.catalogue import MODEL_METADATA as REPORT_DELIVERY_METADATA
 MODEL_OVERRIDES.update(REPORT_DELIVERY_METADATA)
 from ui_review.catalogue import MODEL_METADATA as UI_REVIEW_METADATA

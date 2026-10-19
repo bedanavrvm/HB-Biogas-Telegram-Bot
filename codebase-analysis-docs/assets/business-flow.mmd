@@ -1,0 +1,15 @@
+flowchart LR
+  IN[FarmUp, SysUp, FCA and Telegram intake] --> CASE[Canonical Portal case]
+  CASE --> VISIT[JBL visit and evidence]
+  VISIT --> CREDIT[Credit decision]
+  CREDIT --> FINAL[Final approval]
+  FINAL --> ORDER[Requisition workspace and exact signed workbook]
+  ORDER --> HB[HB installation and commissioning]
+  ORDER --> INV[Invoice matching and identity verification]
+  INV --> PAY[Payment review, workbook and exact signed scan]
+  PRODUCT[Governed products and locations] --> CASE
+  PRODUCT --> ORIG[Independent Origination application and signing]
+  PRODUCT --> TAT[TAT case and credit assessment]
+  SPIN[Independent SPIN requests]
+  CASE --> REPORT[Reports and milestone recognition]
+  HB --> REPORT

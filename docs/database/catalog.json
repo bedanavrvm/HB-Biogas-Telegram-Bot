@@ -149,6 +149,7 @@
         "core/services/staff_lifecycle.py",
         "core/services/user_hard_delete.py",
         "origination/migrations/0003_independent_capabilities.py",
+        "origination/migrations/0011_phone_identity_pilot_capability.py",
         "report_delivery/one_off.py"
       ]
     },
@@ -172,6 +173,7 @@
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_presentation.py",
         "report_delivery/tests.py",
         "report_delivery/tests_complaint_reports.py",
@@ -231,6 +233,7 @@
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
         "origination/tests_migrations.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_signing_presentation.py",
         "report_delivery/one_off.py",
@@ -652,6 +655,7 @@
       "direct_orm_writers": [
         "core/services/compliance_audit.py",
         "origination/tests_application_downloads.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_signing_plans.py",
@@ -670,6 +674,7 @@
       "used_by": [
         "core/services/compliance_audit.py",
         "origination/tests_application_downloads.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_signing_plans.py",
@@ -1133,7 +1138,8 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/external_resilience.py",
-        "core/services/miniapp_deletion_sheets.py"
+        "core/services/miniapp_deletion_sheets.py",
+        "origination/tests_phone_identity.py"
       ],
       "django_model": "core.IntegrationCircuitState",
       "domain": "integration",
@@ -1147,12 +1153,15 @@
       "used_by": [
         "core/api/portal_views.py",
         "core/services/external_resilience.py",
-        "core/services/miniapp_deletion_sheets.py"
+        "core/services/miniapp_deletion_sheets.py",
+        "origination/tests_phone_identity.py"
       ]
     },
     {
       "application_area": "Integration",
-      "children": [],
+      "children": [
+        "origination.OriginationPhoneIdentityCheck"
+      ],
       "classification": "authoritative_record",
       "column_count": 21,
       "cross_domain_parents": [
@@ -1169,7 +1178,8 @@
         "origination/services/origination_sms_delivery.py",
         "origination/tests_advanta_sms.py",
         "origination/tests_approval.py",
-        "origination/tests_laf_bootstrap.py"
+        "origination/tests_laf_bootstrap.py",
+        "origination/tests_phone_identity.py"
       ],
       "django_model": "core.IntegrationOperation",
       "domain": "integration",
@@ -1208,13 +1218,16 @@
         "core/services/tat_setup.py",
         "core/services/tat_tracker.py",
         "origination/migrations/0009_signer_sms_provider.py",
+        "origination/models.py",
         "origination/services/origination_dispatch.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_laf_bootstrap.py",
         "origination/services/origination_sms_delivery.py",
+        "origination/services/phone_identity.py",
         "origination/tests_advanta_sms.py",
         "origination/tests_approval.py",
         "origination/tests_laf_bootstrap.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py"
       ]
     },
@@ -2187,6 +2200,7 @@
         "origination/tests_approval.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_value_contracts.py"
       ],
@@ -2234,15 +2248,18 @@
         "origination/services/origination_final_review.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_signing_plans.py",
+        "origination/services/phone_identity.py",
         "origination/services/recovery.py",
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_document_management.py",
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_identity_copies.py",
         "origination/tests_migrations.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
         "origination/tests_value_contracts.py",
@@ -2641,6 +2658,7 @@
       "column_count": 20,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "origination/services/origination_document_choices.py",
         "origination/services/origination_documents.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
@@ -2668,6 +2686,7 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/models.py",
+        "origination/services/origination_document_choices.py",
         "origination/services/origination_documents.py",
         "origination/services/origination_fields.py",
         "origination/services/origination_god_mode.py",
@@ -3036,6 +3055,7 @@
         "core/services/product_permanent_deletion.py",
         "origination/services/document_editor.py",
         "origination/services/generic_jawabu_laf_seed.py",
+        "origination/services/origination_document_choices.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_main_laf_seeds.py",
         "origination/services/origination_setup_documents.py",
@@ -3043,6 +3063,7 @@
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_signing_plans.py",
@@ -3083,6 +3104,7 @@
         "origination/services/loan_origination.py",
         "origination/services/origination_consent.py",
         "origination/services/origination_document_catalogue.py",
+        "origination/services/origination_document_choices.py",
         "origination/services/origination_documents.py",
         "origination/services/origination_fields.py",
         "origination/services/origination_god_mode.py",
@@ -3093,6 +3115,7 @@
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_laf_bootstrap.py",
@@ -3253,6 +3276,7 @@
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "origination/tests_value_contracts.py"
@@ -3304,6 +3328,7 @@
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
         "origination/tests_migrations.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
@@ -3558,6 +3583,7 @@
         "origination/services/origination_production.py",
         "origination/services/recovery.py",
         "origination/tests_approval.py",
+        "origination/tests_production_readiness.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
         "origination/views.py"
@@ -3791,6 +3817,7 @@
         "origination/services/document_editor.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_templates.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_unsigned_applications.py"
       ],
@@ -3816,6 +3843,7 @@
         "origination/services/document_editor.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_templates.py",
+        "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_unsigned_applications.py"
       ]
@@ -6135,6 +6163,7 @@
         "core/services/workflow_capabilities.py",
         "hb_operations/tests.py",
         "origination/migrations/0003_independent_capabilities.py",
+        "origination/migrations/0011_phone_identity_pilot_capability.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_signing_presentation.py",
@@ -6797,6 +6826,86 @@
     },
     {
       "application_area": "Origination",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 11,
+      "cross_domain_parents": [
+        "core.IntegrationOperation"
+      ],
+      "direct_orm_writers": [],
+      "django_model": "origination.OriginationPhoneIdentityCheck",
+      "domain": "origination",
+      "explicit_indexes": [
+        "orig_phone_subject_time_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "core.IntegrationOperation",
+        "origination.OriginationPhoneIdentitySubject"
+      ],
+      "purpose": "Fenced advisory provider attempt, independent of application/signing state.",
+      "retention": "Retain with Origination/compliance evidence; thirty-day expiry ends reuse, not retention.",
+      "source_of_truth": true,
+      "table": "origination_phone_identity_check_record",
+      "used_by": [
+        "origination/catalogue.py",
+        "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
+        "origination/models.py",
+        "origination/services/phone_identity.py",
+        "origination/tests_phone_identity.py"
+      ]
+    },
+    {
+      "application_area": "Origination",
+      "children": [],
+      "classification": "processing_record",
+      "column_count": 4,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [],
+      "django_model": "origination.OriginationPhoneIdentityDailyUsage",
+      "domain": "origination",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [],
+      "purpose": "Atomic deployment-wide Nairobi-day dispatch allowance, independent of credential rotation.",
+      "retention": "Retain operational allowance evidence; no automatic purge or testing reset.",
+      "source_of_truth": true,
+      "table": "origination_phone_identity_daily_usage",
+      "used_by": [
+        "origination/catalogue.py",
+        "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
+        "origination/models.py",
+        "origination/services/phone_identity.py",
+        "origination/tests_phone_identity.py"
+      ]
+    },
+    {
+      "application_area": "Origination",
+      "children": [
+        "origination.OriginationPhoneIdentityCheck"
+      ],
+      "classification": "processing_record",
+      "column_count": 4,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [],
+      "django_model": "origination.OriginationPhoneIdentitySubject",
+      "domain": "origination",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [],
+      "purpose": "Pseudonymous account-bound subject mutex for shared phone registration evidence.",
+      "retention": "Retain with Origination/compliance evidence; no automatic purge.",
+      "source_of_truth": true,
+      "table": "origination_phone_identity_subject_state",
+      "used_by": [
+        "origination/catalogue.py",
+        "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
+        "origination/models.py",
+        "origination/services/phone_identity.py"
+      ]
+    },
+    {
+      "application_area": "Origination",
       "children": [
         "origination.OriginationSignerSession",
         "origination.OriginationSigningAction"
@@ -6807,7 +6916,8 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "origination/services/origination_signing_plans.py"
+        "origination/services/origination_signing_plans.py",
+        "origination/tests_document_management.py"
       ],
       "django_model": "origination.OriginationSigningParticipant",
       "domain": "origination",
@@ -6829,6 +6939,7 @@
         "origination/models.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_signing_plans.py",
+        "origination/tests_document_management.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py"
       ]

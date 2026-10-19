@@ -1,0 +1,15 @@
+flowchart TD
+  TG[Telegram groups and Mini Apps] --> HTTP[Django routes and identity boundaries]
+  STAFF[Staff Admin] --> HTTP
+  SIGN[External signer] --> HTTP
+  HTTP --> ACCESS[Workflow capabilities and scoped grants]
+  ACCESS --> SERVICES[Domain services and transition guards]
+  SERVICES --> DB[(Canonical Django database)]
+  SERVICES --> AUDIT[Native events and compliance ledger]
+  AUDIT --> DB
+  SERVICES --> JOBS[Durable reservations and leased processors]
+  JOBS --> DB
+  JOBS --> GOOGLE[Google Sheets and protected Drive artifacts]
+  JOBS --> PROVIDERS[Telegram, SMS and Resend]
+  GMAIL[Gmail statement polling] --> SERVICES
+  HTTP --> UI[Django templates and vendored browser assets]

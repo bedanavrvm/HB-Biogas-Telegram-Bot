@@ -1,0 +1,14 @@
+flowchart TD
+  UI[Scoped Origination IT: saved Applicant phone] --> Confirm[Save if editable, then confirm]
+  Confirm --> Admit[Authorize and lock application + subject]
+  Admit --> Cache{Exact conclusive pair under 30 days?}
+  Cache -->|Yes| Receipt[Application-local audited receipt]
+  Cache -->|No| Running{Existing in-flight check?}
+  Running -->|Yes| Receipt
+  Running -->|No| Attempt[Reserve one durable attempt]
+  Attempt --> OAuth[OAuth outside transaction]
+  OAuth --> Cap[Reauthorize + atomic Nairobi-day allowance]
+  Cap --> Daraja[One TLS verification call]
+  Daraja --> Evidence[Fenced independent evidence]
+  Evidence --> Receipt
+  Receipt --> Status[Read-only status; no signing resume]

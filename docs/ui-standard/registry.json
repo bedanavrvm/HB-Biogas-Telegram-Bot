@@ -418,22 +418,28 @@
   ],
   "changes": [
     {
+      "path": "origination/static/miniapp/phone_identity_checks.js",
+      "sha256": "1f97585a65cb25229ce162225f69fe5968413809dc331b052b4ae89542063fd7",
+      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
+      "reason": "User-requested IT-only inline action candidate: existing buttons and Telegram confirmation; field validation, save-before-confirm, scoped status polling and neutral outcomes. Synthetic source-faithful evidence is not human approval; no live API calls, token migration or visual baseline update."
+    },
+    {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "0eb18db1c7177d1343b1f49a9dd4720474a4cfc429fd5ff36efcb45a3cf8378f",
-      "review_reference": "docs/runbooks/origination-ui-and-downloads.md#document-management-review-evidence",
-      "reason": "User-approved Manage documents plan and supporting-form repair: reuse the existing sheet, wizard, fields and controls; preserve choices on failure, confirm blank Main LAF replacement and render captured supporting sections. Source-faithful phone light/dark, failure, blank-replacement and dynamic-form evidence accompany the change; no Phase 6 migration."
+      "sha256": "43aedb798cefa206ca68175ab162ac14b221edde439615f74949f9d3ae13d3fd",
+      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
+      "reason": "Preserves the earlier document-management changes; adds the explicitly requested IT-only inline phone-check candidate using existing fields and confirmation. Source-bound mobile light/dark and failure evidence is synthetic, not human approval. No candidate tokens or Phase 6 migration."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "1ddca5098f057691b1cc60d0f8aead5d0a673d168bb08ac2f6fd3b665b6b823d",
-      "review_reference": "docs/runbooks/origination-ui-and-downloads.md#document-management-review-evidence",
-      "reason": "Bounded supporting-form repair reuses existing 12px section spacing and 44px preview control dimensions. Prevent global mobile button flex from stretching the preview icon. No candidate tokens or app-wide design migration."
+      "sha256": "6258a199ec1bec066f90dbb91b6fc8a3d1c4b1410fba842ec172e32854dc1751",
+      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
+      "reason": "Preserves existing supporting-form rules; the new phone action alone reuses the established 44px touch minimum. A narrow candidate declaration, not a theme migration or baseline approval."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "43aaeb07f103903beba8a8bbf2fff945418e09cb9829230174b96fa8e74b916b",
-      "review_reference": "docs/runbooks/origination-ui-and-downloads.md#document-management-review-evidence",
-      "reason": "Nonvisual cache-version changes for the approved document-manager script and bounded supporting-form spacing fix; source baselines and migration hold are unchanged."
+      "sha256": "579309de48238a14d558cb13f85f1a44f5aaf9d3e5c251f9257e4d6d944a6a25",
+      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
+      "reason": "Nonvisual loading and cache-version changes for the requested advisory phone-check script. Existing foundations, legacy source baselines and migration hold remain unchanged."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",

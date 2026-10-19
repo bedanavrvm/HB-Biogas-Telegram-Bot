@@ -1,4 +1,23 @@
 """Explicit governance for adopted records; physical legacy tables are preserved."""
+
+PHONE_IDENTITY_METADATA = {
+    'origination.OriginationPhoneIdentitySubject': {
+        'domain': 'origination', 'purpose': 'Pseudonymous account-bound subject mutex for shared phone registration evidence.',
+        'classification': 'processing_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain with Origination/compliance evidence; no automatic purge.', 'index_justifications': {},
+    },
+    'origination.OriginationPhoneIdentityCheck': {
+        'domain': 'origination', 'purpose': 'Fenced advisory provider attempt, independent of application/signing state.',
+        'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain with Origination/compliance evidence; thirty-day expiry ends reuse, not retention.',
+        'index_justifications': {'orig_phone_subject_time_idx': 'Find the latest conclusive evidence for one locked subject without scanning other subjects.'},
+    },
+    'origination.OriginationPhoneIdentityDailyUsage': {
+        'domain': 'origination', 'purpose': 'Atomic deployment-wide Nairobi-day dispatch allowance, independent of credential rotation.',
+        'classification': 'processing_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain operational allowance evidence; no automatic purge or testing reset.', 'index_justifications': {},
+    },
+}
 MODEL_METADATA = {'origination.LoanOriginationApplication': {'domain': 'origination',
                                             'purpose': 'Canonical, revision-controlled application captured by a field officer.',
                                             'classification': 'authoritative_record',

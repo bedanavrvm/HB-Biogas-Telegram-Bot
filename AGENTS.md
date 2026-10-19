@@ -100,6 +100,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Origination typed mark** | New version-2 signatures use a hash-pinned local PNG shared by preview and PDF, retained in the existing action/session metadata. Never regenerate historical marks or change signed bytes. Read ADR 0049. |
 | **Origination signing-link SMS provider** | The SMS provider retained by one external signing link. Changing the deployment default affects new links only. SMS acceptance and handset delivery are evidence, never signature verification or approval. Read ADR 0056 before changing dispatch, retry or receipt handling. |
 | **Origination identity copy** | Optional borrower/two-guarantor complete ID evidence, bound to saved identity fields. Front/back capture reuses Portal validation/collation. Existing submitted requirements remain unchanged; editable drafts adopt on a recorded save. |
+| **Origination phone registration check** | Optional scoped-IT pilot checking a saved Applicant primary/alternate phone against the Applicant National ID through Daraja. Thirty-day exact-pair evidence may be reused across Origination applications, with an application-local confirmed receipt; no handset possession, consent, signature or approval is inferred. Fifty dispatch reservations per Nairobi day, no automatic paid retries. Read ADR 0058. |
 | **Origination signing plan** | An opt-in application-specific list of individual participants configured through Django Admin. Product and Document defaults supply compatible obligations; officers send links but cannot change requirements. All required signatures and stamps complete approval in any order. Submitted plans retain their participant identities and exact consent; withdrawal creates an editable successor without rewriting history. |
 | **Origination applicant** | The person or entity applying for a loan. Use Applicant in Origination forms and operational UI; Customer is the matched global identity, Borrower is the contractual/signing role, and Party is the collective document-participant term. |
 | **Origination data field** | A global canonical variable shared by product forms and LAF templates. Its key and type are immutable; product versions may customize presentation while applications retain governed schema snapshots. |
@@ -697,6 +698,22 @@ Logs must be useful without leaking full personal data or secrets. Prefer record
 ---
 
 ## External API limits and backoff
+
+Origination phone registration uses `origination/services/phone_identity.py` and
+`daraja_phone_identity.py`, capability `origination.identity.phone.verify`, and
+`ORIGINATION_PHONE_ID_CHECK_ENABLED` (default false). The pilot is server-enforced
+IT-only, plus active Superuser; no other workflow's grant supplies authority.
+`ORIGINATION_PHONE_ID_CHECK_DAILY_LIMIT` defaults to 50 and must be 1..50.
+`DARAJA_ENVIRONMENT` is sandbox/production; `DARAJA_CONSUMER_KEY`,
+`DARAJA_CONSUMER_SECRET`, `DARAJA_SHORTCODE`, and the separate stable
+`DARAJA_PHONE_ID_HMAC_KEY` belong in the deployment secret store. Never perform
+real calls by default. No provider retries, callbacks, Sheets publication,
+workflow revisions, signing changes or automatic expiry deletion are permitted.
+Operational rollback is disabling the flag; destructive schema reversal is
+`python manage.py migrate origination 0009_signer_sms_provider`, then
+`python manage.py migrate core 0206_advanta_integration`, only after authorized
+backup/export and checking for later migrations. See ADR 0058 and
+`codebase-analysis-docs/assets/PHONE_ID_CHECKS.md`.
 
 Both Telegram and Google APIs enforce rate limits that this platform can realistically hit during bulk operations (bulk Sheet reconciliation, mass notifications, large imports):
 

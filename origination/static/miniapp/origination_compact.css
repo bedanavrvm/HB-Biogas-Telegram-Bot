@@ -72,6 +72,7 @@ body.origination-editor-open .origination-header{display:none!important}
 .preview-toolbar>button:first-child{justify-self:start}
 .preview-toolbar>button:last-child{justify-self:end}
 .sign-preview-header{display:block!important}
+[data-phone-id-target] button{min-height:44px}
 .sign-preview-header .page-controls{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;gap:4px;width:100%}
 .sign-preview-header .page-controls button{min-width:40px;height:44px;padding:4px}
 .sign-preview-header #page-label{display:block;text-align:center;font-size:.75rem;color:var(--muted);margin-top:4px}

@@ -1,5 +1,29 @@
 # Known Gaps and Verified Workarounds
 
+## Origination phone registration pilot - 19 October 2026
+
+The feature remains disabled by default. Synthetic HTTP/browser verification is
+not evidence that the paid Safaricom subscription works. Before enabling it,
+complete approved commercial/privacy onboarding, a separately authorized
+synthetic sandbox check, PostgreSQL concurrency tests and real Telegram/native-
+font UI review. No local PostgreSQL listener or guarded test URL was available;
+the two row-lock tests explicitly skip on SQLite. Do not replace their assertions
+with SQLite success or permit automatic provider retries as a workaround.
+
+The first published tariff is interpreted as KES 4.50 per billable call, not a
+flat price for the volume band. Confirm taxes, failed-call charges and volume
+treatment in the signed agreement. The 50/day dispatch counter is a conservative
+safety control, not a financial invoice. Reuse exact results for thirty days;
+on uncertainty use only a new explicit confirmation after review.
+
+Existing settings/environment parity (119 findings), unsafe-route inventory
+(34 findings) and the direct requisition event write in
+`core/api/portal_views.py::portal_requisition_finalize` remain outside this
+change. The first two counts were reproduced against HEAD source in memory;
+new feature settings/route are covered. Broader legacy policy/authentication
+assertions and final evidence are documented in
+`codebase-analysis-docs/assets/PHONE_ID_CHECK_VERIFICATION.md`.
+
 ## Origination document management verification - 16 October 2026
 
 Manage documents and supporting-form changes pass 164 focused PostgreSQL checks

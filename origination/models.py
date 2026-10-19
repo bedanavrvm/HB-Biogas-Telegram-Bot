@@ -2036,3 +2036,66 @@ class OriginationSigningActionInvalidation(models.Model):
         db_table = 'core_originationsigningactioninvalidation'
         db_table_comment = 'Domain: origination. Purpose: Append-only checker evidence invalidating one otherwise immutable action. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User, origination.OriginationSigningAction. Children: none. Code usage: owning Django model and workflow service.'
 
+
+class OriginationPhoneIdentitySubject(models.Model):
+    """Pseudonymous mutex for account-bound phone/ID evidence shared within Origination."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Random subject lock identifier; not a customer identifier.')
+    provider_context = models.CharField(max_length=64, db_comment='Digest of environment, account, shortcode and digest protocol; no credentials.')
+    subject_hmac = models.CharField(max_length=64, db_comment='Keyed phone/National-ID digest; no raw identifiers.')
+    created_at = models.DateTimeField(auto_now_add=True, db_comment='Subject lock creation time in UTC.')
+
+    class Meta:
+        db_table = 'origination_phone_identity_subject_state'
+        db_table_comment = 'Domain: origination. Purpose: Pseudonymous cross-application phone/ID mutex. Classification: processing_record. Source of truth: yes. Lifecycle: active. Retention: Retain with linked Origination audit evidence; no automatic purge.'
+        constraints = [models.UniqueConstraint(fields=['provider_context', 'subject_hmac'], name='orig_phone_subject_unique')]
+
+
+class OriginationPhoneIdentityCheck(models.Model):
+    """One fenced provider attempt; terminal evidence never changes or owns an application."""
+
+    TERMINAL = ('matched', 'not_matched', 'failed', 'unknown')
+    STATES = [(value, value.replace('_', ' ').capitalize()) for value in ('pending', 'running', *TERMINAL)]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Random attempt ID, also used as the unique provider request reference.')
+    subject = models.ForeignKey(OriginationPhoneIdentitySubject, on_delete=models.PROTECT, related_name='checks', db_comment='Protected pseudonymous subject mutex; intentionally not an application or customer FK.')
+    operation = models.OneToOneField('core.IntegrationOperation', on_delete=models.PROTECT, related_name='origination_phone_identity_check', db_comment='Durable single-attempt external-operation evidence.')
+    state = models.CharField(max_length=16, choices=STATES, default='pending', db_comment='Processing state or immutable normalized terminal outcome.')
+    provider_response_ref = models.CharField(max_length=128, blank=True, db_comment='Allowlisted bounded provider reference, never a raw response.')
+    provider_code = models.CharField(max_length=32, blank=True, db_comment='Allowlisted provider outcome or error code.')
+    error_code = models.CharField(max_length=64, blank=True, db_comment='Safe internal failure classification; no upstream text.')
+    dispatched_at = models.DateTimeField(null=True, blank=True, db_comment='UTC dispatch reservation time; permanently consumes the Nairobi-day allowance.')
+    completed_at = models.DateTimeField(null=True, blank=True, db_comment='Trusted local UTC completion time.')
+    reusable_until = models.DateTimeField(null=True, blank=True, db_comment='Original conclusive completion plus thirty days; reuse never extends it.')
+    created_at = models.DateTimeField(auto_now_add=True, db_comment='UTC reservation time; starts the bounded execution lease.')
+
+    class Meta:
+        db_table = 'origination_phone_identity_check_record'
+        db_table_comment = 'Domain: origination. Purpose: Fenced advisory phone registration attempt evidence. Classification: source_evidence. Source of truth: yes. Lifecycle: active. Retention: Retain with Origination/compliance audit evidence; reuse expiry is not deletion; no automatic purge.'
+        constraints = [
+            models.UniqueConstraint(fields=['subject'], condition=models.Q(state__in=['pending', 'running']), name='orig_phone_one_inflight'),
+            models.CheckConstraint(condition=models.Q(state__in=['pending', 'running', 'matched', 'not_matched', 'failed', 'unknown']), name='orig_phone_valid_state'),
+        ]
+        indexes = [models.Index(fields=['subject', '-completed_at'], name='orig_phone_subject_time_idx')]
+
+    def save(self, *args, **kwargs):
+        if type(self).objects.filter(pk=self.pk, state__in=self.TERMINAL).exists():
+            raise ValidationError('Terminal phone-check evidence is immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Phone-check evidence cannot be deleted individually.')
+
+
+class OriginationPhoneIdentityDailyUsage(models.Model):
+    """Deployment-wide daily dispatch reservations, independent of account rotation."""
+
+    id = models.BigAutoField(primary_key=True, db_comment='Daily allowance row identifier.')
+    environment = models.CharField(max_length=16, db_comment='Sandbox or production; separate counters, no account-specific reset.')
+    business_date = models.DateField(db_comment='Calendar date in Africa/Nairobi at dispatch reservation.')
+    dispatch_count = models.PositiveIntegerField(default=0, db_comment='Conservative dispatch reservations; never refunded for uncertain outcomes.')
+
+    class Meta:
+        db_table = 'origination_phone_identity_daily_usage'
+        db_table_comment = 'Domain: origination. Purpose: Atomic deployment-wide Nairobi-day dispatch cap. Classification: processing_record. Source of truth: yes. Lifecycle: active. Retention: Retain operational allowance evidence; no automatic purge or testing reset.'
+        constraints = [models.UniqueConstraint(fields=['environment', 'business_date'], name='orig_phone_daily_unique')]
+

@@ -242,6 +242,7 @@ def scope_workflow_queryset(
 # Executable inventory for route-guard coverage tests and security review.
 # Keys are Django view function names, not user-facing navigation entries.
 MINIAPP_ENDPOINT_CAPABILITIES = {
+    'portal_origination_phone_identity_checks': ('loan_origination', 'origination.identity.phone.verify'),
     'portal_invoice_receipt_item_preview': ('jawabu_portal', 'portal.payment.prepare'),
     'portal_invoice_cleanup': ('jawabu_portal', 'portal.invoice.write'),
     'complaint_cases_bootstrap': ('complaint_cases', 'complaint.queue.view'),

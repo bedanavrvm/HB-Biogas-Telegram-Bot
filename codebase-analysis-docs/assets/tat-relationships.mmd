@@ -1,0 +1,10 @@
+erDiagram
+  ProductVersion ||--o{ TatTrackerCase : frozen_route
+  TatTrackerCase ||--o{ TatTrackerEvent : history
+  TatTrackerCase ||--o| CreditAssessment : evidence_workflow
+  CreditAssessment ||--o{ AnalysisPackage : report_versions
+  AnalysisPackage ||--o{ AnalysisQuestion : questions
+  AnalysisQuestion ||--o{ QuestionResponse : responses
+  CreditAssessment ||--o{ AssessmentDecision : decisions
+  TatTrackerCase ||--o{ TatActionTask : routed_work
+  TatActionTask ||--o{ TatActionTaskRecipient : recipients

@@ -1643,8 +1643,12 @@
     const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
       ? documentContext ? correctionToggle('document_field', `${documentContext.key}.${field.key}`, `${documentContext.name}: ${field.label || field.key}`)
         : correctionToggle('field', field.key, normalizeLabel(field)) : '';
-    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
-    return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
+    const phoneTarget = !documentContext && current.phone_id_checks?.allowed
+      ? current.phone_id_checks.targets.find(item => item.field_key === field.key) : null;
+    const wrapperTag = field.type === 'repeating_group' || phoneTarget ? 'div' : 'label';
+    const caption = phoneTarget ? `<label for="origination-phone-${key}">${label}${required}</label>` : `${label}${required}`;
+    if (phoneTarget) control = control.replace('<input', `<input id="origination-phone-${key}"`);
+    return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${caption}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}${phoneTarget ? `<div data-phone-id-target="${phoneTarget.target}" hidden></div>` : ''}</${wrapperTag}>`;
   }
 
   function numericInputError(input) {
@@ -2358,6 +2362,18 @@
     root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    if (application.phone_id_checks?.allowed && !root().querySelector('[data-phone-id-target]')) {
+      const keys = new Set(application.phone_id_checks.targets.flatMap(item => [item.field_key, item.id_field_key]));
+      const contacts = (application.form_schema?.fields || []).filter(field => keys.has(field.key));
+      const details = document.createElement('details');
+      details.className = 'workspace-details';
+      details.innerHTML = `<summary>Applicant contacts</summary><div class="laf-grid">${contacts.map(field => fieldInput(field, application.form_payload?.[field.key], true)).join('')}</div>`;
+      root().querySelector('.wizard-card')?.appendChild(details);
+    }
+    window.OriginationPhoneIdentity?.mount(root(), {
+      current:() => current, save:() => saveDraft(true), get:apiFetch, post:postJson,
+      requestKey, toast:showToast,
+    });
     root().querySelectorAll('.preview-link').forEach(button => {
       const label = button.textContent.trim();
       button.setAttribute('aria-label',label);button.title=label;

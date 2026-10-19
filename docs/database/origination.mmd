@@ -80,6 +80,15 @@ erDiagram
   core_originationtemplateconfigurationrevision {
     string id
   }
+  origination_phone_identity_check_record {
+    string id
+  }
+  origination_phone_identity_daily_usage {
+    string id
+  }
+  origination_phone_identity_subject_state {
+    string id
+  }
   origination_signing_participant_record {
     string id
   }
@@ -123,4 +132,5 @@ erDiagram
   core_originationconsentpolicyversion ||--o{ core_originationsigningpackage : contains
   core_originationsignersession ||--o{ core_originationsigningrequestevent : contains
   core_originationdocumenttemplate ||--o{ core_originationtemplateconfigurationrevision : contains
+  origination_phone_identity_subject_state ||--o{ origination_phone_identity_check_record : contains
   core_loanoriginationapplication ||--o{ origination_signing_participant_record : contains

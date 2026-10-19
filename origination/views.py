@@ -226,6 +226,35 @@ def origination_app(request):
     return response
 
 
+@require_http_methods(['GET', 'POST'])
+def portal_origination_phone_identity_checks(request, application_id: str):
+    from origination.services.phone_identity import PhoneIdentityError, projection, request_check, require_access
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    try:
+        require_access(application, request.origination_user, request.origination_access)
+        if request.method == 'GET':
+            result = projection(application, request.origination_user, request.origination_access)
+            response = JsonResponse({'ok': True, 'phone_id_checks': result})
+        else:
+            body = _body(request)
+            result, status = request_check(application_id=application.pk, actor=request.origination_user,
+                                          request_id=_request_id(request, body), body=body)
+            response = JsonResponse({'ok': status < 400, 'result': result,
+                                     'error': result.get('message', ''), 'code': result.get('code', '')}, status=status)
+            if result.get('retry_after'):
+                response['Retry-After'] = str(result['retry_after'])
+    except PhoneIdentityError as exc:
+        response = JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=exc.status)
+        if exc.retry_after:
+            response['Retry-After'] = str(exc.retry_after)
+    except (OriginationError, ValueError, TypeError):
+        response = JsonResponse({'ok': False, 'error': 'Invalid phone-check request.', 'code': 'invalid_request'}, status=400)
+    response['Cache-Control'] = 'no-store, private'
+    return response
+
+
 def _body(request) -> dict:
     try:
         value = json.loads(request.body or b'{}')

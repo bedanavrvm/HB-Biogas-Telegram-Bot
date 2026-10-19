@@ -27,6 +27,7 @@ from core.models import IntegrationCircuitState, IntegrationOperation
 
 T = TypeVar('T')
 INTEGRATION_MAX_ATTEMPTS = {
+    IntegrationOperation.INTEGRATION_DARAJA: 1,
     IntegrationOperation.INTEGRATION_GOOGLE_SHEETS: 4,
     IntegrationOperation.INTEGRATION_GOOGLE_DRIVE: 3,
     IntegrationOperation.INTEGRATION_TELEGRAM: 3,

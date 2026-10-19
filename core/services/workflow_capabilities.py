@@ -30,6 +30,7 @@ def _roles(*roles: str) -> frozenset[str]:
 
 
 _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
+    CapabilityDefinition('origination.identity.phone.verify', 'loan_origination', 'Check Applicant phone registration (IT pilot)', 'Applicant identity', _roles('IT'), ('origination.view',)),
     # Jawabu Portal: a view capability owns a screen; write capabilities own
     # consequential actions on that screen.
     CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View role-tailored Home', 'Home', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'BM', 'MANAGEMENT', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),

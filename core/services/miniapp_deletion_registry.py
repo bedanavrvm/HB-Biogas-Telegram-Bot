@@ -1,5 +1,7 @@
 """Reviewed deletion ownership, not a generic permission to erase every model.
 
+Phone identity subjects, shared attempts and daily usage are intentionally absent:
+they are independent cross-application evidence and must survive workspace deletion.
 Configuration can be retired while its historical consumers survive. Evidence
 selected by itself is promoted to its owning workspace, never amputated from a
 signed packet. Independent identities, access policy and final standings are

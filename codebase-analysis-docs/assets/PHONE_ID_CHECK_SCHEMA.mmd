@@ -1,0 +1,10 @@
+erDiagram
+  OriginationPhoneIdentitySubject ||--o{ OriginationPhoneIdentityCheck : protects
+  IntegrationOperation ||--o| OriginationPhoneIdentityCheck : single_attempt
+  LoanOriginationApplication ||--o{ OriginationApplicationEvent : receipts
+  OriginationApplicationEvent }o..|| OriginationPhoneIdentityCheck : "metadata reference only; no application ownership"
+  OriginationPhoneIdentityDailyUsage {
+    string environment "unique with date"
+    date business_date "Africa/Nairobi"
+    int dispatch_count "conservative; cap 50"
+  }

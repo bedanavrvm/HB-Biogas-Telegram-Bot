@@ -1,0 +1,10 @@
+erDiagram
+  ProductVersion ||--o{ OriginationProductDefinition : terms
+  OriginationProductDefinition ||--o{ LoanOriginationApplication : configuration
+  LoanOriginationApplication ||--o{ OriginationApplicationDocument : frozen_documents
+  OriginationDocumentTemplate ||--o{ OriginationApplicationDocument : source_version
+  LoanOriginationApplication ||--o{ OriginationSigningPackage : packages
+  OriginationSigningPackage ||--o{ OriginationSignerSession : signer
+  OriginationSignerSession ||--o{ OriginationOtpChallenge : verifies
+  OriginationSigningPackage ||--o{ OriginationSigningAction : actions
+  OriginationSigningAction ||--o| OriginationSigningActionInvalidation : invalidates

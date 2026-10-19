@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant U as Mini App
+  participant V as HTTP boundary
+  participant S as Domain service
+  participant D as Database
+  participant P as Publication processor
+  participant G as Google
+  U->>V: Signed identity, request key, expected revision
+  V->>S: Authorized scoped command
+  S->>D: Lock record; validate revision and state
+  S->>D: Commit state, event and publication reservation
+  S-->>U: Saved plus publication state
+  P->>D: Claim fenced operation lease
+  P->>G: Publish current authorized projection
+  P->>D: Persist success, retry or terminal failure

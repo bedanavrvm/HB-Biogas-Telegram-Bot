@@ -596,6 +596,14 @@ INVOICE_UPLOAD_MAX_FILE_SIZE_MB = config('INVOICE_UPLOAD_MAX_FILE_SIZE_MB', defa
 DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB = config('DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB', default=12, cast=int)
 # Origination evidence is streamed to the restricted Drive media root and is
 # governed separately from general workflow attachments.
+# Advisory IT pilot: no provider requests occur unless explicitly enabled.
+ORIGINATION_PHONE_ID_CHECK_ENABLED = config('ORIGINATION_PHONE_ID_CHECK_ENABLED', default=False, cast=bool)
+ORIGINATION_PHONE_ID_CHECK_DAILY_LIMIT = config('ORIGINATION_PHONE_ID_CHECK_DAILY_LIMIT', default=50, cast=int)
+DARAJA_ENVIRONMENT = config('DARAJA_ENVIRONMENT', default='sandbox').strip().casefold()
+DARAJA_CONSUMER_KEY = config('DARAJA_CONSUMER_KEY', default='')
+DARAJA_CONSUMER_SECRET = config('DARAJA_CONSUMER_SECRET', default='')
+DARAJA_SHORTCODE = config('DARAJA_SHORTCODE', default='').strip()
+DARAJA_PHONE_ID_HMAC_KEY = config('DARAJA_PHONE_ID_HMAC_KEY', default='')
 ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB = config(
     'ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB', default=10, cast=int,
 )

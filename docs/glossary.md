@@ -10,6 +10,13 @@ respective service modules.
 
 ## Canonical staff access
 
+**Origination phone registration check:** An optional, scoped-IT-only confirmed
+Daraja check of a saved Applicant phone against the Applicant National ID. Exact
+results are reusable across Origination applications for thirty days, without
+revealing another application's details. It proves neither handset possession
+nor signature/approval authority. The production pilot permits fifty dispatch
+reservations per Nairobi day and never automatically retries a paid call.
+
 **Origination Manage documents:** The assigned officer's draft-only Main LAF and
 supporting-document chooser. Supporting selection preserves recoverable answers
 and captured versions; changing the Main LAF starts a confirmed blank replacement
