@@ -39,6 +39,9 @@ Thumbs.db
 # Credentials and private key material
 credentials.json
 *.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_CANDIDATE.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW_LOCK.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json
 !docs/database/catalog.json
 !docs/ui-standard/registry.json
 !scripts/architecture_boundaries_baseline.json

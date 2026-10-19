@@ -1,5 +1,25 @@
 # Changelog
 
+## 19 October 2026 - Exact browser dependency evidence (D13a, review only)
+
+- Added an exact login/shell review candidate, review-only lock/archive inventory
+  tooling and offline evidence/safety tests. Public package archives are verified
+  and inspected without extraction, installation or lifecycle execution; metadata
+  and hashes stay under `codebase-analysis-docs/assets/`.
+- Found a material original-peer conflict: the analytics context dependency
+  declares React 16-only support while other proposed dependencies need React 18.
+  The override-assisted graph is retained for forensic licence inspection only,
+  not approved for installation. React 19 also conflicts with browser-apis 1.2.0.
+- Updated the plan/ADR and phase-specific review/merge checklist. No runtime,
+  permissions, migrations, configuration, root dependency/build files or Telegram
+  UI changed. Browser remains closed; no commit/merge/deployment performed.
+  Current evidence, limits and remaining decisions:
+  `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`, section 5.
+- Final evidence: 529 unique archives / 546 locked entries inspected with no
+  remaining errors; 44 governance/tool tests, offline snapshot binding and
+  relevant fast checks passed. Unresolved peer/licence/asset/build decisions are
+  preserved; these results do not claim legal clearance or frontend readiness.
+
 ## 19 October 2026 - Dormant JSON auth boundary and React browser direction (P1b.2a)
 
 - Updated the phased plan for a separate React/Atlassian Design System browser

@@ -25,6 +25,12 @@ Record ADS as the chosen design direction, subject to an exact direct/transitive
 package, asset, font/icon and notice review before installation. Do not invent
 permission or silently substitute another design system. Proposed build-tool and
 version choices need their dependency/compatibility decision before installation.
+The next D13a slice may resolve a proposed exact login/shell dependency graph
+using a scripts-disabled, lockfile-only operation in an OS temporary workspace.
+Inspect integrity-checked registry archives without installing/executing them;
+retain only review manifests, metadata/hashes and findings under analysis assets.
+This is evidence collection, not dependency approval, licence clearance or a
+working frontend. Keep the repository's actual manifests and build untouched.
 Official current setup favors Parcel/Compiled; its Vite integration is explicitly
 experimental. Avoid treating an unreviewed Vite scaffold as the default.
 

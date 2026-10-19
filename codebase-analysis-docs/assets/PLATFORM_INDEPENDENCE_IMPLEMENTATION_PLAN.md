@@ -1,10 +1,17 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **5 — 19 October 2026**. This revision incorporates the user's review, identity decisions, React/Atlassian browser direction and required pilot order:
+Plan revision: **6 — 19 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend dependency evidence and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
 Status: **P1a, P1b.1 and the P1b.2a constrained JSON authentication/storage slice are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. The user explicitly requested exact package/licence review before installation. No full dependency/asset clearance or frontend readiness is claimed. The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not measured complexity. Current contracts/evidence/checklists: codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md and codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md.
+
+D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
+archives / 546 entries, zero remaining inspection errors). It exposes an
+incompatible original React peer plus open notice/asset/licence questions; the
+override-assisted graph is **not approved for installation**. Current results and
+merge checklist: BROWSER_REACT_ADS_DECISION.md section 5. Application runtime is
+unchanged by D13a; no frontend or production activation is claimed.
 
 Execution update: D1 is explicitly **Django accounts + django-allauth TOTP/recovery**, not an inferred fallback. D2 is **browser convenience, possible Telegram exit later**. D3 uses **current Django Complaints roles/group scope**, with no new grants. Production release/migrations are **unknown**, as confirmed by the user. The user separately approved **browser MFA first; preserve Telegram signed-launch access**. The bounded foundation may be built locally while deployment/support/acceptance gates remain open; this is not permission to activate the browser channel. See codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md and ADR 0060. Every phase/merge/deployment handoff uses codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md.
 
@@ -23,6 +30,7 @@ Source investigation baseline: 7217791e9836986a493559254f465555ed670568; documen
 - Added the user's **separate React browser frontend with Atlassian Design System (ADS)** direction. This supersedes the earlier no-SPA constraint only for new browser pages. Existing Telegram templates, JavaScript and Design Lab migration hold remain unchanged.
 - Added D13: exact package/transitive/asset licence review and compatible build-tool selection before installation. Metadata-only Apache declarations do not establish permission for all ADS materials. See codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md and ADR 0062.
 - Split P1b.2: the dormant JSON/storage contract can proceed while frontend licensing is reviewed; usable authentication/enrollment/recovery and the React foundation remain separate unaccepted work.
+- Added **D13a exact-graph review tooling/evidence**, without installing the frontend or changing runtime. The candidate, review-only lock and archive inventory are analysis artifacts, not dependency approval. See section 5 of BROWSER_REACT_ADS_DECISION.md for execution/results and unresolved gates.
 
 The first decision is whether a second channel solves a real business need at a supportable cost—not whether every historical endpoint can be made browser-accessible.
 
@@ -101,7 +109,7 @@ The former external-IdP build gate is superseded by the user's explicit self-man
 | D10 | Browser origin, cookie/session assurance and CSRF topology | Technical/security lead | Before M1; previously D2 in revision 1 |
 | D11 | Actual data-flow/privacy risks and required professional assessment | Named privacy/compliance owner | Screening in P0; blocking assessment before a compliance remedy is chosen |
 | D12 | Primary and backup maintainer, release coverage and helpdesk capacity | Sponsor/operations owner | Before production pilot admission |
-| D13 | Selected React + ADS for new browser pages; exact packages/assets, licences, supported build and versions not yet approved | Frontend maintainer plus sponsor/legal reviewer where needed | User chose review first; no React/ADS/build installation until reviewed scope is accepted |
+| D13 | Selected React + ADS for new browser pages; D13a collects exact candidate/graph/archive evidence; packages/assets and build still not approved | Frontend maintainer plus sponsor/legal reviewer where needed | User chose review first; no React/ADS/build installation until the exact reviewed scope is accepted |
 
 For the selected D1 option, prove controlled account provisioning, verified email/password setup, MFA enrollment, encrypted secrets, recovery, shared abuse/replay controls and support ownership. A company credential or email domain does not confer workflow grants. No automatic email/name-based identity linking or account conversion is allowed.
 
@@ -211,6 +219,9 @@ enrollment journey. No dormant slice satisfies M1 or usable browser access.
    downloaded-artifact licence/notice inspection, icon/font/brand terms, permitted
    standalone use and reviewer decision. Record omissions/uncertainty; seek
    qualified clarification when necessary. Do not silently substitute a library.
+   D13a is the current evidence-only slice: review inputs/reports and the offline
+   inspector live in analysis assets. Collected metadata/hashes do not replace
+   acceptance of licence exceptions, assets, notices or the proposed build.
 2. Select supported React/TypeScript/build versions against those packages.
    Atlassian's current setup recommends Parcel and supports Webpack; its Vite
    integration is experimental. Select based on reviewed compatibility, not an
@@ -512,19 +523,20 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 |---|---|
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
+| D13a | Exact-graph review slice; no frontend installation or dependency approval. Current evidence/limits/checklist in BROWSER_REACT_ADS_DECISION.md section 5 |
 | P0–P7/M0–M7 | P1a/P1b.1/P1b.2a dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
 | This revision | React/ADS selected and licence/build gates added; local JSON/storage contract and verification in STAFF_BROWSER_JSON_AUTH.md; production not inspected or changed |
 
-### STATE BLOCK — revision 5 / P1b.2a and React decision
+### STATE BLOCK — revision 6 / D13a dependency review
 
-- INDEX_VERSION: platform-independence-plan-5; original source investigation baseline retained above; phase began at 2829e922af2f9f54bb550ab0c49574effc2d0820. A concurrent external commit 73009cb5 was observed; this phase made no commit or deployment.
+- INDEX_VERSION: platform-independence-plan-6; original source investigation baseline retained above; current D13a starts from clean f7b23a51. No commit, merge or deployment by this phase; deployed release/migrations unknown.
 - FILE_MAP_SUMMARY: staff_auth JSON/assurance/admission/session protection and tests; config/settings.py; ADRs 0060–0062; browser React/ADS decision and licence shortlist; Complaint actor/list/detail/comment and release/UI governance. TAT/Origination/Portal remain later owners.
 - OPEN_QUESTIONS: D13 exact transitive/asset licences/build, provisioning/recovery/mail/cache controls and owners, pilot accounts, privacy/support owners, deployed baseline and two-frontend maintenance capacity. D1–D3 answered by user.
 - KNOWN_RISKS: licence assumptions, shared-cache replay, CSRF/session fallback, production access=None, cross-workflow grants, stale assets, revocation, hidden intake/onboarding/integration dependencies and single-maintainer burden.
 - GLOSSARY_DELTA: company browser boundary requires channel/audit receipt plus MFA assurance, never grants; separate React client does not imply Telegram UI migration or legal/compliance clearance.
-- NEXT_READ_QUEUE: exact licence/build review; P1b.2b provisioning/enrollment/recovery/shared cache/support; P1c reviewed browser foundation; M1 staging acceptance before Complaints. No production mutation based solely on this plan.
-- VERIFICATION: separate historical P1a/P1b.1 evidence remains in their phase documents; P1b.2a's final focused run had 115 tests (113 passed, two PostgreSQL-only skips), plus 28 governance-script tests and Node checks. Current evidence/limits/checklist in STAFF_BROWSER_JSON_AUTH.md. No production inspection or activation.
+- NEXT_READ_QUEUE: resolve/accept D13a exact-graph licence/asset/build findings before frontend installation; independently scoped P1b.2b provisioning/enrollment/recovery/shared cache/support; P1c reviewed browser foundation; M1 staging acceptance before Complaints. No production mutation based solely on this plan.
+- VERIFICATION: historical auth-phase evidence remains in its phase documents. D13a inspected all 529 unique archives / 546 entries, with zero remaining errors; final 44 governance/tool tests and offline snapshot binding passed. Original-peer/licence/asset/build acceptance remains open. No application-suite rerun, installation, production inspection or activation in this review-only slice.
 
 **Findings:** user decisions now allow bounded local self-managed identity work; operational admission is not ready. **Open questions:** release/support evidence and P1b controls. **Next steps:** complete P1b/M1 before the Complaints pilot; retain the M3 review.
 

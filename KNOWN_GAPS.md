@@ -1,5 +1,36 @@
 # Known Gaps and Verified Workarounds
 
+## Browser dependency graph is review-only, not installable - 19 October 2026
+
+D13a collects exact frontend dependency/archive/licence evidence; it does not
+clear ADS standalone use or approve a frontend build. No packages, fonts or icons
+were installed and no browser route/flag was opened. Root manifests and existing
+Telegram/Django runtime are unchanged.
+
+Strict resolution without the forensic overrides fails because
+`@atlaskit/analytics-next@12.6.0` requires
+`@atlaskit/analytics-next-stable-react-context@1.0.1`, which declares React
+`^16.8.0`; proposed staff UI dependencies include React-18-only peers.
+`@atlaskit/browser-apis@1.2.0` also rejects React 19. Literal React 18 overrides
+permit a graph for archive inspection, **not a compatibility-approved install**.
+Do not use force/legacy-peer flags or relabel that graph as supported. Choose a
+maintained compatible set, or obtain an explicitly reviewed compatibility
+exception backed by actual source/runtime tests, before frontend installation.
+
+Pending licence/asset/notice acceptance, actual build/lint/browser behavior and
+operational MFA acceptance remain separate gates. Offline report consistency
+does not prove legal clearance, runtime privacy, security or compatibility.
+Evidence, executed checks and phase-specific merge/deploy checklist:
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`, section 5.
+
+Final D13a inventory: 529 unique artifacts / 546 locked entries, all inspected
+without remaining errors; 44 governance/tool tests and offline snapshot binding
+passed. There are 63 missing matched shipped licence/NOTICE-file indicators
+(four runtime), 53 nested-metadata indicators, six asset-bearing packages and
+13 development-only MPL-2.0 artifacts. Indicators overlap and are not proven
+licence violations. Preserve focused review of exact terms/notices, assets and
+distribution model; none is cleared by the tooling pass.
+
 ## Browser JSON contract and React licence gate - 19 October 2026
 
 P1b.2a adds a dormant JSON password/MFA/session/logout adapter and protected

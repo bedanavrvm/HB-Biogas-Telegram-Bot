@@ -96,3 +96,20 @@ add the accepted licence/NOTICE record, pinned browser build, component/token/li
 evidence, accessible login/error behavior and isolated hashed-asset rollback.
 See `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`. No deploy or
 merge is authorized by this handoff.
+
+## D13a exact frontend dependency review handoff
+
+Evidence/tooling only: a proposed exact login/shell manifest, temporary
+scripts-disabled lock resolution, integrity-checked archive metadata/licence/
+asset inventory and offline verification/tests. These do not install or approve
+React/ADS, change application configuration or mount browser routes. Current
+scope, executed results, unresolved findings and the phase-specific checklist
+are in `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` section 5.
+
+On merge review, confirm the root dependency/build files, Django settings/URLs,
+migrations, permissions and Telegram assets are unchanged; inspect only the
+analysis review artifacts/tool/tests, explicit `.gitignore` JSON exceptions and
+associated documentation. No deployment, schema reversal or production monitoring
+change is required. Keep installation held until the exact candidate/graph,
+licence/asset/notice obligations and build scope are accepted. A checker pass is
+evidence consistency, never licence approval or browser operational readiness.

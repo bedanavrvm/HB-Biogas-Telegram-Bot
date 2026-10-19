@@ -1,0 +1,31 @@
+{
+  "name": "jbl-browser-login-licence-review-only",
+  "version": "0.0.0",
+  "private": true,
+  "description": "D13a forensic review graph only. React overrides mask incompatible original peers; not an approved installation manifest.",
+  "engines": {"node": ">=22 <25"},
+  "overrides": {"react": "18.3.1", "react-dom": "18.3.1"},
+  "dependencies": {
+    "@atlaskit/app-provider": "8.1.0",
+    "@atlaskit/button": "25.5.0",
+    "@atlaskit/css-reset": "8.4.6",
+    "@atlaskit/form": "18.2.0",
+    "@atlaskit/heading": "8.0.0",
+    "@atlaskit/inline-message": "16.4.8",
+    "@atlaskit/primitives": "22.6.0",
+    "@atlaskit/textfield": "10.2.6",
+    "@atlaskit/tokens": "20.6.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@atlaskit/eslint-plugin-design-system": "16.13.9",
+    "@atlaskit/eslint-plugin-ui-styling-standard": "3.0.2",
+    "@compiled/parcel-config": "0.5.7",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "eslint": "9.39.4",
+    "parcel": "2.16.4",
+    "typescript": "5.9.3"
+  }
+}

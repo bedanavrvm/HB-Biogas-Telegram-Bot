@@ -42,6 +42,12 @@ installation. Django still owns identity, grants, workflows and records. Existin
 Telegram pages and their separate Design Lab migration hold remain unchanged.
 See `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
 
+**Browser dependency review snapshot:** D13a's proposed exact manifest, npm
+review-only lock and integrity-checked archive/licence/asset metadata. It is
+evidence for a human dependency/licence/build decision, not an installed frontend,
+production lockfile, legal clearance or new authority. Offline snapshot binding
+and synthetic safety tests do not approve installation.
+
 **HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
 zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
 the JBL queue. HB staff use HB Actions → Deposits to record/correct totals;

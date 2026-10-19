@@ -17,6 +17,9 @@ routes remain unmounted. The new standalone browser frontend is now user-selecte
 React/ADS, with exact licence review before installation; see
 `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`. Telegram's frontend
 and its migration hold remain unchanged. No usable React frontend is claimed.
+D13a now adds review-only exact dependency evidence/tooling, not frontend
+installation or licence clearance; use section 5 of
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` for current status.
 
 ## How to use this document
 
@@ -41,12 +44,17 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Source-only findings and research on channel independence; revision 2 aligns the pilot order to Complaints → TAT → Origination → Portal. No runtime or production readiness is established. |
-| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-5 gated plan: Django/allauth browser MFA, separate React/ADS frontend subject to exact licence review, existing grants, Complaints first and M3 review. Dormant backend slices do not authorize production activation. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-6 gated plan: Django/allauth browser MFA, React/ADS exact-graph review (D13a), existing grants, Complaints first and M3 review. Review evidence and dormant backend slices do not authorize installation/activation. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` | P1b.1 explicit admission, audited browser-only suspension/revocation/reset, additive model and hard-delete compatibility; current checks, limits and release checklist. Browser remains disabled. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` | P1b.2a constrained JSON password/MFA/session/logout contract, audit gate, protected pending-secret storage, verification and release checklist; no production routes or finished enrollment/recovery. |
-| `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` | User-selected new browser frontend; direct-package licence evidence, outstanding transitive/asset review, build/component review gates and Telegram isolation. No frontend packages/assets installed. |
+| `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` | User-selected browser frontend; D13a exact-archive evidence, confirmed original-peer conflict, notice/asset/licence findings and review/merge checklist. No frontend packages/assets installed or approved. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_CANDIDATE.json` | Proposed exact login/shell runtime and build/lint versions for review; not an approved application manifest. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW_LOCK.json` | Review-only exact dependency graph, including development/platform options; root application lockfile remains unchanged. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json` | Downloaded archive identity/integrity, licence hashes, assets, peers and lifecycle-command evidence; no candidate code executed. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.md` | Generated review inventory; human licence/asset/build acceptance still required. |
+| `codebase-analysis-docs/assets/review_browser_dependencies.py` | Standard-library-only bounded registry archive inspector and offline snapshot-binding verifier; never installs/extracts/executes candidate code. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md` | Required change-specific phase/merge/deployment handoff checklist: additions, Telegram compatibility, configuration/schema, monitoring, rollback and unresolved gates. |
 | `codebase-analysis-docs/assets/build_source_inventory.py` | Standard-library-only static inventory builder and bounded source reader; imports no Django code and contacts no provider. |
 | `codebase-analysis-docs/assets/validate_analysis.py` | Read-only validation of source hashes/ranges, explicit repository paths, inventory continuity, required master sections and compact diagrams. |
