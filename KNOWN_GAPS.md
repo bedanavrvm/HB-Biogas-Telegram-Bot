@@ -1,5 +1,38 @@
 # Known Gaps and Verified Workarounds
 
+## Browser JSON contract and React licence gate - 19 October 2026
+
+P1b.2a adds a dormant JSON password/MFA/session/logout adapter and protected
+pending-enrollment storage, not a usable standalone frontend or finished
+enrollment/recovery. `STAFF_BROWSER_AUTH_ENABLED` remains false, readiness
+remains blocking, and production auth/business routes are unmounted. Future
+business endpoints require the company-browser guard **and** owning-workflow
+authorization; a password-only or ordinary Django session is insufficient.
+
+The user selected React/ADS for new browser pages and exact licence review first.
+Five direct Atlaskit package declarations and tarball licences/integrities were
+inspected; no complete transitive/asset clearance exists. No frontend packages,
+assets or build are installed. Do not infer standalone permission for every ADS
+material, replace Telegram UI or bypass the Design Lab migration hold.
+
+Shared allauth replay cache, provisioning/email/password setup, operational
+enrollment/recovery, support/offboarding acceptance, reviewed React UI/build and
+real staging/both-channel acceptance still block activation. Initial DB-backed
+request throttling does not solve cross-worker TOTP replay protection. No new
+migration/env variable/dependency is added in this slice. Current verification
+and per-release checklist: `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`;
+licence/build gate: `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+No production release/inspection, merge, real opt-in/reset or provider write.
+
+Final focused run: **115 tests, 113 passed and two PostgreSQL-only concurrency
+skips**. All 17 new JSON/storage tests, existing native headed-login fixtures and
+Telegram/user lifecycle regressions pass. Also passed: 28 governance-script tests,
+Node tests, syntax, architecture, route inventory, migration graph, model/dependency
+checks and regenerated catalogue. Wider environment-template parity still has
+119 missing names; the artifact audit still reports 17 prior allowlist hash
+mismatches. No baselines were relaxed. These results do not establish full CI,
+PostgreSQL, React, staging, live-device or production readiness.
+
 ## Browser lifecycle backend controls - 19 October 2026
 
 P1b.1 provides deliberate browser opt-in, suspension, browser-only revocation

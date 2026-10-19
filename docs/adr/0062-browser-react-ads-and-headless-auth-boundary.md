@@ -33,6 +33,9 @@ logout boundary over the installed allauth headless browser views, plus a
 request-local encrypted pending-enrollment session adapter. Keep production URLs
 unmounted and activation checks blocking. Add the headless Django app from the
 already-pinned allauth distribution; no new dependency, model or migration.
+Use headless-only/browser-only mode without mounting vendor account URLs; the
+separate historical headed-login test harness explicitly includes concrete
+account/MFA fixtures so cached vendor URL lists cannot hide its routes.
 
 The boundary accepts only same-origin cookie/CSRF browser requests, never Telegram
 or app-token fallback. Admission, current active identity, verified primary email,

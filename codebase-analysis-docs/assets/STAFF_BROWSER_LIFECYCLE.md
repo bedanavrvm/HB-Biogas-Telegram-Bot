@@ -7,6 +7,11 @@ During this phase P1a was committed separately on the same branch as
 No commit was created by this P1b.1 implementation.
 Decision: `docs/adr/0061-governed-browser-admission-and-revocation.md`.
 
+Historical phase evidence below is retained. P1b.2a's later constrained JSON
+auth/storage contract and checklist are in
+`codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`. It does not complete
+operational enrollment/recovery or enable browser admission.
+
 ## 1. Outcome and scope
 
 This is **P1b.1**, the backend identity-lifecycle part of P1b. It adds deliberate

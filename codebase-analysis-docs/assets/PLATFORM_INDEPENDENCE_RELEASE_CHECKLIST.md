@@ -79,3 +79,20 @@ API. Use `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` for this pha
 actual additions, evidence, limits, rollback and monitoring checklist. Admission
 remains globally off. P1a was committed separately while this phase ran; no
 commit/merge/deployment was performed by this phase and production remains unknown.
+
+## P1b.2a JSON/storage and React decision handoff
+
+Current slice: constrained JSON auth handlers, durable success audit and protected
+pending-TOTP session storage, using the existing pinned allauth distribution.
+No production auth/business routes, new migration/env variable or dependency;
+browser stays globally off and activation checks stay blocking. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` for exact scope,
+verification, unresolved gates and the change-specific monitoring checklist.
+
+React + ADS is selected for the new browser client, not a Telegram rewrite.
+The user requires exact package/transitive/asset licence review first; no frontend
+packages/assets/build are installed. Before any future frontend merge/deploy,
+add the accepted licence/NOTICE record, pinned browser build, component/token/lint
+evidence, accessible login/error behavior and isolated hashed-asset rollback.
+See `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`. No deploy or
+merge is authorized by this handoff.

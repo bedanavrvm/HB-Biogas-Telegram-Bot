@@ -95,7 +95,9 @@ MFA_RECOVERY_CODES_SHOW_ONCE = True
 MFA_ALLOW_UNVERIFIED_EMAIL = False
 # React uses a constrained browser-only adapter, not the generic account/app API.
 # This app has no models; its URLs are intentionally not mounted in production.
-HEADLESS_ONLY = False
+# Native login stages may construct headed redirects before their JSON response
+# is normalized. Headless-only mode handles those without mounting account URLs.
+HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ['browser']
 HEADLESS_SERVE_SPECIFICATION = False
 

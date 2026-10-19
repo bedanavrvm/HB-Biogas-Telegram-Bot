@@ -17,6 +17,7 @@ from allauth.mfa.models import Authenticator
 from allauth.mfa.stages import AuthenticateStage
 from django.conf import settings
 from django.contrib.auth import HASH_SESSION_KEY, get_user_model
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
@@ -25,6 +26,7 @@ from django.views.decorators.debug import sensitive_post_parameters, sensitive_v
 from django.utils.crypto import constant_time_compare
 
 from core.services.compliance_audit import record_event
+from core.models import ComplianceAuditEvent
 from core.services.request_throttling import consume_identity, consume_ip
 
 from .assurance import MAX_LOGIN_SECONDS, clear_assurance, require_browser_user
@@ -76,10 +78,13 @@ def _verified(user_id):
 
 def _channel(request):
     context = request.session.get(CHANNEL_KEY)
-    if not isinstance(context, dict) or type(context.get('user_id')) is not int:
+    if not isinstance(context, dict) or type(context.get('user_id')) is not int or not 0 < context['user_id'] <= 9223372036854775807:
+        return None, None
+    if request.user.is_authenticated and request.user.pk != context['user_id']:
         return None, None
     stamp = context.get('started_at')
-    if type(stamp) not in (int, float) or not math.isfinite(stamp) or not 0 <= time.time() - stamp <= MAX_LOGIN_SECONDS:
+    age_limit = settings.STAFF_BROWSER_SESSION_AGE_SECONDS if context.get('audit_event_id') else MAX_LOGIN_SECONDS
+    if type(stamp) not in (int, float) or not math.isfinite(stamp) or not 0 <= time.time() - stamp <= age_limit:
         return None, None
     row = _admission(context['user_id'])
     if (
@@ -91,6 +96,26 @@ def _channel(request):
     return context, row
 
 
+def require_company_browser_user(request):
+    """Future browser business APIs use this AND owning workflow authorization."""
+    if any(name in request.headers for name in ('X-Telegram-Init-Data', 'X-Session-Token', 'Authorization')):
+        raise PermissionDenied('Company browser authentication is required.')
+    context, row = _channel(request)
+    if context is None:
+        raise PermissionDenied('Company browser authentication is required.')
+    user = require_browser_user(request)
+    try:
+        audit_id = uuid.UUID(context.get('audit_event_id', ''))
+    except (ValueError, TypeError, AttributeError):
+        raise PermissionDenied('Company browser authentication is required.') from None
+    if not ComplianceAuditEvent.objects.filter(
+        pk=audit_id, actor_id=user.pk, action='staff_browser.login_completed',
+        subject_id=str(row.pk), deduplication_key=f"staff-browser-login:{context.get('attempt_id', '')}",
+    ).exists():
+        raise PermissionDenied('Company browser authentication is required.')
+    return user
+
+
 def _state(request):
     context, row = _channel(request)
     if context is None:
@@ -99,16 +124,17 @@ def _state(request):
         if request.user.pk != row.user_id:
             return 'signed_out'
         try:
-            require_browser_user(request)
-            if context.get('audit_event_id'):
-                return 'authenticated'
+            require_company_browser_user(request)
+            return 'authenticated'
         except PermissionDenied:
             pass
         records = get_authentication_records(request)
         password = next((entry for entry in reversed(records) if isinstance(entry, dict) and entry.get('method') == 'password'), None) if isinstance(records, list) else None
         if (
-            password and type(password.get('at')) in (int, float)
+            not context.get('audit_event_id')
+            and password and type(password.get('at')) in (int, float)
             and context['started_at'] <= password['at'] <= time.time()
+            and 0 <= time.time() - password['at'] <= MAX_LOGIN_SECONDS
             and constant_time_compare(request.session.get(HASH_SESSION_KEY, ''), row.user.get_session_auth_hash())
             and not Authenticator.objects.filter(user_id=row.user_id, type='totp').exists()
         ):
@@ -199,6 +225,9 @@ def password_login(request):
     user = get_user_model().objects.filter(username=data['username'], is_active=True).first()
     row = _admission(user.pk) if user else None
     if row is None or not _verified(user.pk):
+        # Reduce the obvious fast-failure distinction for unknown/unadmitted
+        # identities. This does not claim a constant-time end-to-end login.
+        make_password(data['password'])
         return _response('invalid_credentials', 400)
     request.session[CHANNEL_KEY] = {
         'user_id': user.pk, 'admission_id': str(row.pk), 'revision': row.revision,
@@ -240,7 +269,12 @@ def authenticate_mfa(request):
 @browser_endpoint(('POST',))
 def browser_logout(request):
     context, _row = _channel(request)
-    if context is not None:
+    raw_context = request.session.get(CHANNEL_KEY)
+    owned_expired_session = (
+        isinstance(raw_context, dict) and request.user.is_authenticated
+        and raw_context.get('user_id') == request.user.pk
+    )
+    if context is not None or owned_expired_session:
         # Only this client-owned session, never every session for the employee.
         with protected_browser_session(request):
             get_adapter(request).logout(request)

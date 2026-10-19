@@ -757,7 +757,9 @@
         "origination/services/origination_laf_bootstrap.py",
         "origination/tests_laf_bootstrap.py",
         "payments/receipt_batches.py",
+        "staff_auth/browser_api.py",
         "staff_auth/lifecycle.py",
+        "staff_auth/tests_browser_api.py",
         "staff_auth/tests_lifecycle.py"
       ]
     },
@@ -7828,10 +7830,13 @@
       "used_by": [
         "staff_auth/admin.py",
         "staff_auth/assurance.py",
+        "staff_auth/browser_api.py",
         "staff_auth/catalogue.py",
         "staff_auth/lifecycle.py",
         "staff_auth/migrations/0001_initial.py",
         "staff_auth/models.py",
+        "staff_auth/session_protection.py",
+        "staff_auth/tests.py",
         "staff_auth/tests_lifecycle.py"
       ]
     },

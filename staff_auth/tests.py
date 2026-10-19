@@ -285,6 +285,7 @@ class BrowserAssuranceTests(TestCase):
 
 @override_settings(
     ROOT_URLCONF='staff_auth.test_urls',
+    HEADLESS_ONLY=False,  # This historical fixture explicitly exercises headed views.
     STAFF_BROWSER_AUTH_ENABLED=True,
     STAFF_MFA_ENCRYPTION_KEYS=[TEST_KEY],
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',

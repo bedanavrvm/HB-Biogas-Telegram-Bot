@@ -5,6 +5,11 @@ without a second editable component dictionary. It groups 31 patterns into
 Foundations, Navigation, Queues, Forms, Actions, States, Evidence, Reports and
 Details. The source manifest shows exact paths and hashes for each alternative.
 
+New standalone browser pages will use a separately reviewed React/ADS component
+inventory after exact dependency/asset licence acceptance (ADR 0062). The current
+31-pattern Telegram inventory and its ratchet do not establish React compliance
+or authorize a Telegram migration. No React consumer is added by P1b.2a.
+
 Existing reusable implementations include MiniAppUtils (feedback, form/draft,
 theme, main-action and request behaviour), MiniAppComponents (search, filters,
 pagination and action primitives), SecureMediaViewer, report controls and the

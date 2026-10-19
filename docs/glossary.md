@@ -24,6 +24,24 @@ Browser suspension/revocation preserves Telegram and shared Django sessions.
 P1b.1 adds backend controls, not usable login. See
 `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` and ADR 0061.
 
+**Company browser boundary:** The separate cookie/CSRF JSON authentication
+adapter in `staff_auth/browser_api.py`. Its server-owned channel context and
+durable login-audit receipt augment MFA assurance. Future browser business APIs
+must use `require_company_browser_user` plus owning-workflow authorization;
+neither password-only enrollment state nor a generic Django cookie qualifies.
+P1b.2a has no production routes and remains disabled. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` and ADR 0062.
+
+**Pending enrollment secret:** allauth's temporary TOTP seed, wrapped per browser
+request as expiring dedicated-key ciphertext bound to user/admission/revision.
+Storage protection is not permission to enroll; no enrollment API is exposed.
+
+**React browser client:** New standalone presentation layer selected by the user
+with Atlassian Design System. Package/transitive/asset licence review precedes
+installation. Django still owns identity, grants, workflows and records. Existing
+Telegram pages and their separate Design Lab migration hold remain unchanged.
+See `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+
 **HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
 zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
 the JBL queue. HB staff use HB Actions → Deposits to record/correct totals;

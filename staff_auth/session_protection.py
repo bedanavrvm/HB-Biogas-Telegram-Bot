@@ -41,6 +41,9 @@ class EnrollmentSession(MutableMapping):
     def __len__(self):
         return len(self.wrapped.keys())
 
+    def __contains__(self, key):
+        return key in self.wrapped
+
     def _binding(self):
         actor = getattr(self.request, 'user', None)
         if not actor or not actor.is_authenticated:
@@ -56,6 +59,8 @@ class EnrollmentSession(MutableMapping):
             return raw
         try:
             payload = json.loads(decrypt_secret(raw))
+            if not isinstance(payload, dict):
+                raise ValueError
             now = time.time()
             expires = payload['expires_at']
             if (

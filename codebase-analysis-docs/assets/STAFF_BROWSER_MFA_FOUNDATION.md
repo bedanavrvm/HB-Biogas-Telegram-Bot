@@ -9,6 +9,11 @@ UUID/revision requirement and audited lifecycle controls; see
 `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` for the current contract
 and evidence. P1a source anchors/test counts below retain their original snapshot;
 they are not regenerated current-source claims. Browser access remains closed.
+Later P1b.2a JSON/storage work is documented separately in
+`codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`; it adds no production
+routes or completed enrollment/recovery journey. New browser React/ADS selection
+and its installation hold are in
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
 
 ## 1. Outcome and authority
 

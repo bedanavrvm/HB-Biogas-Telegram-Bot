@@ -7,6 +7,13 @@ patterns start unreviewed. The lab does not change their live UI, workflow
 permissions or business rules. Candidate tokens/themes are not an approved
 standard. **Phase 6 migration requires separate explicit user approval.**
 
+The user's 19 October 2026 React/Atlassian Design System decision concerns **new
+standalone browser pages only** (ADR 0062). It is not permission to migrate or
+restyle the Telegram Mini Apps. Exact package/transitive/asset licence review
+precedes installation; no React frontend is installed yet. Extend the browser
+source/component review inventory before visual implementation. See
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+
 See [implementation status](implementation-status.md) for delivered tooling,
 known audit gaps, test results and remaining review gates. This is not a claim
 that all original audit journeys or real-device checks are complete.

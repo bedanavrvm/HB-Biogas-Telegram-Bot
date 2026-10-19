@@ -1,10 +1,10 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **4 — 19 October 2026**. This revision incorporates the user's review, identity decisions and required pilot order:
+Plan revision: **5 — 19 October 2026**. This revision incorporates the user's review, identity decisions, React/Atlassian browser direction and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a foundation and P1b.1 backend admission/revocation implemented; browser globally disabled and M0/M1 operational acceptance open.** The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not measured complexity. Current P1b.1 contract/evidence/checklist: codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md.
+Status: **P1a, P1b.1 and the P1b.2a constrained JSON authentication/storage slice are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. The user explicitly requested exact package/licence review before installation. No full dependency/asset clearance or frontend readiness is claimed. The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not measured complexity. Current contracts/evidence/checklists: codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md and codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md.
 
 Execution update: D1 is explicitly **Django accounts + django-allauth TOTP/recovery**, not an inferred fallback. D2 is **browser convenience, possible Telegram exit later**. D3 uses **current Django Complaints roles/group scope**, with no new grants. Production release/migrations are **unknown**, as confirmed by the user. The user separately approved **browser MFA first; preserve Telegram signed-launch access**. The bounded foundation may be built locally while deployment/support/acceptance gates remain open; this is not permission to activate the browser channel. See codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md and ADR 0060. Every phase/merge/deployment handoff uses codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md.
 
@@ -20,6 +20,9 @@ Source investigation baseline: 7217791e9836986a493559254f465555ed670568; documen
 - Reordered pilots to **Complaints, TAT, Origination, Portal**. HB Deposits is a candidate Portal write, not the first platform pilot.
 - Added a mandatory **M3 investment review after the Complaints read/write pilot** before commissioning TAT or later apps.
 - Budgeted governance, regression, rehearsals, user acceptance and support as work, not incidental paperwork. A named backup maintainer is required before operational browser access.
+- Added the user's **separate React browser frontend with Atlassian Design System (ADS)** direction. This supersedes the earlier no-SPA constraint only for new browser pages. Existing Telegram templates, JavaScript and Design Lab migration hold remain unchanged.
+- Added D13: exact package/transitive/asset licence review and compatible build-tool selection before installation. Metadata-only Apache declarations do not establish permission for all ADS materials. See codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md and ADR 0062.
+- Split P1b.2: the dormant JSON/storage contract can proceed while frontend licensing is reviewed; usable authentication/enrollment/recovery and the React foundation remain separate unaccepted work.
 
 The first decision is whether a second channel solves a real business need at a supportable cost—not whether every historical endpoint can be made browser-accessible.
 
@@ -50,7 +53,7 @@ If compliance is the driver, review actual collection, disclosure, storage, proc
 |---|---|
 | Source inspection | Django user/profile links, workflow grants, authenticators, service methods, routes, tests and release controls are present in inspected source |
 | Documentation validation | Repository references and selected source hashes can be checked; this proves reference consistency only |
-| Test execution | No application tests were executed for this research/planning work; test files being present does not mean they pass |
+| Test execution | Original research ran no application tests. Later phase-specific local results and their limits are recorded in STAFF_BROWSER_MFA_FOUNDATION.md, STAFF_BROWSER_LIFECYCLE.md and STAFF_BROWSER_JSON_AUTH.md; none proves deployment |
 | Staging behavior | Company login, adapter parity, rollback, current-device behavior and coexistence have not been demonstrated |
 | Production behavior | Deployed commit/configuration, applied migrations, incidents, provider state, traffic baseline and actual access were not inspected |
 | Operational support | Identity-provider ownership, staff coverage, available maintainers and support capacity are unresolved |
@@ -66,7 +69,7 @@ The following initial engineering windows are **unvalidated planning allowances*
 | Phase/milestone | Conditional window | Outcome and commitment boundary |
 |---|---|---|
 | P0 / M0 | One–two working weeks | Decide D1–D3; pilot manifest, baseline, privacy screening, support owner and go/no-go |
-| P1 / M1 | Original two–four-week allowance must be re-estimated for self-managed provisioning/recovery/support | Complete company authentication accepted in staging; P1a alone is not M1 |
+| P1 / M1 | Re-estimate for self-managed authentication, licence review and a separately maintained React build; no new deadline inferred | Complete company authentication and reviewed React browser foundation accepted in staging; dormant backend slices alone are not M1 |
 | P2 / M2 | Indicatively two–three working weeks after M1 | Restricted Complaints list/detail/history pilot; scripted and human-reviewed acceptance |
 | P3 / M3 | Indicatively two–four working weeks after M2, only if a write is justified | One bounded Complaints write; explicit business/security/support review before further investment |
 | P4 / M4 | **Not scheduled before M3** | TAT pilot, independently estimated and approved |
@@ -98,6 +101,7 @@ The former external-IdP build gate is superseded by the user's explicit self-man
 | D10 | Browser origin, cookie/session assurance and CSRF topology | Technical/security lead | Before M1; previously D2 in revision 1 |
 | D11 | Actual data-flow/privacy risks and required professional assessment | Named privacy/compliance owner | Screening in P0; blocking assessment before a compliance remedy is chosen |
 | D12 | Primary and backup maintainer, release coverage and helpdesk capacity | Sponsor/operations owner | Before production pilot admission |
+| D13 | Selected React + ADS for new browser pages; exact packages/assets, licences, supported build and versions not yet approved | Frontend maintainer plus sponsor/legal reviewer where needed | User chose review first; no React/ADS/build installation until reviewed scope is accepted |
 
 For the selected D1 option, prove controlled account provisioning, verified email/password setup, MFA enrollment, encrypted secrets, recovery, shared abuse/replay controls and support ownership. A company credential or email domain does not confer workflow grants. No automatic email/name-based identity linking or account conversion is allowed.
 
@@ -125,6 +129,7 @@ Estimate and track these lines separately for every bounded work package:
 | User acceptance | Ordinary-role champion plus explicit denial/recovery journeys |
 | Release/support | Operator availability, observation, incident response and next review |
 | Handover | Primary/backup practice and owner acceptance |
+| Browser frontend ownership | Separate React build/lockfile, ADS component/token/lint conformance, accessibility, supply-chain review, hashed assets and rollback; legacy Telegram tooling continues independently |
 
 At M0 put actual staff-days and dependencies against these lines. Governance and acceptance may take as much time as coding; do not bury them in a small blanket buffer or present guessed fractions as measured effort. Reuse the existing private release record and link evidence once.
 
@@ -146,6 +151,7 @@ The objective is no planned interruption to current Telegram use, not a zero-ris
 10. Preserve existing row locks, revisions, retry keys, audit attribution, evidence ownership, signed bytes and external-operation semantics across channels.
 11. Browser containment closes its affected surface without unnecessary global Portal maintenance, grant removal or invalidation of unrelated Telegram users.
 12. If an operation needs a lock, worker drain or downtime that breaks this objective, postpone it or seek a separately approved maintenance window. Do not hide it under a platform “zero-downtime” label.
+13. React is the new browser presentation layer, not a second source of rules, roles or records. Prefer same-origin Django session/CSRF requests; no client-stored auth tokens, Telegram SDK dependency or wholesale reuse of Telegram CSS/JavaScript. Browser-only assets must not replace existing Mini App assets.
 
 Existing sources: core/services/telegram_identity.py, core/services/workflow_access.py, core/services/miniapp_requests.py, core/api/complaint_case_views.py, origination/auth.py, core/api/portal_views.py and core/services/portal_maintenance.py.
 
@@ -183,14 +189,55 @@ Work:
 
 **Entry:** user-selected self-managed Django/allauth approach and structural/dependency approval for the dormant local foundation. Operational M0 evidence, support readiness and D4/D10 acceptance remain required before M1/activation.
 
-P1 is split into **P1a dormant integration** and **P1b usable closed staff authentication**. P1a adds no production login, enrollment, recovery or business routes; its activation check deliberately fails if enabled. P1b must supply the governed operational flows and source-bound UI review. The complete P1 outcome below is not claimed by P1a.
+P1 is split into **P1a dormant integration**, **P1b governed staff authentication** and **P1c reviewed React/ADS browser foundation**. P1a adds no production login, enrollment, recovery or business routes; its activation check deliberately fails if enabled. P1b/P1c must supply accepted operational flows and reviewed UI. The complete P1 outcome below is not claimed by a dormant backend slice.
 
 P1b is delivered in bounded parts: **P1b.1 backend admission/revocation** adds
 explicit staff opt-in, active-Superuser audit/retry/revision controls and
 browser-only generation revocation/reset, while keeping admission globally off.
-**P1b.2 operational authentication** must complete provisioning, enrollment,
-transient-secret/shared-cache protection, mail/recovery/support and reviewed UI.
-Neither P1a nor P1b.1 is M1 or usable browser access.
+**P1b.2a JSON/storage contract** adds four unmounted session/password/MFA/logout
+handlers over the pinned allauth browser implementation, a durable login audit
+gate and encrypted expiring pending-enrollment storage. No enrollment, recovery,
+business or generic allauth route is exposed. See
+codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md.
+
+**P1b.2b operational authentication** must complete controlled provisioning,
+verified address/password setup, enrollment/recovery, shared abuse/replay cache,
+mail/support and offboarding acceptance. The storage helper is not a finished
+enrollment journey. No dormant slice satisfies M1 or usable browser access.
+
+**P1c React/ADS frontend foundation**, before any operational P2 pilot:
+
+1. Complete D13: proposed exact direct versions, resolved transitive licences,
+   downloaded-artifact licence/notice inspection, icon/font/brand terms, permitted
+   standalone use and reviewer decision. Record omissions/uncertainty; seek
+   qualified clarification when necessary. Do not silently substitute a library.
+2. Select supported React/TypeScript/build versions against those packages.
+   Atlassian's current setup recommends Parcel and supports Webpack; its Vite
+   integration is experimental. Select based on reviewed compatibility, not an
+   automatic scaffold. Source links and preliminary metadata are in
+   codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md.
+3. After approval, create a bounded browser workspace (proposed `browser/`), its
+   own explicit build/dependency lock and source/notice inventory. Keep the root
+   package lock and production Telegram asset pipeline stable. Decide integration
+   with Django static assets in a small, rehearsed build change; no separate
+   hosting service is implied by a separate framework.
+4. Build only company login, MFA/enrollment/recovery states and a signed-in shell
+   initially. Use reviewed ADS tokens/components, required style transforms and
+   lint rules; use company branding/system fonts until other assets are cleared.
+   ADS adoption does not automatically prove accessibility or compliance.
+5. Extend the UI review process for these browser components before UI work:
+   reviewed source/version mapping, keyboard/focus/error/loading/mobile behavior,
+   real browser evidence, and isolation from Telegram. Existing Design Lab
+   candidates do not authorize Telegram restyling.
+6. Test real React → CSRF/session → Django password/MFA → denied/allowed owning
+   workflow context, including rotated CSRF, expiry/revocation, stale bundles,
+   network failure and absence of Telegram. No business permissions arise from
+   the signed-in shell. Finish scoped M1 staging/support acceptance before P2.
+
+P1b.2b and P1c may be developed in bounded increments once their own gates are
+met. React work is blocked on the chosen licence review, not a reason to relax
+authentication acceptance or to install an unreviewed default stack. Re-estimate
+the next increment after review; no calendar promises or traffic percentages.
 
 Work:
 
@@ -218,7 +265,7 @@ Work:
 - Do not expose a complete case_detail payload just because it exists: it includes raw message, evidence/location and other sensitive fields. Allowlist the browser pilot's approved fields and defer unreviewed media/export.
 - Preserve the actual Complaint group/branch scope. No authority is inferred from Portal/TAT/Origination grants.
 - Source clarification from P0: Complaint reads are intentionally shared across branches inside one authorized group. Preserve that policy; do not treat every other-branch read as unauthorized. Review scope per action rather than inventing a universal branch filter.
-- Reuse source-bound Complaint UI patterns and feature-detect Telegram hooks; the browser must work with Telegram hosts blocked.
+- Implement the browser Complaint screens in the reviewed React/ADS workspace. Reuse workflow meaning and shared backend services, not Telegram templates/SDK or their credential transport. Telegram screens remain intact; the browser works with Telegram hosts blocked.
 - Audit read-side initialization/access-history effects explicitly; “read pilot” means no operational complaint edits, not an unsupported promise of zero database writes.
 - Run actual company-login → Django → isolated data end-to-end tests. Mock APIs and force_login unit tests do not prove this complete boundary.
 
@@ -411,9 +458,9 @@ codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md.
 
 | Layer | Required work | Starting sources |
 |---|---|---|
-| Authentication/session | Existing-user provisioning, password/MFA assurance, CSRF, account recovery and already-open-session revocation; provider callbacks only for a future external provider | core/tests_telegram_authentication.py, core/tests_user_identity.py, staff_auth/tests.py |
+| Authentication/session | Existing-user provisioning, password/MFA assurance, CSRF, account recovery and already-open-session revocation; provider callbacks only for a future external provider | core/tests_telegram_authentication.py, core/tests_user_identity.py, staff_auth/tests.py, staff_auth/tests_browser_api.py |
 | Complaints read/write | Field allowlist, exact scope, closed case, revision, retry/payload, actor audit and Sheet failure | core/tests_complaint_cases.py, core/tests_complaint_timing.py, core/services/complaint_cases.py |
-| Complaint browser UI | Actual first-party renderer/transport, absent Telegram, forbidden role and retained user input | core/tests_browser/complaint_comments.spec.js, existing Complaint browser tests |
+| Complaint browser UI | New reviewed React renderer/transport, absent Telegram, forbidden role and retained input; existing Telegram UI remains a parity boundary | New React test suite is planned, not created; core/tests_browser/complaint_comments.spec.js and existing Complaint tests remain legacy parity evidence |
 | Shared assets | Telegram and browser behavior for every runtime/transport/template change; stale client/server combinations | core/static/miniapp/utils.js, core/static/miniapp/complaint_cases_api.js, owning assets |
 | PostgreSQL/release | Applicable real locks/races/migrations and old/new workers, not SQLite-only conclusions | .github/workflows/ci.yml, core/tests_release_sequencing.py |
 | Actual end-to-end | Approved provider → actual Django → isolated data; no mock API as the only proof | New isolated pilot journeys/staging |
@@ -459,25 +506,25 @@ The initial decision is not a request to approve all future apps. M3 explicitly 
 
 ## 12. Scope limits and current status
 
-Excluded unless separately commissioned: React/SPA rewrite, microservices, second business database, native mobile/offline sync, provider/storage migration, global roles/customer identity joins, TAT stage redesign, Origination policy/signature changes, broad Portal finance, automatic paid API retries and Telegram retirement.
+Excluded unless separately commissioned: Telegram React/SPA rewrite, microservices, second business database, native mobile/offline sync, provider/storage migration, global roles/customer identity joins, TAT stage redesign, Origination policy/signature changes, broad Portal finance, automatic paid API retries and Telegram retirement. The selected new browser React frontend is in scope, but package installation is gated by D13.
 
 | Item | Status |
 |---|---|
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
-| P0–P7/M0–M7 | P1a and P1b.1 backend controls only; browser globally closed, operational M0/M1 and later milestones not accepted |
+| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
-| This revision | Local dormant runtime foundation and focused tests; current results/checklist in STAFF_BROWSER_MFA_FOUNDATION.md; production not inspected or changed |
+| This revision | React/ADS selected and licence/build gates added; local JSON/storage contract and verification in STAFF_BROWSER_JSON_AUTH.md; production not inspected or changed |
 
-### STATE BLOCK — revision 4 / P1b.1 backend controls
+### STATE BLOCK — revision 5 / P1b.2a and React decision
 
-- INDEX_VERSION: platform-independence-plan-4; source investigation baseline 7217791e9836986a493559254f465555ed670568; P1a commit observed during P1b.1: 4b6c8aebfdbdf9c45715aae7d38f4f2f051a6436.
-- FILE_MAP_SUMMARY: Complaint actor/list/detail/comment boundary and tests first; shared Django identity/grants/auth/runtime; release/CI/UI governance; TAT, Origination and Portal kept as separately reviewed later owners.
-- OPEN_QUESTIONS: provisioning/recovery/mail/cache owners and controls, exact pilot accounts, privacy/support owners, actual deployed baseline and maintenance capacity. D1–D3 now answered by user.
-- KNOWN_RISKS: CSRF/session fallback, production access=None, cross-workflow grants, stale assets, IdP/local-session revocation, hidden integration/intake/onboarding dependencies and single-maintainer burden.
-- GLOSSARY_DELTA: a pilot is a narrow accepted capability, not whole-app readiness or Telegram independence; later app order is specified but dates and implementation remain uncommitted.
-- NEXT_READ_QUEUE: finish P1b.1 evidence, then P1b.2 operational enrollment/recovery/UI and staging acceptance. No production mutation based solely on this plan.
-- VERIFICATION: historical P1a evidence in STAFF_BROWSER_MFA_FOUNDATION.md; current P1b.1 results/checklist in STAFF_BROWSER_LIFECYCLE.md. No production inspection or activation.
+- INDEX_VERSION: platform-independence-plan-5; original source investigation baseline retained above; phase began at 2829e922af2f9f54bb550ab0c49574effc2d0820. A concurrent external commit 73009cb5 was observed; this phase made no commit or deployment.
+- FILE_MAP_SUMMARY: staff_auth JSON/assurance/admission/session protection and tests; config/settings.py; ADRs 0060–0062; browser React/ADS decision and licence shortlist; Complaint actor/list/detail/comment and release/UI governance. TAT/Origination/Portal remain later owners.
+- OPEN_QUESTIONS: D13 exact transitive/asset licences/build, provisioning/recovery/mail/cache controls and owners, pilot accounts, privacy/support owners, deployed baseline and two-frontend maintenance capacity. D1–D3 answered by user.
+- KNOWN_RISKS: licence assumptions, shared-cache replay, CSRF/session fallback, production access=None, cross-workflow grants, stale assets, revocation, hidden intake/onboarding/integration dependencies and single-maintainer burden.
+- GLOSSARY_DELTA: company browser boundary requires channel/audit receipt plus MFA assurance, never grants; separate React client does not imply Telegram UI migration or legal/compliance clearance.
+- NEXT_READ_QUEUE: exact licence/build review; P1b.2b provisioning/enrollment/recovery/shared cache/support; P1c reviewed browser foundation; M1 staging acceptance before Complaints. No production mutation based solely on this plan.
+- VERIFICATION: separate historical P1a/P1b.1 evidence remains in their phase documents; P1b.2a's final focused run had 115 tests (113 passed, two PostgreSQL-only skips), plus 28 governance-script tests and Node checks. Current evidence/limits/checklist in STAFF_BROWSER_JSON_AUTH.md. No production inspection or activation.
 
 **Findings:** user decisions now allow bounded local self-managed identity work; operational admission is not ready. **Open questions:** release/support evidence and P1b controls. **Next steps:** complete P1b/M1 before the Complaints pilot; retain the M3 review.
 

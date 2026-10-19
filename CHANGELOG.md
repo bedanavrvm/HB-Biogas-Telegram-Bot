@@ -1,5 +1,29 @@
 # Changelog
 
+## 19 October 2026 - Dormant JSON auth boundary and React browser direction (P1b.2a)
+
+- Updated the phased plan for a separate React/Atlassian Design System browser
+  frontend, preserving Telegram UI and Complaints → TAT → Origination → Portal.
+  User-selected exact package/transitive/asset licence review gates installation;
+  no React/ADS/build dependency or asset is installed. Initial five direct
+  Atlaskit artifact licences/integrities were inspected, not the complete tree.
+- Added constrained session/password/MFA/logout JSON handlers over the pinned
+  allauth browser implementation, with CSRF, explicit mixed-credential rejection,
+  current admission and durable login audit. Password-only sessions never qualify
+  for business access. All production auth/business URLs remain unmounted.
+- Added dedicated-key, expiring, user/admission-bound pending-TOTP session
+  protection without changing Django's global session backend. Enrollment,
+  provisioning, recovery, shared replay cache and support remain separate gates.
+- Enabled the model-free headless app from the existing pinned allauth package;
+  no new dependency, migration or environment variable. Browser admission stays
+  off. Scope, verification, remaining limits and monitoring/rollback checklist:
+  `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`. No merge/deployment
+  or production staff/customer/provider change performed.
+- Verification: 113 focused tests passed, two PostgreSQL-only concurrency tests
+  skipped on SQLite; 28 governance-script tests, Node tests and relevant fast
+  checks passed. Existing environment/artifact audit failures remain visible;
+  full CI, real PostgreSQL/devices and staging acceptance are not claimed.
+
 ## 19 October 2026 - Browser admission and revocation controls (P1b.1)
 
 - Added explicit existing-staff browser opt-in, audited suspension, browser-only
