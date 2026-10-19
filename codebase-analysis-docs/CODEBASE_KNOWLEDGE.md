@@ -1054,3 +1054,63 @@ unchanged. **Open Questions:** deployed health, PostgreSQL concurrency and real
 Telegram-device acceptance remain operator-owned release gates. **Next Steps:**
 review and deploy the bounded code change through the normal release process;
 do not backfill or regenerate historical signed documents.
+
+## HB Deposits and first-visit gate — 19 October 2026
+
+The Portal HB Actions shell now includes a separate **Deposits** workstream.
+An otherwise valid committed FarmUp/office intake with an unknown, zero or
+below-KES-5,000 HB cumulative deposit remains visible but disabled in the JBL
+visit queue. Scoped Portal HB staff record cumulative totals; reductions require
+an explanation. Operations Administrators view only; existing scoped IT and
+active Superuser overrides remain. Other Mini App grants do not confer access.
+
+`hb_operations/deposits.py` owns amount validation, eligibility, row-locked
+revision/request-key updates and serialization. It reuses the farmer's existing
+numeric deposit and operational receipt aliases, field provenance, pipeline
+events and compliance projection. Later FarmUp differences remain observations
+after HB takes ownership. No early `HomeBiogasAction`, new persistent model,
+receipt ledger, payment call or Sheet column is created. A current-cycle first
+JBL visit locks this editor; downstream invoice/payment ownership is unchanged.
+
+`hb_operations/deposit_views.py` exposes scoped list/detail/update routes under
+`/api/portal/hb-deposits/`. `core/services/jawabu_pipeline.py` adds eligibility to
+cards and checks the deposit before document processing, during visit preflight
+and under the final transition lock. A deposit request cannot masquerade as a
+completed-visit replay. Both server/client queue cards enforce disabled
+interaction; stale clients still encounter the server-side gate.
+
+The existing office intake endpoint can now save an under-funded lead without a
+visit or evidence, returning an explicit intake-only outcome. The shared case
+correction route directs pre-visit deposit changes to HB Deposits. Reviewed
+FarmUp validation accepts missing deposits as financial holds without relaxing
+identity/location validation or automatically committing staged rows.
+
+Migration `core.0208_hb_deposit_capabilities` supplies approved missing role
+defaults and advances the policy version. Legacy committed deposit-only review
+flags have a separate dry-run-first, group-bounded, audited reconciliation
+command with revision-guarded reversal. Production release and data repair are
+separately authorized operator actions, not implementation-time side effects.
+
+Complete interfaces, audit/source ownership, release/reversal commands,
+synthetic UI candidate evidence and verification limitations are in
+`codebase-analysis-docs/assets/HB_DEPOSITS.md`. The structural decision is
+`docs/adr/0059-hb-deposit-gate.md`; principal new tests are
+`hb_operations/tests_deposits.py` and
+`core/tests_browser/portal_deposits.spec.js`. Current verification results are
+recorded in `KNOWN_GAPS.md`.
+
+Final local verification for this change: 235 focused backend tests (233 passed,
+two PostgreSQL-only skips), all 268 Portal browser checks, Django/migration
+checks, architecture/database governance, the 202-entry write inventory,
+147-file JavaScript syntax/Node checks and the source-bound UI ratchet passed.
+An earlier wider backend diagnostic found legacy API/policy expectations that
+remain outside this feature; complete backend/production readiness is not
+claimed. No production migration, customer-data reconciliation or external
+publication was performed.
+
+**Decisions/Findings:** KES 5,000 is a server-owned first-visit threshold, not an
+approval or evidence of actual funds movement. **Open Questions:** production
+impact counts, PostgreSQL locking and real Telegram-device acceptance remain
+unverified until authorized release checks. **Next Steps:** review/apply the
+normal migration and any explicitly approved legacy reconciliation; do not
+rewrite historical visits, signed documents or financial approvals.

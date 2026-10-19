@@ -778,6 +778,10 @@
   }
 
   function openFarmerSheet(farmer, mode) {
+    if (mode === 'jbl_visit' && !farmer.is_new_jbl_lead && farmer.deposit?.deposit_hold) {
+      deps.showToast(farmer.deposit.reason || 'Awaiting the full HB deposit before a JBL visit.', 'warning');
+      return;
+    }
     state().selectedFarmer = farmer;
     state().activeMode = mode;
     const isNewLead = Boolean(farmer.is_new_jbl_lead);
@@ -899,6 +903,10 @@
       wireJblVisitMedia(farmer);
       if (!isNewLead) wireJblVisitDraft(farmer);
       wireJblLocationFields(farmer);
+      if (isNewLead) {
+        el('jbl-new-lead-hb-deposit')?.addEventListener('input', updateOfficeDepositHold);
+        updateOfficeDepositHold();
+      }
       wireVoiceWidget('jbl_visit_comment');
       if (!isNewLead) sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
@@ -2118,12 +2126,36 @@
     return true;
   }
 
+  function officeDepositHeld() {
+    if (!state().selectedFarmer?.is_new_jbl_lead) return false;
+    const raw = (el('jbl-new-lead-hb-deposit')?.value || '').trim().replace(/,/g, '');
+    return !raw || (Number.isFinite(Number(raw)) && Number(raw) < 5000);
+  }
+
+  function updateOfficeDepositHold() {
+    const held = officeDepositHeld();
+    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-field="visit_status"], .jbl-support-card, .jbl-comment-section').forEach(node => {
+      node.hidden = held;
+      node.querySelectorAll('input,select,textarea,button').forEach(control => { control.disabled = held; });
+    });
+    const button = el('btn-submit-jbl');
+    if (button) { button.textContent = held ? 'Save lead awaiting deposit' : 'Log JBL Visit'; button.dataset.mainAction = button.textContent; }
+    el('sheet-sub').textContent = held ? 'Save intake for HB follow-up. No JBL visit or evidence will be recorded until KES 5,000 is paid.' : 'Add customer details, then log the first JBL visit.';
+  }
+
   function validateJblVisitFields() {
     const errors = {};
     if (state().selectedFarmer?.is_new_jbl_lead) {
       if (!el('jbl-new-lead-name')?.value.trim()) errors.customer_name = 'Enter the customer name.';
       if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID using 1 to 9 digits only.';
       if (!normalizeKenyanMobile(el('jbl-new-lead-phone')?.value || '')) errors.primary_phone = 'Enter a valid Kenyan mobile number.';
+      const raw = (el('jbl-new-lead-hb-deposit')?.value || '').trim().replace(/,/g, '');
+      if (raw && (!/^\d+(?:\.\d{1,2})?$/.test(raw) || Number(raw) > 9999999999.99)) errors.deposit_paid_hbg = 'Enter a valid non-negative KES amount with at most two decimal places.';
+      if (officeDepositHeld()) {
+        if (!el('jbl-county')?.value) errors.county = 'Choose the customer county.';
+        if (!el('jbl-sub-county')?.value) errors.sub_county = 'Choose the constituency.';
+        return errors;
+      }
     }
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
@@ -2963,6 +2995,7 @@
     const farmer = state().selectedFarmer;
     if (!farmer) return;
     const isNewLead = Boolean(farmer.is_new_jbl_lead);
+    const heldIntake = officeDepositHeld();
     if (pendingJblWorkflowConflict) {
       el('jbl-workflow-conflict')?.focus();
       deps.showToast('Review the latest case before submitting this draft.', 'error');
@@ -2971,13 +3004,13 @@
     if (!isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
     const fields = portalFormErrors();
-    if (!commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
+    if (!heldIntake && !commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
     if (showJblFieldErrors(fields)) return;
-    const visitReason = validateDecisionReason('jbl', visitStatus);
+    const visitReason = heldIntake ? '' : validateDecisionReason('jbl', visitStatus);
     if (visitReason === null) return;
 
     stopJblLiveCamera();
-    if (!selectedJblFilesAreValid()) return;
+    if (!heldIntake && !selectedJblFilesAreValid()) return;
     if (!navigator.onLine) {
       deps.showToast('You are offline. Keep the form open and retry when connected.', 'error');
       return;
@@ -3038,16 +3071,17 @@
     formData.set('capture_longitude', el('jbl-lng')?.value || '');
     formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
     Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
+      if (heldIntake) return;
       jblMediaSelections[category].forEach(item => formData.append(slots[item.side], item.file));
     });
-    jblMediaSelections.JBL_VISIT_PHOTO.forEach(item => formData.append('jbl_visit_photo_files', item.file));
+    if (!heldIntake) jblMediaSelections.JBL_VISIT_PHOTO.forEach(item => formData.append('jbl_visit_photo_files', item.file));
     el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-preview-open, .jbl-media-remove').forEach(control => {
       control.classList.add('is-disabled');
       control.setAttribute('aria-disabled', 'true');
       if (control.matches('button')) control.disabled = true;
     });
     el('sheet-form')?.querySelectorAll('input[type="file"]').forEach(input => { input.disabled = true; });
-    deps.setButtonLoading(btn, true, 'Logging visit…');
+    deps.setButtonLoading(btn, true, heldIntake ? 'Saving lead…' : 'Logging visit…');
     // Do not abort a slow multipart request: it may already be committing on
     // the server. The stable request key makes an explicit retry safe instead.
     const slowUploadNotice = window.setTimeout(() => {
@@ -3107,7 +3141,7 @@
     pendingJblVisitSubmission = null;
     if (!isNewLead) sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
     const uploaded = Number(data.stored_count || 0);
-    const successMessage = data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
+    const successMessage = data.intake_saved && data.visit_logged === false ? 'Lead saved; awaiting HB deposit. No JBL visit recorded.' : data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
     if (!isNewLead) await clearJblVisitDraft(farmer);
     closeSheet({ saveDraft: false });
     await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);

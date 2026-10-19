@@ -1183,6 +1183,7 @@
         updateBatchPanel();
       });
       card.addEventListener('click', async () => {
+        if (card.dataset.depositHold === 'true') return;
         const queue = card.dataset.qkey || state.activePage;
         return openQueueCase({ id: card.dataset.farmerId }, queue, card.dataset.mode || null);
       });
@@ -1469,7 +1470,7 @@
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
     const unit = escapeHtml(f.unit_number || 'not provided');
     const isJblQueue = qKey === 'jbl';
-    const status = escapeHtml(isJblQueue ? 'Pending Visit' : (f.current_pipeline_state || f.jbl_visit_status || 'Submitted'));
+    const status = escapeHtml(isJblQueue ? (f.deposit?.deposit_hold ? 'Deposit pending' : 'Pending Visit') : (f.current_pipeline_state || f.jbl_visit_status || 'Submitted'));
     const datePrefix = isJblQueue ? 'HB visit' : 'JBL visit';
     const rawVisitDate = isJblQueue ? f.hbg_visit_date : f.jbl_visit_date;
     const visitDateLabel = isJblQueue ? f.hbg_visit_date_label : f.jbl_visit_date_label;
@@ -1483,8 +1484,9 @@
         </div>
         <div class="jbl-queue-card-details">
           <span class="jbl-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
-          <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>${window.PortalMiniAppHelpers.phoneLink(f.primary_phone)}</span>
+          <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>${isJblQueue && f.deposit?.deposit_hold ? escapeHtml(f.primary_phone || 'Phone not provided') : window.PortalMiniAppHelpers.phoneLink(f.primary_phone)}</span>
         </div>
+        ${isJblQueue && f.deposit?.deposit_hold ? `<p class="field-help">Paid: ${f.deposit.recorded_amount === null ? 'Not recorded' : `KES ${escapeHtml(f.deposit.recorded_amount)}`} · Required: KES 5,000.00 · Outstanding: KES ${escapeHtml(f.deposit.shortfall)}</p>` : ''}
         <div class="jbl-queue-card-bottom">
           <span class="badge badge-grey">Unit ${unit}</span>
           <span class="jbl-queue-card-date"><i data-lucide="calendar-days" aria-hidden="true"></i><span>${datePrefix}: ${visitDate}</span></span>
@@ -1533,7 +1535,7 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
+      <div class="farmer-card${qKey === 'jbl' && f.deposit?.deposit_hold ? ' deposit-held-card' : ''}${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-deposit-hold="${qKey === 'jbl' && Boolean(f.deposit?.deposit_hold)}" ${qKey === 'jbl' && f.deposit?.deposit_hold ? 'aria-disabled="true"' : ''} data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
@@ -1543,6 +1545,7 @@
 
     listEl.querySelectorAll('.farmer-card').forEach(card => {
       card.addEventListener('click', () => {
+        if (card.dataset.depositHold === 'true') return;
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
@@ -1640,6 +1643,10 @@
       if (openVersion !== farmerSheetOpenVersion || currentScreenRoot() !== sourceRoot) return;
       if (!ok || !data || !data.ok || !data.farmer) {
         showToast((data && data.error) || 'Could not load current farmer details.', 'error');
+        return;
+      }
+      if (mode === 'jbl_visit' && data.farmer.deposit?.deposit_hold) {
+        showToast(data.farmer.deposit.reason || 'The HB deposit requirement has not been met.', 'warning');
         return;
       }
       openFarmerSheet(data.farmer, mode);

@@ -47,6 +47,15 @@ def _add(
 
 
 _add(
+    'portal_hb_deposit_update',
+    authentication='portal_auth_required; verified Telegram initData and active staff',
+    capability='portal.hb_deposit.write',
+    scope='One complete Portal group/branch/product grant tuple; current intake group',
+    request_key_binding='Canonical Portal request identity plus farmer and normalized amount/reason payload',
+    domain_replay='Locked farmer; unique pipeline request event; original-payload replay before revision/visit lock; durable publication reservation',
+)
+
+_add(
     'loan_origination_phone_identity_checks',
     authentication='origination_auth_required; verified Telegram identity and active account',
     capability='origination.identity.phone.verify plus scoped IT-only pilot restriction',

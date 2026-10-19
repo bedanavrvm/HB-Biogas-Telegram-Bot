@@ -303,6 +303,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
 
     def test_endpoint_manifest_only_references_real_capabilities_and_views(self):
         from core.api import complaint_case_views, portal_views, views
+        from hb_operations import deposit_views
         from origination import views as origination_views
         from core.services.workflow_capabilities import capability_definition
 
@@ -310,6 +311,8 @@ class WorkflowCapabilityPolicyTests(TestCase):
             self.assertIsNotNone(capability_definition(workflow, capability), view_name)
             module = {'loan_origination': origination_views, 'jawabu_portal': portal_views,
                       'complaint_cases': complaint_case_views}.get(workflow, views)
+            if view_name.startswith('hb_deposit_'):
+                module = deposit_views
             self.assertTrue(callable(getattr(module, view_name, None)), view_name)
         for view_name in MINIAPP_DYNAMIC_ENDPOINT_POLICIES:
             self.assertTrue(callable(getattr(views, view_name, None)), view_name)

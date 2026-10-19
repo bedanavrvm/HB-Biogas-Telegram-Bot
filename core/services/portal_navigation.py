@@ -17,7 +17,7 @@ PORTAL_NAV_ITEMS = (
     ('deferred', 'Revisit Cases', 'clock', 'portal.deferred.view'),
     ('all', 'All Cases', 'database', 'portal.case.read'),
     ('batches', 'Order Archive', 'layers', 'portal.batches.view'),
-    ('hb_actions', 'Install & Commission', 'wrench', 'portal.hb_action.view'),
+    ('hb_actions', 'HB Actions', 'wrench', 'portal.hb_action.view'),
     ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payment Preparation', 'banknote', 'portal.payment.view'),
     ('history', 'Document History', 'archive', 'portal.documents.view'),
@@ -35,7 +35,7 @@ PIPELINE_STAGES = (
     ('approval', 'Approval', 'badge-check', ('final', 'payment_approvals')),
     ('fulfilment', 'Fulfilment', 'package-check', ('requisition', 'batches')),
     ('finance', 'Finance', 'banknote', ('invoices', 'payments', 'history')),
-    ('homebiogas', 'Install & Commission', 'wrench', ('hb_actions',)),
+    ('homebiogas', 'HB Actions', 'wrench', ('hb_actions',)),
 )
 
 PORTAL_SCREEN_PRESENTATION = {
@@ -50,7 +50,7 @@ PORTAL_SCREEN_PRESENTATION = {
     'payment_approvals': {'hub': 'pipeline', 'stage': 'approval', 'group': 'Pipeline · Approval', 'order': 1},
     'requisition': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 0},
     'batches': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 1},
-    'hb_actions': {'hub': 'pipeline', 'stage': 'homebiogas', 'group': 'Pipeline · Install & Commission', 'order': 0},
+    'hb_actions': {'hub': 'pipeline', 'stage': 'homebiogas', 'group': 'Pipeline · HB Actions', 'order': 0},
     'invoices': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 0},
     'payments': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 1},
     'history': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 2},

@@ -372,7 +372,7 @@ def jbl_visit_queue(search: str = ''):
     ).filter(
         Q(workflow_state=JawabuWorkflowState.JBL_VISIT)
         | Q(workflow_state='', jbl_visit_date__isnull=True)
-    ).filter(Q(hbg_visit_date__isnull=False) | ~Q(sign_date=''))
+    ).filter(Q(hbg_visit_date__isnull=False) | ~Q(sign_date='') | Q(source='jawabu_office_lead'))
     search = str(search or '').strip()
     if search:
         qs = qs.filter(
@@ -584,17 +584,22 @@ def log_jbl_visit(
 
     Returns (success, error_message).
     """
-    from core.services.jawabu_case360 import event_request_already_processed
     # A retry is safe even when a newer action has subsequently changed the
     # record; it must return the prior success rather than masquerade as a
     # stale update conflict.
     source_farmer = farmer
     locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
-    if event_request_already_processed(locked, request_id):
+    replay = locked.pipeline_events.filter(request_id=request_id).first() if request_id else None
+    if replay and replay.action != 'jbl_visit_completed':
+        return False, 'This submission key was already used for a different case action.'
+    if replay:
         source_farmer.refresh_from_db()
         return True, ''
     validate_workflow_revision(locked, expected_revision)
     farmer = locked
+    from hb_operations.deposits import visit_deposit_error
+    if deposit_error := visit_deposit_error(farmer):
+        return False, deposit_error
     if not _is_actionable_at_stage(farmer, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.JBL_VISIT)
     # Validate status value
@@ -800,15 +805,20 @@ def preflight_jbl_visit_completion(
     preflight therefore rejects invalid/stale submissions before external work,
     while ``log_jbl_visit`` repeats the checks after upload to close races.
     """
-    from core.services.jawabu_case360 import event_request_already_processed
     from core.services.jawabu_validation import parse_business_date, parse_coordinate
 
     locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
-    if event_request_already_processed(locked, request_id):
+    replay = locked.pipeline_events.filter(request_id=request_id).first() if request_id else None
+    if replay and replay.action != 'jbl_visit_completed':
+        return False, 'This submission key was already used for a different case action.', False
+    if replay:
         return True, '', True
     validate_workflow_revision(locked, expected_revision)
     if not _is_actionable_at_stage(locked, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(locked, JawabuWorkflowState.JBL_VISIT), False
+    from hb_operations.deposits import visit_deposit_error
+    if deposit_error := visit_deposit_error(locked):
+        return False, deposit_error, False
     if visit_status == JBL_SCHEDULING_STATUS:
         return False, 'Choose the outcome of the JBL visit before logging it.', False
     if visit_status not in JBL_VISIT_OUTCOMES:
@@ -888,6 +898,17 @@ def complete_jbl_visit(
     valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categories)
     if not valid_batch:
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
+    # Reject held cases before local document work or external evidence upload.
+    # Final locked log_jbl_visit repeats this check to close concurrent edits.
+    from hb_operations.deposits import visit_deposit_error
+    farmer.refresh_from_db()
+    replay = farmer.pipeline_events.filter(request_id=request_id).first() if request_id else None
+    if replay:
+        if replay.action != 'jbl_visit_completed':
+            return False, 'This submission key was already used for a different case action.', {'evidence_saved': False, 'code': 'idempotency_conflict'}
+        return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
+    if deposit_error := visit_deposit_error(farmer):
+        return False, deposit_error, {'evidence_saved': False, 'code': 'deposit_required'}
     from core.services.jbl_visit_documents import prepare_visit_documents, VisitDocumentError, DOCUMENT_SLOTS
     capture_categories = {slot.upper() for slots in DOCUMENT_SLOTS.values() for slot in slots}
     if set(categories) - set(JBL_MEDIA_CATEGORIES) - capture_categories:
@@ -2034,6 +2055,7 @@ def farmer_to_card(
     """
     from core.services.jawabu_case_reference import display_case_reference
     from core.services.jawabu_validation import normalize_date_text, parse_repayment_day, parse_tenor_months
+    from hb_operations.deposits import deposit_state
 
     hbg_visit_date = farmer.hbg_visit_date
     if hbg_visit_date is None and farmer.sign_date:
@@ -2052,6 +2074,7 @@ def farmer_to_card(
 
     return {
         'id': str(farmer.id),
+        'deposit': deposit_state(farmer),
         'case_reference': display_case_reference(farmer),
         'workflow_state': current_workflow_state(farmer),
         'current_pipeline_state': current_pipeline_state_label(farmer),

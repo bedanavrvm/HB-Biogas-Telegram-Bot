@@ -1,5 +1,65 @@
 # Known Gaps and Verified Workarounds
 
+## HB Deposits implementation verification - 19 October 2026
+
+The pre-visit HB Deposits workspace, cumulative-total audit, FarmUp ownership
+protection, office intake-only outcome and KES 5,000 server-side JBL gate are
+implemented locally. Operational guidance, API contracts, source-bound UI
+candidate evidence and reversal procedures are in
+`codebase-analysis-docs/assets/HB_DEPOSITS.md` and ADR 0059.
+
+Final isolated verification:
+
+- **235 focused backend tests: 233 passed, two skipped.** Suites:
+  `hb_operations.tests_deposits`, `core.tests_portal_hardening`,
+  `hb_operations.tests`, `core.tests_portal_imports`,
+  `core.tests_workflow_capabilities.WorkflowCapabilityPolicyTests`,
+  `core.tests_pipeline.JblPipelineServiceTestCase`, and
+  `core.tests_portal_approval_controls`. The skips are specifically the new
+  PostgreSQL edit/edit and edit/visit concurrency tests; SQLite is not locking
+  evidence. The run used a fresh in-memory database and blocked socket connects.
+  A follow-up three-test, no-database run also passed after the final ASCII-only
+  amount/SQL-cast guard refinement. Its amount checks overlap the focused suite;
+  the added cast-guard test explains the subsequent one-test increase on discovery.
+- **268 Portal browser checks passed**, including source-faithful deposit
+  light/dark mobile screenshots, audit/read-only access, stale/interrupted saves,
+  queue filters/paging, held cards and office capture gating. Synthetic Chromium
+  evidence is not human design approval, real Telegram acceptance or proof that
+  production fonts loaded. No approved visual baseline was changed.
+- Django system checks, migration drift/graph (275 migrations, 16 leaves),
+  architecture boundaries, database governance, the 202-entry write-route
+  inventory, UI source ratchet, 147 first-party JavaScript syntax checks and all
+  Node/client checks passed. Ruff is not installed; no dependency was added to
+  obtain it.
+
+A wider 345-test diagnostic run was not green. In addition to subsequently
+corrected funded-visit fixtures and exact retained-workbook hash fixtures, it
+exercised older `JblPipelineApiTestCase` expectations for retired case-history
+routes, 426-retired workbook endpoints, obsolete report/HTML/invoice contracts
+and finance snapshots. A separate access-hardening assertion expects an exact
+capability set without the existing mandatory Origination staff-signing grant.
+Those unrelated contracts were not redesigned in this deposit change. The full
+backend suite has not been certified; do not use the focused count as a claim
+that every historical test or integration passes. Earlier diagnostic logs are
+not the final result; `test-results/hb-deposit-final.txt` is the final backend
+run. A discarded custom test-database reuse attempt produced missing-table
+errors after settings overrides; the standard fresh in-memory rerun above
+replaced it. Use the normal test database lifecycle on Windows.
+
+No local PostgreSQL server/client was available, no operational database or
+customer financial records were inspected/changed, and no real Sheets, Drive,
+Telegram or paid API calls were made. Production deployment and migration
+`0208_hb_deposit_capabilities` remain separately authorized release actions.
+Preview legacy deposit-only review candidates for an explicitly selected group
+with the documented reconciliation command; `--apply` additionally requires an
+active Superuser actor and separate authorization for production data changes.
+Do not auto-import staged/held rows or clear unrelated review blockers.
+
+Before production acceptance, run the PostgreSQL race tests, review actual
+scoped impact counts, verify existing access-policy refresh and test on real
+Telegram devices. No new environment variables, persistent tables, external
+dependencies, Sheet columns or runner schedules are required.
+
 ## Portal hardening verification - 19 October 2026
 
 The JBL office-lead response defect and new order/payment document ordering

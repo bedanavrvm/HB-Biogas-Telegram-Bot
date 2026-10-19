@@ -10,6 +10,15 @@ respective service modules.
 
 ## Canonical staff access
 
+**HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
+zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
+the JBL queue. HB staff use HB Actions → Deposits to record/correct totals;
+Operations Administrators view only, within Portal scope. Decreases require a
+reason and the editor locks after the current cycle's first recorded JBL visit.
+FarmUp discrepancies cannot overwrite an HB-owned total. This is not an M-PESA
+verification or an individual-receipt ledger. See
+`codebase-analysis-docs/assets/HB_DEPOSITS.md` and ADR 0059.
+
 **Origination phone registration check:** An optional, scoped-IT-only confirmed
 Daraja check of a saved Applicant phone against the Applicant National ID. Exact
 results are reusable across Origination applications for thirty days, without

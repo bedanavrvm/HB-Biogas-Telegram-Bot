@@ -151,7 +151,9 @@
 
   {% if active_screen == 'hb_actions' %}
   <section id="page-hb-actions" class="page active" data-required-capability="portal.hb_action.view">
-    {% if hb_action_farmer_id %}
+    {% if hb_action_farmer_id and hb_action_workstream == 'deposits' %}
+      {% include 'portal/partials/hb_deposit_detail.html' %}
+    {% elif hb_action_farmer_id %}
     <header class="hb-action-detail-header">
       <a class="case-history-back" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to Install & Commission" title="Back to Install & Commission"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Install & Commission</span></a>
       <div><p class="eyebrow">Install & Commission</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
@@ -201,8 +203,8 @@
       <details class="hb-action-history"><summary>Activity history <span id="hb-action-history-count"></span></summary><div id="hb-action-history-list"></div></details>
     </div>
     {% else %}
-    <header class="portal-queue-header"><div><h1>Install & Commission</h1><p class="meta">Track installations and commissioning</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh Install & Commission" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
-    <nav class="hb-action-tabs" role="tablist" aria-label="HomeBiogas work queue"><button type="button" role="tab" data-hb-queue="installation" aria-selected="true" class="active">Installation</button><button type="button" role="tab" data-hb-queue="commissioning" aria-selected="false">Commissioning</button></nav>
+    <header class="portal-queue-header"><div><h1>HB Actions</h1><p class="meta">Deposits, installations and commissioning</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh HB Actions" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
+    <nav class="hb-action-tabs" role="tablist" aria-label="HomeBiogas work queue"><button type="button" role="tab" data-hb-queue="deposits" data-required-capability="portal.hb_deposit.view" aria-selected="false">Deposits</button><button type="button" role="tab" data-hb-queue="installation" aria-selected="true" class="active">Installation</button><button type="button" role="tab" data-hb-queue="commissioning" aria-selected="false">Commissioning</button></nav>
     <section class="portal-queue-tools hb-action-list-toolbar" aria-label="Install & Commission search">
       <div class="portal-queue-tools-primary">
         <label class="portal-queue-search" for="hb-actions-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Search name, case, phone or order" aria-label="Search installations and commissioning" autocomplete="off" enterkeyhint="search"></label>

@@ -113,6 +113,7 @@ class JblPipelineServiceTestCase(TestCase):
         # Stage 1: HB Visited
         self.farmer_stage1 = JawabuFarmerMaster.objects.create(
             customer_name='Farmer One',
+            deposit_paid_hbg=Decimal('5000'), actual_receipts='5000.00',
             national_id='11111111',
             primary_phone='254711111111',
             sign_date='24-June-2026',
@@ -2214,6 +2215,7 @@ class JblPipelineApiTestCase(TestCase):
         self.addCleanup(parser_boundary.stop)
         self.farmer = JawabuFarmerMaster.objects.create(
             customer_name='Pipeline test farmer',
+            deposit_paid_hbg=Decimal('5000'), actual_receipts='5000.00',
             national_id='99999999',
             primary_phone='254799999999',
             sign_date='24-June-2026',

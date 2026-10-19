@@ -2,6 +2,7 @@
 URL routing for the core API.
 """
 from django.urls import include, path
+from hb_operations.deposit_views import hb_deposit_list, hb_deposit_detail, hb_deposit_update
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
 from .miniapp_launcher_views import miniapp_available
@@ -504,6 +505,9 @@ urlpatterns = [
     path('portal/requisition-batches/<str:order_number>/retry-sync/', portal_auth_required(portal_requisition_batch_retry_sync), name='portal_requisition_batch_retry_sync'),
     path('portal/requisition-batches/<str:order_number>/', portal_auth_required(portal_requisition_batch_detail), name='portal_requisition_batch_detail'),
     # Post-order HomeBiogas installation and commissioning workspace.
+    path('portal/hb-deposits/', hb_deposit_list, name='portal_hb_deposit_list'),
+    path('portal/hb-deposits/<uuid:farmer_id>/', hb_deposit_detail, name='portal_hb_deposit_detail'),
+    path('portal/hb-deposits/<uuid:farmer_id>/update/', hb_deposit_update, name='portal_hb_deposit_update'),
     path('portal/hb-actions/', hb_action_list, name='portal_hb_action_list'),
     path('portal/hb-actions/<uuid:farmer_id>/', hb_action_detail, name='portal_hb_action_api_detail'),
     path('portal/hb-actions/<uuid:farmer_id>/documents/<str:document_kind>/preview/', hb_action_document_preview, name='portal_hb_action_document_preview'),

@@ -5266,6 +5266,17 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 #portal-performance-awaiting-content { padding:0 16px 12px; }
 .portal-performance-awaiting-case { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:52px; padding:7px 0; border-bottom:1px solid var(--border-color); color:var(--text-primary); text-decoration:none; }
 .portal-performance-awaiting-case:last-child { border-bottom:0; }
+.farmer-card.deposit-held-card { cursor:not-allowed; background:var(--bg-secondary); color:var(--text-muted); border-style:dashed; }
+.farmer-card.deposit-held-card .fc-name { color:var(--text-muted); }
+.farmer-card.deposit-held-card:hover { transform:none; box-shadow:none; }
+.jbl-visit-sheet [data-jbl-field][hidden], .jbl-visit-sheet .jbl-support-card[hidden], .jbl-visit-sheet .jbl-comment-section[hidden] { display:none !important; }
+.hb-action-tabs:has([data-hb-queue="deposits"]:not([hidden])) { grid-template-columns:repeat(3,minmax(0,1fr)); }
+#hb-deposit-workspace .hb-action-detail-header { display:grid; grid-template-columns:44px minmax(0,1fr); text-align:left; }
+#hb-deposit-workspace .hb-action-detail-header > div { min-width:0; }
+#hb-deposit-workspace .hb-action-detail-header .meta { white-space:normal; overflow-wrap:anywhere; }
+#hb-deposit-error { margin:0; font-size:12px; line-height:1.4; color:var(--status-danger); }
+#hb-deposit-error[hidden] { display:none; }
+#hb-deposit-workspace :is(.hb-action-history article, small, p) { overflow-wrap:anywhere; }
 .portal-performance-awaiting-case > span { display:grid; gap:2px; min-width:0; }
 .portal-performance-awaiting-case strong { color:var(--text-primary); font-size:12px; overflow-wrap:anywhere; }
 .portal-performance-awaiting-case small { color:var(--text-muted); font-size:11px; }

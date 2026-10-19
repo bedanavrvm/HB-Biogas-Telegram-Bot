@@ -44,9 +44,25 @@ async function mountCamera(page, newLead = false) {
       locationText:()=>'-',showToast:message=>window.cameraToasts.push(message),
       apiFetch:async()=>({ok:true,data:{ok:true,counties:[],sub_counties:[]}})});
     window.PortalMiniAppFarmerSheet.openFarmerSheet({id:'synthetic-camera-case',customer_name:'Training customer',workflow_revision:1,is_new_jbl_lead:newLead},'jbl_visit');
+    if (newLead) {
+      const deposit = document.getElementById('jbl-new-lead-hb-deposit');
+      deposit.value = '5000'; deposit.dispatchEvent(new Event('input', {bubbles:true}));
+    }
     window.lucide.createIcons();
   }, newLead);
 }
+
+test('new office lead below threshold hides visit capture until deposit is sufficient', async ({page}) => {
+  await mountCamera(page, true);
+  await page.locator('#jbl-new-lead-hb-deposit').fill('2000');
+  await expect(page.locator('#btn-submit-jbl')).toHaveText('Save lead awaiting deposit');
+  await expect(page.locator('[data-jbl-field="visit_date"]')).toBeHidden();
+  await expect(page.locator('[data-camera-category="CLIENT_ID"]')).toBeHidden();
+  expect(await page.evaluate(() => window.cameraRequests)).toBe(0);
+  await page.locator('#jbl-new-lead-hb-deposit').fill('5000');
+  await expect(page.locator('#btn-submit-jbl')).toHaveText('Log JBL Visit');
+  await expect(page.locator('[data-jbl-field="visit_date"]')).toBeVisible();
+});
 
 for (const newLead of [false, true]) test(`Portal ${newLead ? 'new lead' : 'existing case'} camera icon opens with shared validation active`, async ({page}, info) => {
   await page.setViewportSize({width:390,height:820});

@@ -193,10 +193,13 @@ class HomeBiogasActionServiceTests(TestCase):
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_drive_acceptance_hook_releases_new_order(self, storage_class):
         storage_class.return_value.upload.return_value = ('drive-file', 'https://drive.example/signed')
+        import hashlib
+        # Source hashes bind exact retained workbook bytes, not a placeholder.
+        self.signoff.source_checksum = hashlib.sha256(bytes(self.batch.file_content)).hexdigest()
         self.signoff.status = DocumentPhysicalSignoff.STATUS_UPLOAD_PENDING
         self.signoff.approved_by = None
         self.signoff.approved_at = None
-        self.signoff.save(update_fields=['status', 'approved_by', 'approved_at'])
+        self.signoff.save(update_fields=['status', 'approved_by', 'approved_at', 'source_checksum'])
 
         from core.services.document_signoffs import _upload_to_drive
         accepted = _upload_to_drive(self.signoff, actor=self.user)

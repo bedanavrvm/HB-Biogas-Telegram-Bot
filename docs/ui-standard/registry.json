@@ -418,6 +418,60 @@
   ],
   "changes": [
     {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "8bb62b32ed235c071d988cfe9f349df223d50a90eb45e14c0b26ad9a6a3eb6cc",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/static/miniapp/portal.js",
+      "sha256": "c8a0784d7dae16587991c63976120c664c442e05d74eead7daebe72e12c2fefb",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "e26bdcd061837d297c7dfa3e5346a36884bc19e717c4565a641eec74c3a4effb",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_hb_actions.js",
+      "sha256": "fea3f7d665c75bdd479c85f44aaf84e3544cb9e30ce8569448b72f57d29b9e25",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_hb_deposits.js",
+      "sha256": "423dfc574fcf6089431f8602bc2cae97b2ebb2c13199584edb522888b316a171",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "f54774dc83eeb6d38a5804593594cc0674dd7fdc1d1338a32000119900c3e86e",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "Nonvisual loading/cache-version update for the user-approved HB Deposits implementation; no candidate tokens or Phase 6 migration."
+    },
+    {
+      "path": "core/templates/portal/partials/farmer_card.html",
+      "sha256": "ccc4d945a04b80102f93b8e6409dcf5b06bec0230b7397fa72b7883e46956c64",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/templates/portal/portal.html",
+      "sha256": "4a18d29226eb334be4e68cb4c1a4a706418b497d9f2cb70daa49770f07f304a3",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
+      "path": "core/templates/portal/partials/hb_deposit_detail.html",
+      "sha256": "2914dec9c673825ac38cc8385d924a5e16e8b672aef81f35ddeed3ae1a30a9c7",
+      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
+      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+    },
+    {
       "path": "origination/static/miniapp/phone_identity_checks.js",
       "sha256": "1f97585a65cb25229ce162225f69fe5968413809dc331b052b4ae89542063fd7",
       "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",

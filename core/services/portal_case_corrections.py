@@ -49,6 +49,7 @@ def correction_payload(farmer: JawabuFarmerMaster) -> dict:
         'fields': [
             {**definition, 'key': key, 'value': _display_value(getattr(farmer, key, ''))}
             for key, definition in CASE_CORRECTION_FIELDS.items()
+            if key != 'deposit_paid_hbg' or farmer.jbl_visit_date
         ],
     }
 
@@ -90,6 +91,10 @@ def correct_case_fields(
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     reason = str(reason or '').strip()
     supplied = {key: value for key, value in (values or {}).items() if key in CASE_CORRECTION_FIELDS}
+    if 'deposit_paid_hbg' in supplied and not farmer.jbl_visit_date:
+        # A generic master-data grant is not authority to release JBL's
+        # pre-visit financial hold. HB edits use one audited mutation boundary.
+        raise ValueError('Record pre-visit deposits in HB Actions > Deposits.')
     existing = farmer.pipeline_events.filter(request_id=request_id).first() if request_id else None
     if existing:
         same_values = all(

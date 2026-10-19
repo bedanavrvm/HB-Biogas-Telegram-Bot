@@ -1,5 +1,28 @@
 # Changelog
 
+## 19 October 2026 - HB Deposits and JBL first-visit eligibility
+
+- Added HB Actions → Deposits for scoped HB staff to record cumulative HB totals
+  with revision/request-key protection, actor/time Activity and explained
+  downward corrections. Operations Administrators view only. The pre-visit
+  editor locks after the current cycle's first JBL visit.
+- Blank/zero/below-KES-5,000 cases stay visible but greyed out in the JBL queue.
+  Services enforce the same threshold before evidence processing and the final
+  visit commit. Already-recorded visits and downstream finance remain intact.
+- Under-funded office leads save intake only, without visit evidence or a false
+  visit-success result. Reviewed FarmUp accepts valid missing-deposit intakes;
+  later imports cannot overwrite an HB-owned total and retain discrepancies in
+  Activity. The generic correction screen cannot bypass the HB editor.
+- Added capability-default migration `0208_hb_deposit_capabilities`, policy
+  refresh and a separately authorized, dry-run-first legacy review repair with
+  audit-preserving reversal. No new models, Sheet columns, provider calls or
+  production deployment. Operational contract and UI candidate evidence:
+  `codebase-analysis-docs/assets/HB_DEPOSITS.md`; verification: `KNOWN_GAPS.md`.
+- Final focused validation: 233 backend tests passed, two PostgreSQL-only tests
+  skipped, and all 268 Portal browser checks passed. The wider legacy backend
+  suite is not fully green; PostgreSQL, real-device and deployment acceptance
+  remain explicit release gates.
+
 ## 19 October 2026 - Portal lead responses and document chronology
 
 - Fixed JBL office-lead completion returning no HTTP response after visit

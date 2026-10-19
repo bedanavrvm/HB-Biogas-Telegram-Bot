@@ -104,6 +104,7 @@ class PortalOfficeLeadResponseTests(TestCase):
             'customer_name': 'Synthetic Office Applicant', 'national_id': '99999991',
             'primary_phone': '0700000001', 'county': 'Kiambu', 'sub_county': 'Limuru',
             'visit_date': '2026-10-19', 'visit_status': 'Rescheduled',
+            'deposit_paid_hbg': '5000.00',
             'client_request_id': key, **values,
         })
         request.portal_user = self.actor
@@ -187,4 +188,32 @@ class PortalOfficeLeadResponseTests(TestCase):
         response, complete = self.submit((True, '', {}), key='')
         self.assertEqual(response.status_code, 428, response.content)
         complete.assert_not_called()
+        self.assertFalse(JawabuFarmerMaster.objects.exists())
+
+    def test_underfunded_intake_is_saved_without_visit_or_upload_and_retries_once(self):
+        first, complete = self.submit((True, '', {}), deposit_paid_hbg='', visit_date='', visit_status='')
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertTrue(json.loads(first.content)['intake_saved'])
+        self.assertFalse(json.loads(first.content)['visit_logged'])
+        complete.assert_not_called()
+        second, complete = self.submit((True, '', {}), deposit_paid_hbg='', visit_date='', visit_status='')
+        self.assertEqual(second.status_code, 200, second.content)
+        complete.assert_not_called()
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertIsNone(farmer.jbl_visit_date)
+        self.assertFalse(farmer.media_attachments.exists())
+        self.assertEqual(farmer.pipeline_events.filter(action='office_lead_saved_on_deposit_hold').count(), 1)
+
+    def test_underfunded_intake_key_cannot_be_reused_with_different_details(self):
+        self.submit((True, '', {}), deposit_paid_hbg='2000')
+        response, complete = self.submit((True, '', {}), deposit_paid_hbg='5000')
+        self.assertEqual(response.status_code, 409, response.content)
+        complete.assert_not_called()
+
+    def test_invalid_deposit_cannot_create_an_intake(self):
+        for value in ['NaN', 'Infinity', '-1', '5000.001']:
+            with self.subTest(value=value):
+                response, complete = self.submit((True, '', {}), deposit_paid_hbg=value)
+                self.assertEqual(response.status_code, 400, response.content)
+                complete.assert_not_called()
         self.assertFalse(JawabuFarmerMaster.objects.exists())

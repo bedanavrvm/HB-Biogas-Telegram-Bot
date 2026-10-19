@@ -88,16 +88,17 @@
     const params = new URLSearchParams({page: String(page), queue: activeQueue, state: activeState});
     const search = byId('hb-actions-search')?.value.trim() || '';
     if (search) params.set('search', search);
-    const response = await deps.portalApi.apiFetch(`/hb-actions/?${params.toString()}`, {}, deps.tg);
+    const response = await deps.portalApi.apiFetch(`/${activeQueue === 'deposits' ? 'hb-deposits' : 'hb-actions'}/?${params.toString()}`, {}, deps.tg);
     if (requestVersion !== listRequestVersion || requestQueue !== activeQueue) return;
     if (!response.ok || !response.data?.ok) {
-      target.innerHTML = `<div class="empty-state"><strong>Install & Commission could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
+      target.innerHTML = `<div class="empty-state"><strong>HB Actions could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
       target.querySelector('[data-hb-retry]')?.addEventListener('click', loadList);
       return;
     }
     renderCounts(response.data.counts || {});
     const items = response.data.items || [];
     target.innerHTML = items.length ? items.map(item => {
+      if (activeQueue === 'deposits') return `<a class="hb-action-row" href="${esc(item.detail_url)}" data-hb-action-link><span class="hb-action-row-main"><strong>${esc(item.customer_name || 'Unnamed customer')}</strong><small>${esc([item.case_reference, item.branch].filter(Boolean).join(' · '))}</small></span><span class="hb-action-row-side"><span class="badge badge-grey">${item.visit_recorded ? 'Visit recorded' : item.deposit_hold ? 'Awaiting deposit' : 'Deposit cleared'}</span><small>${esc(window.PortalMiniAppHbDeposits.money(item.recorded_amount))} paid · ${esc(window.PortalMiniAppHbDeposits.money(item.shortfall))} outstanding</small></span></a>`;
       const state = activeQueue === 'commissioning' ? item.commissioning_status : item.installation_status;
       const label = activeQueue === 'commissioning' ? item.commissioning_status_label : item.installation_status_label;
       const secondary = activeQueue === 'commissioning' ? countdownText(item) : installationSecondary(item);
@@ -106,7 +107,7 @@
         <span class="hb-action-row-side"><span class="hb-action-status ${statusClass(state)}">${esc(label)}</span><small>${esc(secondary)}</small></span>
         <i data-lucide="chevron-right" aria-hidden="true"></i>
       </a>`;
-    }).join('') : `<div class="empty-state compact"><strong>No ${esc(activeQueue)} work here</strong><div class="es-sub">${activeQueue === 'installation' ? 'Cases appear after a signed and stamped order is accepted.' : 'Cases appear here after installation is completed.'}</div></div>`;
+    }).join('') : `<div class="empty-state compact"><strong>No ${esc(activeQueue)} work here</strong><div class="es-sub">${activeQueue === 'deposits' ? 'Cases enter after reviewed FarmUp or office intake. Change the filter to review cleared and historical cases.' : activeQueue === 'installation' ? 'Cases appear after a signed and stamped order is accepted.' : 'Cases appear here after installation is completed.'}</div></div>`;
     renderPagination(response.data.page, response.data.pages);
     window.lucide?.createIcons?.();
   }
@@ -114,7 +115,7 @@
   function renderCounts(counts) {
     const target = byId('hb-action-counts');
     if (!target) return;
-    const labels = activeQueue === 'commissioning' ? commissioningLabels : installationLabels;
+    const labels = activeQueue === 'deposits' ? {awaiting: 'Awaiting Deposit', cleared: 'Cleared', all: 'All'} : activeQueue === 'commissioning' ? commissioningLabels : installationLabels;
     target.setAttribute('aria-label', `${activeQueue} status filters`);
     target.innerHTML = Object.keys(labels).map(key => `<button type="button" class="hb-count-pill${activeState === key ? ' active' : ''}" data-state="${esc(key)}"><span>${esc(labels[key])}</span><b>${esc(counts[key] || 0)}</b></button>`).join('');
     target.querySelectorAll('[data-state]').forEach(button => button.addEventListener('click', () => { activeState = button.dataset.state || 'open'; page = 1; loadList(); }));
@@ -126,7 +127,7 @@
     target.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => { page = Number(button.dataset.page); loadList(); }));
   }
   function setQueue(queue) {
-    activeQueue = queue; activeState = queue === 'commissioning' ? 'not_commissioned' : 'open'; page = 1;
+    activeQueue = queue; activeState = queue === 'deposits' ? 'awaiting' : queue === 'commissioning' ? 'not_commissioned' : 'open'; page = 1;
     document.querySelectorAll('[data-hb-queue]').forEach(button => {
       const active = button.dataset.hbQueue === queue;
       button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
@@ -408,6 +409,7 @@
   }
 
   async function loadDetail(farmerId) {
+    if (byId('hb-deposit-workspace')) return window.PortalMiniAppHbDeposits.load();
     if (formProtection?.isDirty() || notesProtection?.isDirty()) return;
     const requested = currentWorkstream(); const suffix = requested ? `?workstream=${encodeURIComponent(requested)}` : '';
     const response = await deps.portalApi.apiFetch(`/hb-actions/${encodeURIComponent(farmerId)}/${suffix}`, {}, deps.tg);
@@ -422,8 +424,10 @@
   function init(injected) {
     deps = injected || {};
     const root = byId('portal-screen'); if (root?.dataset.screen !== 'hb_actions') return;
+    window.PortalMiniAppHbDeposits?.init(deps);
     const farmerId = root.dataset.hbActionFarmerId || '';
     if (farmerId) {
+      if (byId('hb-deposit-workspace')) return;
       window.MiniAppUtils?.bindAccessibleForm?.(byId('hb-action-form'), {validate: formErrors});
       byId('hb-action-form')?.addEventListener('submit', save);
       byId('hb-save-commissioning-notes')?.addEventListener('click', saveCommissioningNotes);
@@ -465,8 +469,8 @@
       window.addEventListener('beforeunload', () => closeInvoicePreview({fromHistory: true})); return;
     }
     const requestedQueue = new URLSearchParams(window.location.search).get('queue');
-    activeQueue = ['installation', 'commissioning'].includes(requestedQueue) ? requestedQueue : 'installation';
-    activeState = activeQueue === 'commissioning' ? 'not_commissioned' : 'open';
+    activeQueue = ['deposits', 'installation', 'commissioning'].includes(requestedQueue) ? requestedQueue : 'installation';
+    activeState = activeQueue === 'deposits' ? 'awaiting' : activeQueue === 'commissioning' ? 'not_commissioned' : 'open';
     document.querySelectorAll('[data-hb-queue]').forEach(button => button.addEventListener('click', () => setQueue(button.dataset.hbQueue)));
     document.querySelectorAll('[data-hb-queue]').forEach(button => { const active = button.dataset.hbQueue === activeQueue; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
     byId('hb-actions-refresh')?.addEventListener('click', loadList);

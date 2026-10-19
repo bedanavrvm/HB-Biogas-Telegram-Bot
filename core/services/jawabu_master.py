@@ -1516,6 +1516,13 @@ def cleaned_master_row_from_review(
 
 def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     notes = []
+    raw_deposit = str(row.get('Deposit Paid to HB', cleaned.get('actual_receipts', '')) or '').strip()
+    if raw_deposit:
+        from hb_operations.deposits import DepositError, parse_deposit
+        try:
+            parse_deposit(raw_deposit)
+        except DepositError:
+            notes.append('Deposit Paid to HB must be a non-negative KES amount with at most two decimal places')
     raw_national_id = clean_text(row.get('National ID', ''))
     if raw_national_id and not clean_national_id(raw_national_id):
         notes.append('National ID must contain 1-9 digits only')
@@ -1525,7 +1532,6 @@ def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
         ('Secondary Phone', 'secondary_phone'),
         ('County', 'county'),
         ('HBG Visit Date', 'sign_date'),
-        ('Deposit Paid to HB', 'actual_receipts'),
         ('HB Sales Person', 'hb_sales_person'),
     ]
     for label, field in required:
@@ -1756,6 +1762,12 @@ def clean_farmer_row(
     county = normalise_county(values['county']).upper()
     duplicate_key = jawabu_duplicate_key(national_id, primary_phone, customer_name)
     review_notes = []
+    if str(values['actual_receipts'] or '').strip():
+        from hb_operations.deposits import DepositError, parse_deposit
+        try:
+            parse_deposit(values['actual_receipts'])
+        except DepositError:
+            review_notes.append('Deposit Paid to HB must be a non-negative KES amount with at most two decimal places')
     if not customer_name:
         review_notes.append('Missing customer name')
     if raw_national_id and not explicit_national_id:
@@ -1776,8 +1788,6 @@ def clean_farmer_row(
         review_notes.append('Missing County')
     if not values['sign_date']:
         review_notes.append('Missing HBG Visit Date')
-    if not values['actual_receipts']:
-        review_notes.append('Missing Deposit Paid to HB')
     if not values['hb_sales_person']:
         review_notes.append('Missing HB Sales Person')
     if values['primary_phone'] and not primary_phone:
@@ -2042,6 +2052,12 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
     if existing:
+        # Use the same case lock as HB edits and JBL visits. An import must not
+        # race an HB correction and restore a stale source deposit.
+        existing = JawabuFarmerMaster.objects.select_for_update().get(pk=existing.pk)
+        from hb_operations.deposits import hb_owns_deposit, recorded_deposit
+        preserve_hb_deposit = hb_owns_deposit(existing)
+        incoming_deposit = defaults.get('actual_receipts', '')
         if defaults.get('group_configuration') and existing.group_configuration_id is None:
             existing.group_configuration = defaults['group_configuration']
         if not existing.lead_name:
@@ -2051,6 +2067,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             existing.lead_secondary_phone = existing.secondary_phone or ''
             existing.lead_source_reference = existing.source_name or existing.external_id or existing.source or ''
         old_values = _farmup_provenance_values(existing)
+        from hb_operations.deposits import deposit_state
+        old_deposit_amount = deposit_state(existing)['recorded_amount']
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         farmup_owned = {
             'customer', 'unit_number', 'source', 'source_name', 'source_row_number',
@@ -2063,6 +2081,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             'installation_status', 'comments',
         }
         for field, value in defaults.items():
+            if preserve_hb_deposit and field in {'actual_receipts', 'actual_receipts_currency', 'deposit_paid_hbg'}:
+                continue
             # County collected by JBL at office/visit intake is the canonical
             # operational location. FarmUp enriches the case but never
             # overwrites it (or its dependent sub-county) later.
@@ -2109,8 +2129,30 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             action='application_imported' if restarted else 'application_updated',
             stage_key='intake',
             source='farmup',
+            old_values={'deposit_paid_hbg': old_deposit_amount},
+            new_values={'deposit_paid_hbg': deposit_state(existing)['recorded_amount']},
             metadata={'reappraisal_cycle': bool(restarted)},
         )
+        if preserve_hb_deposit:
+            from hb_operations.deposits import DepositError, parse_deposit
+            try:
+                observed = format(parse_deposit(incoming_deposit), '.2f') if incoming_deposit not in (None, '') else None
+            except DepositError:
+                observed = str(incoming_deposit)
+            retained = recorded_deposit(existing)
+            retained = format(retained, '.2f') if retained is not None else None
+            if observed != retained:
+                observation_key = hashlib.sha256(
+                    f'{batch_id}:{cleaned.get("source_fingerprint", "")}:{cleaned.get("source_row_number", "")}:{observed}:{retained}'.encode()
+                ).hexdigest()
+                record_pipeline_event(
+                    existing, action='hb_deposit_import_observed', stage_key='intake', source='farmup',
+                    request_id=f'hb-deposit-import:{observation_key}',
+                    old_values={'deposit_paid_hbg': retained},
+                    new_values={'incoming_farmup_deposit': observed},
+                    reason='FarmUp differs from the HB-recorded total; HB total retained.',
+                    metadata={'upload_batch_id': batch_id, 'source_row_number': cleaned.get('source_row_number')},
+                )
         if scheduled_for_jbl_visit:
             record_pipeline_event(
                 existing,
@@ -2159,7 +2201,9 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
         source_row_number=farmer.source_row_number,
     )
     from core.services.jawabu_case360 import record_pipeline_event
-    record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup')
+    from hb_operations.deposits import deposit_state
+    record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup',
+                          new_values={'deposit_paid_hbg': deposit_state(farmer)['recorded_amount']})
     if scheduled_for_jbl_visit:
         record_pipeline_event(
             farmer,

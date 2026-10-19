@@ -1,0 +1,20 @@
+<div id="hb-deposit-workspace" data-required-capability="portal.hb_deposit.view">
+  <header class="hb-action-detail-header">
+    <a class="case-history-back" href="{% url 'portal_hb_actions_screen' %}?queue=deposits" aria-label="Back to deposits"><i data-lucide="arrow-left" aria-hidden="true"></i></a>
+    <div><p class="eyebrow">HB Actions · Deposits</p><h1>HB deposit</h1><p class="meta" id="hb-deposit-identity">Loading case</p></div>
+  </header>
+  <div id="hb-deposit-loading" class="empty-state" role="status"><div class="spinner-inline"></div></div>
+  <div id="hb-deposit-content" hidden>
+    <section class="hb-action-summary" id="hb-deposit-summary" aria-label="Deposit summary"></section>
+    <p class="meta" id="hb-deposit-status" role="status"></p>
+    <form class="hb-action-form" id="hb-deposit-form">
+      <section class="hb-action-form-card">
+        <div class="form-row"><label for="hb-deposit-amount">Total paid to HB (KES)</label><input id="hb-deposit-amount" name="amount" type="text" inputmode="decimal" required maxlength="16" autocomplete="off" aria-describedby="hb-deposit-help"><small id="hb-deposit-help">Enter the cumulative total paid, not the latest instalment. JBL visits require at least KES 5,000.</small></div>
+        <div class="form-row"><label for="hb-deposit-reason">Note / correction explanation</label><textarea id="hb-deposit-reason" name="reason" rows="3" maxlength="2000" aria-describedby="hb-deposit-reason-help"></textarea><small id="hb-deposit-reason-help">An explanation is required when reducing the recorded total.</small></div>
+        <p id="hb-deposit-error" class="field-error" role="alert" hidden></p>
+        <div class="hb-action-form-actions"><button class="btn btn-primary" id="hb-deposit-save" type="submit">Save total</button><button class="btn btn-secondary" id="hb-deposit-reload" type="button">Reload latest</button></div>
+      </section>
+    </form>
+    <details class="hb-action-history" open><summary>Activity <span id="hb-deposit-activity-count"></span></summary><div id="hb-deposit-activity"></div></details>
+  </div>
+</div>

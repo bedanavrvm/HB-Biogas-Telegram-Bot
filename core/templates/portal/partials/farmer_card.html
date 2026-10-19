@@ -1,5 +1,7 @@
 <div
-  class="farmer-card htmx-farmer-card{% if queue_key == 'requisition' %} requisition-card{% endif %}{% if queue_key != 'jbl' and queue_key != 'my_visits' %} operational-farmer-card{% endif %}"
+  class="farmer-card htmx-farmer-card{% if queue_key == 'jbl' and farmer.deposit.deposit_hold %} deposit-held-card{% endif %}{% if queue_key == 'requisition' %} requisition-card{% endif %}{% if queue_key != 'jbl' and queue_key != 'my_visits' %} operational-farmer-card{% endif %}"
+  data-deposit-hold="{% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}true{% else %}false{% endif %}"
+  {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}aria-disabled="true"{% endif %}
   data-farmer-id="{{ farmer.id }}"
   data-qkey="{{ queue_key }}"
   data-mode="{{ mode|default:'' }}"
@@ -26,7 +28,7 @@
         <span class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</span>
       </div>
       {% if queue_key == "jbl" %}
-        <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+        <span class="badge jbl-pending-visit-badge">{% if farmer.deposit.deposit_hold %}Deposit pending{% else %}Pending Visit{% endif %}</span>
       {% else %}
         <span class="badge my-visit-status-badge">{{ farmer.current_pipeline_state|default:farmer.jbl_visit_status|default:"Submitted" }}</span>
       {% endif %}
@@ -38,9 +40,10 @@
       </span>
       <span class="jbl-queue-card-meta jbl-queue-card-phone">
         <i data-lucide="phone" aria-hidden="true"></i>
-        {% if farmer.primary_phone %}<a class="portal-phone-link" href="tel:{{ farmer.primary_phone }}">{{ farmer.primary_phone }}</a>{% else %}<span>Phone not provided</span>{% endif %}
+        {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}<span>{{ farmer.primary_phone|default:"Phone not provided" }}</span>{% elif farmer.primary_phone %}<a class="portal-phone-link" href="tel:{{ farmer.primary_phone }}">{{ farmer.primary_phone }}</a>{% else %}<span>Phone not provided</span>{% endif %}
       </span>
     </div>
+    {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}<p class="field-help">Paid: {% if farmer.deposit.recorded_amount %}KES {{ farmer.deposit.recorded_amount }}{% else %}Not recorded{% endif %} · Required: KES 5,000.00 · Outstanding: KES {{ farmer.deposit.shortfall }}</p>{% endif %}
     <div class="jbl-queue-card-bottom">
       <span class="badge badge-grey">Unit {{ farmer.unit_number|default:"not provided" }}</span>
       <span class="jbl-queue-card-date">

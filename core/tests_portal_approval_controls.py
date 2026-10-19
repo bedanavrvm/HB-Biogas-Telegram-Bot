@@ -338,6 +338,7 @@ class PortalApprovalControlsTests(TestCase):
     def test_forward_jbl_visit_requires_both_controlled_evidence_types(self, _master_sync, _order_sync):
         visit_farmer = JawabuFarmerMaster.objects.create(
             customer_name='Visit Evidence Customer', national_id='90000002',
+            deposit_paid_hbg='5000.00', actual_receipts='5000.00',
             primary_phone='254700000002', branch='EMBU', status='active', sign_date='01-July-2026',
         )
         ok, error = log_jbl_visit(

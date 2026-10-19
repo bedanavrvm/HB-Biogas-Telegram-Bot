@@ -1547,7 +1547,7 @@ def portal_payment_approvals_screen(request, batch_id=None):
 def portal_hb_actions_screen(request, farmer_id=None):
     """Render the mobile-first HomeBiogas action queue or one case record."""
     requested_workstream = str(request.GET.get('workstream') or '').strip().lower()
-    if requested_workstream not in {'installation', 'commissioning'}:
+    if requested_workstream not in {'installation', 'commissioning', 'deposits'}:
         requested_workstream = 'installation'
         # Deep links without a workstream must render the same form that the
         # HB Action API selects.  Otherwise an installed case receives the
@@ -7841,9 +7841,8 @@ def portal_requisition_options(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_create_and_complete_jbl_lead(request):
-    """Atomically create a JBL office lead and submit its first visit."""
+    """Create office intake; complete the visit only after the HB deposit gate."""
     from datetime import date as _date
-    from decimal import Decimal, InvalidOperation
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import JBL_FORWARD_STATUSES, JawabuWorkflowState, complete_jbl_visit, farmer_to_card, validate_jbl_visit_upload_batch
     from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
@@ -7868,14 +7867,18 @@ def portal_create_and_complete_jbl_lead(request):
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
     if not str(body.get('sub_county') or '').strip(): errors['sub_county'] = 'Choose the constituency where this visit was done.'
     if len(hb_sales_person) > 255: errors['hb_sales_person'] = 'HB sales person must be 255 characters or fewer.'
+    if len(str(body.get('village') or '').strip()) > 255: errors['village'] = 'Village must be 255 characters or fewer.'
+    from hb_operations.deposits import REQUIRED_DEPOSIT, DepositError, parse_deposit
     if deposit_raw:
         try:
-            deposit_paid_hbg = Decimal(deposit_raw)
-            if deposit_paid_hbg < 0: raise InvalidOperation
-        except (InvalidOperation, ValueError):
-            errors['deposit_paid_hbg'] = 'Enter the HB deposit as a positive number.'
-    try: visit_date = _date.fromisoformat(str(body.get('visit_date') or '').strip())
-    except ValueError: errors['visit_date'], visit_date = 'Visit date must use YYYY-MM-DD.', None
+            deposit_paid_hbg = parse_deposit(deposit_raw)
+        except DepositError as exc:
+            errors['deposit_paid_hbg'] = str(exc)
+    held_intake = deposit_paid_hbg is None or deposit_paid_hbg < REQUIRED_DEPOSIT
+    visit_date = None
+    if not held_intake:
+        try: visit_date = _date.fromisoformat(str(body.get('visit_date') or '').strip())
+        except ValueError: errors['visit_date'], visit_date = 'Visit date must use YYYY-MM-DD.', None
     if errors:
         return JsonResponse({'ok': False, 'error': 'Correct the highlighted lead details.', 'field_errors': errors}, status=400)
     try:
@@ -7888,8 +7891,8 @@ def portal_create_and_complete_jbl_lead(request):
         return JsonResponse({'ok': False, 'error': str(exc), 'field_errors': {'county': str(exc)}}, status=400)
     try:
         latitude_raw, longitude_raw = body.get('capture_latitude') or body.get('latitude'), body.get('capture_longitude') or body.get('longitude')
-        latitude = float(latitude_raw) if str(latitude_raw or '').strip() else None
-        longitude = float(longitude_raw) if str(longitude_raw or '').strip() else None
+        latitude = float(latitude_raw) if not held_intake and str(latitude_raw or '').strip() else None
+        longitude = float(longitude_raw) if not held_intake and str(longitude_raw or '').strip() else None
     except (TypeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Capture the visit location again.', 'field_errors': {'capture_location': 'The captured GPS coordinates are invalid.'}}, status=400)
     getlist = request.FILES.getlist
@@ -7898,12 +7901,12 @@ def portal_create_and_complete_jbl_lead(request):
         'LAF_PAGE_1': 'laf_page_1', 'LAF_PAGE_2': 'laf_page_2', 'JBL_VISIT_PHOTO': 'jbl_visit_photo_files',
     }.items()}
     visit_status = str(body.get('visit_status') or '').strip()
-    if (reason_error := _portal_pipeline_reason_error(body, visit_status, body.get('comment', ''))):
+    if not held_intake and (reason_error := _portal_pipeline_reason_error(body, visit_status, body.get('comment', ''))):
         return reason_error
-    valid, error, code = validate_jbl_visit_upload_batch(categorized_files)
+    valid, error, code = validate_jbl_visit_upload_batch(categorized_files if not held_intake else {})
     if not valid:
         return JsonResponse({'ok': False, 'error': error, 'code': code, 'field_errors': {'jbl_visit_photo_files': error}}, status=400)
-    if any(categorized_files.values()) or visit_status in JBL_FORWARD_STATUSES:
+    if not held_intake and (any(categorized_files.values()) or visit_status in JBL_FORWARD_STATUSES):
         if (media_error := _portal_capability_error(request, 'portal.jbl_media.write')):
             return media_error
     actor = getattr(request, 'portal_user', None)
@@ -7925,6 +7928,7 @@ def portal_create_and_complete_jbl_lead(request):
                     lead_primary_phone=phone, lead_source_reference='JBL office', lead_source='JAWABU',
                     deposit_paid_hbg=deposit_paid_hbg, hb_sales_person=hb_sales_person,
                     county=county_record.name if county_record else county_value,
+                    village=str(body.get('village') or '').strip(),
                     sub_county=sub_county_record.name if sub_county_record else str(body.get('sub_county') or '').strip(),
                     county_ref=county_record, sub_county_ref=sub_county_record, workflow_state=JawabuWorkflowState.JBL_VISIT,
                     workflow_state_entered_at=timezone.now(),
@@ -7932,6 +7936,26 @@ def portal_create_and_complete_jbl_lead(request):
                 created_lead = True
             except IntegrityError:
                 return JsonResponse({'ok': False, 'error': 'A customer with this National ID or phone already exists. Search before creating a new lead.', 'code': 'existing_identity'}, status=409)
+        intake_payload = {
+            'name': name, 'national_id': national_id, 'phone': phone,
+            'deposit': format(deposit_paid_hbg, '.2f') if deposit_paid_hbg is not None else None,
+            'county': county_value, 'sub_county': str(body.get('sub_county') or '').strip(),
+            'hb_sales_person': hb_sales_person,
+        }
+        from hb_operations.deposits import record_office_deposit_hold
+        try:
+            saved_on_hold = record_office_deposit_hold(
+                farmer, held_intake=held_intake, payload=intake_payload, request_id=request_id,
+                actor=actor, actor_label=_portal_sender_from_request(request),
+            )
+        except DepositError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=exc.status)
+        if saved_on_hold:
+            return JsonResponse({
+                'ok': True, 'farmer': farmer_to_card(farmer), 'created_lead': created_lead,
+                'intake_saved': True, 'visit_logged': False, 'deposit_hold': True,
+                'message': 'Lead saved; awaiting HB deposit. No JBL visit or evidence was recorded.',
+            }, status=201 if created_lead else 200)
     try:
         ok, error, result = complete_jbl_visit(
             farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status,
