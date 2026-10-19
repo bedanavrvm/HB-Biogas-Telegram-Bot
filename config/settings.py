@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.mfa',
+    'allauth.headless',
     'django_htmx',
     'health_check',
     'health_check.db',
@@ -92,6 +93,11 @@ MFA_RECOVERY_CODES_SHOW_ONCE = True
 # Keep email verification as a prerequisite; existing user emails are not
 # silently promoted to verified email addresses by this integration.
 MFA_ALLOW_UNVERIFIED_EMAIL = False
+# React uses a constrained browser-only adapter, not the generic account/app API.
+# This app has no models; its URLs are intentionally not mounted in production.
+HEADLESS_ONLY = False
+HEADLESS_CLIENTS = ['browser']
+HEADLESS_SERVE_SPECIFICATION = False
 
 # Internal synthetic design review only; never enables operational UI migration.
 UI_DESIGN_LAB_ENABLED = config('UI_DESIGN_LAB_ENABLED', default=False, cast=bool)
