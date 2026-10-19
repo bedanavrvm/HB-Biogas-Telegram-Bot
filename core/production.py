@@ -79,6 +79,15 @@ def production_security_readiness_issues(
     def warning(code: str, message: str) -> None:
         issues.append(ReadinessIssue('warning', code, message))
 
+    if bool(getattr(settings, 'STAFF_BROWSER_AUTH_ENABLED', False)):
+        # Pre-migration release checks must stop an accidental P1a activation,
+        # not merely fail later when manage.py check reaches the dormant app.
+        error(
+            'staff-browser-foundation-only',
+            'Keep STAFF_BROWSER_AUTH_ENABLED=False: browser provisioning, '
+            'enrollment and recovery are not released in P1a.',
+        )
+
     if not bool(getattr(settings, 'REQUIRE_MINIAPP_IDEMPOTENCY_KEY', False)):
         error(
             'miniapp-idempotency-strict-mode',

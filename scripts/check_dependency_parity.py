@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS = ROOT / 'requirements.txt'
 PYPROJECT = ROOT / 'pyproject.toml'
 IMPORT_TO_PACKAGE = {
+    'allauth': 'django-allauth',
     'cryptography': 'cryptography',
     'PIL': 'pillow',
     'africastalking': 'africastalking',

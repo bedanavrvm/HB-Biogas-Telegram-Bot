@@ -2,6 +2,12 @@
 
 Analysis date: **19 October 2026**. Source baseline: **`f9b1e8a97cf98b1e6c79927bd0ee7ce46c2ddcc2`**. This document describes checked-in source, not an inspected production deployment.
 
+Later implementation addendum: the dormant P1a browser-MFA foundation is
+described in `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`.
+Its current source/tests supersede the historical authentication/dependency
+snapshot where noted; no operational browser login is enabled. Do not use the
+original inventory counts or hashes as a claim about this later worktree.
+
 ## How to use this document
 
 Start with the high-level overview, find the owning workflow in the feature catalogue, then follow its service, model and test references. Read **Things You Must Know Before Changing Code** before modifying behavior. The deep reference explains request contracts, schema ownership, verification and safe change procedures.
@@ -24,8 +30,11 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/SETTING_INDEX.json` | Environment variable names, source lines and casts; intentionally excludes configured values. |
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
-| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Research-only assessment of Telegram/channel independence, existing identity and authorization, browser-session security, and a proposed phased pilot. Not an approved architecture change or implementation. |
-| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Proposed staffed timeline, milestones, opt-in cohorts, Telegram compatibility contract, deployment gates, and rollback for optional browser access. Documentation only; no rollout authorization. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Source-only findings and research on channel independence; revision 2 aligns the pilot order to Complaints → TAT → Origination → Portal. No runtime or production readiness is established. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-3 gated plan: user-selected Django/allauth browser MFA, existing grants, Complaints first, M3 review and Telegram-safe rollout. P1a is dormant; later dates and production activation are uncommitted. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md` | Required change-specific phase/merge/deployment handoff checklist: additions, Telegram compatibility, configuration/schema, monitoring, rollback and unresolved gates. |
 | `codebase-analysis-docs/assets/build_source_inventory.py` | Standard-library-only static inventory builder and bounded source reader; imports no Django code and contacts no provider. |
 | `codebase-analysis-docs/assets/validate_analysis.py` | Read-only validation of source hashes/ranges, explicit repository paths, inventory continuity, required master sections and compact diagrams. |
 
@@ -70,7 +79,7 @@ Reachability evidence: `config/settings.py` around `SPIN_HARD_CUTOVER` and `ORDE
 
 | Layer | Source-confirmed implementation |
 |---|---|
-| Runtime | Python `>=3.12,<3.13`; Django `5.2.17`. `requirements.txt` is the deployment manifest; `pyproject.toml` mirrors 27 direct dependencies. |
+| Runtime | Python `>=3.12,<3.13`; Django `5.2.17`. `requirements.txt` is the deployment manifest; `pyproject.toml` mirrors 28 direct dependencies after the dormant allauth MFA addition (27 at the original analysis baseline). |
 | HTTP serving | WSGI/Gunicorn, WhiteNoise, Django templates and middleware. `start.sh` starts Gunicorn with two threads and a 120-second timeout. |
 | Database | `dj-database-url`; SQLite default for local work, PostgreSQL adapter `psycopg[binary]`; explicit PostgreSQL test profile. |
 | Browser | Django-rendered HTML, HTMX and small JavaScript utilities; Node is development/verification tooling, not a production frontend server. |

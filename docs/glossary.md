@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 03-August-2026
+Last reviewed: 19-October-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -9,6 +9,13 @@ Mini Apps.  The code catalogues remain authoritative: role validation lives in
 respective service modules.
 
 ## Canonical staff access
+
+**Browser MFA assurance:** A server-owned, expiring record that the existing
+Django user completed company password and allauth TOTP/recovery authentication.
+It is not a workflow grant or an alternative to owning-action authorization.
+P1a is dormant and mounts no production company-login or business routes;
+Telegram signed-launch access remains unchanged. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060.
 
 **HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
 zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
@@ -60,7 +67,7 @@ does not resolve the case or restart its SLA.
 
 | Term | Meaning |
 |---|---|
-| `User` | Django's canonical staff account. It is active for Telegram-only staff, with an unusable password unless Django Admin login is explicitly granted. |
+| `User` | Django's canonical staff account. Telegram-only staff normally have an unusable password; separately approved Admin or future company-browser provisioning may establish a password without creating a second staff identity or business grants. |
 | `UserProfile` | One-to-one Telegram identity record: immutable bound `telegram_id`, mutable `telegram_username`, phone, and Telegram metadata. |
 | `AccessGrant` | A user-specific workflow/role/scope assignment. It may restrict branch, product, or group configuration. It does not itself invent a capability. |
 | Capability | A stable code-controlled permission such as `portal.jbl_visit.write`. Policies decide which roles receive existing capabilities. |

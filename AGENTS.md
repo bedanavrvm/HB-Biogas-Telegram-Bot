@@ -75,6 +75,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under the owning app; legacy workflows use `core`, and Loan Origination uses `origination`. |
 | **Mini App record reference** | A versioned, allowlisted workflow/entity/UUID reference for future explicit interlinkage. It contains no customer identity or access token, grants no authority, and resolves only through the owning workflow's current authorization. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
+| **Browser MFA assurance** | Server-owned proof that the existing Django user completed company password plus allauth TOTP/recovery authentication. It never grants workflow authority. P1a `staff_auth` is dormant, has no production login/enrollment/business URLs, and must stay disabled; Telegram signed-launch access is unchanged. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Scheduled Portal report** | An approved group/branch/product-scoped email report for one completed Nairobi period; current backlog and financial snapshot bases remain distinct from period activity. |
@@ -154,6 +155,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `manage.py` — Django management entry point
 - `config/settings.py` — application settings and environment variables
 - `config/urls.py` — project-level URL routing
+- `staff_auth/` — dormant company-browser password/MFA integration, encrypted vendor secrets and admission checks; see `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060. Do not mount vendor account URLs or treat raw Admin edits as provisioning/recovery.
 - `core/api/urls.py` — canonical `/api/` workflow and API route definitions
 - `core/api/browser_urls.py` — intentional root browser/Mini App entry points
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
@@ -390,6 +392,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | Variable | Purpose | Sensitive? |
 |---|---|---|
 | `DJANGO_SECRET_KEY` | Django cryptographic signing key | Yes |
+| `STAFF_BROWSER_AUTH_ENABLED` | P1a browser-MFA foundation admission; keep `False`, activation deliberately fails until operational flows are accepted | No |
+| `STAFF_MFA_ENCRYPTION_KEYS` | Dedicated newest-first Fernet keys in the deployment secret store; never reuse `DJANGO_SECRET_KEY`; retain old decrypt keys while needed | Yes |
+| `STAFF_BROWSER_SESSION_AGE_SECONDS` | Proposed browser assurance age, default eight hours; no authority or effect on Telegram signed-launch age | No |
 | `DEBUG` | Django debug mode toggle (must be `False` in production) | No |
 | `ALLOWED_HOSTS` | Django allowed host list | No |
 | `DATABASE_URL` | PostgreSQL connection string (production) / SQLite for local dev | Yes |
@@ -1270,6 +1275,7 @@ the existing choice unsuitable and obtaining explicit approval:
 | Decision | Repository position |
 |---|---|
 | Mini App delivery | Telegram Bot API plus Django-rendered Telegram Mini Apps |
+| Additional browser authentication | User-selected existing Django users plus `django-allauth[mfa]` TOTP/recovery, browser-first. P1a is disabled; provisioning, MFA recovery, transient-secret storage, shared replay cache and support acceptance precede activation. No forced Telegram password/MFA cutover. |
 | Frontend interaction | Server-rendered HTML, htmx, Alpine.js, and small shared JavaScript utilities; no SPA/build server |
 | Workflow authority | Django/PostgreSQL owns state; Sheets and Drive are synchronized operational views/files |
 | PDF rendering | Use the existing server-side WeasyPrint path where a PDF is explicitly required; never rely on mobile `window.print()` |
@@ -1411,6 +1417,17 @@ At the end of a coding task, report:
 6. Remaining risks or unresolved issues
 
 Be explicit when a test or external integration could not be executed. Never claim a production integration works based only on mocked tests.
+
+For the platform-independence work, deliver one bounded phase at a time in the
+user-specified order: Complaints, TAT, Origination, then Portal. Every phase
+handoff and every proposed or completed merge/deployment must include a
+change-specific checklist of additions, affected workflows, migrations,
+configuration/dependencies, verification, Telegram compatibility, items to
+monitor, rollback and unresolved gates. Start from
+`codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md`;
+complete only applicable items and mark unknown/not-run items explicitly.
+A separate Git branch or approval to implement is not permission to merge,
+deploy, change production grants or bypass the plan's identity prerequisites.
 
 ---
 

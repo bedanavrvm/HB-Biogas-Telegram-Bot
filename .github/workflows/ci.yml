@@ -48,7 +48,7 @@ jobs:
         run: python scripts/check_dependency_vulnerabilities.py
 
       - name: Run narrow Python correctness lint
-        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker ui_review
+        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker ui_review staff_auth
 
       - name: Check migrations
         env:
@@ -66,7 +66,7 @@ jobs:
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
-          python -m compileall config core origination ui_review
+          python -m compileall config core origination ui_review staff_auth
           python manage.py check
           python manage.py collectstatic --noinput
 
@@ -114,7 +114,7 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
           coverage erase
-          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker,ui_review manage.py test
+          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker,ui_review,staff_auth manage.py test
           coverage json -o coverage.json
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
@@ -184,4 +184,4 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py makemigrations --check --dry-run
-          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review --noinput --verbosity 1
+          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review staff_auth --noinput --verbosity 1

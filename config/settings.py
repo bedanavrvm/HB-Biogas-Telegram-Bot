@@ -49,6 +49,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'allauth',
+    'allauth.account',
+    'allauth.mfa',
     'django_htmx',
     'health_check',
     'health_check.db',
@@ -66,7 +69,29 @@ INSTALLED_APPS = [
     'portal_recognition',
     'report_delivery',
     'ui_review',
+    'staff_auth',
 ]
+
+# P1a is deliberately dormant: no account/login or browser business URLs are
+# mounted. This flag never disables Telegram's independent signed credentials.
+STAFF_BROWSER_AUTH_ENABLED = config('STAFF_BROWSER_AUTH_ENABLED', default=False, cast=bool)
+STAFF_MFA_ENCRYPTION_KEYS = [
+    value.strip() for value in config('STAFF_MFA_ENCRYPTION_KEYS', default='').split(',') if value.strip()
+]
+STAFF_BROWSER_SESSION_AGE_SECONDS = config('STAFF_BROWSER_SESSION_AGE_SECONDS', default=28800, cast=int)
+ACCOUNT_ADAPTER = 'staff_auth.adapters.StaffAccountAdapter'
+ACCOUNT_LOGIN_METHODS = {'username'}
+ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*', 'password2*']
+ACCOUNT_LOGIN_BY_CODE_ENABLED = False
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+MFA_ADAPTER = 'staff_auth.adapters.StaffMFAAdapter'
+MFA_SUPPORTED_TYPES = ['totp', 'recovery_codes']
+MFA_TOTP_ISSUER = 'Jawabu Business'
+MFA_TRUST_ENABLED = False
+MFA_RECOVERY_CODES_SHOW_ONCE = True
+# Keep email verification as a prerequisite; existing user emails are not
+# silently promoted to verified email addresses by this integration.
+MFA_ALLOW_UNVERIFIED_EMAIL = False
 
 # Internal synthetic design review only; never enables operational UI migration.
 UI_DESIGN_LAB_ENABLED = config('UI_DESIGN_LAB_ENABLED', default=False, cast=bool)
@@ -131,6 +156,7 @@ MIDDLEWARE = [
     'django_htmx.middleware.HtmxMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'core.miniapp_security.MiniAppFramePolicyMiddleware',
@@ -141,6 +167,7 @@ ROOT_URLCONF = 'config.urls'
 AUTHENTICATION_BACKENDS = [
     'core.auth_backends.TelegramMiniAppBackend',
     'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
 ]
 TELEGRAM_AUTH_MAX_AGE_SECONDS = config('TELEGRAM_AUTH_MAX_AGE_SECONDS', default=86400, cast=int)
 

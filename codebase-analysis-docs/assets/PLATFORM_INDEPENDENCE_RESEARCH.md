@@ -4,7 +4,11 @@ Research date: **19 October 2026**. Inspected source baseline: `7217791e9836986a
 
 Status: **discussion and proposed roadmap, not an approved implementation specification or ADR**. Only Markdown documentation changes accompany this research. No application code, access policy, deployment settings, database, provider configuration or customer data was changed. Production was not inspected. Existing architecture and security instructions continue to apply.
 
-Detailed delivery sequencing is in `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md`: proposed timelines, milestones, Telegram compatibility controls, opt-in cohorts and rollback. Its P0–P7 phases expand the conceptual roadmap below; neither document authorizes implementation or deployment.
+Revision 2 incorporates review feedback and the user's pilot order: **Complaints → TAT → Origination → Portal**. The original Portal/HB-first recommendation is superseded. Detailed gates, conditional pilot estimates, maintenance ownership and rollback are in `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md`. Its revised P0–P7 sequence controls delivery; neither document authorizes implementation or deployment.
+
+**Evidence limit:** implementation observations below mean **present in inspected source**, not tested, enabled, deployed or operational. No application tests were run or production inspected for this research or its planning revision. Source/hash/reference validation proves document consistency only.
+
+**Subsequent implementation decision:** the user explicitly selected self-managed Django accounts plus allauth TOTP/recovery, browser convenience with possible exit later, and current Django Complaints grants. Browser MFA comes first; Telegram signed-launch access stays unchanged. This supersedes the research preference for a managed IdP, not its security/support obligations. ADR 0060 and codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md record the later dormant P1a work and verification; do not read this source-only research as the current implementation status.
 
 All repository paths below are relative to the repository root. Source observations, recommendations and unresolved decisions are distinguished explicitly. External references were checked against primary documentation on the research date; links are collected in section 13.
 
@@ -12,7 +16,7 @@ All repository paths below are relative to the repository root. Source observati
 
 The proposal has the right central principle: **JBL should own the business system; Telegram should be an access and integration channel.** I recommend pursuing that direction incrementally, within the existing Django modular monolith.
 
-The important correction is that this repository is **not starting from a Telegram-only user table and bot-owned business rules**. It already has canonical Django staff accounts, linked Telegram identities, workflow-specific grants, server-owned transitions, audit history, database-backed tasks, protected documents and several non-Telegram integrations. The accurate starting description is:
+The important correction is that inspected source contains **more than a Telegram-only user table and bot-owned business rules**: canonical Django staff accounts, linked Telegram identities, workflow-specific grants, server-owned transitions, audit history, database-backed tasks, protected-document paths and several non-Telegram integrations. Their runtime and production state remains unverified. The accurate starting description is:
 
 > A Django-owned operational platform with a Telegram-centric staff authentication and delivery experience, plus some deeper Telegram-shaped scope, attribution and operational dependencies.
 
@@ -22,8 +26,8 @@ Evidence: `core/models.py::UserProfile`, `AccessGrant`, `JawabuPipelineEvent`; `
 
 1. Retain Django, its database, the current domain services, server-rendered templates, htmx and existing JavaScript. Do not commission a React rewrite or split into microservices to achieve channel independence.
 2. Keep the existing Django user as the internal staff identity. Add a governed company authentication link later; do not introduce a parallel employee account system or replace existing primary keys.
-3. First prove an independently authenticated, scoped **All Cases search and limited case-history view** in a normal browser. An ordinary staff user, not a Superuser or Admin session, must pass the proof.
-4. Then prove a bounded write through **HB Deposits**, retaining the same amount validation, KES 5,000 first-visit gate, permissions, concurrency checks, idempotency and audit history.
+3. Resolve the managed IdP/MFA, business driver and first Complaint audience. Then, if the prerequisites are satisfied, prove scoped **Complaint list/detail/history** in a normal browser using an ordinary authorized staff account.
+4. Consider one bounded Complaint write—such as an existing resolution comment—only after read acceptance and side-effect review. Review value/support/privacy at M3 before proceeding in the user-specified order: **TAT, Origination, Portal**. HB Deposits belongs to the later Portal pilot.
 5. Treat notification delivery, staff onboarding, business scope, document access and intake continuity as separate exit-readiness work. A successful Chrome login does not establish Telegram independence.
 
 This is an incremental extension, not a replacement product. Existing staff workflows must remain available during the transition.
@@ -34,7 +38,7 @@ This is an incremental extension, not a replacement product. Existing staff work
 
 | Proposal | Assessment for this repository | Recommended refinement |
 |---|---|---|
-| The backend should own workflow rules | Correct; already substantially implemented | Preserve and reuse existing services; extract only the rules needed by the selected pilot from large views |
+| The backend should own workflow rules | Correct; substantial rule ownership is present in inspected source | Preserve and reuse existing services; extract only the rules needed by the selected Complaint pilot |
 | Establish an internal employee identity | Already present through Django user plus `UserProfile` | Link additional providers to that same user; a human-readable HR number is optional, not an authentication prerequisite |
 | Centralize permissions | Shared policy machinery already exists | Centralize policy evaluation, not roles across Mini Apps; preserve exact workflow/group/branch/product tuples |
 | Use the same API from different interfaces | Correct as a business-contract goal | Thin channel-specific authentication adapters may initially have different URLs while calling the same command/query services |
@@ -72,16 +76,16 @@ The diagram is a logical map, not proof that every legacy view follows this sepa
 
 ### 3.2 Existing strengths
 
-| Concern | Observed implementation | Meaning for the proposal |
+| Concern | Observed source | Meaning for the proposal |
 |---|---|---|
-| Internal staff account | `core/models.py::UserProfile.user` is a one-to-one link to `AUTH_USER_MODEL` | Telegram is already a linked identity, not the staff record's primary key |
+| Internal staff account | `core/models.py::UserProfile.user` is a one-to-one link to `AUTH_USER_MODEL` | Source already separates the internal account from its Telegram link; deployed bindings remain unverified |
 | Unique linked Telegram identity | `UserProfile` has conditional uniqueness for nonblank Telegram IDs and enrolled usernames | Preserve binding constraints and account history |
 | Authentication validation | `core/services/telegram_identity.py::validate_telegram_init_data` checks HMAC, freshness and user structure | Reuse this verifier; do not copy it into a browser adapter |
 | Session bridge | `core/api/auth_views.py::telegram_session_login`; `core/auth_backends.py::TelegramMiniAppBackend` | A normal Django session can already be issued from verified Telegram identity |
 | Workflow independence | `AccessGrant.workflow`; `user_access`; `core/services/workflow_access.py` | One login can serve multiple applications without sharing their role authority |
 | Exact scope | `matching_capability_grants`, `scope_workflow_queryset` | Permissions must come from a complete matching grant, not mixed branch/product/role fragments |
 | Controlled staff changes | `core/services/staff_lifecycle.py`; `core/services/staff_telegram_onboarding.py` | Reuse governance; separate future company-login activation from Telegram delivery |
-| Server-owned financial rule | `hb_operations/deposits.py::update_deposit`, `deposit_state` | A useful existing command boundary for proving identical behavior across channels |
+| Server-owned financial rule | `hb_operations/deposits.py::update_deposit`, `deposit_state` | A candidate later Portal command boundary, not the initial pilot |
 | Attribution and retained history | `core/models.py::JawabuPipelineEvent` has `actor_user`, `authority_user`, actor labels and Telegram attribution | New channel evidence can extend attribution without rewriting historical events |
 | Retry identity | `core/services/miniapp_requests.py` plus workflow-level duplicate checks | Retry keys are already a cross-channel concept, despite the Mini App naming |
 | Durable publication | `core/services/portal_publication.py::reserve_farmer_publication` and publication operation processing | A saved business result need not be replaced by a synchronous Sheet write |
@@ -335,88 +339,74 @@ Offline operation is a separate investment. Do not make IDs, LAFs, statements, a
 
 **Findings:** operational exit readiness includes identity, scope, routing, intake, evidence and delivery. **Open questions:** required outage duration, notification service levels and alternate intake ownership. **Next steps:** complete a channel-dependency matrix before promising that Telegram can be removed.
 
-## 9. Proposed phased roadmap and decision gates
+## 9. Revised gated pilot roadmap
 
-These are proposed work packages, not permission to implement or deploy them. Sequence by security and operational evidence, not an unsupported completion percentage or fixed timeline.
+The user's required order is **Complaints → TAT → Origination → Portal**. It supersedes the original Portal-first proposal. The detailed phase/milestone authority is the revision-2 implementation plan, not the earlier calendar.
 
-### Phase 0 — Bound the problem and record contracts
+### P0 / M0 — Focused discovery
 
-- Choose the first audience: office staff in a company browser is a sensible initial target; retain Telegram for current field staff.
-- Confirm company IdP/tenant ownership, MFA capability, domain ownership, enrollment/recovery responsibilities and device policy.
-- Inventory pilot routes, every accepted credential, CSRF exemption, resource-scope check, actor attribution, GET side effect, attachment and external call.
-- Capture existing policies and regression tests, including exact-scope grants, maintenance mode and signed-document finality.
-- Define whether the goal is browser convenience, Telegram-outage continuity or full Telegram exit. These have different acceptance criteria.
+Timebox discovery to one–two working weeks. Answer D1 usable managed company IdP/MFA, D2 business driver and D3 first Complaint audience. Produce the small endpoint/side-effect manifest, source versus actual-test baseline, early privacy findings, support/backup owner and a go/hold/no-go decision. For a compliance driver, qualified review of actual flows precedes choosing a browser migration as the remedy.
 
-**Exit gate:** approved pilot scope, threat model, owner, identity/session decision and test plan. No production data export is needed for discovery; use synthetic records.
+No usable IdP means no P1/P2 browser build. Self-managed passwords/MFA are not an assumed fallback: their enrollment, recovery and helpdesk obligations require a separate decision.
 
-### Phase 1 — Governed company identity and session entry
+### P1 / M1 — Closed company-authentication foundation
 
-- Reuse the existing internal user; add controlled provider binding and audited link/recovery if needed.
-- Implement a reviewed company login/logout/session flow in a separate bounded change.
-- Resolve workflow access at the destination; no automatic business grants from a company login or email domain.
-- Preserve current Telegram authentication, legacy activation compatibility and rollback path.
-- Define session expiry/revocation and ensure deactivation works for already-open browser sessions.
+Reuse the internal user; implement approved company binding, session assurance, CSRF, revocation and restrictive browser admission separately from Telegram endpoints. Test the actual boundary and preserve existing Telegram use. Keep production browser access closed until authorized acceptance. Budget required ADR, dependency/schema review, test/rehearsal and support work explicitly.
 
-**Exit gate:** a non-Superuser enrolled employee signs in without Telegram, while unknown, unbound, inactive, revoked and wrong-tenant identities fail. Current Telegram staff still work. Provider tokens and launch payloads are not leaked to URLs, logs or browser storage.
+### P2 / M2 — Complaint read pilot
 
-### Phase 2 — Real read-only Portal browser pilot
+Start with authorized list/search, selected detail and history through `core/services/complaint_cases.py::staff_actor_for_user`, `list_cases_page` and `case_detail`. The existing detail projection includes raw message/evidence/location data: do not copy it wholesale into a new browser surface without a field/privacy review.
 
-Scope: scoped All Cases search and selected case-history facts. Do not start with signed documents, bulk exports, payment approval, phone-verification dispatch or a full management dashboard.
+Use actual company login and a real isolated Django backend; mocked APIs or source presence are insufficient proof. If this meets the business driver, no write pilot is mandatory.
 
-Relevant existing sources: `core/api/portal_views.py::portal_all_cases`, `portal_farmer_detail`; `core/services/jawabu_pipeline.py::all_cases`, `farmer_to_card`; browser shell `portal_case_history_detail`; `core/api/urls.py`.
+### P3 / M3 — Bounded Complaint write and investment review
 
-Important nuance: `portal_farmer_detail` can record a recent-case workspace open when `X-Portal-Workspace-Open-Key` is supplied. “Read-only pilot” therefore means **no operational case transition**, with any convenience/access audit writes explicitly identified. Do not assume all GET requests are state-free or copy side-effectful views wholesale. No publication pump or paid integration should be triggered merely by opening the browser pilot.
+An existing resolution comment is a candidate, not an automatically approved scope. `core/services/complaint_cases.py::comment_case` verifies current capability, retry/payload and expected revision; writes actor-attributed history under locks; increments the control revision; and can attempt Sheet publication after committing the canonical comment. It does not resolve the complaint. Test those effects and normal reporting consequences explicitly.
 
-**Exit gate:** an actual browser calls an actual isolated Django backend without Telegram `initData`, bot identity or SDK network access; sees only authorized cases; rejects guessed cross-scope UUIDs; paginates/searches safely; exposes no protected evidence through an unreviewed link. A mock API or `force_login` alone is insufficient end-to-end proof.
+At M3 review achieved business value, actual engineering/governance/support effort, privacy risks, maintenance capacity and residual Telegram dependencies. Only then decide whether to commission TAT.
 
-### Phase 3 — HB Deposits write-parity pilot
+### P4 / M4 — TAT, separately scoped
 
-Use the existing `hb_operations/deposits.py::update_deposit` command through a CSRF-protected browser boundary. Do not duplicate the deposit calculation in a new controller.
+Start with authorized queues/case facts/inbox. Consider an existing remark as the first bounded write only after reading its exact non-transition contract and confirming value. Preserve stage/configuration/path/timing, task/recognition and scope rules. Telegram-shaped private connectivity, routing and escalation remain explicit dependencies until separately addressed.
 
-Required invariants:
+### P5 / M5 — Origination, separately scoped
 
-- Recorded total is cumulative KES using `Decimal`, not a payment initiation or a bank/MPESA settlement confirmation.
-- Blank/zero/below-KES-5,000 cases remain held for first JBL visit; threshold and locks remain server-owned.
-- Existing Portal HB write authority, Operations Administrator read-only authority, scoped IT and active-Superuser override remain unchanged.
-- A reason remains required for a reduction; a current-cycle first JBL visit locks the editor.
-- The row lock, expected revision, retry-key/payload comparison, provenance, actor event and publication reservation remain one owned operation.
-- Later FarmUp observations cannot silently overwrite an HB-owned deposit. Old visits and signed/approved financial artifacts remain unchanged.
+Start with authorized application facts and reviewed previews; separately evaluate a draft action. Preserve captured documents/policies, signer identities, consent and exact signed bytes. Submission, dispatch, OTP/SMS, approval and paid Daraja checks are not included automatically.
 
-**Exit gate:** equivalent authorized commands from either channel produce equivalent business state, native/compliance audit and publication reservation, with accurate actor/channel attribution. Concurrent edits conflict safely; an ambiguous retry does not duplicate an audit/business effect; cross-role, cross-scope and no-CSRF writes fail.
+### P6 / M6 — Portal, separately scoped
 
-### Phase 4 — Task and operational continuity
+Start with scoped case search/history. HB Deposits is a candidate later write through `hb_operations/deposits.py::update_deposit`, retaining its Decimal/KES-5,000 gate, revision/retry/lock, source ownership, audit and publication behavior. Finance, orders, evidence and installation/commissioning require their own scope and approvals.
 
-- Separate current tasks from delivery availability; choose in-app/email/SMS alternatives by workflow and disclosure policy.
-- Provide canonical browser destinations and safe post-login return paths; preserve access checks on every link.
-- Establish alternate staff activation, helpdesk recovery and authorized scope selection without Telegram.
-- Verify one new case can enter the selected workflow without a Telegram message.
-- Review TAT backup/escalation behavior independently before changing delivery assumptions.
+### P7 / M7 — Driver-specific continuity
 
-**Exit gate:** a bounded staging exercise blocks Telegram API/SDK/launcher access and still completes the selected operating scenario, including fresh staff login, new intake, task discovery, permitted action and support/recovery. Document unsupported workflows rather than silently treating the whole platform as independent.
+Only if continuity/exit is required, prove fresh staff onboarding/recovery, new intake, work discovery, action, evidence, publication and support with Telegram blocked in staging. Four narrow browser pilots do not establish full operational independence or authorize retiring Telegram.
 
-### Phase 5 — Workflow-by-workflow expansion
+Dates for later apps remain uncommitted; re-estimate after the preceding app's evidence and investment review. For tiny cohorts, use mandatory scripted journeys, actual observations and named human reviewers—not invented error/success percentages, percentiles or containment times.
 
-- Expand through scoped capabilities, not a global “allow sessions” switch.
-- Prioritize office review/reporting surfaces after their disclosure checks; schedule document/signing and financial approval flows as separate higher-risk changes.
-- Keep existing record IDs, scopes, data modes, evidence hashes, immutable product/configuration snapshots, finance numbering and signing policies.
-- Publish an explicit stable API subset only when additional consumers need it; add contract/schema documentation and compatibility/versioning rules then.
-- Revisit a deeper business-scope decoupling migration only if its benefits justify its blast radius.
-
-**Exit gate:** acceptance and rollback evidence for each named workflow. Do not advertise untested applications as browser operational merely because they share a menu.
-
-### Phase 6 — Optional mobile/offline investment
-
-Only start after real browser/field feedback identifies device or offline needs. A mobile app can reuse backend commands, but authentication, secure storage, updates, app distribution, camera behavior and offline synchronization remain separate work. For future native OAuth, use an external browser and PKCE rather than collecting company credentials in an embedded WebView. [S10]
-
-**Exit gate:** approved business case and device/data threat model. This is not required for the initial platform-independence milestone.
-
-**Findings:** a read pilot followed by a constrained write pilot provides strong evidence with a bounded blast radius. **Open questions:** pilot owner, identity provider and acceptance audience. **Next steps:** choose Phase 0/1 scope; do not begin a second frontend or broad authorization refactor.
+**Findings:** pilot order is settled by the user; driver/provider/audience and future scope remain open. **Open questions:** business value, usable IdP and staffing/support. **Next steps:** resolve D1–D3 and commission only the justified first tranche.
 
 ## 10. Pilot API contract and verification plan
 
-### 10.1 Preserve the business command contract
+### 10.1 First pilot candidate: Complaint comments
 
-Existing Telegram-authenticated deposit URL, **not yet a browser-session endpoint**:
+Existing Telegram URL: `POST /api/complaints/cases/<case-id>/comments/`. It is **not** a company-session endpoint. The existing `core/api/complaint_case_views.py::complaint_cases_comment` uses the current context/capability boundary and calls `core/services/complaint_cases.py::comment_case`.
+
+A synthetic business payload is:
+
+```json
+{
+  "group_id": "<authorized-existing-group-id>",
+  "comment_text": "Synthetic comment for an isolated test.",
+  "expected_revision": 7,
+  "client_request_id": "complaint-pilot-request-0001"
+}
+```
+
+The existing Telegram route requires its verified credential. A proposed **separate**, CSRF-protected company-session endpoint would pass an authorized Complaint actor and the same business fields to the shared service; its URL is not selected by this example. Preserve actor-bound payload hash/retry rules, revision increment, closed-case denial, audit and optional post-commit Sheet publication. Do not infer the HTTP contract/statuses from this abbreviated payload or send it to production.
+
+### 10.2 Later Portal reference: preserve the deposit command contract
+
+The following is retained as a **later Portal example**, not the first pilot. Existing Telegram-authenticated deposit URL, **not yet a browser-session endpoint**:
 
 ```http
 POST /api/portal/hb-deposits/<case-uuid>/update/
@@ -439,7 +429,7 @@ A proposed browser adapter would accept the same business values and call the sa
 
 Idempotency must be explicit about resource, action, current actor authority, key and payload. Reusing the same key for different values must conflict. Retry success must never allow an unauthorized actor to retrieve another user's result. Do not promise identical HTTP error statuses across all current workflows: preserve existing consumers and define any new normalized contract deliberately.
 
-### 10.2 Required verification matrix
+### 10.3 Required verification matrix
 
 | Area | Positive proof | Required negative/regression proof |
 |---|---|---|
@@ -448,9 +438,10 @@ Idempotency must be explicit about resource, action, current actor authority, ke
 | Cookie safety | Browser write with current session and valid CSRF succeeds | Missing/invalid CSRF and untrusted origin fail, including preparatory mutation paths |
 | Actor confusion | Correct canonical actor appears in audit | Different Telegram/session identities cannot silently select a privileged actor |
 | Role isolation | Pilot role can do its approved action | Other Mini App BM/HB/IT grants supply no authority; `is_staff` is insufficient |
-| Exact scope | Entire resource matches one applicable grant | Cross-group/branch/product records, UUID guesses and mixed fragments of separate grants fail |
+| Exact scope | The owning action's actual policy is preserved; Complaint reads remain group-shared | Requests outside that policy, cross-group UUID guesses and disallowed mixed grant fragments fail; do not invent a blanket branch denial |
 | Revocation | Current allowed user can read/write/download | Local deactivation or grant removal takes effect without waiting for an old UI bootstrap refresh |
-| Deposit domain parity | Authorized cumulative change clears/reapplies hold correctly before visit | Invalid amounts, unchanged totals, unexplained reductions and post-visit edits fail |
+| Complaint first-write parity | Authorized comment appends history, advances its revision and retains publication status | Closed case, wrong role/scope, stale revision and conflicting retry fail without duplicate comment |
+| Later Portal domain parity | Authorized cumulative deposit change clears/reapplies hold correctly before visit | Invalid amounts, unchanged totals, unexplained reductions and post-visit edits fail |
 | Concurrency/retry | Repeated identical ambiguous request has one business effect | Stale revisions, same key/different payload and concurrent edits cannot overwrite silently |
 | Audit | Correct actor, authority, values, revision and request provenance retained | Browser action does not invent a Telegram actor or rewrite historical signed facts |
 | External effects | Local commit plus durable publication reservation | Telegram/Google outage does not create duplicate cases or claim failed local saves; no real provider writes in default tests |
@@ -458,7 +449,7 @@ Idempotency must be explicit about resource, action, current actor authority, ke
 | Browser runtime | Real shell handles back/navigation/errors without Telegram | SDK host blocked, no Telegram object and absent `initData` remain usable after company login |
 | Evidence | Later scoped preview/download works as designed | Expired/forwarded capability, revoked actor, wrong revision and unrelated document cannot bypass retrieval checks |
 
-Relevant starting tests: `core/tests_telegram_authentication.py`, `core/tests_user_identity.py`, `core/tests_workflow_capabilities.py`, `core/tests_miniapp_launcher.py`, `hb_operations/tests_deposits.py`, `core/tests_browser/portal_deposits.spec.js`, and the owning workflow's scope/media tests. These files guide future test additions; they were not executed for this documentation-only investigation.
+Relevant starting tests: `core/tests_telegram_authentication.py`, `core/tests_user_identity.py`, `core/tests_workflow_capabilities.py`, `core/tests_complaint_cases.py`, `core/tests_complaint_timing.py` and `core/tests_browser/complaint_comments.spec.js`. Later Portal examples use `hb_operations/tests_deposits.py` and `core/tests_browser/portal_deposits.spec.js`; each later app needs its own scope/media tests. These files guide future test additions; they were not executed for this documentation-only investigation.
 
 Use PostgreSQL for eventual concurrency/row-lock acceptance. Use synthetic data, isolated databases and mocked/blocked external transports. Browser UI fixtures and Django `force_login` tests remain useful layers, but the final acceptance needs the actual configured login and backend boundary in staging. Real provider calls or production staff tests require separate authorization.
 
@@ -480,7 +471,8 @@ Use PostgreSQL for eventual concurrency/row-lock acceptance. Use synthetic data,
 | Task delivery changes routing | TAT has private-connectivity and backup behavior | Treat as its own governed workflow change |
 | Document leak | Native download links are constrained credentials, not public files | Preserve retrieval-time authorization, revision binding, audit and safe headers |
 | New data copies | Browser/offline/mobile can create unmanaged PII stores | No default offline cache; explicit retention/device policy |
-| Unnecessary rebuild | Existing templates/services can be reused | Bounded adapters and extracts, not SPA/microservice migration |
+| Unnecessary rebuild | Existing templates/services may be reusable; runtime compatibility is untested | Bounded adapters and extracts, not SPA/microservice migration |
+| Maintenance concentration | A second channel adds work to an unverified support capacity | Name and rehearse a backup maintainer before production enrollment |
 | Premature compliance claims | Branding alone changes neither data processing nor contractual controls | Review actual data flows, processors, safeguards and organizational policy |
 
 ### 11.2 Telegram, reputation and Kenyan data protection
@@ -495,7 +487,7 @@ JBL should obtain a privacy/security review of actual processing, retention, acc
 
 Do not budget this as “three apps for the price of one.” Shared business logic reduces duplicated implementation, but each channel adds authentication assurance, device/browser testing, support, release and monitoring costs. SSO may involve licensing and administrative work; notification choices may add per-message charges. No current commercial prices, paid API tariff, delivery SLA or engineering-day estimate is asserted by this research.
 
-The highest near-term value is likely **company browser access for office staff, shared internal identity and a credible Telegram exit path**, rather than immediate native mobile development. Confirm that prioritization with the operational owner rather than treating it as a measured user-research result.
+Near-term value must be established from the selected business driver and Complaint audience, not assumed from architectural flexibility. Browser convenience, outage continuity, Telegram exit and compliance remediation are different projects. Budget governance/support as well as code; verify that a backup maintainer exists before increasing the supported channel surface.
 
 **Findings:** security, staff lifecycle and continuity matter more than changing the frontend framework. **Open questions:** actual IdP cost/policy, device ownership, privacy review and continuity targets. **Next steps:** make these owner decisions before selecting dependencies or promising delivery dates.
 
@@ -503,9 +495,9 @@ The highest near-term value is likely **company browser access for office staff,
 
 | Decision/assumption | Current confidence/status | What resolves it |
 |---|---|---|
-| Existing Django user should remain canonical | High; observed models, services and tests | Preserve this invariant in the implementation brief |
+| Existing Django user should remain canonical | Supported by inspected source; tests/deployed bindings not verified | Preserve this invariant and test actual binding behavior |
 | Shared monolith/frontend can support the pilot | High architectural fit; runtime proof pending | Real browser/backend pilot with Telegram blocked |
-| Browser-only office staff is the best first audience | Recommendation, not confirmed requirement | Business owner selects audience and scope |
+| First Complaint audience and primary driver | Unknown; app order is specified, audience/driver are not | Resolve D2 business driver and D3 audience before implementation |
 | Company has a suitable managed IdP | Unknown | IT confirms tenant, provider, staff coverage, MFA and ownership |
 | All employees already have durable unique company emails | Unknown, not assumed | Enrollment/HR review; do not use email as the account key |
 | Existing production sessions can be reused safely | Not established | Session/cookie/CSRF/revocation design and deployed configuration review |
@@ -518,7 +510,7 @@ The highest near-term value is likely **company browser access for office staff,
 
 Recommended next decision:
 
-> Approve a narrow **company-authenticated Portal browser pilot**, preserving existing Telegram access. First deliver scoped All Cases/limited history; then demonstrate HB Deposits parity. Keep all other workflow rollout, notification changes, scope migrations and mobile/offline work behind separate gates.
+> First resolve **D1 usable company IdP/MFA, D2 business driver and D3 Complaint audience** through focused discovery. If prerequisites and value are established, consider a company-authenticated Complaints read pilot and one justified bounded write. Review at M3 before commissioning **TAT → Origination → Portal**. Preserve Telegram throughout; no later-app delivery date or broad rollout is committed.
 
 Do **not** yet approve a second frontend, a universal session fallback, new employee primary keys, bulk role changes, microservices, generic database CRUD, automatic customer-identity joins or a native application build. API-first design is a means of preserving one set of business rules, not a reason to expand access or duplicate the system.
 
@@ -540,7 +532,7 @@ All links checked on **19 October 2026**. Recommendations above combine these st
 | S8 | [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) | Default deny and authorization on each request; not merely a login check |
 | S9 | [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) | Cookie-authenticated mutations need CSRF controls; use framework defenses and review login boundaries |
 | S10 | [RFC 8252: OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html) | Future native clients should use an external user agent and PKCE rather than embedded credential collection |
-| S11 | [ODPC data-subject rights](https://www.odpc.go.ke/rights-of-a-data-subject/) and [official guidance catalogue](https://www.odpc.go.ke/guidelines-2/) | Privacy/cross-border safeguards warrant a qualified review of actual providers and data flows; this is not a legal opinion |
+| S11 | [ODPC data-subject rights](https://www.odpc.go.ke/rights-of-a-data-subject/), [official guidance catalogue](https://www.odpc.go.ke/guidelines-2/) and [assessment framework](https://www.odpc.go.ke/assessments/) | Early qualified review of actual providers, processing and transfer/retention flows; this is not a legal opinion |
 
 No third-party Mini App SDK behavior is treated as evidence about this repository's official Telegram bridge. No OpenAI, Telegram, Render, SSO, SMS or Daraja pricing inference is included.
 
@@ -564,7 +556,7 @@ Hashes are the first eight hexadecimal characters of SHA-256 over the complete s
 | Bypass restrictions | [[F:core/services/telegram_auth.py#1-46#da775153]] | Shared verifier compatibility/local-test guard |
 | Complete-grant policy | [[F:core/services/workflow_access.py#1-220#01c6a0ad]] | `matching_capability_grants`, `workflow_access_decision`, queryset scope |
 | Portal boundary | [[F:core/api/portal_views.py#39-198#8c0f0539]] | `portal_auth_required`, request identity, actor-label extraction |
-| Pilot query | [[F:core/api/portal_views.py#5281-5362#8c0f0539]] | `portal_all_cases`, `portal_farmer_detail` and recent-open behavior |
+| Later Portal query | [[F:core/api/portal_views.py#5281-5362#8c0f0539]] | `portal_all_cases`, `portal_farmer_detail` and recent-open behavior |
 | Origination boundary | [[F:origination/auth.py#1-80#acf88e7e]] | `origination_auth_required` |
 | Complaints boundary | [[F:core/api/complaint_case_views.py#124-200#cbd31b84]] | Per-request actor resolution/local-test distinction |
 | TAT context | [[F:core/api/views.py#430-466#51b0b379]] | `_tat_context`, group/form/Telegram context |
@@ -578,7 +570,9 @@ Hashes are the first eight hexadecimal characters of SHA-256 over the complete s
 | Actual web shell | [[F:core/templates/base_shell.html#1-62#74358a45]] | Official Telegram script, htmx, attention panel |
 | Framing | [[F:core/miniapp_security.py#1-38#4839f295]] | Reviewed Mini App HTML/CSP allowlist |
 | Retry contract | [[F:core/services/miniapp_requests.py#1-92#7e061f70]] | `resolve_miniapp_request_identity`, `bind_miniapp_request_identity` |
-| Shared write pilot | [[F:hb_operations/deposits.py#135-186#e14b35a4]] | `update_deposit` |
+| First-write candidate | [[F:core/services/complaint_cases.py#580-660#7e511e81]] | `comment_case`: actor/revision/retry, audit and post-commit Sheet effect |
+| First read/actor surface | [[F:core/services/complaint_cases.py#236-285#7e511e81]] | `staff_actor_for_user`, scoped actor derived from canonical user |
+| Later Portal write reference | [[F:hb_operations/deposits.py#135-186#e14b35a4]] | `update_deposit`, not the initial pilot |
 | Existing deposit HTTP | [[F:hb_operations/deposit_views.py#1-95#609fa12d]] | `hb_deposit_list`, `hb_deposit_detail`, `hb_deposit_update` |
 | Local/durable publication | [[F:core/services/portal_publication.py#1-80#c6bbef05]] | Owned publication constants, destination ordering and pending queue |
 | Evidence audit | [[F:core/services/jawabu_media_access.py#1-93#acd37028]] | `record_jawabu_media_access` fail-closed boundary |
@@ -598,12 +592,12 @@ Other current references used for context: `docs/telegram-miniapp-authentication
 
 ### 14.2 STATE BLOCK — research complete
 
-- INDEX_VERSION: `platform-independence-research-1`, source `7217791e9836986a493559254f465555ed670568`; focused anchors above, not a regenerated whole-repository inventory.
+- INDEX_VERSION: `platform-independence-research-2`, source `7217791e9836986a493559254f465555ed670568`; focused anchors above, not a regenerated whole-repository inventory.
 - FILE_MAP_SUMMARY: identity/models/auth/session; exact-grant authorization; Portal/Origination/Complaints/TAT adapters; shared shell/runtime/API/navigation; deposit command/HTTP boundary; publication/evidence/downloads; TAT tasks/email/SMS; routes/settings; authentication tests and browser fixture limits. See the selected source-anchor table for exact paths/ranges/hashes.
-- OPEN_QUESTIONS: company IdP/tenant, pilot staff audience, session/revocation policy, legacy enrollment usage, supported browsers, independent intake/notification targets, deployment/provider/privacy posture.
+- OPEN_QUESTIONS: D1 usable company IdP/MFA, D2 actual business driver, D3 first Complaint audience; support/backup owner, early privacy assessment, session/revocation policy, legacy enrollment, independent intake/notification and actual deployment baseline.
 - KNOWN_RISKS: cookie auth on exempt routes; scope widening or `access=None`; duplicate identities; issuer/subject mismatch; session/credential confusion; Telegram-dependent onboarding/routing; UI mocks mistaken for end-to-end proof; unintended paid/external effects; document/offline data leakage; rewriting historical evidence.
 - GLOSSARY_DELTA: channel independence = equivalent authorized business operations across clients; provider independence = an approved authentication/operational path not requiring Telegram; operational exit readiness = intake, work discovery, action, evidence, support and recovery operate without Telegram; authentication link = governed provider identity mapped to an existing internal staff user; business scope = the authorized organizational/workflow boundary, not a notification destination.
-- NEXT_READ_QUEUE: no additional source read is required for this research deliverable. Before implementation, select IdP/audience and re-read affected hash-changed sources, credential/session policy, pilot routes/services/tests and the UI standard. Inspect deployment only under separate authorization.
+- NEXT_READ_QUEUE: resolve D1–D3, then produce the Complaint endpoint/side-effect manifest and actual baseline. Re-read affected source, credential/session policy, tests and UI standard; inspect deployment only with separate authority. Later apps follow Complaints → TAT → Origination → Portal, with M3 review before expansion.
 - VERIFICATION: source/search and official-document research only. Source anchors and Markdown change scope checked separately. No application tests, migration, real provider calls, production inspection or readiness certification performed.
 
 **Findings:** the research is complete at the stated source baseline; the roadmap remains proposed. **Open questions:** the product/security choices above remain deliberately unresolved. **Next steps:** review the proposed narrow pilot before commissioning implementation.

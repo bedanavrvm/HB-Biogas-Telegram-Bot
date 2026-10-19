@@ -1,5 +1,37 @@
 # Known Gaps and Verified Workarounds
 
+## Dormant staff browser MFA verification - 19 October 2026
+
+P1a `staff_auth` is an integration foundation, **not a usable browser login**.
+Keep `STAFF_BROWSER_AUTH_ENABLED=False`. No production login/enrollment/recovery
+or business URL is mounted; activation is deliberately rejected by system and
+pre-migration production checks. Telegram signed-launch access remains unchanged.
+Do not mount allauth's generic URLs or use vendor Admin JSON edits to bypass
+unfinished account provisioning, MFA enrollment, audited recovery and revocation.
+
+Current technical contract, verification and change-specific release checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`; decision: ADR
+0060. Pending enrollment secrets need explicit protection beyond stored-factor
+encryption; vendor replay/rate-limit cache must work across workers. Real
+PostgreSQL, operational support, mail, privacy and live-device acceptance remain
+required before browser admission.
+
+Final focused run: **53 tests passed** across `staff_auth`,
+`core.tests_telegram_authentication` and `core.tests_user_identity`; 28 governance
+script tests also passed. Django checks, migration drift/graph, model governance,
+architecture/write-route/UI checks and isolated vendor schema reversal passed.
+These are synthetic SQLite results, not production or PostgreSQL evidence.
+
+Broader checks are not fully green: environment parity reports 119 existing
+missing variables (same at HEAD; all three new variables documented), the
+dependency-audit exception expired on 2026-09-30, generated database catalogue
+usage references from earlier HB Deposits/Portal work are stale, 17 existing
+logo/screenshot artifact hashes disagree with their allowlist, and Ruff is
+not installed locally. No exception extension, artifact baseline update, unrelated configuration rewrite
+or catalogue regeneration was bundled into this phase. Full CI and production
+readiness are not established by the focused tests. No commit/merge/deployment
+or production migration was performed.
+
 ## HB Deposits implementation verification - 19 October 2026
 
 The pre-visit HB Deposits workspace, cumulative-total audit, FarmUp ownership

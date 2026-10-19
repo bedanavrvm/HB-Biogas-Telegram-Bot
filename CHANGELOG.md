@@ -1,5 +1,27 @@
 # Changelog
 
+## 19 October 2026 - Dormant staff browser MFA foundation (P1a)
+
+- Added user-selected Django/allauth TOTP and recovery-code integration against
+  existing staff accounts, dedicated-key secret encryption, server-owned MFA
+  assurance and fail-closed activation checks. No production login, enrollment,
+  recovery or browser business URLs are mounted; the flag must remain off.
+- Preserved Telegram signed-launch authentication, existing Admin login,
+  independent workflow grants and business services. Vendor credential/email
+  Admin editors are hidden, not adopted as recovery tools.
+- Pinned `django-allauth[mfa]==65.20.0` in both manifests; its 12 additive vendor
+  migrations require the normal authorized release review even while dormant.
+  No production migration/deployment, account provisioning or provider write.
+- Added synthetic vendor password/MFA/CSRF and assurance tests; corrected the
+  existing Telegram test's positional diagnostic-ID assumption without changing
+  production IDs. Verification, limitations, rollback and the required
+  change-specific checklist are in
+  `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`.
+- Final focused run: 53 authentication/identity tests and 28 governance script
+  tests passed; wider audit/catalogue/environment checks have documented gaps.
+- Browser MFA first is approved; forcing password/MFA inside Telegram is not.
+  Operational provisioning/recovery/support and M1 acceptance remain unfinished.
+
 ## 19 October 2026 - HB Deposits and JBL first-visit eligibility
 
 - Added HB Actions → Deposits for scoped HB staff to record cumulative HB totals
