@@ -39,6 +39,16 @@ from core.production import production_security_readiness_issues
 from .assurance import ASSURANCE_KEY, issue_assurance, require_browser_user
 from .checks import staff_browser_checks
 from .crypto import PREFIX, MFASecretUnavailable, decrypt_secret, encrypt_secret
+from .lifecycle import apply_change
+
+
+def admit_synthetic_user(user):
+    """Explicit opt-in, never a production data backfill or a workflow grant."""
+    root = get_user_model().objects.create_superuser('synthetic_admission_root', 'root@example.invalid', None)
+    return apply_change(
+        actor=root, target_user_id=user.pk, action='authorize', expected_revision=0,
+        request_key=f'initial-admission-{user.pk}', reason='Synthetic test opt-in only',
+    )
 
 
 # Ephemeral test-only keys; never actual deployment credentials.
@@ -90,6 +100,14 @@ class MFAEncryptionTests(SimpleTestCase):
 
 
 class DormantConfigurationTests(SimpleTestCase):
+    def test_generic_admin_registration_cannot_reexpose_identity_editors(self):
+        from core.admin_utils import auto_register_unregistered_models
+        from .models import StaffBrowserAdmission
+        for app_label in ('staff_auth', 'account', 'mfa'):
+            self.assertEqual(auto_register_unregistered_models(app_label=app_label), [])
+        for model in (StaffBrowserAdmission, Authenticator, EmailAddress):
+            self.assertFalse(admin.site.is_registered(model))
+
     def test_vendor_credential_editors_are_not_exposed_in_admin(self):
         self.assertFalse(admin.site.is_registered(Authenticator))
         self.assertFalse(admin.site.is_registered(EmailAddress))
@@ -135,6 +153,7 @@ class BrowserAssuranceTests(TestCase):
     def setUp(self):
         cache.clear()
         self.user = get_user_model().objects.create_user('synthetic_browser_actor', password=PASSWORD)
+        admit_synthetic_user(self.user)
         self.secret = generate_totp_secret()
         self.totp = TOTP.activate(self.user, self.secret).instance
         self.request = RequestFactory().get('/synthetic-probe/')
@@ -277,6 +296,7 @@ class VendorPasswordMFAJourneyTests(TestCase):
     def setUp(self):
         cache.clear()
         self.user = get_user_model().objects.create_user('synthetic_vendor_actor', 'synthetic@example.invalid', PASSWORD)
+        admit_synthetic_user(self.user)
         EmailAddress.objects.create(user=self.user, email=self.user.email, primary=True, verified=True)
         self.secret = generate_totp_secret()
         TOTP.activate(self.user, self.secret)

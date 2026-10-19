@@ -169,6 +169,7 @@
         "core/services/product_deletion.py",
         "core/services/staff_access_readiness.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
@@ -227,6 +228,7 @@
         "core/services/workflow_access.py",
         "core/services/workflow_recognition.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/services/origination_dispatch.py",
         "origination/tests.py",
         "origination/tests_application_downloads.py",
@@ -242,7 +244,8 @@
         "report_delivery/tests_complaint_reports.py",
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
-        "requisitions/tests_operations_api.py"
+        "requisitions/tests_operations_api.py",
+        "staff_auth/tests_lifecycle.py"
       ]
     },
     {
@@ -660,7 +663,8 @@
         "origination/tests_laf_bootstrap.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
-        "report_delivery/tests_one_off.py"
+        "report_delivery/tests_one_off.py",
+        "staff_auth/tests_lifecycle.py"
       ],
       "django_model": "core.ComplianceAuditChainState",
       "domain": "audit",
@@ -679,7 +683,8 @@
         "origination/tests_laf_bootstrap.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
-        "report_delivery/tests_one_off.py"
+        "report_delivery/tests_one_off.py",
+        "staff_auth/tests_lifecycle.py"
       ]
     },
     {
@@ -751,7 +756,9 @@
         "origination/services/origination_god_mode.py",
         "origination/services/origination_laf_bootstrap.py",
         "origination/tests_laf_bootstrap.py",
-        "payments/receipt_batches.py"
+        "payments/receipt_batches.py",
+        "staff_auth/lifecycle.py",
+        "staff_auth/tests_lifecycle.py"
       ]
     },
     {
@@ -1033,6 +1040,7 @@
         "core/services/workflow_pilot_purge.py",
         "credit_assessments/tests.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests.py",
         "payments/tests.py",
         "payments/tests_invoice_agreements.py",
@@ -1108,7 +1116,9 @@
         "core/services/workflow_sla.py",
         "credit_assessments/services.py",
         "credit_assessments/tests.py",
+        "hb_operations/management/commands/reconcile_hb_deposit_holds.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/models.py",
         "origination/tests.py",
         "origination/views.py",
@@ -1630,7 +1640,6 @@
       "column_count": 7,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "core/api/portal_views.py",
         "core/services/jawabu_identity.py",
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
@@ -1646,7 +1655,6 @@
       "source_of_truth": true,
       "table": "core_jawabucustomer",
       "used_by": [
-        "core/api/portal_views.py",
         "core/services/complaint_cases.py",
         "core/services/invoice_identity.py",
         "core/services/jawabu_customer_quality.py",
@@ -1806,6 +1814,7 @@
         "core/services/portal_full_reset.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests.py",
         "payments/receipt_batches.py",
         "payments/tests.py",
@@ -1881,9 +1890,12 @@
         "core/services/workflow_links.py",
         "core/services/workflow_sla.py",
         "core/services/workflow_timeline.py",
+        "hb_operations/deposits.py",
+        "hb_operations/management/commands/reconcile_hb_deposit_holds.py",
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests.py",
         "payments/invoice_agreements.py",
         "payments/models.py",
@@ -2066,6 +2078,7 @@
         "core/services/portal_report_insights.py",
         "core/services/workflow_recognition.py",
         "core/services/workflow_timeline.py",
+        "hb_operations/management/commands/reconcile_hb_deposit_holds.py",
         "payments/services.py"
       ]
     },
@@ -5928,7 +5941,8 @@
       "source_of_truth": true,
       "table": "core_userharddeletionbatch",
       "used_by": [
-        "core/services/user_hard_delete.py"
+        "core/services/user_hard_delete.py",
+        "staff_auth/tests_lifecycle.py"
       ]
     },
     {
@@ -6138,6 +6152,7 @@
         "core/services/access_control.py",
         "core/services/fresh_database_baseline.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_signing_presentation.py",
@@ -6162,6 +6177,7 @@
         "core/services/workflow_access.py",
         "core/services/workflow_capabilities.py",
         "hb_operations/tests.py",
+        "hb_operations/tests_deposits.py",
         "origination/migrations/0003_independent_capabilities.py",
         "origination/migrations/0011_phone_identity_pilot_capability.py",
         "origination/tests_application_downloads.py",
@@ -6195,7 +6211,8 @@
       "source_of_truth": true,
       "table": "core_workflowrolecapabilityauditevent",
       "used_by": [
-        "core/services/access_control.py"
+        "core/services/access_control.py",
+        "hb_operations/tests_deposits.py"
       ]
     },
     {
@@ -7385,6 +7402,7 @@
         "core/services/database_catalog.py",
         "core/services/group_reset.py",
         "core/services/portal_recognition.py",
+        "core/services/user_hard_delete.py",
         "portal_recognition/migrations/0001_initial.py",
         "portal_recognition/models.py"
       ]
@@ -7760,7 +7778,6 @@
         "core.RequisitionBatch"
       ],
       "direct_orm_writers": [
-        "core/api/portal_views.py",
         "core/services/portal_full_reset.py",
         "requisitions/services.py"
       ],
@@ -7784,6 +7801,38 @@
         "requisitions/migrations/0003_ordernumberclaim_orderworkbookversion_and_more.py",
         "requisitions/models.py",
         "requisitions/services.py"
+      ]
+    },
+    {
+      "application_area": "Staff Auth",
+      "children": [],
+      "classification": "authoritative_record",
+      "column_count": 7,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "staff_auth/tests_lifecycle.py"
+      ],
+      "django_model": "staff_auth.StaffBrowserAdmission",
+      "domain": "staff_auth",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User"
+      ],
+      "purpose": "Explicit existing-staff browser opt-in and current browser-only session revocation generation; never workflow authority.",
+      "retention": "Retain admission/original staff ID for investigation after user detachment; no automatic purge. Immutable action evidence remains in the compliance ledger.",
+      "source_of_truth": true,
+      "table": "staff_auth_browser_admission",
+      "used_by": [
+        "staff_auth/admin.py",
+        "staff_auth/assurance.py",
+        "staff_auth/catalogue.py",
+        "staff_auth/lifecycle.py",
+        "staff_auth/migrations/0001_initial.py",
+        "staff_auth/models.py",
+        "staff_auth/tests_lifecycle.py"
       ]
     },
     {
@@ -7816,6 +7865,7 @@
         "core/services/database_catalog.py",
         "core/services/group_reset.py",
         "core/services/tat_full_reset.py",
+        "core/services/user_hard_delete.py",
         "core/services/workflow_pilot_purge.py",
         "core/services/workflow_recognition.py",
         "tat_recognition/migrations/0002_tatrecognitionlivestanding.py",

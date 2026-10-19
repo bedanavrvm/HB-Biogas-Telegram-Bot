@@ -7,6 +7,10 @@ described in `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`.
 Its current source/tests supersede the historical authentication/dependency
 snapshot where noted; no operational browser login is enabled. Do not use the
 original inventory counts or hashes as a claim about this later worktree.
+P1b.1 adds explicit browser admission and audited revocation controls; its current
+contract and migration/checklist are in
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. No operational browser
+login or workflow authority is enabled by either slice.
 
 ## How to use this document
 
@@ -34,6 +38,7 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-3 gated plan: user-selected Django/allauth browser MFA, existing grants, Complaints first, M3 review and Telegram-safe rollout. P1a is dormant; later dates and production activation are uncommitted. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` | P1b.1 explicit admission, audited browser-only suspension/revocation/reset, additive model and hard-delete compatibility; current checks, limits and release checklist. Browser remains disabled. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md` | Required change-specific phase/merge/deployment handoff checklist: additions, Telegram compatibility, configuration/schema, monitoring, rollback and unresolved gates. |
 | `codebase-analysis-docs/assets/build_source_inventory.py` | Standard-library-only static inventory builder and bounded source reader; imports no Django code and contacts no provider. |
 | `codebase-analysis-docs/assets/validate_analysis.py` | Read-only validation of source hashes/ranges, explicit repository paths, inventory continuity, required master sections and compact diagrams. |

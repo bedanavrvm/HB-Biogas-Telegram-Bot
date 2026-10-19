@@ -16,6 +16,8 @@ from django.contrib.auth import HASH_SESSION_KEY, SESSION_KEY, get_user_model
 from django.core.exceptions import PermissionDenied
 from django.utils.crypto import constant_time_compare
 
+from .models import StaffBrowserAdmission
+
 
 ASSURANCE_KEY = 'staff_browser_assurance_v1'
 MAX_LOGIN_SECONDS = 900
@@ -67,6 +69,9 @@ def issue_assurance(request, user):
     now = time.time()
     if password_at is None or mfa_at is None or not 0 <= mfa_at - password_at <= MAX_LOGIN_SECONDS or not 0 <= now - mfa_at <= MAX_LOGIN_SECONDS:
         return False
+    admission = StaffBrowserAdmission.objects.filter(user_id=user.pk, enabled=True).first()
+    if admission is None or password_at < admission.updated_at.timestamp():
+        return False
     factor_id = _factor_id(mfa.get('id'))
     if factor_id is None:
         return False
@@ -78,6 +83,7 @@ def issue_assurance(request, user):
         'user_id': str(user.pk), 'at': mfa_at,
         'auth_hash': user.get_session_auth_hash(),
         'totp_id': totp.pk, 'totp_fingerprint': _factor_fingerprint(totp),
+        'admission_id': str(admission.pk), 'admission_revision': admission.revision,
     }
     return True
 
@@ -104,6 +110,14 @@ def require_browser_user(request):
         deny()
     user = get_user_model().objects.filter(pk=actor.pk, is_active=True).first()
     if user is None:
+        deny()
+    admission = StaffBrowserAdmission.objects.filter(user_id=user.pk, enabled=True).first()
+    if (
+        admission is None
+        or str(marker.get('admission_id')) != str(admission.pk)
+        or type(marker.get('admission_revision')) is not int
+        or marker['admission_revision'] != admission.revision
+    ):
         deny()
     stamp = _time(marker.get('at'))
     if stamp is None or not 0 <= time.time() - stamp <= settings.STAFF_BROWSER_SESSION_AGE_SECONDS:

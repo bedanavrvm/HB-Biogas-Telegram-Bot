@@ -1,10 +1,10 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **3 — 19 October 2026**. This revision incorporates the user's review, identity decisions and required pilot order:
+Plan revision: **4 — 19 October 2026**. This revision incorporates the user's review, identity decisions and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a dormant MFA foundation implemented locally; M0/M1 operational acceptance remains open.** The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not a measured complexity claim. Historical research was source-only; current execution evidence is recorded separately below and in the foundation reference.
+Status: **P1a foundation and P1b.1 backend admission/revocation implemented; browser globally disabled and M0/M1 operational acceptance open.** The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not measured complexity. Current P1b.1 contract/evidence/checklist: codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md.
 
 Execution update: D1 is explicitly **Django accounts + django-allauth TOTP/recovery**, not an inferred fallback. D2 is **browser convenience, possible Telegram exit later**. D3 uses **current Django Complaints roles/group scope**, with no new grants. Production release/migrations are **unknown**, as confirmed by the user. The user separately approved **browser MFA first; preserve Telegram signed-launch access**. The bounded foundation may be built locally while deployment/support/acceptance gates remain open; this is not permission to activate the browser channel. See codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md and ADR 0060. Every phase/merge/deployment handoff uses codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md.
 
@@ -184,6 +184,13 @@ Work:
 **Entry:** user-selected self-managed Django/allauth approach and structural/dependency approval for the dormant local foundation. Operational M0 evidence, support readiness and D4/D10 acceptance remain required before M1/activation.
 
 P1 is split into **P1a dormant integration** and **P1b usable closed staff authentication**. P1a adds no production login, enrollment, recovery or business routes; its activation check deliberately fails if enabled. P1b must supply the governed operational flows and source-bound UI review. The complete P1 outcome below is not claimed by P1a.
+
+P1b is delivered in bounded parts: **P1b.1 backend admission/revocation** adds
+explicit staff opt-in, active-Superuser audit/retry/revision controls and
+browser-only generation revocation/reset, while keeping admission globally off.
+**P1b.2 operational authentication** must complete provisioning, enrollment,
+transient-secret/shared-cache protection, mail/recovery/support and reviewed UI.
+Neither P1a nor P1b.1 is M1 or usable browser access.
 
 Work:
 
@@ -458,19 +465,19 @@ Excluded unless separately commissioned: React/SPA rewrite, microservices, secon
 |---|---|
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
-| P0–P7/M0–M7 | P1a dormant implementation only; operational M0/M1 and later milestones not accepted |
+| P0–P7/M0–M7 | P1a and P1b.1 backend controls only; browser globally closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
 | This revision | Local dormant runtime foundation and focused tests; current results/checklist in STAFF_BROWSER_MFA_FOUNDATION.md; production not inspected or changed |
 
-### STATE BLOCK — revision 3 / dormant P1a
+### STATE BLOCK — revision 4 / P1b.1 backend controls
 
-- INDEX_VERSION: platform-independence-plan-3; source investigation baseline 7217791e9836986a493559254f465555ed670568; implementation workspace 9612b1ab4a76f0445574996c333171a07fdd99ce.
+- INDEX_VERSION: platform-independence-plan-4; source investigation baseline 7217791e9836986a493559254f465555ed670568; P1a commit observed during P1b.1: 4b6c8aebfdbdf9c45715aae7d38f4f2f051a6436.
 - FILE_MAP_SUMMARY: Complaint actor/list/detail/comment boundary and tests first; shared Django identity/grants/auth/runtime; release/CI/UI governance; TAT, Origination and Portal kept as separately reviewed later owners.
 - OPEN_QUESTIONS: provisioning/recovery/mail/cache owners and controls, exact pilot accounts, privacy/support owners, actual deployed baseline and maintenance capacity. D1–D3 now answered by user.
 - KNOWN_RISKS: CSRF/session fallback, production access=None, cross-workflow grants, stale assets, IdP/local-session revocation, hidden integration/intake/onboarding dependencies and single-maintainer burden.
 - GLOSSARY_DELTA: a pilot is a narrow accepted capability, not whole-app readiness or Telegram independence; later app order is specified but dates and implementation remain uncommitted.
-- NEXT_READ_QUEUE: finish dormant P1a evidence, then P1b operational enrollment/recovery/UI and staging acceptance. No production mutation based solely on this plan.
-- VERIFICATION: P1a local tests/checks are recorded in STAFF_BROWSER_MFA_FOUNDATION.md, including non-green wider checks. No production inspection or activation.
+- NEXT_READ_QUEUE: finish P1b.1 evidence, then P1b.2 operational enrollment/recovery/UI and staging acceptance. No production mutation based solely on this plan.
+- VERIFICATION: historical P1a evidence in STAFF_BROWSER_MFA_FOUNDATION.md; current P1b.1 results/checklist in STAFF_BROWSER_LIFECYCLE.md. No production inspection or activation.
 
 **Findings:** user decisions now allow bounded local self-managed identity work; operational admission is not ready. **Open questions:** release/support evidence and P1b controls. **Next steps:** complete P1b/M1 before the Complaints pilot; retain the M3 review.
 

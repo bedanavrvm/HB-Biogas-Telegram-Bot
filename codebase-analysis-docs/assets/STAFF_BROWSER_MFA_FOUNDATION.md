@@ -3,6 +3,13 @@
 Date: 19 October 2026. Branch: `Platform-Interdependence`. Starting HEAD:
 `9612b1ab4a76f0445574996c333171a07fdd99ce`.
 
+Historical phase snapshot: P1a was subsequently committed as
+`4b6c8aebfdbdf9c45715aae7d38f4f2f051a6436`. P1b.1 now adds an explicit admission
+UUID/revision requirement and audited lifecycle controls; see
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` for the current contract
+and evidence. P1a source anchors/test counts below retain their original snapshot;
+they are not regenerated current-source claims. Browser access remains closed.
+
 ## 1. Outcome and authority
 
 P1a is a **local, disabled authentication foundation**, not a usable browser

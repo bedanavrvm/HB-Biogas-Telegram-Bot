@@ -44,6 +44,14 @@ _hard_delete_authority = ContextVar('user_hard_delete_authority', default=False)
 # with the account. Everything else using CASCADE is rejected or explicitly
 # redirected below so a new relation cannot silently expand deletion scope.
 DISPOSABLE_CASCADE_MODELS = {
+    # Package-owned credential/email state is not workflow/legal evidence.
+    # Admission detaches with its original user ID; compliance remains intact.
+    'account.EmailAddress',
+    'mfa.Authenticator',
+    # Expiring viewer checkpoints are disposable cache, unlike immutable
+    # group-wide settled recognition snapshots, which have no viewer FK.
+    'portal_recognition.PortalRecognitionLiveStanding',
+    'tat_recognition.TatRecognitionLiveStanding',
     'core.AccessGrant',
     'core.CapabilityUsageDaily',
     'core.EmergencyAccessGrant',

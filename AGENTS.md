@@ -76,6 +76,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App record reference** | A versioned, allowlisted workflow/entity/UUID reference for future explicit interlinkage. It contains no customer identity or access token, grants no authority, and resolves only through the owning workflow's current authorization. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Browser MFA assurance** | Server-owned proof that the existing Django user completed company password plus allauth TOTP/recovery authentication. It never grants workflow authority. P1a `staff_auth` is dormant, has no production login/enrollment/business URLs, and must stay disabled; Telegram signed-launch access is unchanged. |
+| **Browser admission** | Explicit existing-staff browser-channel opt-in and revocation generation in `staff_auth.StaffBrowserAdmission`. Audited active-Superuser authorize/suspend/revoke/reset actions never change Telegram, shared sessions, passwords or workflow grants. P1b.1 is backend-only and remains globally disabled; see ADR 0061 and `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Scheduled Portal report** | An approved group/branch/product-scoped email report for one completed Nairobi period; current backlog and financial snapshot bases remain distinct from period activity. |
@@ -156,6 +157,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `config/settings.py` — application settings and environment variables
 - `config/urls.py` — project-level URL routing
 - `staff_auth/` — dormant company-browser password/MFA integration, encrypted vendor secrets and admission checks; see `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060. Do not mount vendor account URLs or treat raw Admin edits as provisioning/recovery.
+- `staff_auth/lifecycle.py` — P1b.1 explicit browser opt-in, suspension, browser-only revision revocation and audited MFA reset; `manage_staff_browser` previews by default. No automatic staff enrollment, new workflow grants, real reset or production application is authorized by implementing this service. Migration `staff_auth.0001_initial` is additive; normal rollback preserves state. See `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` and ADR 0061.
 - `core/api/urls.py` — canonical `/api/` workflow and API route definitions
 - `core/api/browser_urls.py` — intentional root browser/Mini App entry points
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases

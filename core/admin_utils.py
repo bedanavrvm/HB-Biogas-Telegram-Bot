@@ -161,8 +161,10 @@ def auto_register_unregistered_models(*, app_label=None) -> list[type[models.Mod
     for model in apps.get_models():
         if app_label and model._meta.app_label != app_label:
             continue
-        if model._meta.app_label in {'qa_tracker', 'report_delivery', 'ui_review'} or (model._meta.app_label == 'origination' and app_label != 'origination'):
+        if model._meta.app_label in {'qa_tracker', 'report_delivery', 'ui_review', 'staff_auth', 'account', 'mfa'} or (model._meta.app_label == 'origination' and app_label != 'origination'):
             # QA models have scoped, purpose-built admins registered later.
+            # Identity credentials/admission must not gain a generic editor,
+            # including if registration is deliberately rerun after startup.
             continue
         if model._meta.label in INLINE_ONLY_MODEL_LABELS:
             continue

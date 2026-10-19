@@ -1,5 +1,29 @@
 # Changelog
 
+## 19 October 2026 - Browser admission and revocation controls (P1b.1)
+
+- Added explicit existing-staff browser opt-in, audited suspension, browser-only
+  session revocation and support-reference-bound MFA reset. The preview-first
+  operator command requires a currently active Superuser, reviewed revision,
+  stable request key and reason for writes; audit failure rolls back the action.
+- Added `staff_auth.0001_initial` for one commented, catalogue-governed admission
+  table, without data backfill. Browser assurance now binds its UUID/revision
+  and rejects authentication started before the latest lifecycle boundary.
+- Preserved shared sessions, Telegram bindings, passwords and workflow grants.
+  Classified allauth email/factor credential rows in the existing governed user
+  deletion registry; admission/original identity and compliance evidence survive.
+  Also classified two already-expiring viewer-recognition caches; immutable
+  settled recognition snapshots and workflow evidence are unchanged.
+- Refreshed the generated database catalogue, including prior stale usage
+  references. No dependency/configuration/UI/URL addition or production action.
+  Browser admission remains off; P1b.2 operational login/enrollment/recovery and
+  M1 acceptance remain open. Verification and the change-specific checklist:
+  `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`.
+- Final focused run: 95 tests passed, two PostgreSQL-only tests skipped; ten
+  crypto/configuration checks and 28 governance-script tests passed. Full CI,
+  PostgreSQL and live-device acceptance are not claimed; known wider failures
+  remain documented.
+
 ## 19 October 2026 - Dormant staff browser MFA foundation (P1a)
 
 - Added user-selected Django/allauth TOTP and recovery-code integration against

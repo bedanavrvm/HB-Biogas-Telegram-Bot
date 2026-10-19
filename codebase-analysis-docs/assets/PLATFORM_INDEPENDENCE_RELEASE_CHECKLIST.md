@@ -70,3 +70,12 @@ blockers and specific monitoring/rollback checklist in
 `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` for this phase.
 Dependency and 12 vendor migrations are deployment considerations; browser
 admission stays off. No merge/deployment has been performed or authorized.
+
+## P1b.1 backend lifecycle handoff
+
+Current slice: one admission model/migration, audited opt-in/suspend/revoke/reset
+service, preview-first command and assurance generation checks; no UI or business
+API. Use `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` for this phase's
+actual additions, evidence, limits, rollback and monitoring checklist. Admission
+remains globally off. P1a was committed separately while this phase ran; no
+commit/merge/deployment was performed by this phase and production remains unknown.

@@ -1,5 +1,34 @@
 # Known Gaps and Verified Workarounds
 
+## Browser lifecycle backend controls - 19 October 2026
+
+P1b.1 provides deliberate browser opt-in, suspension, browser-only revocation
+and audited factor reset, **not usable browser login/enrollment/recovery**.
+Keep `STAFF_BROWSER_AUTH_ENABLED=False`; activation checks remain blocking.
+Do not use `manage_staff_browser --apply` against real staff without the actual
+environment-specific authority and accepted support procedure. It defaults to
+read-only preview. No workflow grants, credentials or emails are provisioned.
+
+`staff_auth.0001_initial` adds one admission table without backfill; normal
+rollback retains it and its revocation state. The generated catalogue is now
+refreshed and verified (213 entries), resolving P1a's stale usage-map finding.
+Other previously diagnosed audit/environment/Ruff limitations remain separate.
+The wider catalogue test suite also reports an existing duplicate explicit
+`RequisitionBatch.order_number` index; its finance schema was not changed here.
+Current verification, PostgreSQL-only race tests, remaining operational controls
+and per-release checklist are in
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. No production release,
+migration, opt-in, reset, external write or merge was performed for this phase.
+
+Final focused normal-management-command result: **97 tests, 95 passed and two
+PostgreSQL-only concurrency skips** across `staff_auth`,
+`core.tests_telegram_authentication`, `core.tests_user_identity` and
+`core.tests_user_hard_delete`. Ten final no-database crypto/configuration checks
+also passed (nine overlap that run; one is the later generic-registration
+contract), and 28 governance script tests passed. An earlier programmatic runner
+missed the repository's test-mode argv marker and produced fixture-guard errors;
+that diagnostic is superseded by the normal-run result, not a production finding.
+
 ## Dormant staff browser MFA verification - 19 October 2026
 
 P1a `staff_auth` is an integration foundation, **not a usable browser login**.

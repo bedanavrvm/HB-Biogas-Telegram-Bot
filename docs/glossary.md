@@ -17,6 +17,13 @@ P1a is dormant and mounts no production company-login or business routes;
 Telegram signed-launch access remains unchanged. See
 `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060.
 
+**Browser admission:** Explicit opt-in and current browser-only revocation
+generation for an existing Django staff identity. The active technical Superuser
+manages it through the audited lifecycle service; it supplies no workflow grant.
+Browser suspension/revocation preserves Telegram and shared Django sessions.
+P1b.1 adds backend controls, not usable login. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` and ADR 0061.
+
 **HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
 zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
 the JBL queue. HB staff use HB Actions → Deposits to record/correct totals;
