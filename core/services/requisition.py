@@ -4,15 +4,49 @@ import io
 import os
 import math
 import openpyxl
-from datetime import date, datetime
+from datetime import date, datetime, timezone as datetime_timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 from django.conf import settings
+from django.utils import timezone
 from core.models import JawabuFarmerMaster
 from core.services.template_storage import TemplateStorageError, workbook_source_from_template
 
 
 class RequisitionTemplateError(RuntimeError):
     pass
+
+
+def ordered_document_farmers(farmers, *, eco_first: bool = False):
+    """Order new document rows by intake age, not names, selection or UUIDs.
+
+    HBG visit/sign date is the original business intake date. Office leads and
+    incomplete legacy rows fall back to their Nairobi creation date. Stable
+    creation/reference/UUID ties keep preview and workbook rows identical.
+    This helper must never be applied to already retained document snapshots.
+    """
+    from core.services.jawabu_validation import parse_business_date
+    from core.services.requisition_partners import PARTNER_ECO, fulfillment_partner_for_farmer
+
+    def key(farmer):
+        created = getattr(farmer, 'created_at', None)
+        if created is not None and timezone.is_naive(created):
+            created = timezone.make_aware(created, datetime_timezone.utc)
+        intake_date = (
+            parse_business_date(getattr(farmer, 'hbg_visit_date', None))
+            or parse_business_date(getattr(farmer, 'sign_date', ''))
+            or (timezone.localdate(created, ZoneInfo('Africa/Nairobi')) if created else date.max)
+        )
+        partner_rank = int(fulfillment_partner_for_farmer(farmer) != PARTNER_ECO) if eco_first else 0
+        return (
+            partner_rank, intake_date,
+            created or datetime.max.replace(tzinfo=datetime_timezone.utc),
+            getattr(farmer, 'case_reference_number', None) or 2**63,
+            str(getattr(farmer, 'pk', '') or getattr(farmer, 'id', '')),
+        )
+
+    return sorted(farmers, key=key)
+
 
 def clean_deposit_float(val: Any) -> float | int | None:
     if not val:
@@ -125,6 +159,7 @@ def generate_requisition_excel(
     farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date,
     *, partner: str = 'HB', template=None,
 ) -> bytes:
+    farmers = ordered_document_farmers(farmers)
     import os
     from django.conf import settings
     from core.models import RequisitionTemplate

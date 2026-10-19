@@ -1,5 +1,6 @@
 'use strict';
 const path = require('node:path');
+const fs = require('node:fs');
 const {test, expect} = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const {mountPortalShell} = require('./fixtures/portal_shell');
@@ -110,16 +111,28 @@ for (const width of [320, 430, 768, 1280]) {
 
 test('sent-letter download names the file and agreement upload sends the file with attestation', async ({page}) => {
   await mountPortalShell(page, '<div id="portal-screen" data-screen="invoices" data-invoice-view="detail" data-invoice-id="training-invoice"><div id="invoice-detail-page"></div></div>');
+  await page.addScriptTag({path:asset('portal_dialogs.js')});
   await page.addScriptTag({path:asset('portal_invoices.js')});
+  const source = fs.readFileSync(asset('portal.js'), 'utf8');
+  const downloadCode = source.slice(source.indexOf('  function downloadPortalFile('), source.indexOf('  function summaryGrid('));
+  await page.addScriptTag({content:`(function () {
+    const tg = {downloadFile(values, callback) { window.downloadCalls.push(values); callback(true); }};
+    const showToast = message => window.notices.push(message);
+    const openPortalLink = () => { throw new Error('Unexpected download fallback'); };
+    ${downloadCode}
+    window.syntheticDownloadPortalFile = downloadPortalFile;
+  })();`});
   await page.evaluate(async () => {
     window.downloadCalls = []; window.uploadCalls = []; window.notices = [];
     PortalMiniAppInvoices.init({state:{capabilities:new Set(['portal.invoice.write','portal.invoice_identity.manage'])},
       tg:{initData:'synthetic-only'}, showToast:message => notices.push(message),
-      downloadPortalFile:values => downloadCalls.push(values),
+      downloadPortalFile:window.syntheticDownloadPortalFile,
       portalApi:{postForm:async (url,form,tg) => {
         uploadCalls.push({url, filename:form.get('signed_letter').name, confirmed:form.get('confirmed'), initData:tg.initData});
         return {ok:true, data:{ok:true}};
-      }}, apiFetch:async () => ({ok:true, data:{ok:true, invoice:{
+      }}, apiFetch:async (url) => url.endsWith('/download-link/')
+        ? {ok:true, data:{ok:true, filename:'Training-name-change.docx', download_url:'https://example.invalid/synthetic-letter/'}}
+        : ({ok:true, data:{ok:true, invoice:{
         id:'training-invoice', status:'matched', invoice_no:'TRAIN-10', customer_name:'Training holder',
         identity:{status_label:'Waiting for corrected invoice', discrepancy_codes:['national_id_mismatch'],
           invoice_identity:{name:'Training holder', national_id:'99999992'}, applicant_identity:{name:'Training applicant', national_id:'99999991'},
@@ -132,8 +145,8 @@ test('sent-letter download names the file and agreement upload sends the file wi
   await page.locator('.invoice-name-change-download').click();
   await expect(page.getByRole('dialog')).toContainText('Training-name-change.docx');
   await page.getByRole('button', {name:'Download', exact:true}).click();
-  expect(await page.evaluate(() => downloadCalls[0].filename)).toBe('Training-name-change.docx');
-  expect(await page.evaluate(() => notices.some(message => message.includes('Training-name-change.docx')))).toBe(true);
+  expect(await page.evaluate(() => downloadCalls[0])).toEqual({url:'https://example.invalid/synthetic-letter/', file_name:'Training-name-change.docx'});
+  expect(await page.evaluate(() => notices.some(message => message.includes('Download requested.')))).toBe(true);
   await page.locator('.invoice-name-change-agreement').click();
   await page.locator('#invoice-signed-letter').setInputFiles({name:'Training-agreed.pdf', mimeType:'application/pdf', buffer:Buffer.from('%PDF-synthetic-fixture')});
   await page.locator('input[name="confirmed"]').check();

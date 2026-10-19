@@ -229,6 +229,31 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertNotIn('Global product mapping is pending', readiness['ready'][0]['warnings'])
         self.assertEqual(readiness['ready'][0]['row']['product'], 'LEGACY BIOGAS PACKAGE')
 
+    def test_preview_and_workbook_group_eco_first_then_oldest_within_partner(self):
+        specifications = [
+            ('A HB Old', 'Kiambu', '', date(2026, 1, 1)),
+            ('B HB New', 'Kiambu', '', date(2026, 2, 1)),
+            ('Z Eco Old', 'Nakuru', '', date(2026, 3, 1)),
+            ('Y Eco New', 'Kiambu', 'Eco-conserve Jawabu', date(2026, 4, 1)),
+        ]
+        farmers = []
+        for name, county, salesperson, intake_date in specifications:
+            farmer = self.farmer(customer_name=name, county=county,
+                                 hb_sales_person=salesperson, hbg_visit_date=intake_date)
+            batch = self.invoice_batch(farmer)
+            batch.invoices.update(customer_name=name)
+            farmers.append(farmer)
+        ids = [str(farmer.pk) for farmer in reversed(farmers)]
+        expected = ['Z ECO OLD', 'Y ECO NEW', 'A HB OLD', 'B HB NEW']
+        readiness = payment_readiness('ORDER-001', farmer_ids=ids)
+        self.assertEqual(readiness['blocked'], [])
+        self.assertEqual([row['row']['name'] for row in readiness['ready']], expected)
+        data, summary = generate_payment_workbook('ORDER-001', '101', farmer_ids=ids)
+        ws = load_workbook(io.BytesIO(data))['#101']
+        start = summary['data_start_row']
+        self.assertEqual([ws.cell(start + i, 8).value for i in range(4)], expected)
+        self.assertEqual([ws.cell(start + i, 6).value for i in range(4)], [1, 2, 3, 4])
+
     def test_sysup_product_label_without_mapping_is_selectable_and_addable(self):
         from core.services.portal_payment_candidates import payment_candidate_rows
         from payments.services import add_cases, create_batch
@@ -812,6 +837,11 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         farmer = self.farmer(order_number='ORDER-MATCHED')
         batch = self.invoice_batch(farmer)
         duplicate_batch = self.invoice_batch()
+        # Oldest-copy retention must not depend on the host clock ticking
+        # between two rapid inserts (UUID order is the legitimate tie-break).
+        now = timezone.now()
+        batch.invoices.update(created_at=now - timedelta(days=1))
+        duplicate_batch.invoices.update(created_at=now)
 
         response = self.client.get(reverse('portal_invoice_pool'), {'review': 'duplicates'})
 
@@ -1293,7 +1323,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIsNone(ws['R8'].value)
         self.assertEqual(ws['S8'].value, '10TH')
         self.assertEqual(ws['T8'].value, '6')
-        self.assertEqual(ws['U8'].value, 'BIOGAS PREMIUM')
+        # A known alias is canonicalized when the farmer is saved; document
+        # generation must use that saved value, not the original fixture text.
+        self.assertEqual(farmer.payment_product.upper(), 'BIOGAS')
+        self.assertEqual(ws['U8'].value, farmer.payment_product.upper())
         self.assertIn(ws.cell(row=summary['totals_row'], column=14).value, (None, ''))
         prepared_rows = [row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=3).value == 'PREPARED BY:']
         self.assertTrue(prepared_rows)
@@ -1360,8 +1393,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(invalid.json()['code'], 'invalid_request')
 
     def test_document_history_lists_and_opens_final_payment_snapshot(self):
+        farmer = self.farmer()
         doc = PaymentDocument.objects.create(
             order_number='ORDER-001', payment_number='89', status='final', row_count=1,
+            farmer_ids=[str(farmer.pk)],
             filename='HB_Payment_89_ORDER-001_final_v1.xlsx',
             validation_summary={'preview_rows': [{
                 'name': 'Mary Wanjiku', 'hb_invoice_amount': '43500.00',
@@ -1384,6 +1419,13 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
         self.assertEqual(detail.json()['preview']['totals']['hb_invoice_amount'], '43500.00')
+
+    def test_unbound_payment_snapshot_is_not_exposed_by_history_or_detail(self):
+        doc = PaymentDocument.objects.create(order_number='UNBOUND', payment_number='90', status='final')
+        history = self.client.get(reverse('portal_document_history'), {'kind': 'payments'})
+        detail = self.client.get(reverse('portal_payment_document_detail', args=[str(doc.pk)]))
+        self.assertEqual(history.json()['documents'], [])
+        self.assertEqual(detail.status_code, 403)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_document_history_can_regenerate_a_new_review_snapshot(self, storage):

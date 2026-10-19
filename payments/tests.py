@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 import json
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.http import JsonResponse
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import Workbook
 
 from core.models import DocumentSignoffPolicy, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, PaymentDocument
@@ -647,6 +649,9 @@ class PaymentListPaginationTests(TestCase):
 
     def test_old_open_batch_is_not_hidden_by_one_hundred_completed_batches(self):
         old = PaymentBatch.objects.create(group_configuration=self.group, status='draft')
+        # Wall-clock resolution differs across Windows/Linux. Make this row
+        # genuinely older rather than relying on consecutive now() calls.
+        PaymentBatch.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=1))
         PaymentBatch.objects.bulk_create([PaymentBatch(group_configuration=self.group, status='completed', payment_number=i+1) for i in range(101)])
         result = self.listed('?status=open')
         self.assertEqual([item['id'] for item in result['batches']], [str(old.pk)])

@@ -218,6 +218,17 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertIn(ws['K14'].value, (None, ''))
         self.assertEqual(ws['L14'].value, 0)
 
+    def test_workbook_rows_are_oldest_first_even_for_reversed_selection(self):
+        with TemporaryDirectory() as directory:
+            template_path = Path(directory) / 'synthetic-requisition.xlsx'
+            self.write_reconciled_shape_template(template_path)
+            newer = self.farmer(customer_name='A Newer', hbg_visit_date=date(2026, 10, 2))
+            older = self.farmer(customer_name='Z Older', sign_date="'01-Sep-2026")
+            data = self.generate_with_template(template_path, [newer, older])
+        ws = load_workbook(io.BytesIO(data)).active
+        self.assertEqual([ws[f'D{row}'].value for row in (14, 15)], ['Z OLDER', 'A NEWER'])
+        self.assertEqual([ws[f'C{row}'].value for row in (14, 15)], [1, 2])
+
     def test_payment_deposits_never_substitute_hb_receipt_for_missing_lgf(self):
         from core.services.requisition import requisition_deposit_values
 

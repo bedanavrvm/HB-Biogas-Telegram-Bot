@@ -923,12 +923,12 @@ def _invoice_summary_for_batch(farmers, stored_summary=None) -> dict:
 def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
     from core.services.jawabu_pipeline import farmer_to_card
     from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
-    from core.services.requisition import requisition_order_deposit_values
+    from core.services.requisition import ordered_document_farmers, requisition_order_deposit_values
 
     ready = []
     blocked = []
     warnings = []
-    for farmer in farmers:
+    for farmer in ordered_document_farmers(farmers):
         card = farmer_to_card(farmer)
         hbg_deposit, jbl_deposit = requisition_order_deposit_values(farmer)
         card['requisition_preview'] = {
@@ -6419,7 +6419,7 @@ def portal_requisition_finalize(request):
                 if not ok:
                     raise ValueError(assignment_error)
             checksum = hashlib.sha256(xlsx_bytes).hexdigest()
-            from requisitions.services import retain_finalized_requisition, record_sequence_event
+            from requisitions.services import retain_finalized_requisition, record_sequence_event, record_workspace_event
             values = dict(
                 group_configuration=sequence.group_configuration,
                 fulfillment_partner=partner, requisition_template=template,
@@ -6452,7 +6452,7 @@ def portal_requisition_finalize(request):
                 batch = retain_finalized_requisition(**values)
                 claim_number(sequence, batch, actor=request.portal_user, request_id=request_id)
             JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).update(requisition_batch=batch)
-            OrderWorkspaceEvent.objects.create(batch=batch, action='appended' if target else 'generated',
+            record_workspace_event(batch=batch, action='appended' if target else 'generated',
                 version=batch.version, actor=request.portal_user, request_id=request_id,
                 metadata={'payload_digest': payload_digest, 'farmer_ids': farmer_ids})
     except RequisitionTemplateError:
@@ -7844,7 +7844,7 @@ def portal_create_and_complete_jbl_lead(request):
     """Atomically create a JBL office lead and submit its first visit."""
     from datetime import date as _date
     from decimal import Decimal, InvalidOperation
-    from core.models import JawabuCustomer, JawabuFarmerMaster
+    from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import JBL_FORWARD_STATUSES, JawabuWorkflowState, complete_jbl_visit, farmer_to_card, validate_jbl_visit_upload_batch
     from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
@@ -7943,7 +7943,15 @@ def portal_create_and_complete_jbl_lead(request):
             village=str(body.get('village') or '').strip(), request_id=request_id, expected_revision=int(farmer.workflow_revision or 1), actor_user=actor,
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        ok, error, result = False, str(exc), {'evidence_saved': farmer.media_attachments.exists()}
+
+    if not ok:
+        if created_lead and not result.get('evidence_saved'):
+            from core.services.jawabu_pipeline import discard_uncompleted_portal_visit_lead
+            discard_uncompleted_portal_visit_lead(farmer.pk, external_id=external_id)
+        return JsonResponse({'ok': False, 'error': error, 'code': result.get('code') or 'jbl_visit_validation_failed', 'field_errors': _portal_jbl_visit_field_errors(error, result), **result}, status=409 if result.get('evidence_saved') else 400)
+    farmer.refresh_from_db()
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'publication': _portal_publication_payload(farmer), 'created_lead': created_lead, **result})
 
 
 def _portal_tat_configuration():
@@ -7977,21 +7985,6 @@ def portal_tat_target_settings(request):
     except (UnicodeDecodeError, TypeError, ValueError) as exc:
         return JsonResponse({'ok': False, 'error': str(exc) or 'TAT targets must be valid JSON.'}, status=400)
     return JsonResponse({'ok': True, 'data': result})
-    if not ok:
-        # A failed local validation must not leave a half-created office lead.
-        # If Drive evidence was stored, it remains linked for an idempotent
-        # retry; otherwise both just-created identity rows are safely removed.
-        if created_lead and not result.get('evidence_saved'):
-            with transaction.atomic():
-                created = JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer.pk, external_id=external_id).first()
-                if created and not created.media_attachments.exists():
-                    customer_id = created.customer_id
-                    created.delete()
-                    if customer_id:
-                        JawabuCustomer.objects.filter(pk=customer_id, applications__isnull=True).delete()
-        return JsonResponse({'ok': False, 'error': error, 'code': result.get('code') or 'jbl_visit_validation_failed', 'field_errors': _portal_jbl_visit_field_errors(error, result), **result}, status=409 if result.get('evidence_saved') else 400)
-    farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'publication': _portal_publication_payload(farmer), 'created_lead': True, **result})
 
 
 @require_http_methods(["GET"])

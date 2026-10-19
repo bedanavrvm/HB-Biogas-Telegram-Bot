@@ -6,6 +6,7 @@ const {addOfflineStyle} = require('./fixtures/portal_shell');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 async function styles(page) {
   await page.addScriptTag({path:asset('portal_helpers.js')});
+  await page.addScriptTag({path:asset('portal_dialogs.js')});
   for (const file of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) await addOfflineStyle(page, file);
   await page.addScriptTag({path: asset('vendor-lucide-1.44.0.min.js')});
 }
@@ -78,6 +79,8 @@ test('delivery previews preserve the parent dialog and Cash choices', async ({pa
 
 test('duplicate selection can be deleted without first applying the duplicate filter', async ({page}, info)=>{
   await page.setViewportSize({width:320,height:850});
+  await page.route('http://127.0.0.1:8007/**', route => route.fulfill({contentType:'text/html', body:'<body>Recovery handoff</body>'}));
+  await page.goto('http://127.0.0.1:8007/portal/s/invoices/');
   const template=fs.readFileSync(path.resolve(__dirname,'../templates/portal/portal.html'),'utf8');
   const toolbar=template.slice(template.indexOf('    <div class="batch-panel portal-initially-hidden" id="invoice-bulk-toolbar"'),template.indexOf('    <div id="invoice-pool-list"'));
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><section id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><div id="invoice-pool-summary"></div>${toolbar}<div id="invoice-pool-list"></div><div id="pg-invoices"></div></section></main></body>`);
@@ -107,5 +110,7 @@ test('duplicate selection can be deleted without first applying the duplicate fi
   await page.screenshot({path:info.outputPath('invoice-actions-320.png')});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.locator('#invoice-retry-cleanup').click();
-  await expect(page.locator('#invoice-retry-cleanup')).toBeHidden();
+  // The approved recovery workspace owns retries; this screen must hand off,
+  // not silently execute a second external cleanup from a historical list.
+  await expect(page).toHaveURL('http://127.0.0.1:8007/portal/s/settings/?recovery=1');
 });

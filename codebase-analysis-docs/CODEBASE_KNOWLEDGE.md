@@ -961,3 +961,96 @@ are `codebase-analysis-docs/assets/PHONE_ID_CHECK_FLOW.mmd` and
 `codebase-analysis-docs/assets/PHONE_ID_CHECK_SCHEMA.mmd`.
 
 **Decisions/Findings:** the document and inventories are self-contained architecture/workflow guidance with bounded evidence and explicit verification limits. **Open Questions:** live deployment facts remain operator-owned; no unresolved source question prevents using this handoff. **Next Steps:** use the owner/test map for the next bounded feature, bug fix or refactor and update changed evidence rather than blindly re-running the entire analysis.
+
+## Post-analysis change: Portal hardening (19 October 2026)
+
+This section supersedes the original snapshot only for the following bounded
+Portal contracts. Earlier file hashes remain historical, not current-source
+fingerprints. No schema, access policy, financial values or allocator rules
+changed.
+
+### Lead completion response boundary
+
+`core/api/portal_views.py::portal_create_and_complete_jbl_lead` now returns JSON
+after `core/services/jawabu_pipeline.py::complete_jbl_visit` succeeds or returns
+an expected validation failure. Its success/failure handling previously sat
+below an unconditional return in the unrelated `portal_tat_target_settings`
+function. The endpoint therefore returned `None` after processing an otherwise
+valid intake.
+
+A newly created invalid intake can be removed only through
+`core/services/jawabu_pipeline.py::discard_uncompleted_portal_visit_lead`.
+It locks the exact request-bound case and requires revision one, the initial
+JBL Visit state, no recorded visit date, no media and no pipeline events.
+An existing/retried or progressed case is retained. Its paired customer is
+removed only if no application still references it. This cleanup never calls
+Google, releases a case reference or erases recorded workflow/evidence history.
+Evidence-retained failures return HTTP 409; ordinary validation failures return
+HTTP 400 with field feedback. Same-key retries reuse the actor-bound intake.
+
+### New document row order
+
+`core/services/requisition.py::ordered_document_farmers` is the shared pure
+ordering helper. It returns a new sorted list without changing the selection:
+
+1. For payments only, rank Eco-conserve before HB using the existing
+   `core/services/requisition_partners.py::fulfillment_partner_for_farmer`
+   county/salesperson rule. No grouping authority comes from the client.
+2. Within the applicable group, use typed HBG visit date, then a parseable
+   legacy sign date, then the case creation date in Africa/Nairobi.
+3. Break equal intake-date ties with creation time, immutable case reference,
+   then UUID. Completely undated rows are last within their group.
+
+`core/api/portal_views.py::_validate_requisition_farmers` uses this order for
+new order-preview cards. `core/services/requisition.py::generate_requisition_excel`
+uses it independently at the workbook boundary, including additions to an
+unsigned order. UUID lock ordering remains unchanged; lock acquisition order
+is not presentation order.
+
+`core/services/payment_documents.py::payment_readiness` applies the same helper
+with `eco_first=True`. Draft payment previews and generated workbook rows consume
+that result. Saved document `preview_rows` and retained workbook bytes are
+never resorted or regenerated merely to adopt this rule. The invariant is
+covered by `core/tests_portal_hardening.py::RetainedDocumentTests`.
+
+### Persistence and regression governance
+
+Order finalization calls `requisitions/services.py::record_workspace_event`
+inside the existing allocator transaction instead of directly creating
+`OrderWorkspaceEvent` in the view. Event contents, request-key uniqueness,
+number allocation and exact signed-version finality remain unchanged.
+
+`core/miniapp_write_inventory.py` now describes 34 previously missing existing
+contracts. These entries are documentation checked by CI, not role grants or
+new request handlers. Launcher discovery is explicitly recorded as a read-only
+Telegram authentication/current-grant projection rather than a business-write
+route; the checker still rejects unreviewed unsafe routes. The complete
+inventory has 201 business-route entries plus its explicit exceptions.
+
+The Portal browser regression corrections retain actual production HTML/CSS/JS:
+load the shared confirmation module, return the real download-link response
+shape, run the existing download helper, verify the recovery-workspace handoff,
+and assert the current immediate preparation/search-control placement. No
+operational UI source, screenshot baseline, candidate tokens or Phase 6
+authorization changed. Backend fixtures now retain explicit historical case
+scope, canonical saved product labels, and distinct timestamps where a test
+requires an older original or batch. Authorization was not relaxed to satisfy
+fixtures.
+
+Primary regression sources are `core/tests_portal_hardening.py`,
+`core/tests_requisition.py`, `core/tests_payment_documents.py`, `payments/tests.py`,
+`requisitions/tests_operations_api.py` and `core/tests_browser/portal_*.spec.js`.
+Final isolated verification ran 297 backend checks (294 passed; two
+PostgreSQL-specific skips and one absent optional template) and all 261 Portal
+browser checks passed. Architecture boundaries, the 201-entry route inventory,
+Django checks, migration graph/drift, database governance, JavaScript
+syntax/client checks and the UI source ratchet passed. Current limitations are
+recorded in `KNOWN_GAPS.md`. Operational guidance is
+`docs/runbooks/portal-action-confirmations.md`.
+
+**Decisions/Findings:** new finance document chronology and lead responses are
+server-owned; retained evidence, permissions and financial authority are
+unchanged. **Open Questions:** deployed health, PostgreSQL concurrency and real
+Telegram-device acceptance remain operator-owned release gates. **Next Steps:**
+review and deploy the bounded code change through the normal release process;
+do not backfill or regenerate historical signed documents.

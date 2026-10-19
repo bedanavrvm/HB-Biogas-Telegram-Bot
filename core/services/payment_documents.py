@@ -21,7 +21,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.models import JawabuFarmerMaster, ParsedInvoice, PaymentDocument, PaymentDocumentTemplate
 from core.services.invoice_parser import clean_amount
-from core.services.requisition import copy_row_formatting
+from core.services.requisition import copy_row_formatting, ordered_document_farmers
 from core.services.template_storage import TemplateStorageError, workbook_source_from_template
 
 
@@ -502,7 +502,7 @@ def payment_readiness(
         queryset = queryset.filter(id__in=farmer_ids)
     else:
         queryset = queryset.filter(order_number=order_number)
-    farmers = list(queryset.order_by('customer_name'))
+    farmers = ordered_document_farmers(queryset, eco_first=True)
     ready = []
     blocked = []
     invoice_batch_ids = set()

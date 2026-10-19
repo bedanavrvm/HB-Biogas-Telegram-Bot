@@ -297,7 +297,7 @@ test('invoice review shows a specific issue without sacrificing the mobile searc
     });
     return window.PortalMiniAppInvoices.load(1);
   });
-  await expect(page.locator('.invoice-card-alert')).toContainText('2 possible duplicate invoices');
+  await expect(page.locator('.invoice-card-alert')).toContainText('2 duplicate invoices');
   const upload = await page.locator('.invoice-header-actions a').boundingBox();
   const heading = await page.locator('.invoice-page-header h1').boundingBox();
   expect(Math.abs(upload.y - heading.y)).toBeLessThanOrEqual(15);

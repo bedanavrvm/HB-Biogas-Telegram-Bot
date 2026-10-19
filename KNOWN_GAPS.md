@@ -1,5 +1,42 @@
 # Known Gaps and Verified Workarounds
 
+## Portal hardening verification - 19 October 2026
+
+The JBL office-lead response defect and new order/payment document ordering
+are corrected. New documents use original HBG visit/sign date (Nairobi
+creation-date fallback); payments group Eco-conserve before HB. Retained
+preview rows, signed files, numbering, financial values and access policy are
+unchanged. See the Portal hardening section of
+`codebase-analysis-docs/CODEBASE_KNOWLEDGE.md` and the current operational
+contract in `docs/runbooks/portal-action-confirmations.md`.
+
+Final isolated verification: 297 backend checks, 294 passed and three skipped;
+all 261 Portal browser checks passed. The skips are two PostgreSQL-specific
+claim/schema-upgrade checks and the optional local reconciled-workbook fixture
+absent from this checkout. The earlier broad run's duplicate-retention assertion
+was traced to equal-clock fixture timestamps; distinct explicit ages now make
+both that test and payment pagination deterministic. Earlier payment-history
+and product-label failures were corrected with genuinely scoped history
+fixtures and the canonical saved label, without relaxing production guards.
+
+Architecture boundaries, the complete 201-entry write-route inventory, Django
+checks, JavaScript syntax/client tests, database governance, migration graph,
+migration-drift and UI-source ratchet checks passed. Browser fixtures now load
+the current shared confirmation/download contracts and assert the current
+compact preparation/recovery interactions. No operational UI source, approved
+baseline or design-lab migration flag was changed. Synthetic 320px light/dark
+screenshots were inspected; they are not native-font or Telegram approval.
+
+No production deployment/migration, real provider write or PostgreSQL run was
+performed. There is no schema/environment/backfill requirement for this patch;
+deploy the reviewed code normally and retain all historical documents. Real
+Telegram devices, native downloads, live integration health and PostgreSQL
+concurrency still require authorized release verification. The full repository
+suite and correctness-only Ruff lint were not run (Ruff is unavailable locally).
+Unrelated older parity/artifact/platform findings below are not resolved by
+this bounded Portal patch. Older references below to the 34 inventory gaps and
+direct requisition-event write are superseded by this verification.
+
 ## Origination phone registration pilot - 19 October 2026
 
 The feature remains disabled by default. Synthetic HTTP/browser verification is

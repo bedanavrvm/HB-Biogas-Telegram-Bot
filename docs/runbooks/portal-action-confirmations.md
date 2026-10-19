@@ -36,6 +36,29 @@ customer number, payment values, repayment details and applicable approval.
 Requirements of an explicitly selected product version still apply. Product-
 scoped grants are not inferred from arbitrary free text.
 
+## Lead completion and finance document ordering
+
+`portal_create_and_complete_jbl_lead` returns JSON after success and expected
+validation failure. A same-key retry reuses its actor-bound intake and retained
+evidence. Only a newly created, revision-one intake without visit history or
+media may be discarded after local failure; existing/retried/progressed cases
+are never cleanup targets. A retained-evidence failure returns conflict/retry
+feedback rather than claiming successful completion.
+
+New order previews and generated workbooks are oldest intake first. Payment
+previews and workbooks group Eco-conserve first, then HB, oldest first within
+each group. The shared `ordered_document_farmers` helper uses typed HBG visit
+date, then a parseable legacy sign date, then the Nairobi creation date.
+Creation time, case reference and UUID provide stable ties; cases without any
+date are last within their group. Partner routing continues to use the existing
+canonical county/salesperson rules, never a client-supplied grouping.
+
+Saved preview rows and retained workbook bytes remain authoritative for old
+documents. Do not reorder, regenerate or silently replace historical signed
+files to adopt this presentation rule. No amount, approval, numbering or
+signed-scan finality rule changed. Ordinary code deployment is sufficient;
+there is no migration, static-asset change, backfill or provider reconfiguration.
+
 ## Settings
 
 Authorized TAT IT saves targets, calendar and escalation rules directly using

@@ -20,11 +20,9 @@ async function setTheme(page, dark) {
     for (const [key, value] of Object.entries(colors)) document.documentElement.style.setProperty('--tg-theme-' + key.replaceAll('_','-'), value);
   }, dark);
   await expect(page.locator('#content')).toHaveCSS('background-color', dark ? 'rgb(23, 23, 30)' : 'rgb(245, 247, 248)');
-  // Wait for the shared button colour transition; screenshots must not capture
-  // its grey intermediate frame when changing the synthetic Telegram theme.
+  // Both document and payment header icons intentionally use transparent chrome.
   const icon = page.locator('#content .miniapp-icon-button:visible').first();
-  if (await icon.count()) await expect(icon).toHaveCSS('background-color',
-    await page.locator('#page-history').count() ? 'rgba(0, 0, 0, 0)' : dark ? 'rgb(32, 32, 44)' : 'rgb(255, 255, 255)');
+  if (await icon.count()) await expect(icon).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 }
 
 async function expectAlignedHeading(page, heading, title, controls) {
@@ -127,7 +125,9 @@ for (const width of [320,360,390,430,768,1280]) {
     await expect(page.locator('.payment-candidate-checkbox:disabled')).toHaveCount(3);
     expect((await page.locator('.payment-candidate-checkbox:enabled').count())).toBe(1);
     await expect(page.locator('[data-payment-filter]')).toHaveCount(0);
-    await expectAlignedHeading(page,'.payment-search-results-heading','#payments-result-count','#payments-search-close');
+    // Close belongs beside the search input, not in the separate result-count row.
+    await expectAlignedHeading(page,'.payment-search-row','.payment-search-row label','#payments-search-close');
+    await expect(page.locator('#payments-result-count')).toHaveText('21 cases found');
     for(const dark of [false,true]) {
       await setTheme(page, dark);
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -135,7 +135,7 @@ for (const width of [320,360,390,430,768,1280]) {
     }
     await mountInvoices(page);
     await expect(page.locator('.invoice-card-customer').first()).toContainText('Longer Full Name');
-    await expect(page.locator('.invoice-card-alert').first()).toContainText('2 possible duplicate');
+    await expect(page.locator('.invoice-card-alert').first()).toContainText('2 duplicate invoices');
     await expect(page.getByText('Phone not provided')).toHaveCount(0);
     const hitbox=await page.locator('.invoice-card-select').first().boundingBox();
     expect(hitbox.width).toBe(44); expect(hitbox.height).toBeGreaterThanOrEqual(44);

@@ -2812,6 +2812,28 @@ def create_portal_visit_lead(*, national_id, primary_phone, **case_values):
     )
 
 
+@transaction.atomic
+def discard_uncompleted_portal_visit_lead(farmer_id, *, external_id: str) -> bool:
+    """Remove only an untouched failed intake, never retained evidence or work.
+
+    A competing completion or evidence save must win over failure cleanup.
+    The exact request identity, initial revision and locked case are required.
+    """
+    from core.models import JawabuCustomer
+
+    farmer = JawabuFarmerMaster.objects.select_for_update().filter(
+        pk=farmer_id, external_id=external_id, workflow_revision=1,
+        workflow_state=JawabuWorkflowState.JBL_VISIT, jbl_visit_date__isnull=True,
+    ).first()
+    if farmer is None or farmer.media_attachments.exists() or farmer.pipeline_events.exists():
+        return False
+    customer_id = farmer.customer_id
+    farmer.delete()
+    if customer_id:
+        JawabuCustomer.objects.filter(pk=customer_id, applications__isnull=True).delete()
+    return True
+
+
 def _jawabu_group_config(farmer=None):
     """Return the enabled Jawabu workflow group config, if one exists."""
     from core.models import GroupSheetConfiguration

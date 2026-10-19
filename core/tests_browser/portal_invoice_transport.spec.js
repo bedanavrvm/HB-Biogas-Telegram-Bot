@@ -17,6 +17,7 @@ async function mountUpload(page) {
   await page.clock.install();
   await page.addScriptTag({path: asset('utils.js')});
   await page.addScriptTag({path: asset('portal_api.js')});
+  await page.addScriptTag({path: asset('portal_dialogs.js')});
   await page.addScriptTag({path: asset('portal_invoices.js')});
   await page.evaluate(initData => {
     window.uploadCalls = 0;

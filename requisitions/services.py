@@ -24,6 +24,11 @@ def record_sequence_event(**values):
     return OrderSequenceEvent.objects.create(**values)
 
 
+def record_workspace_event(**values):
+    _require_transaction()
+    return OrderWorkspaceEvent.objects.create(**values)
+
+
 def signed_order(batch):
     return DocumentPhysicalSignoff.objects.filter(
         requisition_batch=batch, source_version=batch.version,

@@ -157,6 +157,12 @@ _add(
     domain_replay='Application create request key and product/schema snapshot uniqueness',
 )
 _add(
+    'loan_origination_prepare_download',
+    authentication=_ORIGINATION_AUTH, capability='origination.view', scope=_ORIGINATION_SCOPE,
+    request_key_binding=_ORIGINATION_KEY,
+    domain_replay='Revision/document-bound copy request; expiring actor-bound download token; no review, signature or approval',
+)
+_add(
     'loan_origination_application_detail',
     methods=('PATCH',), authentication=_ORIGINATION_AUTH,
     capability='origination.create', scope=_ORIGINATION_SCOPE,
@@ -322,6 +328,32 @@ _add(
     domain_replay='Unique user/workflow preference row',
 )
 _add(
+    'complaint_cases_category_suggestion',
+    authentication=_COMPLAINT_AUTH, capability='complaint.queue.view', scope=_COMPLAINT_SCOPE,
+    request_key_binding='complaint miniapp_write_response',
+    domain_replay='Advisory category inference only; no complaint creation or transition; governed inference service owns provider attempts',
+)
+_add(
+    'complaint_cases_complete_details',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.details.complete', scope=_COMPLAINT_SCOPE,
+    request_key_binding='complaint miniapp_write_response plus required canonical key',
+    domain_replay='Expected revision and request-keyed completion event; original incomplete intake remains auditable',
+)
+_add(
+    'complaint_cases_finish_created',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.create', scope=_COMPLAINT_SCOPE,
+    request_key_binding='complaint miniapp_write_response plus required canonical key',
+    domain_replay='Exact existing creation request plus content-hash evidence reuse and existing publication operations',
+)
+_add(
+    'complaint_cases_voice_transcription complaint_cases_voice_transcription_cancel',
+    authentication=_COMPLAINT_AUTH,
+    capability='Action-specific complaint.case.create, complaint.case.comment, complaint.case.close or complaint.case.reopen',
+    scope='Actor/group-owned transcription and its accessible case/action',
+    request_key_binding='complaint miniapp_write_response plus canonical request binding',
+    domain_replay='Existing voice-attempt request/ownership and resolution state; no complaint decision or automatic retry',
+)
+_add(
     'complaint_cases_create',
     authentication=_COMPLAINT_AUTH, capability='complaint.case.create', scope=_COMPLAINT_SCOPE,
     request_key_binding='complaint miniapp_write_response',
@@ -380,6 +412,135 @@ _PORTAL_AUTH = 'Canonical Telegram initData through portal_auth_required'
 _PORTAL_SCOPE = 'Portal AccessGrant plus branch/product/resource scope decision'
 _PORTAL_KEY = 'portal_auth_required -> canonical request identity'
 _PORTAL_REPLAY = 'Request-keyed domain event plus workflow revision/state/database constraints'
+
+_add(
+    'portal_create_and_complete_jbl_lead',
+    authentication=_PORTAL_AUTH, capability='portal.jbl_lead.create and portal.jbl_media.write for evidence',
+    scope='Selected authorized Portal group, actor/request intake identity and canonical customer uniqueness',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Actor/request external ID plus visit event replay and retained media hashes; only untouched failed intake may be discarded',
+)
+_add(
+    'portal_farmer_case_correction',
+    authentication=_PORTAL_AUTH, capability='portal.case.correct', scope=_PORTAL_SCOPE,
+    request_key_binding=_PORTAL_KEY, domain_replay='Request-keyed case correction plus expected workflow revision and audited field allowlist',
+)
+_add(
+    'portal_import_commit',
+    authentication=_PORTAL_AUTH, capability='portal.imports.commit',
+    scope='Authorized import kind, owning group and retained staged batch',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Staged review revision, source-row identity, selected field choices and existing canonical commit state',
+)
+_add(
+    'portal_farmup_version portal_farmup_mapping',
+    authentication=_PORTAL_AUTH, capability='portal.farmup.stage',
+    scope='Current Portal group grant and exact monthly FarmUp batch/version',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Request/content digest, immutable source version and signed batch review revision',
+)
+_add(
+    'portal_farmup_validate',
+    authentication=_PORTAL_AUTH, capability='portal.farmup.commit',
+    scope='Exact group-scoped FarmUp batch and signed review revision',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Deterministic review validation; does not commit selected intake rows or publish Google data',
+)
+_add(
+    'portal_farmup_repair',
+    authentication=_PORTAL_AUTH, capability='portal.publication.retry',
+    scope='Current Portal group and exact retained FarmUp batch/review revision',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Request-keyed repair of existing batch publication/archive work; canonical committed rows are not imported again',
+)
+_add(
+    'portal_curated_report portal_curated_report_export portal_curated_report_email',
+    authentication=_PORTAL_AUTH,
+    capability='portal.reports.view; email additionally requires current scoped IT disclosure authority',
+    scope='Allowlisted Portal preset and current case/group/branch/product filters; approved email recipients',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Read-only query/export with request-bound audit; email reserves durable request-keyed delivery, never a financial transition',
+)
+_add(
+    'portal_report_settings portal_report_send_now',
+    authentication=_PORTAL_AUTH, capability='report_delivery.require_manage: active Superuser or current complete Portal IT grant',
+    scope='Portal-owned report configuration, approved recipients and complete current disclosure scope',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Revision-bound configuration and request-keyed delivery reservation; status wakes existing deliveries rather than resending',
+)
+_add(
+    'portal_publication_pump',
+    authentication=_PORTAL_AUTH, capability='At least one current Portal capability; no new workflow-write authority',
+    scope='Existing Portal-owned publication or invoice-cleanup operation only; caller supplies no case or document selection',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Existing durable operation lease, destination FIFO, attempt fencing and terminal-state guards',
+)
+_add(
+    'portal_requisition_batch_cancel',
+    authentication=_PORTAL_AUTH, capability='portal.requisition.finalize', scope=_PORTAL_SCOPE,
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Locked exact order UUID/version and allocator claim; request replay; accepted signed or financially connected work cannot be cancelled',
+)
+_add(
+    'portal_invoice_receipt_archive portal_invoice_receipt_batch_payment',
+    authentication=_PORTAL_AUTH, capability='portal.payment.prepare',
+    scope='Exact group-scoped invoice delivery and every linked case', request_key_binding=_PORTAL_KEY,
+    domain_replay='Receipt revision and request-keyed archive/payment event; one durable linked payment batch, never invoice deletion',
+)
+_add(
+    'portal_invoice_receipt_item_replacement portal_invoice_name_agreement',
+    authentication=_PORTAL_AUTH, capability='portal.invoice_identity.manage',
+    scope='Exact receipt group/item or sent-letter artifact and every current linked case', request_key_binding=_PORTAL_KEY,
+    domain_replay='Locked receipt revision or exact signed-letter checksum/identity facts; superseded evidence and completed payments remain protected',
+)
+_add(
+    'portal_tat_target_settings',
+    authentication=_PORTAL_AUTH, capability='portal.tat.targets.manage',
+    scope='Enabled Portal-owned workflow configuration; never TAT Tracker or Origination authority',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Governed target validation and durable configuration/audit save; no case transition',
+)
+
+# These are inventory-only descriptions of existing TAT contracts. They do not
+# add capabilities, change policy defaults, or grant Portal users TAT access.
+_add(
+    'tat_tracker_recognition tat_tracker_recognition_revision',
+    authentication='Canonical Telegram identity through _tat_context',
+    capability='tat.recognition.view; people view additionally requires tat.recognition.people.view',
+    scope='Selected TAT group, current complete grants, period and view',
+    request_key_binding='miniapp_write_response',
+    domain_replay='Read projection plus uniquely bound live checkpoint/final snapshot; never workflow stage or scoring-fact rewrites',
+)
+_add(
+    'tat_tracker_reports_summary tat_tracker_reports_cases tat_tracker_reports_export',
+    authentication='Canonical Telegram identity through _tat_context',
+    capability='tat.reports.view plus current people/insight capabilities where requested',
+    scope='Selected group, authorized cases, exact allowlisted report filters and data mode',
+    request_key_binding='miniapp_write_response',
+    domain_replay='Read-only report query/export and audit; expiring download retains actor/current-access checks',
+)
+_add(
+    'tat_tracker_task_read',
+    authentication='Canonical Telegram identity through _tat_context', capability='tat.home.view',
+    scope='Current group, accessible case and actor-owned private task',
+    request_key_binding='miniapp_write_response plus canonical request binding',
+    domain_replay='Idempotent task-read timestamp; no stage or assignment mutation',
+)
+_add(
+    'tat_tracker_target_sheet_sync',
+    authentication='Canonical Telegram identity through _tat_context',
+    capability='tat_recovery.can_retry_targets: complete group-wide TAT IT scope',
+    scope='Selected TAT group and existing canonical target mirror',
+    request_key_binding='miniapp_write_response plus canonical request binding',
+    domain_replay='Retry existing governed mirror with durable operation/state guards; database targets remain authoritative',
+)
+_add(
+    'tat_tracker_process_update_dispatches',
+    authentication='Canonical Telegram identity through _tat_context', capability='tat.home.view',
+    scope='Up to three exact existing dispatches in the selected group; every case reauthorized',
+    request_key_binding='miniapp_write_response plus canonical request binding',
+    domain_replay='Database-leased existing side-effect dispatches; terminal work is not recreated or replayed',
+)
 
 _add(
     'portal_settings', authentication=_PORTAL_AUTH,
@@ -563,9 +724,10 @@ _add(
 
 
 # Write-like endpoints in the same URL module that are deliberately not
-# Telegram Mini App routes. They remain governed by their own boundary and
+# Telegram Mini App business-write routes. They remain governed by their own boundary and
 # must be reviewed explicitly instead of silently disappearing from CI.
 NON_MINIAPP_WRITE_ROUTES: dict[str, str] = {
+    'miniapp_available': 'Read-only launcher discovery, not a workflow submission: canonical Telegram authentication, active account, IP throttle and fresh per-app grants; no business mutation or retry key required.',
     'loan_origination_signer_signature_preview': 'Read-only deterministic image render; opaque session credential and public signing throttle; no signature or workflow write.',
     'loan_origination_signer_consent': 'Public opaque signer session; request-keyed signer consent service.',
     'loan_origination_signer_otp': 'Public opaque signer session; throttled OTP request service.',

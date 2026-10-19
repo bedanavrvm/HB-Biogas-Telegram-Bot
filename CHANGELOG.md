@@ -1,5 +1,28 @@
 # Changelog
 
+## 19 October 2026 - Portal lead responses and document chronology
+
+- Fixed JBL office-lead completion returning no HTTP response after visit
+  processing. Expected failures now return field feedback; untouched failed
+  intake pairs are removed through a guarded service, while evidence and
+  progressed/retried cases survive.
+- New order previews/workbooks use oldest intake first. Payment previews and
+  workbooks use Eco-conserve first, oldest first within each partner. Intake
+  age uses HBG visit/sign date, falling back to Nairobi creation date with
+  stable ties. Existing retained/signed document bytes are not regenerated.
+- Corrected obsolete Portal test fixtures/expectations for the current shared
+  confirmation, download-link, recovery handoff, compact preparation UI,
+  canonical product label, historical case scope and explicit pagination dates.
+  No operational HTML/CSS/JavaScript or visual baselines changed.
+- Moved order-workspace event persistence into its transaction-guarded service
+  and documented 34 existing route contracts in the write inventory. This
+  changes neither capability policy nor workflow grants. Launcher discovery
+  remains an explicitly inventoried read-only authentication boundary.
+- No schema, environment, financial-value or numbering changes. No production
+  deployment, migration or provider writes were performed. Verification and
+  remaining operational gates are in `KNOWN_GAPS.md` and
+  `codebase-analysis-docs/CODEBASE_KNOWLEDGE.md`.
+
 ## 19 October 2026 - Optional Origination phone registration IT pilot
 
 - Added a disabled-by-default, scoped-IT-only advisory check beside saved

@@ -87,7 +87,7 @@ for (const width of [320, 430, 768, 1280]) {
     await page.screenshot({path: info.outputPath(`order-detail-verified-${width}.png`)});
   });
 
-  test(`order selection stays compact until explicitly prepared at ${width}px`, async ({page}, info) => {
+  test(`order selection immediately exposes the compact preparation fields at ${width}px`, async ({page}, info) => {
     await page.setViewportSize({width, height: 900});
     const start = template.indexOf('<div id="requisition-batch-panel"');
     const end = template.indexOf('<div id="req-list"', start);
@@ -101,9 +101,8 @@ for (const width of [320, 430, 768, 1280]) {
         showToast() {}, loadQueue() {}, escapeHtml: value => String(value ?? '')});
       PortalMiniAppRequisitions.updateBatchPanel();
     });
-    await expect(page.locator('#batch-prepare-fields')).toBeHidden();
-    await page.locator('#batch-prepare-order').click();
     await expect(page.locator('#batch-prepare-fields')).toBeVisible();
+    await expect(page.locator('#batch-prepare-order')).toHaveCount(0);
     await expect(page.locator('#batch-order-num')).toHaveValue('HB-10');
     await expect(page.locator('#batch-order-num')).toHaveAttribute('readonly');
     await expect(page.locator('#batch-selected-count')).toContainText('1 selected');
