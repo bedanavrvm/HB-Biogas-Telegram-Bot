@@ -34,7 +34,21 @@ P1b.2a has no production routes and remains disabled. See
 
 **Pending enrollment secret:** allauth's temporary TOTP seed, wrapped per browser
 request as expiring dedicated-key ciphertext bound to user/admission/revision.
-Storage protection is not permission to enroll; no enrollment API is exposed.
+Storage protection is not permission to enroll; no production enrollment API is exposed.
+
+**Closed browser enrollment:** Dormant P1b.2b.1 native TOTP setup for an existing,
+explicitly admitted password-only company-browser session, including fresh
+password recheck, encrypted pending/permanent seeds, exact factor receipts and
+transactional audit. Three relative handlers are test-only mounted, not production
+endpoints. Setup never grants browser MFA assurance or business authority;
+explicit logout plus a new password/MFA login follows. See ADR 0063 and
+`codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md`.
+
+**Recovery-code handoff:** One-time native unused-code disclosure during current
+closed enrollment. The native viewed marker and nonsecret compliance audit commit
+together; retries never re-show/regenerate codes. Lost response means uncertain
+delivery and a separate verified support decision, not authorization to retry
+disclosure. A working TOTP authenticator remains usable for normal login.
 
 **React browser client:** New standalone presentation layer selected by the user
 with Atlassian Design System. Package/transitive/asset licence review precedes

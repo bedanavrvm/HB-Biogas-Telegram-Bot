@@ -1,5 +1,32 @@
 # Known Gaps and Verified Workarounds
 
+## Closed enrollment is not operational browser access - 19 October 2026
+
+P1b.2b.1 adds native TOTP setup/one-time recovery handoff behind current admission,
+fresh password recheck, encrypted storage and atomic audit. These are unmounted
+backend handlers, not provisioning, a finished client or staff onboarding. Setup
+does not grant MFA assurance; explicit logout and native password/MFA login follow.
+Recovery-code response loss cannot authorize redisclosure/regeneration. Expired/
+interrupted post-activation setup needs ordinary MFA login or separately verified
+support; no authenticated factor-management UI is introduced here.
+
+Browser stays off and E006 blocking. Controlled provisioning/address/password
+setup, operational recovery/helpdesk, shared native replay/abuse cache, accepted
+mail, PostgreSQL/staging/both-channel acceptance, support ownership and M1 remain
+open. The HTTP DB throttles do not solve cross-worker TOTP replay. React/ADS
+peer/licence/asset/build acceptance remains held; no frontend package installed.
+Production release/migrations are still unknown. No schema/dependency/env name,
+production route, real opt-in/reset, customer/provider write, merge or deployment.
+Actual tests, remaining limits and change-specific monitoring/rollback checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` sections 5–6. Historical
+phase counts below are not current-phase certification or production evidence.
+
+Final focused run: 140 tests, 136 passed, four PostgreSQL-only skips, including
+two new enrollment/handoff races not executed locally. All 23 new SQLite setup
+tests and 44 governance/tool tests pass, as do Node and relevant fast checks.
+The 119 environment-template omissions and 17 tracked-artifact hash mismatches
+remain. No full CI, shared-cache, real device, staging or production certification.
+
 ## Browser dependency graph is review-only, not installable - 19 October 2026
 
 D13a collects exact frontend dependency/archive/licence evidence; it does not

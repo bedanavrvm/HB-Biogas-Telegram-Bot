@@ -1,10 +1,10 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **6 — 19 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend dependency evidence and required pilot order:
+Plan revision: **7 — 19 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment backend and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a, P1b.1 and the P1b.2a constrained JSON authentication/storage slice are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. The user explicitly requested exact package/licence review before installation. No full dependency/asset clearance or frontend readiness is claimed. The user authorized manageable implementation phases, not merge/deployment. Pilot ordering is a preference, not measured complexity. Current contracts/evidence/checklists: codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md and codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md.
+Status: **P1a, P1b.1, P1b.2a JSON/storage and P1b.2b.1 closed TOTP enrollment are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md and codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md.
 
 D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
 archives / 546 entries, zero remaining inspection errors). It exposes an
@@ -12,6 +12,12 @@ incompatible original React peer plus open notice/asset/licence questions; the
 override-assisted graph is **not approved for installation**. Current results and
 merge checklist: BROWSER_REACT_ADS_DECISION.md section 5. Application runtime is
 unchanged by D13a; no frontend or production activation is claimed.
+
+P1b.2b.1 follow-up supersedes the earlier no-enrollment source status: three
+closed-backend TOTP enrollment/recovery-handoff handlers are now present, using
+native forms and transactional audit. Production remains off/unmounted; no
+provisioning, operational recovery, UI or M1 acceptance is claimed. Exact scope,
+verification and release checklist: codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md.
 
 Execution update: D1 is explicitly **Django accounts + django-allauth TOTP/recovery**, not an inferred fallback. D2 is **browser convenience, possible Telegram exit later**. D3 uses **current Django Complaints roles/group scope**, with no new grants. Production release/migrations are **unknown**, as confirmed by the user. The user separately approved **browser MFA first; preserve Telegram signed-launch access**. The bounded foundation may be built locally while deployment/support/acceptance gates remain open; this is not permission to activate the browser channel. See codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md and ADR 0060. Every phase/merge/deployment handoff uses codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md.
 
@@ -210,8 +216,17 @@ codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md.
 
 **P1b.2b operational authentication** must complete controlled provisioning,
 verified address/password setup, enrollment/recovery, shared abuse/replay cache,
-mail/support and offboarding acceptance. The storage helper is not a finished
-enrollment journey. No dormant slice satisfies M1 or usable browser access.
+mail/support and offboarding acceptance. Its first bounded backend increment,
+**P1b.2b.1**, now adds three unmounted CSRF-protected enrollment handlers using
+the pinned native password/TOTP/recovery flows. Begin rechecks the password;
+activation and one-time code disclosure have transactional audit receipts.
+Setup does not issue MFA assurance: explicit logout and a new native password/
+MFA login follow. See codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md.
+This is not completed provisioning, operational recovery or a usable UI.
+Remaining increments must separately cover controlled existing-user/address/
+password provisioning, interrupted setup/helpdesk, native shared replay cache,
+accepted notification behavior, operational support and staging acceptance.
+No dormant slice satisfies M1 or usable browser access.
 
 **P1c React/ADS frontend foundation**, before any operational P2 pilot:
 
@@ -524,9 +539,9 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
 | D13a | Exact-graph review slice; no frontend installation or dependency approval. Current evidence/limits/checklist in BROWSER_REACT_ADS_DECISION.md section 5 |
-| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
+| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
-| This revision | React/ADS selected and licence/build gates added; local JSON/storage contract and verification in STAFF_BROWSER_JSON_AUTH.md; production not inspected or changed |
+| This revision | Closed native enrollment/recovery-handoff backend; scope/verification/checklist in STAFF_BROWSER_ENROLLMENT.md; no frontend installation or production activation |
 
 ### STATE BLOCK — revision 6 / D13a dependency review
 
@@ -539,6 +554,20 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 - VERIFICATION: historical auth-phase evidence remains in its phase documents. D13a inspected all 529 unique archives / 546 entries, with zero remaining errors; final 44 governance/tool tests and offline snapshot binding passed. Original-peer/licence/asset/build acceptance remains open. No application-suite rerun, installation, production inspection or activation in this review-only slice.
 
 **Findings:** user decisions now allow bounded local self-managed identity work; operational admission is not ready. **Open questions:** release/support evidence and P1b controls. **Next steps:** complete P1b/M1 before the Complaints pilot; retain the M3 review.
+
+### STATE BLOCK — revision 7 / P1b.2b.1 closed enrollment
+
+- INDEX_VERSION: platform-independence-plan-7; this slice starts at clean `144ed843` on Platform-Interdependence. No merge/deployment/production inspection; actual release/migrations unknown.
+- FILE_MAP_SUMMARY: staff_auth/enrollment.py, enrollment_state.py, browser_api.py, browser_urls.py, session_protection.py, tests_enrollment.py; existing assurance/lifecycle/signals; ADR 0063; STAFF_BROWSER_ENROLLMENT.md; release checklist.
+- OPEN_QUESTIONS: controlled provisioning, support/recovery, shared native replay cache, notifications, deployed baseline, backup maintainer, D13 peer/licence/asset/build acceptance and M1.
+- KNOWN_RISKS: interrupted setup/uncertain code disclosure, stale sessions/admission, shared-cache replay, new callback receivers, unexecuted PostgreSQL races, Telegram regression and premature mounting. No operational admission authorized.
+- GLOSSARY_DELTA: closed enrollment/one-time recovery handoff are setup only; fresh subsequent password/MFA login remains mandatory and supplies no workflow grants.
+- NEXT_READ_QUEUE: bounded provisioning/recovery/cache controls; resolve exact ADS graph/review; approved client; M1 staging/support acceptance; Complaints; M3 review before TAT/Origination/Portal investment.
+- VERIFICATION: current executed results and remaining limits are maintained in STAFF_BROWSER_ENROLLMENT.md section 5; previous D13a counts remain historical above.
+
+**Decisions/Findings:** progress the closed backend without weakening frontend or
+release gates. **Open Questions:** operational acceptance remains open.
+**Next Steps:** one bounded prerequisite, not production admission.
 
 ## 13. Primary-source references
 

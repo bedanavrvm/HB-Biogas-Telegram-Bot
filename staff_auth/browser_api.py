@@ -30,6 +30,7 @@ from core.models import ComplianceAuditEvent
 from core.services.request_throttling import consume_identity, consume_ip
 
 from .assurance import MAX_LOGIN_SECONDS, clear_assurance, require_browser_user
+from .enrollment_state import enrollment_progress
 from .models import StaffBrowserAdmission
 from .session_protection import CHANNEL_KEY, clear_browser_context, protected_browser_session
 
@@ -128,6 +129,9 @@ def _state(request):
             return 'authenticated'
         except PermissionDenied:
             pass
+        progress = enrollment_progress(request, context, row)
+        if progress is not None:
+            return progress
         records = get_authentication_records(request)
         password = next((entry for entry in reversed(records) if isinstance(entry, dict) and entry.get('method') == 'password'), None) if isinstance(records, list) else None
         if (

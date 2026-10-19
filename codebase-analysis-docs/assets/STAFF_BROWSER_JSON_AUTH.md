@@ -4,6 +4,14 @@ Date: 19 October 2026. This is a bounded backend slice, **not usable browser
 login/enrollment/recovery or an accepted M1 milestone**. Governing ADR:
 `docs/adr/0062-browser-react-ads-and-headless-auth-boundary.md`.
 
+Later P1b.2b.1 addendum: the closed backend now also has native TOTP enrollment
+and audited one-time recovery-code handoff, documented in
+`codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` and ADR 0063.
+Bootstrap may report `recovery_codes_required`/`reauthentication_required`, both
+nonprivileged. Production routes remain unmounted and browser disabled. The
+historical P1b.2a results/counts below describe that earlier slice only; controlled
+provisioning, operational recovery/UI, shared cache and M1 remain unaccepted.
+
 ## 1. Scope and unchanged production channel
 
 `staff_auth/browser_api.py` supplies JSON session, password, MFA and logout

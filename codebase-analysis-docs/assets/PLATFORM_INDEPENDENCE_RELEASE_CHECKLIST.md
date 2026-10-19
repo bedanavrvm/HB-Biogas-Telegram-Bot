@@ -4,6 +4,25 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
+## Current P1b.2b.1 closed-enrollment handoff
+
+New backend TOTP enrollment and one-time recovery-code handoff use the existing
+pinned allauth forms/flows. Begin rechecks the password; factor activation and
+code-view marking roll back if audit fails. Setup never issues MFA assurance;
+explicit logout and a new password/MFA login are required. No staff provisioning,
+factor replacement, new schema/dependency/configuration or Telegram UI change.
+Production remains unknown, browser globally off and production URLs unmounted.
+
+Use `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` sections 5–6 for
+actual evidence and the change-specific merge/deploy/monitoring/rollback list.
+Review same-key retries versus nonrepeatable recovery disclosure, 400/401/403/
+409/429/503 results, actual ledger/factor consistency, interrupted enrollment and
+existing Telegram/Admin journeys. Never log/capture codes or enrollment URIs.
+No new enrollment traffic is expected on production: unexpected exposure is an
+incident, not a successful rollout. Keep E006 blocking. Native shared replay
+cache, provisioning/support/mail, React/ADS acceptance and M1 remain open. No
+merge or deployment is performed or authorized by this local handoff.
+
 ## 1. Identify the change
 
 - [ ] Phase/app/milestone and primary business driver.

@@ -1,5 +1,25 @@
 # Changelog
 
+## 19 October 2026 - Closed native TOTP enrollment backend (P1b.2b.1)
+
+- Added three unmounted, cookie/CSRF JSON handlers for password-rechecked native
+  TOTP setup, activation and one-time recovery-code handoff. Seed storage remains
+  dedicated-key encrypted; native allauth owns code algorithms and credentials.
+- Added admission/session/receipt-bound nonprivileged progress, owner locking,
+  retry-safe activation and fail-closed transactional audit. Recovery disclosure
+  cannot be replayed or silently regenerated. Setup never issues MFA assurance;
+  explicit logout and a new password/MFA login follow.
+- Updated ADR 0063, plan revision 7, glossary and per-phase merge/deploy checklist.
+  No dependency, migration, environment name, staff provisioning, grant, Telegram
+  UI or production URL change. Browser remains off; E006 stays blocking. No
+  merge/deploy/provider write or real enrollment performed. Scope, executed
+  verification, remaining gates and monitoring/rollback checklist:
+  `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md`.
+- Final verification: 136 focused auth/Telegram/user-lifecycle tests passed, four
+  PostgreSQL-only tests skipped; all 44 governance/tool tests, Node checks and
+  relevant static/schema/catalogue checks passed. Existing 119 environment-
+  template and 17 artifact-allowlist findings remain; full CI/production unproven.
+
 ## 19 October 2026 - Exact browser dependency evidence (D13a, review only)
 
 - Added an exact login/shell review candidate, review-only lock/archive inventory
