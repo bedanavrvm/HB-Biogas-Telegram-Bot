@@ -5,15 +5,121 @@ without a second editable component dictionary. It groups 31 patterns into
 Foundations, Navigation, Queues, Forms, Actions, States, Evidence, Reports and
 Details. The source manifest shows exact paths and hashes for each alternative.
 
-New standalone browser pages will use a separately reviewed React/ADS component
-inventory after exact dependency/asset licence acceptance (ADR 0062). The current
-31-pattern Telegram inventory and its ratchet do not establish React compliance
-or authorize a Telegram migration. No React consumer is added by P1b.2a.
+The new standalone browser workspace now installs/builds the exact locally
+reviewed React/ADS graph (ADR 0066). The current entry is a synthetic demo, not
+operational authentication. The 31-pattern Telegram inventory does not approve
+the React design or authorize Telegram migration. P1b.2a itself added no client.
 
 Existing reusable implementations include MiniAppUtils (feedback, form/draft,
 theme, main-action and request behaviour), MiniAppComponents (search, filters,
 pagination and action primitives), SecureMediaViewer, report controls and the
 Portal confirmation dialog. Audit actual callers before extracting/reusing one.
+
+## Standalone browser composition — P1c.4
+
+P1c.5 adds a separately built dormant transport candidate at
+`browser/src/{access.html,auth-index.tsx,auth-transport.ts,staff-access.tsx}`.
+It reuses the documented ADS form/feedback/navigation composition with real
+editable fields, required legend, MessageWrapper and standard autofill.
+Routine password/code sign-in, inline recovery and automatic stage resume
+avoid extra confirmations. Source-bound native Django tests remain synthetic
+and do not authorize operational mounting, completed onboarding, workflow
+access or Telegram migration. ADR 0067 and decision section 11 govern it.
+The following fixed-value preview and its four source bindings remain separate.
+
+Current source: `browser/src/{index.html,index.tsx,preview.tsx,review.html}`.
+The user's documentation-led correction supersedes earlier geometry and
+overbroad design-adoption claims. Component/token coverage, lint and viewport
+fit do not establish design quality. Follow browser/AGENTS.md and DESIGN.md,
+consulting the current official guidance before every browser UI change.
+Open http://127.0.0.1:8766/ after the bounded build/server commands in
+`browser/README.md`. Package versions, licence/asset decision and exact review
+binding are in `browser/DEPENDENCIES.md`, package/lock and dependency-review JSON.
+This is actual compiled React/ADS code; the business/auth transport remains a
+fixed-value in-memory demo. Source hashes remain candidate-only in the ratchet.
+
+| Source-bound component | Exact package/version and entry | Use |
+|---|---|---|
+| Root provider/theme | app-provider 8.1.0, `app-provider` / `use-set-color-mode` | Supported light/dark/auto theme context |
+| Reset/tokens | css-reset 8.4.6, tokens 20.6.1 | Official reset and typed token() calls; no authored raw visual values/token fallbacks |
+| Typed styling | css 1.1.7, cssMap/cx | Compiled xcss; checked ADS 48rem breakpoint and app-specific content geometry |
+| Button / LinkButton | button 25.5.0, `default/button` / `link` | Primary/loading, review toggles, navigation and disabled workflow actions |
+| Staff forms | form 18.2.0, Form/Field/FormFooter/HelperMessage | Provider-owned labels/IDs and fixed demo credential fields |
+| Text field | textfield 10.2.6 | Password, staff username, MFA and confirmation values |
+| Heading | heading 8.0.0 | Access-page and workflow-card semantic headings |
+| Box/Grid/Inline/Stack | primitives 22.6.0, individual `compiled/*` entries | Coherent single-column tasks, flat groups and responsive content grids |
+| Text/Anchor | primitives 22.6.0, individual `compiled/*` entries | Token typography, navigation and keyboard skip link |
+| VisuallyHidden | visually-hidden 4.4.0 | Screen-reader response announcements |
+| Navigation frame | navigation-system 11.3.1, Root/TopNav slots/Main/SideNav | Distinct access tasks and workspace shell; built-in skip links/collapsible navigation |
+| Side-nav items | side-nav-items 2.5.8, LinkMenuItem/MenuList/MenuSection | Actual navigation semantics and selected overview |
+| Persistent feedback | section-message 10.2.6 | Form-wide errors directly before fields; one message, no popup/duplicate paragraph |
+| Review selection | select 23.1.3 | Labelled Page/Theme/Response controls only on /review.html |
+
+The flow meanings remain those in the table below: setup/enrollment never grant
+assurance; fresh login follows; tools remain disconnected. Runtime/graph/notice checks
+prove the components are bundled. Headless screenshots and simulated errors are
+review evidence, not human approval or native backend/device/accessibility proof.
+
+P1c.2 removes the custom stylesheet, native select controls, layout classes,
+hand-styled introduction, global typography/focus overrides and blanket lint
+exemptions. Both ADS plugins' complete recommended rule sets, including advisory
+rules, are enforced as errors for all browser source. One line-scoped exception
+keeps synthetic credential fields read-only; it does not govern real forms.
+ADS typography tokens remain unchanged and use their supplied system-font
+fallbacks. No proprietary font, logo, brand glyph or illustration is shipped.
+Content widths/grid geometry use typed cssMap because ADS has no corresponding
+visual tokens. This is normal application composition using ADS primitives,
+not an alternative palette, type scale, component skin or breakpoint system.
+The exact graph, peer/security exceptions and asset decision remain binding.
+Source-bound runtime evidence and remaining human/device gates are in decision
+section 8. Browser-wide implementation permission is not screenshot approval.
+
+Historical P1c.3 implemented the user-approved viewport plan (decision section 9). Normal
+desktop layouts use the available width, keeping only fields constrained.
+At ADS md (64rem), guidance/status and compact controls use adjacent columns;
+workspace tiles use four columns. Below md, guidance precedes form actions and
+controls follow the page in natural document flow. Help/recovery grids use ADS
+sm. All eleven pages and form errors must fit the three declared desktop sizes
+with controls open/closed, without clipping, hidden content, fixed heights or
+smaller typography. Mobile/enlarged text keeps natural vertical scrolling.
+
+P1c.4 corrects the composition using official Form, Section Message, Elevation,
+Grid and Navigation System usage/migration documentation (browser/DESIGN.md).
+Access descriptions/feedback remain with the form; default surfaces and neutral
+groups replace the raised-page/sunken nesting. Workspace content uses the
+fixed-wide grid including margins. The independent review entry avoids mixing
+scenario controls into the staff presentation. Exact graph, notice/asset review,
+source-bound evidence and remaining gates are in decision section 10.
+
+Live Django/Telegram UI, source baselines and Phase 6 hold remain unchanged.
+Production CSP/nonces, native auth/CSRF, real devices, support and M1 remain open.
+
+## Historical standalone access wireframe candidates
+
+The first-party review sources are
+`codebase-analysis-docs/assets/browser-access-preview/{index.html,preview.css,preview.js}`.
+They form a synthetic analysis artifact, **not** a React/ADS implementation or
+an operational authentication surface. No third-party assets/tokens are used.
+Exact source hashes and candidate-only review references are in `registry.json`.
+The browser component mapping below is proposed meaning only; an accepted
+React/ADS version/component inventory still precedes the actual client.
+
+| Candidate | Owning backend meaning | Review coverage |
+|---|---|---|
+| Staff sign-in | `staff_auth.browser_api.password_login` | Fixed demo fields, busy, generic error, retry and enrollment-required |
+| Mailbox proof / first password | `staff_auth.setup_api` | No dispatch claim; setup completes at fresh login; expiry/support handoff |
+| Authenticator / recovery sign-in | `staff_auth.browser_api.authenticate_mfa` | Mode switch, same-page failure and demo shell transition |
+| Authenticator enrollment | `staff_auth.enrollment` | Fresh password, secret-free placeholder and activation step |
+| Recovery handoff | `enrollment_recovery_codes` | Separate reveal, invalid labels, no repeated viewing in the same page session |
+| Reauthentication | Backend `reauthentication_required` state | Setup alone supplies no assurance; explicit new password/MFA login |
+| Workspace / help | Future workflow authorization / existing administrator | Disabled business tiles, ordered pilots and no fabricated support submission |
+
+All are **unapproved candidates**. The real wireframe shell has source-faithful
+light/dark captures at 320/390/1440 pixels, synthetic failure/retry journeys,
+keyboard skip/focus and a 200% text-size check. This is not real-device,
+assistive-technology, ADS, native MFA, CSRF or design approval. Screenshot/report
+commands and limits: `BROWSER_REACT_ADS_DECISION.md` section 6. The live Mini App
+catalogue, source baselines and Phase 6 migration hold are unchanged.
 
 Candidate foundations are isolated in the lab's tokens/theme files. A user may
 preview Telegram or JBL plus Automatic/Light/Dark and three density choices.

@@ -49,6 +49,10 @@ credentials.json
 !scripts/coverage_baseline.json
 !package.json
 !package-lock.json
+!browser/package.json
+!browser/package-lock.json
+!browser/tsconfig.json
+!browser/dependency-review.json
 !origination/reference_data/countries.json
 !origination/assets/signature_fonts/manifest.json
 *.pem
@@ -84,6 +88,10 @@ artifacts/
 test-results/
 playwright-report/
 node_modules/
+browser/.parcel-cache/
+browser/dist-development/
+browser/dist-authentication/
+browser/dist-authentication-development/
 coverage.json
 coverage-subsystems.json
 .coverage

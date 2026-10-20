@@ -181,6 +181,25 @@ class BrowserJSONAuthenticationTests(TestCase):
         self.assertEqual(self.post('logout', {}).status_code, 200)
         self.assertNotIn(SESSION_KEY, self.client.session)
 
+    def test_expired_owned_session_can_start_a_new_password_login(self):
+        self.complete()
+        session = self.client.session
+        marker = session[ASSURANCE_KEY]
+        session[ASSURANCE_KEY] = {**marker, 'at': time.time() - 86401}
+        session.save()
+        self.assertEqual(self.bootstrap().json()['state'], 'signed_out')
+        self.assertEqual(self.password().json()['state'], 'mfa_required')
+        self.assertNotIn(ASSURANCE_KEY, self.client.session)
+        self.assertNotIn(SESSION_KEY, self.client.session)
+
+    def test_mismatched_browser_context_does_not_replace_an_ordinary_cookie(self):
+        self.client.force_login(self.user)
+        stored = self.client.session
+        stored[CHANNEL_KEY] = {'user_id': self.user.pk + 1}
+        stored.save()
+        self.assertEqual(self.password().status_code, 409)
+        self.assertIn(SESSION_KEY, self.client.session)
+
     def test_removed_factor_does_not_downgrade_completed_login_to_enrollment(self):
         self.complete()
         Authenticator.objects.filter(user=self.user).delete()

@@ -1,5 +1,106 @@
 # Changelog
 
+## 20 October 2026 - Closed native browser sign-in integration (P1c.5)
+
+- Added a separately built dormant React/ADS client for real same-origin Django
+  session/CSRF, password, TOTP/recovery login and logout. Automatic stage resume,
+  autofill, username retention and inline recovery keep routine sign-in short.
+  Uncertain requests reconcile the session without replaying credentials.
+- Fixed an expired/revoked browser-owned cookie blocking a fresh sign-in;
+  unrelated Admin/other-channel sessions remain protected. Added native browser
+  integration and regression checks under ADR 0067; exact executed results and
+  open gates are recorded in decision section 11 and the release checklist.
+- Kept recovery/cancel actions stable during field validation and removed an
+  empty mobile navigation menu. Final native browser checks pass in both build
+  modes; PostgreSQL-only and operational acceptance remain explicitly open.
+- The accepted synthetic preview stays separate and data-free. No operational
+  route, browser activation, workflow authority, dependency, schema or deployment
+  change. Guided onboarding/setup, real delivery/support and M0/M1 remain open.
+
+## 20 October 2026 - Documentation-led browser composition correction (P1c.4)
+
+- Reworked focused access tasks and the workspace against official ADS guidance.
+  Descriptions and persistent section errors stay with the form; repeated field
+  warnings/popup feedback and raised-page/sunken nesting are removed. Workspace
+  navigation uses actual Navigation System and current side-nav-items.
+- Initialized theme tokens before controls to eliminate the dark-mode input
+  background flash; first-frame checks and transition-stable captures cover it.
+- Moved synthetic Page/Theme/Response controls to a separate review entry using
+  labelled ADS selects. Added browser-specific instructions/reference mapping
+  requiring consultation of current official docs before UI work. Earlier
+  component/lint/viewport success is not evidence of full design conformance.
+- Reviewed four exact ADS additions and changed archives before installation;
+  strict peers, the existing exception, notices and proprietary-asset exclusion
+  remain. Audit: zero findings. Exact evidence and results: decision section 10,
+  ADR 0066 and plan revision 14. No backend, grant, schema or production change.
+
+## 20 October 2026 - Browser viewport layout (P1c.3)
+
+- Replaced narrow stacked access cards with wide ADS layouts: bounded fields
+  beside guidance/status, compact review controls in a desktop side column,
+  four-column workspace tools and multi-column help/recovery content. Reduced
+  outer spacing and used a compact footer without shrinking typography.
+- Added explicit viewport-fit checks for every page and form error in both
+  themes, controls open/closed, at 1280x720, 1366x768 and 1440x900. Checks reject
+  vertical overflow, offscreen actions, clipped content and inner-scroll fixes.
+  Mobile and enlarged text continue to scroll naturally.
+- Scope, final evidence and rollback are in decision section 9 and plan
+  revision 13. No dependency/backend/schema/grant/Telegram/deployment change;
+  the browser remains a disconnected local demo with operational gates open.
+
+## 20 October 2026 - Browser-wide ADS design adoption (P1c.2)
+
+- Replaced custom browser CSS, the split introduction and native review
+  selectors with ADS Box/Grid/Inline/Stack layouts, Anchor/LinkButton navigation,
+  Heading/Text typography and button groups. Every existing access page shares
+  the ADS shell, typed semantic tokens and supported responsive breakpoint.
+- Enforced both ADS lint plugins' complete recommended rule sets as errors,
+  removing layout/global-style exemptions. A line-scoped read-only exception
+  protects synthetic demo credentials. ADS typography tokens remain unchanged
+  with system-font fallbacks; no proprietary font/image/brand asset is added.
+- Promoted two already-inspected transitive packages to exact direct use without
+  changing archive versions or peer/security exceptions. Builds now bind exact
+  source hashes; runtime checks compare actual styles to loaded ADS tokens and
+  exercise the responsive grid, keyboard controls and automatic theme changes.
+- Scope and final verification are recorded in decision section 8, ADR 0066 and
+  plan revision 12. Browser auth remains disabled and disconnected; no backend,
+  workflow grant, Telegram UI, schema, environment secret or deployment changes.
+
+## 20 October 2026 - Actual React / Atlassian access client (P1c.1)
+
+- Installed the isolated `browser/` React 18/ADS workspace and supported
+  Parcel/Compiled build under the user's “resolve it and proceed” instruction.
+  Exact review binds 555 lock entries/528 archives. A scoped legacy context peer
+  exception is explicit; the fixed selector parser and supported ESLint resolve
+  the initial toolchain audit finding. Root Telegram dependencies are unchanged.
+- Added real ADS provider, controls/forms, typography and themes to the local
+  access demo, readable third-party notices, excluded-asset/module checks and
+  a hashed loopback-only server at port 8766. The custom wireframe on 8765 is
+  historical. Demo values remain read-only; no real auth/business API is connected.
+- Added TSX source-review coverage and dedicated CI checks. Local production
+  build, types/lint/context/parser/peer checks and 79 browser checks/71 synthetic
+  screenshots pass. Point-in-time npm audit reports zero vulnerabilities.
+- No Django auth/permission/schema/config-secret/Telegram source change, real
+  staff/provider action, merge or deployment. Browser off/E006/routes and M1
+  gates remain. ADR 0066, plan revision 11 and decision section 7 record exact
+  scope, diagnostics, unverified release work and rollback.
+
+## 20 October 2026 - Local synthetic browser access preview
+
+- Added review-only sign-in, first-password/setup, MFA/enrollment/recovery,
+  workspace and help wireframes, with fixed demo values and simulated failures.
+  A loopback server serves only their three first-party assets, independently of
+  Django. No account changes, API calls, cookies, persistent storage or vendor
+  code/assets. Root dependencies and Telegram sources remain unchanged.
+- Added candidate source hashes/component inventory, browser and server checks,
+  and plan revision 10. The React/ADS dependency/peer/licence gate remains open;
+  this preview is not the working React client or an M1/production release.
+- Local access, evidence and rollback:
+  `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` section 6.
+- Verification: 78 browser checks, 70 synthetic captures, all 50 tooling tests
+  and relevant lint/UI/source/governance checks passed. Human design, React/ADS,
+  native authentication, real devices, staging and production remain unverified.
+
 ## 20 October 2026 - Closed existing-staff initial setup (P1b.2b.3)
 
 - Added active-Superuser, preview/snapshot/revision/request-key-controlled

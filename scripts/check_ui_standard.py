@@ -9,7 +9,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / 'docs/ui-standard/registry.json'
-UI_PREFIXES = ('core/static/miniapp/', 'origination/static/miniapp/', 'core/templates/', 'origination/templates/')
+UI_PREFIXES = ('core/static/miniapp/', 'origination/static/miniapp/', 'core/templates/', 'origination/templates/', 'browser/src/')
 
 
 def source_hash(path):
@@ -17,7 +17,7 @@ def source_hash(path):
     if not candidate.is_relative_to(ROOT) or not candidate.is_file():
         return None
     content = candidate.read_bytes()
-    if candidate.suffix in {'.py', '.html', '.js', '.css', '.json', '.svg', '.txt'}:
+    if candidate.suffix in {'.py', '.html', '.js', '.css', '.json', '.svg', '.txt', '.ts', '.tsx', '.cjs'}:
         content = content.replace(b'\r\n', b'\n')
     return hashlib.sha256(content).hexdigest()
 
@@ -30,7 +30,7 @@ def check_registry(registry):
     known = {entry['path'] for entry in registry['legacy_sources']}
     for folder in registry.get('source_roots', []):
         for candidate in (ROOT / folder).rglob('*'):
-            if candidate.suffix not in ('.html', '.js', '.css') or candidate.name.startswith('vendor-'):
+            if candidate.suffix not in ('.html', '.js', '.css', '.ts', '.tsx') or candidate.name.startswith('vendor-'):
                 continue
             relative = candidate.relative_to(ROOT).as_posix()
             change = reviewed.get(relative, {})

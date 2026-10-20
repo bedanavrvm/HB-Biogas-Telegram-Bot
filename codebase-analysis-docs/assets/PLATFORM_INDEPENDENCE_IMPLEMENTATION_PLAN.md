@@ -1,17 +1,66 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **9 — 20 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment/shared browser TOTP guard/initial staff setup and required pilot order:
+Plan revision: **15 — 20 October 2026**. P1c.5 adds a separately built, dormant native session/CSRF/password/MFA/logout client and isolated React-to-Django integration evidence. Routine sign-in stays short, autofill and stage resume are automatic, usernames survive errors and recovery stays inline. Guided setup/enrollment remains the next bounded increment. The accepted P1c.4 composition and all operational gates remain. Required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a, P1b.1, P1b.2a JSON/storage, P1b.2b.1 closed TOTP enrollment, P1b.2b.2 shared browser TOTP claims and P1b.2b.3 closed existing-staff initial setup are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md, codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md, codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md and codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md.
+P1c.5 follows the user's proceed/usability instructions under ADR 0067. Real
+native authentication is tested against synthetic accounts in an isolated full
+schema; the fixed-value preview stays separate. Stale owned cookies permit a
+fresh sign-in, without converting unrelated Admin/other-channel sessions. No
+new operational route, staff admission, workflow authority or M1 acceptance is
+introduced. Current results/checklist: decision section 11. Next: short guided
+initial setup/enrollment/recovery handoff and remaining identity/support gates.
 
-D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
+P1c.4 follows the user's instruction to fix the researched issues and always
+consult Atlassian docs. Focused access tasks keep descriptions/errors/fields in
+one sequence; the workspace uses Navigation System; surfaces/selection semantics
+follow official guidance; /review.html isolates synthetic scenario controls.
+Four exact ADS packages and their changed graph are archive/licence/asset/peer
+reviewed under ADR 0066. Current evidence and handoff: decision section 10.
+This corrects earlier composition claims without opening auth, Telegram or M1.
+
+Historical P1c.3 implemented the approved viewport plan: wider ADS grids put bounded fields,
+guidance/status and compact preview controls alongside one another on desktop;
+workspace/help/recovery layouts use horizontal space. Smaller token spacing and
+a compact footer remove unnecessary vertical overhead. Explicit short-laptop
+checks cover all pages/form errors, controls open/closed and both themes. Mobile
+and enlarged text retain natural scrolling. Historical evidence/checklist: decision
+section 9. No dependency, backend, schema, grant, Telegram or activation change.
+
+Status: **P1a/P1b closed identity backends, P1c.4 synthetic ADS pages and P1c.5 closed native sign-in integration are present. Browser authentication is globally disabled, production routes unmounted and M0/M1 operational acceptance open.** The exact browser graph is locally accepted under the user's implementation instructions, with an explicit peer exception, fixed development parser, notices and asset exclusions (ADR 0066). These bounded slices do not authorize merge/deployment or real staff admission. Current backend contracts are in STAFF_BROWSER_LIFECYCLE/JSON_AUTH/ENROLLMENT/REPLAY_GUARD/INITIAL_SETUP.md; frontend scope and evidence are in BROWSER_REACT_ADS_DECISION.md section 11 and browser/DEPENDENCIES.md.
+
+P1c.2 implements the user's full browser design adoption request: all current
+browser pages now compose ADS layout/typography/navigation/form components and
+typed semantic tokens. Native review selectors, custom CSS, global font/focus
+overrides and broad lint exemptions are removed. Both ADS recommended lint sets
+are blocking, including advisory guidance. Two already-reviewed packages become
+direct dependencies; the archive graph and overrides stay unchanged. Exact
+source-bound runtime token checks, evidence and checklist: decision section 8.
+This browser-only design work does not authorize Telegram Phase 6 or activate
+browser authentication. Actual transport and operational M0/M1 remain open.
+
+Historical D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
 archives / 546 entries, zero remaining inspection errors). It exposes an
 incompatible original React peer plus open notice/asset/licence questions; the
 override-assisted graph is **not approved for installation**. Current results and
 merge checklist: BROWSER_REACT_ADS_DECISION.md section 5. Application runtime is
 unchanged by D13a; no frontend or production activation is claimed.
+
+Historical P1c preparation includes a local synthetic access wireframe: run
+`python scripts/serve_browser_access_preview.py` and open http://127.0.0.1:8765/.
+It has fixed demo values and no API/authentication or business access. No React
+workspace, ADS assets, dependency installation, D13 acceptance or M1 is claimed.
+Exact scope, browser evidence and checklist: BROWSER_REACT_ADS_DECISION.md section 6.
+
+P1c.1 supersedes the local no-install status with actual ADS components in the
+isolated `browser/` workspace. After its documented build, run
+`python scripts/serve_ads_browser_preview.py` and open http://127.0.0.1:8766/.
+The exact dependency review binds 555 lock entries/528 archives; 134 installed
+peer declarations pass with one documented legacy context exception. The fixed
+selector-parser build override and supported ESLint give a zero-finding local
+npm audit. Demo values remain fixed/read-only and no auth/business API is
+connected. Section 7 records scope, actual browser evidence and remaining gates.
 
 P1b.2b.1 follow-up supersedes the earlier no-enrollment source status: three
 closed-backend TOTP enrollment/recovery-handoff handlers are now present, using
@@ -115,7 +164,7 @@ The former external-IdP build gate is superseded by the user's explicit self-man
 | D10 | Browser origin, cookie/session assurance and CSRF topology | Technical/security lead | Before M1; previously D2 in revision 1 |
 | D11 | Actual data-flow/privacy risks and required professional assessment | Named privacy/compliance owner | Screening in P0; blocking assessment before a compliance remedy is chosen |
 | D12 | Primary and backup maintainer, release coverage and helpdesk capacity | Sponsor/operations owner | Before production pilot admission |
-| D13 | Selected React + ADS for new browser pages; D13a collects exact candidate/graph/archive evidence; packages/assets and build still not approved | Frontend maintainer plus sponsor/legal reviewer where needed | User chose review first; no React/ADS/build installation until the exact reviewed scope is accepted |
+| D13 | Bounded local React/ADS graph/build accepted under “resolve it and proceed”; exact exceptions/notices/asset exclusions in ADR 0066 and browser/DEPENDENCIES.md | Repository maintainer; operational primary/backup and distribution reviewer still required | Local installation/build only; human design, production distribution and operational M1 remain open |
 
 For the selected D1 option, prove controlled account provisioning, verified email/password setup, MFA enrollment, encrypted secrets, recovery, shared abuse/replay controls and support ownership. A company credential or email domain does not confer workflow grants. No automatic email/name-based identity linking or account conversion is allowed.
 
@@ -258,7 +307,10 @@ No dormant slice satisfies M1 or usable browser access.
    package lock and production Telegram asset pipeline stable. Decide integration
    with Django static assets in a small, rehearsed build change; no separate
    hosting service is implied by a separate framework.
-4. Build only company login, MFA/enrollment/recovery states and a signed-in shell
+4. A source-only synthetic wireframe may review these states before installation
+   (ADR 0062 clarification, BROWSER_REACT_ADS_DECISION.md section 6). It uses no
+   vendor assets, credentials or APIs and does not satisfy the React build gate.
+   After acceptance, build only company login, MFA/enrollment/recovery states and a signed-in shell
    initially. Use reviewed ADS tokens/components, required style transforms and
    lint rules; use company branding/system fonts until other assets are cleared.
    ADS adoption does not automatically prove accessibility or compliance.
@@ -271,10 +323,17 @@ No dormant slice satisfies M1 or usable browser access.
    network failure and absence of Telegram. No business permissions arise from
    the signed-in shell. Finish scoped M1 staging/support acceptance before P2.
 
-P1b.2b and P1c may be developed in bounded increments once their own gates are
-met. React work is blocked on the chosen licence review, not a reason to relax
-authentication acceptance or to install an unreviewed default stack. Re-estimate
-the next increment after review; no calendar promises or traffic percentages.
+P1c.1 now completes the exact local build/component scope above, with synthetic
+access pages and source review. Native API/CSRF/session transport, deployment
+static/CSP/cache integration and operational M1 were unimplemented/unaccepted.
+P1c.5 now implements the bounded native session/password/MFA/logout client and
+isolated end-to-end boundary under ADR 0067 (decision section 11). Initial
+setup/enrollment/recovery-handoff UI, actual delivery/support, production static/
+CSP/origin/cache, PostgreSQL/device and M0/M1 acceptance remain open. Do not
+describe the setup support handoff as completed onboarding.
+P1b.2b and P1c continue in bounded increments under their own gates; local build
+acceptance never relaxes authentication or approves an unreviewed graph. No
+calendar promises or traffic percentages are inferred.
 
 Work:
 
@@ -552,7 +611,30 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 | D13a | Exact-graph review slice; no frontend installation or dependency approval. Current evidence/limits/checklist in BROWSER_REACT_ADS_DECISION.md section 5 |
 | P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1/P1b.2b.2/P1b.2b.3 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
-| This revision | Closed existing-staff initial setup; scope/schema/verification/checklist in STAFF_BROWSER_INITIAL_SETUP.md; real delivery/support, native shared rate-cache and P1c/M1 gates remain open; no frontend installation or production activation |
+| Revision 9 | Closed existing-staff initial setup; scope/schema/verification/checklist in STAFF_BROWSER_INITIAL_SETUP.md; real delivery/support, native shared rate-cache and P1c/M1 gates remain open; no frontend installation or production activation |
+| Revision 10 | Local source-only access wireframe and synthetic browser evidence; BROWSER_REACT_ADS_DECISION.md section 6; historical no-install state |
+| Revision 11 | Actual local React/ADS access demo, exact dependency/build decision, notices/module checks and browser evidence; section 7; synthetic frontend foundation only |
+| This revision (15) | Separate dormant native session/password/MFA/logout client, short sign-in and isolated React/Django integration under ADR 0067; decision section 11. Guided initial setup/enrollment/recovery UI, production distribution and M0/M1 remain open |
+
+### STATE BLOCK — revision 15 / P1c.5 closed native sign-in
+
+- INDEX_VERSION: platform-independence-plan-15 / 20 October 2026; ADR 0067.
+  Prior demo/identity slices remain; no operational admission or deployment.
+- FILE_MAP_SUMMARY: separate browser auth entry/transport; owned stale-session
+  restart and denial regressions; isolated test URLconf/settings/runner/native
+  browser script; CI and source-bound review/docs/checklist.
+- OPEN_QUESTIONS: short guided initial setup/enrollment/recovery handoff and
+  actual delivery/support, native shared cache/privacy/PostgreSQL, origin/static/
+  CSP, device/assistive/backup/staging and M0/M1 acceptance.
+- KNOWN_RISKS: real native authentication in synthetic tests is not a production
+  login product or workflow authority. The fixed-value preview stays disconnected.
+- GLOSSARY_DELTA: existing React browser client updated; no new business term.
+- VERIFICATION: affected staff_auth suite 139 passed/nine PostgreSQL-only skips;
+  final five transport tests pass, with 25 native checks/10 proof-free captures
+  per build mode. Exact scope, source bindings and remaining gates are recorded
+  in decision section 11 and the current release checklist.
+- NEXT_READ_QUEUE: guided setup/enrollment/recovery UI and identity/support gates;
+  M1 before Complaints, mandatory M3 before TAT/Origination/Portal investment.
 
 ### STATE BLOCK — revision 6 / D13a dependency review
 
@@ -589,6 +671,26 @@ release gates. **Open Questions:** operational acceptance remains open.
 - GLOSSARY_DELTA: browser TOTP use claim reserves successful native code use across independent caches. It is not a verifier, login receipt, MFA assurance or workflow grant.
 - NEXT_READ_QUEUE: another bounded P1b prerequisite; resolve exact ADS graph; P1c; M1 before Complaints; M3 review before TAT/Origination/Portal investment.
 - VERIFICATION: current executed results and limits are maintained in STAFF_BROWSER_REPLAY_GUARD.md section 4; earlier phase counts remain historical.
+
+### STATE BLOCK — revision 11 / actual React/ADS local client
+
+- INDEX_VERSION: platform-independence-plan-11 / P1c.1 / 20 October 2026; source start `1b07b549`, branch ahead two plus prior uncommitted wireframe. Production state unknown; no commit/merge/deploy performed.
+- FILE_MAP_SUMMARY: browser workspace/source/build/notice/review; ADR 0066; hashed loopback server; actual browser and boundary tests; TSX source ratchet/component inventory; isolated CI job; release checklist.
+- OPEN_QUESTIONS: native backend transport, distribution/static/CSP/cache integration, human/device/assistive review, proof delivery/recovery, shared cache/privacy, PostgreSQL, support/backup owners and M0/M1.
+- KNOWN_RISKS: one explicit upstream React-peer exception, selector override/tool maintenance, deprecated vendor transitives and synthetic success mistaken for business authority. Browser auth off/E006/routes retained.
+- GLOSSARY_DELTA: installed React/ADS client is an actual local component build, currently fixed-demo and disconnected; local dependency decision is not production admission.
+- NEXT_READ_QUEUE: bounded native CSRF/session integration and remaining backend/support controls; M1 before Complaints; M3 review before TAT/Origination/Portal.
+- VERIFICATION: 79 production-browser checks/71 synthetic captures, exact original-peer/context/parser/type/lint/build checks and point-in-time zero-vulnerability audit pass. Final tooling/static counts and limits are in decision section 7 and release handoff; no operational certification.
+
+### STATE BLOCK — revision 10 / source-only access preview
+
+- INDEX_VERSION: platform-independence-plan-10 / 20 October 2026; source start `1b07b549`, clean branch ahead two. Production release/migrations unknown; no merge/deploy by this phase.
+- FILE_MAP_SUMMARY: browser-access-preview/{index.html,preview.css,preview.js}; loopback server; focused Python/server and existing-Playwright browser checks; UI candidate registry/index; ADR 0062 clarification; React decision section 6; release checklist.
+- OPEN_QUESTIONS: D13 exact peer/licence/asset/notice/build acceptance, supported Node, real React client, native cache/log privacy, proof delivery/interrupted setup/recovery, PostgreSQL, support owners and M0/M1.
+- KNOWN_RISKS: synthetic navigation/screenshots mistaken for real authentication or approval. Preview is loopback/fixed-assets only; browser auth off, E006 blocking and production routes unmounted.
+- GLOSSARY_DELTA: browser access preview is an analysis artifact with fixed demo values, not an operational client or account/session.
+- NEXT_READ_QUEUE: review preview and resolve/accept D13 before the real React/ADS auth implementation; finish remaining backend/support/M1 controls before Complaints; retain M3 investment review and later pilot order.
+- VERIFICATION: 78 browser checks, 70 synthetic screenshots and all 50 tooling/governance tests passed; current source hashes match capture/registry records. Narrow lint, source/UI/dependency/route/database checks passed; details and limits are in BROWSER_REACT_ADS_DECISION.md section 6. No Django auth/PostgreSQL/real device/provider/production certification is added by the wireframe.
 
 ### STATE BLOCK — revision 9 / P1b.2b.3 closed existing-staff initial setup
 

@@ -1,5 +1,116 @@
 # Known Gaps and Verified Workarounds
 
+## Native sign-in client remains closed; guided onboarding is next - 20 October 2026
+
+P1c.5 connects a separate React build to the existing native password/MFA/session
+boundary in isolated tests. It preserves usernames after errors, uses autofill
+and resumes interrupted MFA without repeating password entry. An expired owned
+cookie now permits a fresh sign-in without asking users to log out separately.
+The fixed-value preview at 8766 remains unchanged. There is no operational auth
+URL or newly admitted real staff; browser off/E006/routes remain closed.
+
+Initial-password/enrollment/recovery-code handoff UI and actual delivery/support
+are not completed onboarding. Keep those flows short and guided in the next
+bounded increment; never substitute simulated success or silently issue MFA
+assurance from setup. Production static/CSP/origin/shared-cache/PostgreSQL,
+device/assistive and M0/M1 acceptance remain open. See ADR 0067 and decision
+section 11 for current evidence and rollback.
+
+The repository's existing environment-example parity check also fails with
+119 missing declarations. Its checker, config/settings.py and .env.example
+match HEAD; P1c.5 introduces no deployment setting. This baseline documentation
+gap prevents claiming a clean full CI run and is outside this authentication slice.
+
+## Browser composition corrected; design acceptance remains explicit - 20 October 2026
+
+P1c.4 addresses the documentation-backed critique of earlier layouts. Use /
+for the staff presentation and /review.html for synthetic Page/Theme/Response
+selection on the loopback preview. Access forms retain one reading sequence;
+the workspace uses actual ADS navigation; persistent section feedback and flat
+surfaces replace popup/duplicated errors and nested sunken-on-raised groups.
+Theme startup now precedes controls, avoiding briefly light fields with dark text.
+
+Technical tests establish behavior/source binding and viewport fit. They do not
+prove design quality, human/device/assistive acceptance or full ADS conformance.
+Follow browser/AGENTS.md and DESIGN.md for current official references. Exact
+graph/notice/asset and verification evidence: decision section 10. Browser auth
+remains disconnected/off/E006/routes unmounted; operational M0/M1 remain open.
+
+## Historical browser laptop viewport overflow correction - 20 October 2026
+
+P1c.3 replaces P1c.2's narrow cards and stacked controls. At 1366x768 the previous
+sign-in page scrolled 26px; expanded controls caused 480px overflow despite spare
+horizontal space. Wide ADS grids, an adjacent control panel and compact token
+spacing now address the layout cause. Checks explicitly cover short desktop
+heights, all pages/form errors and expanded controls in both themes. See decision
+section 9 for final results and limits. Mobile/large text may scroll to preserve
+readability; no fixed-height/clipping workaround is used. The auth/operational
+limitations below remain unchanged.
+
+## Browser ADS adoption is implemented; operational access remains open - 20 October 2026
+
+P1c.2 supersedes the earlier custom browser-layout exceptions. All existing
+browser pages now use ADS layout/control/typography/navigation components and
+typed semantic tokens; the complete recommended lint sets block style drift.
+Use **Preview controls** at http://127.0.0.1:8766/ to inspect pages, themes and
+simulated responses. ADS typography uses its supplied system-font fallbacks;
+proprietary font files and Atlassian branding remain excluded.
+
+The pages still use fixed read-only demo values and simulated responses. This
+UI change supplies no real authentication or workflow access. Browser off/E006,
+unmounted production routes, native transport/CSRF/mail/recovery/cache/privacy,
+PostgreSQL, support and M0/M1 gates remain. Human/device/assistive review is not
+inferred from headless captures. Full evidence and rollback: decision section 8.
+Earlier sections retain their historical measurements and dependency limits.
+
+## Actual ADS local client still needs native transport and M1 - 20 October 2026
+
+The user's “resolve it and proceed” instruction now supports the bounded local
+`browser/` React/ADS installation and build (ADR 0066). Use its README and
+http://127.0.0.1:8766/ for actual ADS components. Earlier no-install/custom-only
+statements below are historical. The old forensic manifest remains unsuitable
+as an application manifest; only the separate exact workspace is accepted.
+
+One original legacy context React-peer mismatch remains an explicit tested local
+exception, never upstream support. The fixed development selector-parser override
+and supported linter give a zero-finding point-in-time audit; deprecated vendor
+stable/theme transitives remain maintenance concerns. Full notices accompany the
+52 bundled packages; no brand/font/image asset is imported. Toolchain/native/MPL
+redistribution requires its own distribution-specific notice/source package.
+
+The actual ADS demo uses fixed read-only values and memory only. It supplies no
+real session, proof delivery, password/MFA mutation, customer record or workflow
+grant. Browser authentication remains off/E006 blocking/routes unmounted.
+Production static/CSP/cookie/CSRF integration, interrupted setup/recovery,
+shared native cache/log privacy, PostgreSQL, human/device/assistive review,
+primary/backup ownership and M0/M1 remain open. Local inline theme styles and
+hashed import maps are not a production CSP decision. An uninitialized native
+feature-gate warning is observed without configuring a provider or sending data.
+
+79 production-browser checks/71 synthetic captures and exact peer/context/parser/
+type/lint/build checks pass. These do not certify full CI or real authentication.
+Commands, diagnostics, checklist and rollback: BROWSER_REACT_ADS_DECISION.md
+section 7. Previous environment-template/artifact/Python-audit gaps are unchanged.
+
+## Accessible local wireframe is not working browser authentication - 20 October 2026
+
+Run `python scripts/serve_browser_access_preview.py` and open
+http://127.0.0.1:8765/ on the same computer to review the proposed access pages.
+It is a first-party synthetic analysis artifact with read-only demo fields,
+simulated responses and no API, credentials, storage, customer records or grants.
+Refresh/Reset demo resets its memory; its one-time-view simulation is not a
+durable security control. Do not enter real credentials or publish this tool.
+
+The selected React/ADS client is still uninstalled. The declared React-16 peer
+conflict was reconfirmed; no compatibility exception, licence/asset/notice/build
+acceptance or M1 gate is waived. Local Node 26.7.0 is outside the review
+candidate's >=22 <25 range; the later frontend needs a reviewed runtime.
+Browser auth remains disabled and production URLs unmounted. Real proof delivery,
+interrupted setup/recovery, shared native cache/log privacy, PostgreSQL and
+support/staging acceptance remain separate. Section 6 of
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` records the candidate,
+source-bound synthetic evidence, diagnosed preview fixes and rollback.
+
 ## Closed initial setup still needs delivery and operational acceptance - 20 October 2026
 
 P1b.2b.3 adds an audited existing-account preparation service and unmounted

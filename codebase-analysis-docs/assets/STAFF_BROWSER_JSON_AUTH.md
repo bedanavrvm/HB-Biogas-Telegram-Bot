@@ -12,6 +12,14 @@ nonprivileged. Production routes remain unmounted and browser disabled. The
 historical P1b.2a results/counts below describe that earlier slice only; controlled
 provisioning, operational recovery/UI, shared cache and M1 remain unaccepted.
 
+P1c.5 adds a separately built dormant React password/MFA/logout client and real
+CSRF/session/allauth browser tests in an isolated full-schema database (ADR 0067,
+decision section 11). The synthetic preview stays separate. Expired/revoked
+browser-owned cookies now permit a fresh password/MFA attempt instead of a 409
+loop; ordinary Admin/other-channel cookies remain protected. Production routing,
+browser-off/E006 and workflow authority are unchanged. Guided setup/enrollment,
+delivery/support and operational M0/M1 remain open.
+
 ## 1. Scope and unchanged production channel
 
 `staff_auth/browser_api.py` supplies JSON session, password, MFA and logout

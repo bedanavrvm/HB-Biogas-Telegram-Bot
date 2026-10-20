@@ -1,11 +1,28 @@
 import hashlib
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from scripts.check_ui_standard import REGISTRY, ROOT, check_registry, check_release, source_hash
 
 
 class UiStandardGateTests(unittest.TestCase):
+    def test_typescript_sources_require_review_and_hash_crlf_as_lf(self):
+        with TemporaryDirectory() as location, patch('scripts.check_ui_standard.ROOT', Path(location)):
+            directory = Path(location) / 'browser/src'
+            directory.mkdir(parents=True)
+            source = directory / 'access.tsx'
+            source.write_bytes(b'// synthetic fixture\r\nexport const demo = true;\r\n')
+            registry = {'migration_authorized':False, 'legacy_sources':[], 'source_roots':['browser/src'], 'operational_templates':[]}
+            self.assertTrue(any('new UI source' in error for error in check_registry(registry)))
+            relative = 'browser/src/access.tsx'
+            expected = hashlib.sha256(source.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+            self.assertEqual(source_hash(relative), expected)
+            registry['changes'] = [{'path':relative,'sha256':expected,'review_reference':'synthetic-react-candidate','reason':'Synthetic TypeScript ratchet probe'}]
+            self.assertEqual(check_registry(registry), [])
+
     def test_current_source_and_changed_source_have_distinct_verdicts(self):
         path = 'core/static/miniapp/components.css'
         digest = source_hash(path)

@@ -20,6 +20,40 @@ and its migration hold remain unchanged. No usable React frontend is claimed.
 D13a now adds review-only exact dependency evidence/tooling, not frontend
 installation or licence clearance; use section 5 of
 `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` for current status.
+P1c preparation adds a source-only synthetic access wireframe served independently
+of Django on loopback. Use that document's section 6 for the local URL, fixed-demo
+boundaries, source/keyboard/mobile evidence and rollback. The React/ADS client is
+still uninstalled in that historical slice; the artifact does not satisfy M1.
+P1c.1 now supersedes the local install hold: `browser/` builds actual React/ADS
+access pages under ADR 0066 and the user's “resolve it and proceed” instruction.
+The separate exact graph, exceptions, notices and excluded assets are in
+`browser/DEPENDENCIES.md`. Decision section 7 records loopback port 8766 and
+source-bound browser evidence. The current client is a fixed-value demo; native
+auth/business transport, production distribution and M1 remain separate gates.
+P1c.2 implements the subsequent full browser ADS adoption request. All current
+pages use ADS layout/control/navigation/typography components and typed tokens;
+custom CSS/native selectors/global overrides are removed. Both full recommended
+lint sets block drift. Two inspected runtime packages become direct uses without
+new archives. Decision section 8 and plan revision 12 contain source-bound token,
+responsive/keyboard/theme evidence and the current change-specific handoff.
+P1c.3 refines that browser geometry under the approved viewport plan: wide ADS
+layouts, bounded fields beside guidance/status, compact adjacent controls and
+explicit desktop vertical-fit checks. Mobile/large text retains natural scroll.
+Decision section 9 and plan revision 13 retain that historical evidence/handoff.
+P1c.4 corrects composition against current official ADS usage: focused forms,
+persistent SectionMessage feedback, flat surfaces, the fixed-wide workspace
+grid and actual Navigation System. Design controls move to `/review.html`
+with labelled Selects. Theme initialization precedes the first control paint.
+Decision section 10 and plan revision 14 contain current evidence and limits.
+Future browser changes follow `browser/AGENTS.md` and `browser/DESIGN.md`;
+imports, lint and viewport checks do not establish design conformance.
+P1c.5 adds the separate dormant `access.html` native sign-in build and fixed
+same-origin cookie/CSRF transport under ADR 0067. Real React/Django/allauth tests
+use isolated synthetic data only; production remains off/unmounted. Routine
+sign-in has autofill, username retention and automatic stage resume. Stale owned
+cookies permit a fresh password/MFA attempt without changing ordinary Admin
+sessions. Guided setup/enrollment/delivery/support and M0/M1 remain open.
+Current evidence/handoff: decision section 11 and plan revision 15.
 P1b.2b.1 now adds a closed native TOTP enrollment/recovery-handoff backend;
 see `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` and ADR 0063 for
 current contracts, verification, limits and release checklist. Setup is not MFA
@@ -60,7 +94,7 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Source-only findings and research on channel independence; revision 2 aligns the pilot order to Complaints → TAT → Origination → Portal. No runtime or production readiness is established. |
-| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-9 gated plan: Django/allauth browser MFA including closed enrollment/shared TOTP use/initial staff setup, React/ADS exact-graph review (D13a), existing grants, Complaints first and M3 review. Review evidence and dormant backend slices do not authorize installation/activation. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-13 gated plan: dormant Django/allauth browser MFA foundations, the locally accepted React/ADS workspace, browser-wide ADS adoption and the approved viewport layout. Existing grants, Complaints first and M3 review remain; actual transport, production distribution and M0/M1 acceptance stay open. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` | P1b.1 explicit admission, audited browser-only suspension/revocation/reset, additive model and hard-delete compatibility; current checks, limits and release checklist. Browser remains disabled. |

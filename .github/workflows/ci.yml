@@ -151,6 +151,87 @@ jobs:
             node --check "/tmp/${script%.gs}.js"
           done
 
+  browser-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.3"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            browser/package-lock.json
+      - name: Install isolated browser and existing test tooling
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix browser ci
+          npx playwright install --with-deps chromium
+      - name: Verify exact graph, components, types and source review
+        run: |
+          npm --prefix browser run check:dependencies
+          node browser/scripts/check-context.cjs
+          npm --prefix browser run typecheck
+          npm --prefix browser run lint
+          npm --prefix browser audit
+          python scripts/check_ui_standard.py
+          python -m unittest scripts.tests.test_ads_browser_preview scripts.tests.test_ui_standard
+      - name: Build and exercise synthetic ADS access pages
+        run: |
+          npm --prefix browser run build
+          python scripts/serve_ads_browser_preview.py &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time
+          from urllib.request import urlopen
+          for attempt in range(40):
+              try:
+                  with urlopen('http://127.0.0.1:8766/', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit('ADS preview did not start')
+          PY
+          node scripts/test_ads_browser_preview.js
+      - name: Retain unapproved synthetic ADS review evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ads-access-preview-unapproved
+          path: test-results/ads-browser-preview/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Install the existing Django backend for closed transport tests
+        run: pip install -r requirements.txt
+      - name: Build and exercise the closed React to native Django boundary
+        env:
+          DEBUG: "True"
+          DJANGO_SECRET_KEY: ci-closed-browser-tests-only-not-a-production-secret
+          DATABASE_URL: "sqlite:///:memory:"
+          GOOGLE_SERVICE_ACCOUNT_JSON: ""
+          GOOGLE_APPLICATION_CREDENTIALS: ""
+          SENTRY_DSN: ""
+          RUN_STAFF_BROWSER_E2E: "1"
+        run: |
+          node browser/scripts/build.cjs --authentication
+          node browser/scripts/build.cjs --authentication --development
+          python manage.py test staff_auth.tests_transport --settings=staff_auth.transport_test_settings --noinput
+      - name: Retain proof-free closed transport evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staff-browser-native-transport-unapproved
+          path: test-results/staff-browser-transport/
+          retention-days: 14
+          if-no-files-found: warn
+
   postgres:
     runs-on: ubuntu-latest
     services:

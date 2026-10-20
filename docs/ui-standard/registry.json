@@ -506,6 +506,72 @@
       "sha256": "742ff776b31a68a09ad84d13ca861fdb7f13b3fd8c8dae29b54e121f1984cfaf",
       "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
       "reason": "Nonvisual cache-version update for the approved SMS feedback copy; existing source baselines and Phase 6 hold remain unchanged."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/index.html",
+      "sha256": "a4b759b3d5a475ba48fc716d9ae1218269d897511bda9b2c86fc74d3000b888c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/preview.css",
+      "sha256": "c5a4d623e6a751d0554a02d4e3c3ca979458112570483a67554bead5c550475c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/preview.js",
+      "sha256": "fe2256b7c895c465c6da388195ec2263bf90aba067c519ee7789d6549fabb90a",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "browser/src/index.html",
+      "sha256": "bdadd620a197499529a4cacd318435264459052d1fe832aaba40301c5b967dbc",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/index.tsx",
+      "sha256": "068f716b32aab4ec24eb79648a5706cf21a37587f5142444cc8228b05841e4d9",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/preview.tsx",
+      "sha256": "dae1e02704e0208ab5ae8da35f94dcfa187d22a77ea4619fffa91aefc612cb14",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/review.html",
+      "sha256": "98f306db226e62e7a3c60dbc032e38280546c7564baa37a20c8813c446725300",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/access.html",
+      "sha256": "66c65695444f902508b7d91e3d07a3b9c8a73b6c728f4abfc99f584fd819e956",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
+      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+    },
+    {
+      "path": "browser/src/auth-index.tsx",
+      "sha256": "cd807f13674f6f6950c0e7564b5d8dc9ce5a9bd845a7dd943fa8d52a0dc4fdd7",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
+      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+    },
+    {
+      "path": "browser/src/auth-transport.ts",
+      "sha256": "bd12e0136dcac69b805e7f6087991b4a2cf72a381b3d84eb6830fa83c13df4aa",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
+      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+    },
+    {
+      "path": "browser/src/staff-access.tsx",
+      "sha256": "91193d835fbe652abe2a1b177d2d00300149c7471f6ff07b04b777092fdc2381",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
+      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
     }
   ],
   "source_roots": [
@@ -514,7 +580,9 @@
     "core/templates/portal",
     "core/templates/tat_tracker",
     "core/templates/complaint_cases",
-    "origination/templates/loan_origination"
+    "origination/templates/loan_origination",
+    "codebase-analysis-docs/assets/browser-access-preview",
+    "browser/src"
   ],
   "source_hash_format": "lf-text-v1"
 }

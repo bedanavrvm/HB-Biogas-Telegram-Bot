@@ -83,6 +83,18 @@ is required for this slice.
 - Automatically install the complete ADS ecosystem: rejected pending the user's
   chosen package/licence review.
 
+## Review artifact clarification — 20 October 2026
+
+Before dependency acceptance, a first-party, source-only interactive wireframe
+may make the proposed access states reviewable. It is an analysis artifact,
+not the React client, an ADS implementation or an alternative frontend decision.
+Use no vendor code/assets, credentials, API calls, cookies or persistent state.
+Serve only its three fixed assets on loopback, independently of Django; keep
+authentication disabled and production URLs unmounted. Source-bound review
+entries and synthetic browser evidence do not confer human design approval.
+The exact dependency/build/licence gate still precedes the React workspace.
+See BROWSER_REACT_ADS_DECISION.md section 6 for the artifact and its limits.
+
 ## Primary references
 
 - https://atlassian.design/license/

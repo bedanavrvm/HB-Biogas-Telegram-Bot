@@ -184,6 +184,14 @@ def _discard(request):
     clear_login(request)
 
 
+def _owns_browser_session(request):
+    context = request.session.get(CHANNEL_KEY)
+    return (
+        isinstance(context, dict) and request.user.is_authenticated
+        and type(context.get('user_id')) is int and context['user_id'] == request.user.pk
+    )
+
+
 def _complete(request):
     """Do not report authenticated success without a durable login audit."""
     context, row = _channel(request)
@@ -227,7 +235,14 @@ def password_login(request):
     if limited is not None:
         return limited
     if request.user.is_authenticated:
-        return _response(_state(request), 409)
+        state = _state(request)
+        if state != 'signed_out' or not _owns_browser_session(request):
+            return _response(state, 409)
+        # An expired/revoked browser cookie must not trap a fresh sign-in.
+        # Only its exact owned session is cleared; Admin/other-channel cookies
+        # remain intact and cannot be converted by this password endpoint.
+        with protected_browser_session(request):
+            get_adapter(request).logout(request)
     _discard(request)
     user = get_user_model().objects.filter(username=data['username'], is_active=True).first()
     row = _admission(user.pk) if user else None
@@ -287,12 +302,7 @@ def authenticate_mfa(request):
 @browser_endpoint(('POST',))
 def browser_logout(request):
     context, _row = _channel(request)
-    raw_context = request.session.get(CHANNEL_KEY)
-    owned_expired_session = (
-        isinstance(raw_context, dict) and request.user.is_authenticated
-        and raw_context.get('user_id') == request.user.pk
-    )
-    if context is not None or owned_expired_session:
+    if context is not None or _owns_browser_session(request):
         # Only this client-owned session, never every session for the employee.
         with protected_browser_session(request):
             get_adapter(request).logout(request)

@@ -69,11 +69,38 @@ Delivery/export is absent. First-password setting changes the account's shared
 Django session hash; signed Telegram identity and grants survive. See ADR 0065
 and `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`.
 
-**React browser client:** New standalone presentation layer selected by the user
-with Atlassian Design System. Package/transitive/asset licence review precedes
-installation. Django still owns identity, grants, workflows and records. Existing
-Telegram pages and their separate Design Lab migration hold remain unchanged.
-See `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+**React browser client:** The separate `browser/` React/ADS workspace, installed
+and built locally under ADR 0066. P1c.2 applies ADS components, layout primitives,
+typography, typed tokens and full recommended lint rules across browser pages.
+Custom CSS/native selectors/global overrides are removed; the synthetic
+read-only field exception is line-scoped. The current access pages use fixed
+demo values and no auth/business API. Exact dependencies, notices,
+asset exclusions and compatibility checks govern changes. Future real transport
+shares Django identity, grants and data; existing Telegram pages and their
+Design Lab migration hold remain unchanged. See `browser/DEPENDENCIES.md` and
+`BROWSER_REACT_ADS_DECISION.md` section 10 for the current P1c.4 composition:
+focused forms, persistent feedback, Navigation System workspace and a separate
+review entry. `browser/DESIGN.md` maps decisions to official guidance; technical
+checks do not establish full design conformance.
+P1c.5 adds a separate dormant native sign-in build, exercised only by isolated
+React-to-Django tests. It uses fixed same-origin cookie/CSRF, automatic stage
+resume, autofill and inline recovery; the demo stays fixed-value/disconnected.
+This is not operational login, completed onboarding or M1. See ADR 0067 and
+decision section 11.
+
+**Browser dependency decision:** The bounded local build decision under the
+user's “resolve it and proceed” instruction. It requires exact graph/archive
+binding, one explicit legacy context React-peer exception, the fixed development
+selector parser, readable notices and excluded branding/font/image assets.
+It does not approve every ADS material, production distribution or operational
+M1. See ADR 0066 and BROWSER_REACT_ADS_DECISION.md section 7.
+
+**Browser access preview:** A first-party synthetic access-page wireframe served
+only on loopback, independently of Django. Fixed demo values and in-memory
+navigation illustrate proposed flows without authentication, proof delivery,
+credentials, workflow grants or persistent storage. It is not the installed
+React/ADS client or acceptance of D13/M1. See
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` section 6.
 
 **Browser dependency review snapshot:** D13a's proposed exact manifest, npm
 review-only lock and integrity-checked archive/licence/asset metadata. It is

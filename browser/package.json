@@ -1,0 +1,56 @@
+{
+  "name": "jbl-staff-browser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React/ADS staff access client; local demo only until M1.",
+  "engines": {
+    "node": ">=22.23.3 <23"
+  },
+  "overrides": {
+    "@atlaskit/analytics-next-stable-react-context@1.0.1": {
+      "react": "18.3.1"
+    },
+    "postcss-selector-parser": "7.1.6"
+  },
+  "dependencies": {
+    "@atlaskit/app-provider": "8.1.0",
+    "@atlaskit/button": "25.5.0",
+    "@atlaskit/css": "1.1.7",
+    "@atlaskit/css-reset": "8.4.6",
+    "@atlaskit/form": "18.2.0",
+    "@atlaskit/heading": "8.0.0",
+    "@atlaskit/navigation-system": "11.3.1",
+    "@atlaskit/primitives": "22.6.0",
+    "@atlaskit/section-message": "10.2.6",
+    "@atlaskit/select": "23.1.3",
+    "@atlaskit/side-nav-items": "2.5.8",
+    "@atlaskit/textfield": "10.2.6",
+    "@atlaskit/tokens": "20.6.1",
+    "@atlaskit/visually-hidden": "4.4.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@atlaskit/eslint-plugin-design-system": "16.13.9",
+    "@atlaskit/eslint-plugin-ui-styling-standard": "3.0.2",
+    "@compiled/parcel-config": "0.5.7",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "eslint": "10.13.0",
+    "parcel": "2.16.4",
+    "typescript": "5.9.3",
+    "@parcel/core": "2.16.4",
+    "@parcel/config-default": "2.16.4",
+    "semver": "7.8.5",
+    "@typescript-eslint/parser": "8.72.0",
+    "@compiled/babel-plugin": "3.0.2",
+    "@compiled/babel-plugin-strip-runtime": "3.0.3",
+    "@compiled/react": "2.0.0"
+  },
+  "scripts": {
+    "check:dependencies": "node scripts/check-dependencies.cjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings=0",
+    "build": "node scripts/build.cjs"
+  }
+}
