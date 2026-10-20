@@ -226,6 +226,17 @@ jobs:
           node browser/scripts/build.cjs --complaints
           node browser/scripts/build.cjs --complaints --development
           python manage.py test core.tests_browser_complaints staff_auth.tests_complaints_transport --settings=staff_auth.transport_test_settings --noinput
+      - name: Build and exercise the persistent synthetic Complaints demo
+        run: |
+          node browser/scripts/build.cjs --complaints-demo
+          node browser/scripts/build.cjs --complaints-demo --development
+          python -m unittest scripts.tests.test_complaints_demo scripts.tests.test_complaints_demo_sandbox
+          python scripts/serve_complaints_demo.py &
+          curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8767/ > /dev/null
+          python scripts/serve_complaints_demo.py --development --port 8768 &
+          curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8768/ > /dev/null
+          node scripts/test_complaints_demo.js
+          node scripts/test_complaints_demo.js --development
       - name: Retain proof-free closed transport evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -234,6 +245,8 @@ jobs:
           path: |
             test-results/staff-browser-transport/
             test-results/complaints-browser-transport/
+            test-results/complaints-local-demo/production/
+            test-results/complaints-local-demo/development/
           retention-days: 14
           if-no-files-found: warn
 

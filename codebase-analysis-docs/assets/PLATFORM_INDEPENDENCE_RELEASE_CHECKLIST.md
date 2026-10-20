@@ -4,7 +4,76 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P2a closed Complaints read handoff
+## Current P2a.2 role-based local Complaints handoff
+
+- [x] Scope/ADR: user requested realistic roles/actions, specifically creation/
+  uploads; ADR 0072 and plan revision 20. Same local URL 127.0.0.1:8767.
+- [x] Additions: Officer/Manager creation with required identifiers/location,
+  image/PDF upload, preview/download/removal; HB comments/resolution; Manager
+  reopen/missing-details completion; scoped IT override and Portal-only denial.
+  Checked-in built-in capability catalogue supplies policy; no live override claim.
+- [x] UI: actual ADS navigation/forms/selects/fields/buttons/feedback and tokens;
+  related workspace/branch row and customer/evidence columns use laptop space.
+  Mobile stacks with evidence before submit; Back retains text/files. Native
+  hidden file input is the documented narrow exception. No baseline approval.
+- [x] Data/authority: separate immutable verified v2 fixture SQLite seed; all
+  entered values/history/file bytes in bounded process memory until reset/restart.
+  No Django/settings/operational database, real account/grant or provider writes.
+  Demo role controls never authenticate. Native P2a remains read-only.
+- [x] HTTP/retries: verified assets, loopback Host/Origin/custom JSON POST header,
+  no company credentials/cookies/storage/logged payloads; capability/group,
+  revision, request-key/payload and reset-generation checks. File signatures,
+  count/size/budget limits and per-case content deduplication before mutation.
+- [x] Migrations/config/dependencies: none. No schema or production change;
+  browser off/unmounted/E006 and the independent zero-connect preview remain.
+- [x] Local verification: 30 fixture/HTTP/sandbox/preview/ratchet tooling tests
+  pass. Both native P2a browser modes pass 24 checks/14 synthetic captures each.
+  Both demo modes pass 24 browser checks/21 synthetic captures each, including
+  actual file chooser, image preview/PDF download, retained Back drafts, keyboard
+  role selection, role handoff/denials, invalid upload and reset/read retry.
+  Types/full ADS lint, reviewed build/notices/assets, Python Ruff, architecture,
+  UI ratchet, runner syntax, CI YAML, diff and source/evidence bindings pass.
+- [x] Telegram compatibility: no endpoint/template/token/grant/service behavior
+  change. No real Telegram, Drive, Sheets or email action performed.
+- [x] Monitor/rollback: confirm loopback/demo label, reset/epoch conflicts and
+  file validation/budget. Stop/restart clears memory; restore prior demo entry/
+  server for the read-only experience. Old v1 seed and operational data survive.
+- [ ] Not run/open: full repository suite, remote CI, PostgreSQL/shared workers,
+  real devices/assistive review, human design/privacy/named-reader acceptance,
+  actual delivery/support and production origin/static/session/cache acceptance.
+  M1/M2 and P3 native writes remain gated; no merge/deployment or real staff pilot.
+
+## Historical P2a.1 persistent local Complaints demo handoff
+
+- [x] User scope/ADR: approved a persistent synthetic browser demo; ADR 0071 and
+  plan revision 19. Local URL http://127.0.0.1:8767/ opens directly into cases.
+- [x] Additions: distinct demo entry/build, injected fixture transport, working
+  Exit/Open actions, standalone loopback server and verified synthetic SQLite
+  fixture. Existing native staff transport remains the default workspace path.
+- [x] Data/authority: no Django initialization, `.env`, application/test database,
+  company login/assurance, real account/grant or provider access. Immutable demo
+  fixture verified on startup/read; requests open it read-only and omit cookies.
+- [x] HTTP: verified source/assets, only demo GET/HEAD routes, no cookies or
+  mutation surface, Host/Origin/auth-header checks, no request logging, no-store/
+  no-referrer/nosniff/CSP. Existing zero-connect preview stays separate.
+- [x] Migrations/config/packages: none. Ignored local review database only;
+  operational schema/catalogue and production browser-off/E006 remain unchanged.
+- [x] Local verification: 19 fixture/HTTP/preview/ratchet tooling tests pass;
+  production/development each pass 13 demo browser checks with ten synthetic
+  captures. Types/full ADS lint/build notices/assets, changed-Python Ruff,
+  architecture, source ratchet, JS syntax, CI YAML and source/evidence bindings
+  pass. Native P2a production/development regressions pass 24 browser checks
+  with 14 captures per mode. Remote CI, full repository suite and real devices
+  were not run; this change adds no operational model or migration.
+- [x] Telegram: no endpoint, template, role, token or operational data changes.
+- [x] Monitor/rollback: verify synthetic label/fixture integrity and loopback
+  binding; stop the local server to remove access. Foreground restart command is
+  in browser/README.md. No operational data/auth state to restore.
+- [ ] Operational acceptance: M1, privacy/named readers, real delivery/support,
+  shared workers/cache, PostgreSQL, production static/origin/CSP and real devices.
+  No production mount, merge, deployment or real staff pilot was performed.
+
+## Historical P2a closed Complaints read handoff
 
 - [x] Scope/decision: ADR 0070 and plan revision 18 record the user's agreement
   to start isolated Complaints development alongside M1. Operational entry

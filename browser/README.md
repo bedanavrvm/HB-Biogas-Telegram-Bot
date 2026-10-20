@@ -165,6 +165,65 @@ dependency, schema, policy matrix, Telegram, merge or deployment change applies.
 
 ## Closed Complaints integration
 
+For the persistent, no-account synthetic review demo, open
+http://127.0.0.1:8767/ on this computer. Restart it from the repository root:
+
+```powershell
+$browserNode = (Resolve-Path test-results/node-v22.23.3/node.exe).Path
+& $browserNode browser/scripts/build.cjs --complaints-demo
+.venv/Scripts/python.exe scripts/serve_complaints_demo.py
+```
+
+Use the pinned Node runtime described below. The server stays available until
+stopped (Ctrl+C for a foreground run); it is not an installed Windows service.
+It opens straight into synthetic cases, with working search/status/paging/
+detail/history and Exit/Open demo actions. No password or MFA setup is needed.
+Use **Demo role** to follow a realistic local handoff:
+
+1. **Complaint Officer:** New complaint, fill customer details (or Fill sample
+   customer), Continue, select the workspace/branch/category and record details.
+   Choose image/PDF files or Use sample image, then Record complaint.
+2. **HB Resolver:** the same case stays selected. Take action, Add resolution
+   comment to save feedback while leaving it open; Upload evidence to add files;
+   Resolve complaint to close it with a resolution note.
+3. **Complaint Manager:** Reopen complaint with a reason. Search CMP-3 to complete
+   the historical Needs details record. Managers can also create/upload.
+4. **IT Support:** explicit scoped technical override. **Portal HB** demonstrates
+   that another workflow's role grants no Complaint access.
+
+View image previews or explicitly download a PDF from the case evidence.
+Uploads are limited to ten files per action, 10 MB each/30 MB total, with a
+60 MB sandbox budget. Extension/signature checks match supported file types;
+duplicate content is reused per case. Choose files opens the native file chooser.
+Creation Back retains complaint text and selected files. Every saved action
+records the synthetic actor and Nairobi timestamp in history. Roles use current
+built-in policy, not deployment-specific overrides or real staff permissions.
+
+Entered values, action history and uploaded bytes stay in process memory, shared
+across demo tabs/roles and retained on refresh. **Reset demo** or server restart
+clears them and restores ten seed cases. This is a local review simulator.
+Its isolated, integrity-checked SQLite fixture is under
+`test-results/complaints-local-demo/fixture-v2.sqlite3` (the old v1 seed is retained).
+No Django initialization,
+`.env`, operational database, auth route, account/grant or external provider is
+used. Only `/demo-api/complaints/v1/` simulator routes are exposed; API calls omit
+cookies. POSTs require the same local Origin and demo header. The immutable seed
+stays read-only. The 8766 fixed access preview remains separate. ADR 0072 governs
+role journeys; ADR 0071 governs the original availability. This
+review demo; it is not a live staff pilot or native-auth acceptance.
+
+For development-mode review, build with `--complaints-demo --development` and
+run the server with `--development --port 8768`. Tests:
+
+```powershell
+python -m unittest scripts.tests.test_complaints_demo scripts.tests.test_complaints_demo_sandbox
+node scripts/test_complaints_demo.js
+node scripts/test_complaints_demo.js --development
+```
+
+The browser checks expect those two loopback servers to be running. Reports
+and synthetic captures are under `test-results/complaints-local-demo/` by mode.
+
 ADR 0070 / P2a adds a separate dormant workspace, alongside remaining M1 work:
 
 ```powershell

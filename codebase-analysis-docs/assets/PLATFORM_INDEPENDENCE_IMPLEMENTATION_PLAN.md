@@ -1,6 +1,28 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **18 - 20 October 2026**. P2a starts the closed Complaints read
+Plan revision: **20 - 20 October 2026**. P2a.2 / ADR 0072 extends the local
+Complaints demo with realistic role handoffs: Officer/Manager creation and
+evidence uploads, HB feedback/resolution, Manager reopen/missing-details
+completion, scoped IT override and Portal-only denial. Current built-in policy
+is read from the owning capability catalogue. Saved synthetic actors/history,
+revision/retry/reset checks, preview/download and ADS forms work in the demo.
+The immutable v2 SQLite seed stays separate; entered values and file bytes live
+only in bounded process memory until reset/restart. No Django/provider writes,
+real grants, dependency/schema/migration or production activation. Native P2a
+remains read-only; P3 writes and M1/privacy/named readers remain gated.
+Current results, rollback and remaining acceptance are in the release checklist
+and browser decision section 15.
+
+Historical revision 19 / P2a.1 / ADR 0071 makes the synthetic
+Complaints workspace available persistently on loopback at
+http://127.0.0.1:8767/ with no account setup. A separate demo entry/reader and
+standalone server use only a verified local fixture SQLite store, without
+initializing Django or enabling staff authentication. The user approved this
+browser-review increment. The native P2a boundary remains separately tested;
+M1/privacy/named-reader acceptance still precedes real staff admission.
+Current results, rollback and gates are in the release checklist.
+
+Historical revision 18 / P2a starts the closed Complaints read
 integration under ADR 0070 and the user's explicit agreement to begin now.
 Native company login, existing Complaint permissions, list/search/paging,
 selected detail and bounded history are connected using synthetic isolated
@@ -797,6 +819,30 @@ release gates. **Open Questions:** operational acceptance remains open.
   real read admission; P3 and the TAT/Origination/Portal sequence remain gated.
 - VERIFICATION: final executed results/limits are in the current release
   checklist and browser decision section 13; earlier counts are historical.
+
+### STATE BLOCK - revision 19 / P2a.1 persistent local review
+
+- INDEX_VERSION: platform-independence-plan-19; ADR 0071. No production change.
+- FILE_MAP_SUMMARY: separate demo entry/build; injected synthetic transport;
+  loopback fixture server; isolated fixture/HTTP tests and browser evidence.
+- OPEN_QUESTIONS: M1/privacy/named readers and real-device operational acceptance.
+- KNOWN_RISKS: confusing synthetic review with a live staff channel; prevent this
+  with explicit demo context, distinct build/routes and no credential UI.
+- NEXT_READ_QUEUE: user review at 8767, then gated native operational readiness.
+- VERIFICATION: current release checklist and browser decision section 14.
+
+### STATE BLOCK - revision 20 / P2a.2 role-based local journeys
+
+- INDEX_VERSION: platform-independence-plan-20; ADR 0072. No production change.
+- FILE_MAP_SUMMARY: demo sandbox/API/forms; role-aware workspace slots; immutable
+  v2 seed, in-memory actions/files; fixture/HTTP/role and real browser tests.
+- OPEN_QUESTIONS: M1/privacy/named readers; operational P3 write scope; real
+  devices, shared workers/cache, PostgreSQL and production distribution.
+- KNOWN_RISKS: synthetic built-in policy is not live deployment policy; reset/
+  restart clears demo data. Explicit role/demo context and separate routes/build.
+- NEXT_READ_QUEUE: review creation/uploads and HB/Manager handoff at 8767;
+  continue gated native Complaints work before TAT/Origination/Portal.
+- VERIFICATION: current release checklist and browser decision section 15.
 
 ## 13. Primary-source references
 

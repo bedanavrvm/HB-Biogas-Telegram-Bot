@@ -29,3 +29,19 @@ ADR 0068 extends that dormant build with guided existing-account setup and
 one-time recovery handoff. Native credential QR data is local/transient, never
 a remote image or build asset; mask QR/key/codes in screenshots and diagnostics.
 Dependency/archive/notice/asset review and Telegram compatibility remain binding.
+
+ADR 0071 additionally authorizes a separate persistent synthetic Complaints demo
+on loopback 8767. Reuse the workspace with an injected fixture reader and explicit
+demo context; no credential UI or simulated company assurance. Its standalone
+server opens only the dedicated integrity-checked fixture SQLite file and
+demo-only routes, without Django/settings or operational databases. ADR 0072
+extends this simulator with role-based creation, uploads, feedback, resolution,
+reopen and missing-details completion. Demo-only POSTs require the local Origin
+and custom request header. Mutations and uploaded bytes stay in process memory;
+the integrity-checked v2 SQLite seed stays immutable. Persona selection is a
+simulator control, never company identity or real authority. Preserve revision,
+request-key/payload, reset-generation, group and built-in capability checks.
+Native file selection is the narrow documented exception in DESIGN.md; visible
+controls remain ADS. Never connect this write simulator to the native read API.
+Keep its build distinct from the zero-connect preview and native staff client.
+This review availability never authorizes production mounting or real staff access.

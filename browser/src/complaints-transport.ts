@@ -1,6 +1,6 @@
 export type Group = { key: string; label: string };
 export type CaseSummary = { key: string; reference: string; customer_name: string; branch: string; category: string; status: string; reported_at: string };
-export type CaseDetail = CaseSummary & { description: string; history: { action: string; status: string; created_at: string; updated_by: string; actor_affiliation: string }[]; history_truncated: boolean };
+export type CaseDetail = CaseSummary & { description: string; history: { action: string; status: string; created_at: string; updated_by: string; actor_affiliation: string; note?: string }[]; history_truncated: boolean };
 export type CasePage = { items: CaseSummary[]; pagination: { page: number; pages: number; total: number; page_size: number } };
 export class ComplaintReadError extends Error {
   constructor(public readonly status: number) { super('Complaint read unavailable'); }

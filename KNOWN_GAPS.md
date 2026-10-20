@@ -1,5 +1,23 @@
 # Known Gaps and Verified Workarounds
 
+## Local Complaints demo now accessible - 20 October 2026
+
+P2a.2 / ADR 0072 extends P2a.1's synthetic review workspace at
+http://127.0.0.1:8767/. It opens directly into demo cases without account setup.
+The standalone server and verified fixture SQLite store do not initialize Django,
+read deployment settings or touch operational/test databases. It remains available
+until its process stops; browser/README.md documents restart. It is no installed
+startup service, live staff admission or proof of company authentication.
+Officer creation/uploads, HB feedback/resolution, Manager reopen/completion,
+IT override and Portal-only denial now operate in a shared in-memory sandbox.
+Refresh retains demo changes; Reset demo or server restart clears entered values
+and uploads. These simulate built-in permissions, not deployment policy overrides.
+Reports/export, voice/maps, real Drive/Sheet/Telegram publication and production
+browser writes are not implemented by this demo. Native P2a remains read-only.
+Native P2a authorization remains separately exercised. M1/privacy/named readers,
+production topology, PostgreSQL and real devices remain open. Current evidence/
+rollback are in decision section 15 and the release checklist.
+
 ## Closed Complaints browser connected; operational read pilot pending - 20 October 2026
 
 P2a / ADR 0070 now connects native company password/MFA to existing Complaint

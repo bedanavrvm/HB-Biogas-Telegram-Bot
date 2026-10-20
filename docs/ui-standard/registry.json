@@ -587,15 +587,39 @@
     },
     {
       "path": "browser/src/complaints-transport.ts",
-      "sha256": "86e2f672fcf933c65f7be4cf9ae0059dcf72cdb7a039b8d5113e2092e4507a70",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
-      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+      "sha256": "6a4572b3965a5e419ff9a8eac08ebe3a6c76c9394521d4333942ecd6332d5baf",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
     },
     {
       "path": "browser/src/complaints-workspace.tsx",
-      "sha256": "a0346b02f84965e81d823936de803fab3e07503a8ff4391eb7f5ddf5a7c0ab8d",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
-      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration. Intentional compact horizontal filter toolbar on desktop; mobile stacks. See DESIGN.md for the exception to long-form layout guidance."
+      "sha256": "325557d900737e4fe014f950cfbddd02202f4b3be27ba8e727f19b675a0a1f18",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo.html",
+      "sha256": "3a399f361c0fd7d84cfd9b86f5e2fe26951bdd448bef46b045f59b303ccf2f87",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-index.tsx",
+      "sha256": "fa393e5b553fae0906312cc4f0c956ac64ed8d04111a32316a0233fcd42cc67c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-api.ts",
+      "sha256": "f11e815b91dd54376e0f535f1e1a4ced6e58909c73e357f31e4affc047da190b",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-forms.tsx",
+      "sha256": "fb1cf51ec446b6493532200ad03d006b41d50156ec53635cc7d893e2b19d0949",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
     }
   ],
   "source_roots": [

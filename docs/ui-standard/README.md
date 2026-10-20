@@ -1,5 +1,17 @@
 # Mini App Design Lab
 
+P2a.2 / ADR 0072 extends that separate demo with synthetic role-based creation,
+uploads, feedback/resolution and reopen/completion. ADS forms/Selects and
+side-by-side customer/evidence layout are source-bound candidates; the hidden
+native file chooser is an intentional exception documented in browser/DESIGN.md.
+Decision section 15 records current evidence. No approved baseline changes,
+native P2a write activation, real access or Telegram migration.
+
+P2a.1 / ADR 0071 makes a separate synthetic Complaints demo available at
+http://127.0.0.1:8767/. It reuses the ADS workspace with an explicit demo context,
+fixture-only reader and no account setup. Decision section 14 records source/
+browser evidence. Native staff access and Telegram migration remain gated.
+
 P2a / ADR 0070 now connects a separate closed React/ADS Complaints workspace to
 native company authentication and owning Complaint read services in isolated
 synthetic tests. Decision section 13 and the component index record the new

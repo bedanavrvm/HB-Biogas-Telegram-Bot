@@ -1,5 +1,30 @@
 # Changelog
 
+## 20 October 2026 - Role-based Complaints demo (P2a.2)
+
+- Added realistic local Officer/Manager intake with required identifiers and
+  image/PDF uploads, HB feedback/resolution, Manager reopen and missing-details
+  completion. IT simulates the scoped technical override; Portal-only HB has
+  no Complaint access. Built-in permissions come from the owning catalogue.
+- Added evidence preview/download/removal, revision/retry/reset checks, local
+  history attribution and a desktop customer/evidence layout using ADS forms.
+  Entered data and files remain in bounded process memory until reset/restart;
+  the version-2 SQLite seed remains immutable. No real provider or Django writes.
+- ADR 0072, plan revision 20 and the release checklist record current evidence,
+  restart/rollback and open operational gates. No dependency/schema/migration,
+  production authentication, native P2a write surface or Telegram change.
+
+## 20 October 2026 - Persistent local Complaints demo (P2a.1)
+
+- Added a separate no-account React/ADS Complaints review entry and loopback
+  server at 127.0.0.1:8767, with search/status/paging/detail/history and working
+  Exit/Open actions. Shared workspace defaults retain native staff transport.
+- Serve only verified assets and immutable synthetic SQLite fixtures through
+  demo-only read routes. No Django/environment/operational database, auth
+  activation, real staff, new package, migration, Telegram or external action.
+- ADR 0071, plan revision 19, browser README and the release checklist record
+  restart, tests, rollback and the unchanged operational gates.
+
 ## 20 October 2026 - Closed Complaints browser reads (P2a)
 
 - Started Complaints integration under the user's revised development sequence

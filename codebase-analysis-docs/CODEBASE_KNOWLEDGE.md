@@ -1226,3 +1226,29 @@ control/reference initialization and per-request capability usage are disclosed.
 Source-bound local evidence and remaining gates are in decision section 13 and
 the release checklist. Production remains off/unmounted, no new schema/package,
 Telegram change, real staff admission or external publication. P3 remains gated.
+
+## Persistent local Complaints review - P2a.1 / 20 October 2026
+
+ADR 0071 / plan revision 19 provide the separate synthetic React/ADS demo at
+http://127.0.0.1:8767/ without account setup. The existing workspace accepts an
+explicit demo reader/context; the default company-auth composition remains.
+A standalone loopback-only Python server verifies assets and serves demo reads
+from an immutable fixture SQLite store under test-results. It never initializes
+Django, reads `.env` or opens operational/test databases. No auth simulation,
+real staff, new package/migration or Telegram change. Restart and final evidence
+are documented in browser/README.md, decision section 14 and the release checklist.
+
+## Role-based local Complaints journeys - P2a.2 / 20 October 2026
+
+ADR 0072 / plan revision 20 extend only that demo. Officer/Manager creation with
+required identifiers/location and image/PDF evidence, HB comments/resolution,
+Manager reopen/missing-details completion, scoped IT and Portal-only denial use
+the checked-in Complaint capability catalogue (AST inspection, no Django import).
+Demo role selection never authenticates or grants real access. The immutable
+v2 SQLite seed initializes bounded process memory; entered values and bytes
+survive refresh across roles but clear on Reset demo/restart. Demo-only JSON
+POSTs enforce local Origin/header, revision, request-key/payload and generation
+checks; images preview locally and PDFs download explicitly. Native P2a remains
+read-only and production stays off/unmounted. No schema/package/provider change.
+Current evidence, native regression, limitations and rollback: decision section
+15 and the current release checklist. Restart/walkthrough: browser/README.md.

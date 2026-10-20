@@ -1552,3 +1552,126 @@ preserving legitimate operational/auth/audit records. P3 writes remain gated.
 - INDEX_VERSION: browser-react-ads-decision-10 / P2a / 20 October 2026; ADR 0070.
 - NEXT_READ_QUEUE: review the closed Complaints candidate; finish operational
   M1/privacy/named-reader acceptance before a restricted real read pilot.
+
+## 14. P2a.1 - persistent local Complaints demo
+
+The user agreed to make the synthetic workspace accessible through a persistent
+local URL. ADR 0071 / plan revision 19 add a separate demo entry and standalone
+loopback server at http://127.0.0.1:8767/. It opens directly into nine synthetic
+cases (seven Pending, two Resolved), with working filters/paging/detail/history
+and Exit/Open actions. No account/password/MFA setup is required for review.
+
+The same ADS workspace receives an explicit fixture reader and demo context.
+The default native staff composition still uses its existing transport and
+company/owning authorization. This demo never simulates company assurance:
+its manifest excludes native auth, its routes use `/demo-api/`, and no Django,
+`.env`, operational database, account/grant or external service is initialized.
+The separate ignored SQLite store contains only a deterministic fixture; schema,
+contents and version are verified, unexpected stores are rejected, restart is
+idempotent and reads use SQLite read-only mode. No operational model/migration.
+
+The server binds 127.0.0.1 only, verifies build/source/assets, rejects foreign
+Host/Origin and authentication headers, exposes no writes/private files/auth API,
+omits request logging and applies no-store/no-referrer/nosniff/CSP. Demo API reads
+omit cookies; no browser storage or new cookies. Current official ADS references
+and applied component choices are in browser/DESIGN.md. Candidate bindings keep
+the existing migration hold and approved baselines.
+
+Local verification: 19 fixture/HTTP/preview/ratchet tooling tests pass. Both demo
+build modes pass 13 browser checks and retain ten captures each for laptop/mobile,
+both themes, normal and read-failure states. Search/Refresh retention, paging,
+status, keyboard, history, Exit/Open, reload, cookie omission and network isolation
+are exercised. Normal 1280x720 uses the full main width without content overflow.
+Types/full ADS lint, reviewed dependency/asset/notice builds, Python Ruff,
+architecture, source ratchet, JS syntax, CI YAML and source/evidence bindings
+pass. Native P2a regressions also pass 24 browser checks with 14 captures in each
+build mode, with real password/MFA and owning workflow authorization unchanged.
+Remote CI, full repository suite, PostgreSQL and real devices were not run.
+The separate demo client/server do not prove any native authentication journey;
+the isolated native tests supply that distinct evidence.
+
+This is local review availability, not M1/M2, deployment, real staff admission,
+human design certification or PostgreSQL/device acceptance. The 8766 fixed preview
+remains separate. The foreground restart command is in browser/README.md; the
+process stays available until stopped, not across a machine reboot. Rollback is
+to stop the demo server. No legitimate operational/auth/audit data changes.
+
+- INDEX_VERSION: browser-react-ads-decision-11 / P2a.1 / ADR 0071.
+- NEXT_READ_QUEUE: user review at 8767; operational M1/privacy gates remain.
+
+## 15. P2a.2 - role-based local Complaints journeys
+
+ADR 0072 / plan revision 20 implement the user's request for realistic different
+roles and actions, specifically creation/uploads, in the separate loopback demo.
+Officer/Manager record required customer identifiers, branch/location, category
+and complaint details with optional evidence. HB Resolver saves append-only
+feedback while the case remains open, uploads evidence and resolves with a note.
+Manager reopens with a reason and completes historical Needs details. Scoped IT
+simulates the mandatory technical override. Portal-only HB has no Complaint access.
+The simulator reads built-in capabilities from the checked-in owning catalogue
+using AST; no deployment overrides or real staff authority are claimed.
+
+Ten synthetic cases in two workspaces initialize process memory from a verified,
+immutable v2 seed SQLite file. The old v1 seed stays untouched. Entered values,
+action history and uploaded bytes are never written to disk/logs; they survive
+refresh and role changes until Reset demo or process restart. Revision, request-
+key/payload and reset-generation checks reject stale/different submissions;
+same-request retries reuse one effect. Per-case evidence content is deduplicated.
+File extension/byte-signature and size/count/budget checks precede mutation.
+Images preview through transient local blobs; PDFs download only on explicit
+request. These are demo-only JSON routes, requiring local Host/Origin and a
+custom request header, omitting cookies and refusing company credentials.
+No Django/settings, operational/test database, Drive/Sheets/Telegram or company
+authentication is involved. Native P2a keeps its existing read-only projection.
+
+Current official ADS sources consulted and applied:
+
+- [Form usage](https://atlassian.design/components/form/usage): labelled required
+  fields, validation in MessageWrapper, one task action and short two-step intake.
+- [Select usage](https://atlassian.design/components/select/usage): one labelled
+  role selector and one allowed-action selector, not mock permission buttons.
+- [Button usage](https://atlassian.design/components/button/usage): primary save,
+  loading feedback, secondary Back/Cancel and explicit file/preview actions.
+- [Section Message](https://atlassian.design/components/section-message/usage):
+  persistent form-wide failures in reading order and save confirmation.
+- [Navigation layout API](https://atlassian.design/components/navigation-system/layout/code):
+  immediate Root/TopNav/Main slots and existing responsive queue/detail layout.
+
+The native hidden file input is a narrow intentional exception: no upload package
+exists in the approved graph. Visible controls use ADS Button. Short related
+workspace/branch controls share one desktop row; mobile stacks. Intake's evidence
+column follows complaint details and precedes the final submit in DOM/keyboard
+order. Back retains complaint text/files. Sample helpers precede fields so blur
+validation cannot move them during pointer activation. Four demo rows leave room
+for real role controls; native P2a keeps five. Long history/action/error states
+and enlarged text scroll naturally. No typography reduction, new dependency,
+proprietary asset, approved-baseline update or Telegram migration.
+
+Verification and source-bound synthetic captures are under
+`test-results/complaints-local-demo/{production,development}/`; distinct native
+regression evidence is under `test-results/complaints-browser-transport/`.
+The current release checklist records final counts and checks. Technical/headless
+evidence does not certify full design conformance or operational acceptance.
+Full repository tests, remote CI, PostgreSQL/shared workers, real devices and
+assistive review were not run. Reports/export, voice/maps and real external
+publication are not simulated as successful features.
+
+Final local results: 30 fixture/HTTP/role/preview/ratchet tooling tests pass.
+Both demo modes pass 24 browser checks with 21 captures each: actual native file
+chooser, sample image/PDF evidence, image preview/download, keyboard role choice,
+retained Back drafts, permission denials, invalid-upload recovery, HB/Manager
+handoff, completion, reset and read failure/retry. Native P2a regressions pass
+24 checks/14 captures per mode through real isolated Django password/MFA and
+owning-workflow authorization. Types, full ADS lint, both reviewed builds/
+notices/assets, changed-Python Ruff, architecture, UI ratchet, JS syntax, CI
+YAML, diff whitespace and source/evidence bindings pass. These are local results.
+
+Rollback stops the demo server and returns to the prior read-only demo; immutable
+fixtures and operational/auth/audit data remain untouched. No schema/migration,
+setting, dependency, grant, merge or production deployment. The 8766 zero-connect
+preview remains separate. M1/privacy/named readers, production delivery/topology
+and P3 operational writes remain gated. Review at http://127.0.0.1:8767/.
+
+- INDEX_VERSION: browser-react-ads-decision-12 / P2a.2 / ADR 0072.
+- NEXT_READ_QUEUE: review Officer intake/uploads and HB/Manager handoffs; continue
+  gated native Complaints integration before TAT, Origination and Portal.

@@ -54,11 +54,13 @@ async function main() {
   process.env.PARCEL_WORKERS = '2';
   process.chdir(root);
   const development = process.argv.includes('--development');
+  const complaintsDemo = process.argv.includes('--complaints-demo');
   const complaints = process.argv.includes('--complaints');
+  if (complaintsDemo && (complaints || process.argv.includes('--authentication'))) throw new Error('Build the synthetic Complaints demo separately.');
   const authentication = process.argv.includes('--authentication') || complaints;
-  const dist = path.join(root, complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
+  const dist = path.join(root, complaintsDemo ? (development ? 'dist-complaints-demo-development' : 'dist-complaints-demo') : complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
   const parcel = new Parcel({
-    entries: complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
+    entries: complaintsDemo ? [path.join(root, 'src/complaints-demo.html')] : complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
     defaultConfig: require.resolve('@parcel/config-default'),
     mode: development ? 'development' : 'production',
     shouldAutoInstall: false,
@@ -104,7 +106,7 @@ async function main() {
     path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
-  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, closedAuthentication: authentication, closedComplaints: complaints, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
   console.log(`Built real React/ADS ${development ? 'development' : 'production'} ${authentication ? 'closed authentication' : 'demo'}: ${files.length} assets, ${owners.size} noticed packages, ${files.reduce((n, file) => n + file.bytes, 0)} bytes; no excluded assets.`);
 }
 

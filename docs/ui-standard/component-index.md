@@ -1,5 +1,18 @@
 # Component index and migration hold
 
+P2a.2 / ADR 0072 adds `browser/src/{complaints-demo-api.ts,complaints-demo-forms.tsx}`
+and extends the demo entry/shared workspace with explicit role/action slots.
+Actual ADS Form/Field/MessageWrapper/Textfield/Select/Button/SectionMessage and
+Grid compose intake, action feedback and evidence. The hidden native file input
+is a bounded exception documented in DESIGN.md. Synthetic source/evidence are
+recorded in decision section 15; approved patterns and migration hold stay.
+
+P2a.1 / ADR 0071 adds `browser/src/{complaints-demo.html,complaints-demo-index.tsx}`
+and the shared workspace's explicit synthetic-reader/context options. Actual ADS
+Root/TopNav/Main/Text and Button/Heading/Box/Stack compose the no-account review
+and Exit/Open task. Current sources/evidence are in decision section 14. This is
+local synthetic availability, not an operational auth bypass or Telegram change.
+
 P2a / ADR 0070 adds the separate closed Complaints candidate in
 `browser/src/{complaints.html,complaints-index.tsx,complaints-transport.ts,complaints-workspace.tsx}`.
 It composes native StaffAccess with actual ADS navigation, a responsive

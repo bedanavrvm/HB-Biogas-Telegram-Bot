@@ -16,6 +16,25 @@ visual acceptance. Package APIs come from the pinned workspace and its review.
 | Initial theme | [Token setup](https://atlassian.design/foundations/tokens/use-tokens-in-code/), [App provider](https://atlassian.design/components/app-provider/examples) | Await the supported default theme initializer before mounting controls, then hand listener ownership to AppProvider. This local startup decision avoids a light-input flash with dark text. AppProvider handles later system/theme changes. |
 | Actions | [Button usage](https://atlassian.design/components/button/usage) | One primary task action, links for navigation, meaningful loading feedback and no dead disabled workflow links. |
 
+ADR 0072 / P2a.2 applies these current official references to the local role
+demo: labelled Selects choose persona and one permitted action; Form/Field,
+Textfield and MessageWrapper supply required inputs and validation; SectionMessage
+keeps save failures in the task reading sequence. Two short customer/complaint
+steps use a side summary/evidence column on desktop and stack on mobile. Draft
+values and selected files survive Back; sample-fill helpers are local demo
+shortcuts, positioned before fields so blur validation cannot move them during
+pointer activation. The ordinary queue uses four rows to leave room for real
+role/action controls at 1280x720. Longer history/forms and enlarged text scroll.
+
+The hidden native file input is an intentional narrow exception: the approved
+dependency graph contains no upload component. Its visible Choose files/Remove/
+preview controls use ADS Button; no extra package or alternate visual palette.
+Selected image/PDF bytes are validated by the simulator, stay in memory, and
+are inspected through transient blob URLs. Role selection/reset are explicitly
+synthetic controls. No company credential, real permission or P3 write is implied.
+Source-bound candidates/evidence live in decision section 15; no approved
+baseline or Telegram migration approval changes.
+
 `/` is the synthetic staff presentation. `/review.html` is a separate local
 design harness using the same components and in-memory state transitions.
 Both have one clear fixed-values/no-account-changes notice. Inputs remain
@@ -111,3 +130,24 @@ as in the existing preview. Reusing Root's exact `minmax(0, 1fr)` base atomic
 class can inject that base rule after its desktop media rule in development,
 leaving four named areas with only one explicit column and narrowing Main.
 Both build modes must verify the actual main width after sign-in and reload.
+
+## Persistent local Complaints demo (P2a.1 / ADR 0071)
+
+The separate `complaints-demo.html` entry reuses that same workspace with an
+injected synthetic reader, explicit "Local demo · Synthetic cases" page context
+and an Exit demo action. It opens directly into review. Exit shows a short ADS
+task with a working Open demo button; it never presents credential fields or
+claims company authentication. Default staff composition/transport is unchanged.
+
+Current sources consulted 20 October 2026:
+- https://atlassian.design/components/navigation-system/layout/code
+- https://atlassian.design/components/section-message/usage
+- https://atlassian.design/components/primitives/text/code
+
+Root owns immediate TopNav/Main slots. Text supplies ordinary persistent page
+context; no error/warning SectionMessage is added for the normal demo state.
+Existing SectionMessage continues to handle actual read failure/retry. ADS
+Button/Heading/Box/Stack compose the exit task. No new asset, palette, component
+library or layout exception is introduced. The existing compact filter toolbar
+exception remains documented above. Synthetic captures/technical checks do not
+approve a Telegram standard, certify design quality or open an operational gate.

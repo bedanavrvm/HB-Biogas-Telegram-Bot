@@ -39,28 +39,30 @@ def importmap_hashes(routes):
     return sorted(set(hashes))
 
 
-def load_build(directory=BUILD_ROOT):
+def load_build(directory=BUILD_ROOT, *, entry='index.html'):
     directory = directory.resolve()
     manifest = json.loads((directory / 'build-manifest.json').read_bytes())
     if manifest.get('schemaVersion') != 1 or manifest.get('demoOnly') is not True:
         raise ValueError('Expected the reviewed demo build manifest.')
+    if entry not in ('index.html', 'complaints-demo.html') or bool(manifest.get('localComplaintsDemo')) != (entry == 'complaints-demo.html'):
+        raise ValueError('Wrong local demo build kind.')
     routes = {}
-    for entry in manifest['files']:
-        name = entry['name']
+    for asset in manifest['files']:
+        name = asset['name']
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.(?:html|js|css|txt)', name):
             raise ValueError('Unexpected preview asset path.')
         source = directory / name
         if source.is_symlink() or source.resolve().parent != directory:
             raise ValueError('Preview assets must stay inside the build directory.')
         raw = source.read_bytes()
-        if len(raw) != entry['bytes'] or hashlib.sha256(raw).hexdigest() != entry['sha256']:
+        if len(raw) != asset['bytes'] or hashlib.sha256(raw).hexdigest() != asset['sha256']:
             raise ValueError('Preview asset differs from its build manifest; rebuild first.')
         if '/' + name in routes:
             raise ValueError('Duplicate preview asset.')
         routes['/' + name] = raw, TYPES[source.suffix] + '; charset=utf-8'
-    if '/index.html' not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
+    if '/' + entry not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
         raise ValueError('The preview needs an entry page and readable third-party notices.')
-    routes['/'] = routes['/index.html']
+    routes['/'] = routes['/' + entry]
     importmap_hashes(routes)
     return routes
 
