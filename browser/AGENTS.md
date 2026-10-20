@@ -25,4 +25,7 @@ only against isolated Django tests: same-origin cookie/CSRF, no secret storage,
 no workflow authority or operational mount. Keep routine sign-in short, resume
 sessions automatically, retain usernames after errors and keep recovery inline;
 never add unnecessary confirmations or resend credentials automatically.
+ADR 0068 extends that dormant build with guided existing-account setup and
+one-time recovery handoff. Native credential QR data is local/transient, never
+a remote image or build asset; mask QR/key/codes in screenshots and diagnostics.
 Dependency/archive/notice/asset review and Telegram compatibility remain binding.

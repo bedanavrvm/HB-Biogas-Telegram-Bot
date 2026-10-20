@@ -31,8 +31,21 @@ Preserve the username after mistakes; clear proof after submission/navigation.
 Routine sign-in has two short steps. Refresh resumes the server-owned stage;
 recovery stays on the code screen. Recheck an uncertain session without replaying
 proof or asking for routine confirmations. Background checks must not interrupt
-typing or flash the page. Setup/enrollment UI remains a separate increment;
-its support handoff must not be mistaken for completed onboarding.
+typing or flash the page. ADR 0068 adds guided initial-password, QR enrollment
+and one-time recovery handoff in the same dormant client. Invitation proof is
+removed from the fragment before rendering/network. Native new-password autofill
+and field errors apply; no duplicate password prompt between creation and setup.
+One saved-codes action enters the fresh sign-in required by the native policy.
+Delivery, real devices and operational acceptance remain separate.
+
+The credential QR is generated locally by the existing allauth MFA adapter,
+rendered with Box as an image, and has a manual setup-key fallback. Its intrinsic
+white quiet zone is machine-readable image content, not an alternative UI palette.
+This transient credential image is not a proprietary/build asset or remote QR
+service. QR/key/codes carry data-sensitive markers and are masked in captures.
+Copy codes is an explicit user action; there is no automatic clipboard write,
+download, storage or repeated disclosure. Hide/navigation clears the transient
+display; a lost one-time handoff gives the actual support/sign-in path.
 Place the authenticator/recovery switch and cancel action before the field: an
 empty field's blur validation must not move either action during pointer activation.
 Only uncertain sessions show a manual recheck; routine checks are automatic.
@@ -45,3 +58,15 @@ Review normal, failure/retry, setup, enrollment/recovery, help and workspace
 scenes. Check laptop fit, narrow mobile, keyboard, skip navigation, select
 behavior and 200% text. Natural scrolling remains available. Technical checks
 do not establish human/device/assistive acceptance or production readiness.
+
+During QR enrollment only, a 900px content bound places the credential image
+beside the single-column form at ADS md; mobile stacks. This uses the existing
+Grid pattern and avoids unnecessary laptop scrolling. Anonymous setup Cancel
+clears local proof while preserving verified server progress, with a contextual
+Continue account setup action. It does not discard the bound mailbox proof.
+
+Use Box for live-region/alert semantics around Text content. The pinned compiled
+Text implementation does not forward role despite its broad TypeScript props;
+DOM role checks must verify announcements. Applied references:
+https://atlassian.design/components/primitives/box/usage and
+https://atlassian.design/components/primitives/text/code .

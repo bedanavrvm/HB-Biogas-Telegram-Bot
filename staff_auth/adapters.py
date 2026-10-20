@@ -9,6 +9,11 @@ class StaffAccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request):
         return False
 
+    def add_message(self, request, *args, **kwargs):
+        if getattr(request, '_staff_browser_json_feedback', False):
+            return
+        return super().add_message(request, *args, **kwargs)
+
 
 class StaffMFAAdapter(DefaultMFAAdapter):
     def encrypt(self, text):

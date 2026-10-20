@@ -27,6 +27,12 @@ and do not authorize operational mounting, completed onboarding, workflow
 access or Telegram migration. ADR 0067 and decision section 11 govern it.
 The following fixed-value preview and its four source bindings remain separate.
 
+P1c.6 / ADR 0068 extends those same dormant source candidates with guided native
+first-password, QR/manual-key enrollment and one-time recovery-code handoff.
+Box renders the locally generated credential QR; Grid arranges recovery codes.
+Transient credential content is masked in captures. Current evidence/limits are
+in decision section 12; no Telegram candidate or migration hold is changed.
+
 Current source: `browser/src/{index.html,index.tsx,preview.tsx,review.html}`.
 The user's documentation-led correction supersedes earlier geometry and
 overbroad design-adoption claims. Component/token coverage, lint and viewport

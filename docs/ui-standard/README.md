@@ -40,6 +40,12 @@ password/code steps. Source candidates are in the component index/registry.
 It is not served by the fixed-value preview, mounted in production, completed
 onboarding or M1 acceptance. Current evidence and limits: decision section 11.
 
+P1c.6 extends that dormant client with guided initial-password, local credential
+QR/manual-key setup and one-time recovery handoff (ADR 0068, decision section 12).
+Sensitive images/codes are masked in synthetic captures. Actual delivery/support,
+human/device review and operational acceptance remain open; no lab approval or
+Telegram migration follows from this client work.
+
 A historical local, first-party access wireframe makes the proposed browser states
 reviewable without installing dependencies or connecting authentication. Run
 `python scripts/serve_browser_access_preview.py` and open

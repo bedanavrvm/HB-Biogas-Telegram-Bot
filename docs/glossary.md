@@ -85,8 +85,9 @@ checks do not establish full design conformance.
 P1c.5 adds a separate dormant native sign-in build, exercised only by isolated
 React-to-Django tests. It uses fixed same-origin cookie/CSRF, automatic stage
 resume, autofill and inline recovery; the demo stays fixed-value/disconnected.
-This is not operational login, completed onboarding or M1. See ADR 0067 and
-decision section 11.
+P1c.6 / ADR 0068 adds guided existing-account invitation, first-password, local
+QR/manual-key enrollment and one-time recovery handoff. Actual delivery/support
+and M1 remain open. Decision section 12 records current evidence and limits.
 
 **Browser dependency decision:** The bounded local build decision under the
 user's “resolve it and proceed” instruction. It requires exact graph/archive

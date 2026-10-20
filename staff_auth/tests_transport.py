@@ -24,14 +24,41 @@ from django.urls import Resolver404, resolve
 
 from core.models import AccessGrant, ComplianceAuditChainState, ComplianceAuditEvent, GroupSheetConfiguration
 from .assurance import ASSURANCE_KEY
+from .crypto import decrypt_secret
+from .initial_setup import prepare_setup, preview_setup
 from .lifecycle import apply_change
 from .models import StaffBrowserAdmission
 from .tests import PASSWORD, TEST_KEY, admit_synthetic_user
 
 
 class TransportClosureTests(SimpleTestCase):
+    def test_json_feedback_does_not_queue_native_flash_messages(self):
+        from django.contrib import messages
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from .adapters import StaffAccountAdapter
+        request = RequestFactory().post('/')
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        request._staff_browser_json_feedback = True
+        StaffAccountAdapter(request).add_message(request, messages.SUCCESS, message='Synthetic native feedback')
+        self.assertEqual(list(messages.get_messages(request)), [])
+
+    def test_other_requests_retain_native_flash_messages(self):
+        from django.contrib import messages
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from .adapters import StaffAccountAdapter
+        request = RequestFactory().get('/')
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        StaffAccountAdapter(request).add_message(request, messages.SUCCESS, message='Synthetic native feedback')
+        self.assertEqual([str(item) for item in messages.get_messages(request)], ['Synthetic native feedback'])
+
     def test_production_routes_stay_unmounted(self):
-        for url in ('/staff/', '/access.html', '/api/staff/auth/v1/session/', '/test-context/identity/'):
+        for url in ('/staff/', '/access.html', '/api/staff/auth/v1/session/', '/test-context/identity/',
+                    '/api/staff/auth/v1/setup/session/', '/api/staff/auth/v1/setup/verify-email/',
+                    '/api/staff/auth/v1/setup/password/', '/api/staff/auth/v1/enrollment/session/',
+                    '/api/staff/auth/v1/enrollment/begin/', '/api/staff/auth/v1/enrollment/confirm/',
+                    '/api/staff/auth/v1/enrollment/recovery-codes/'):
             with self.subTest(url=url), self.assertRaises(Resolver404):
                 resolve(url, urlconf='config.urls')
 
@@ -43,7 +70,8 @@ class TransportClosureTests(SimpleTestCase):
 
     def test_every_test_auth_handler_rejects_non_test_configuration(self):
         from django.core.exceptions import ImproperlyConfigured
-        for action in ('session', 'login', 'mfa', 'logout'):
+        for action in ('session', 'login', 'mfa', 'logout', 'setup/session', 'setup/verify-email', 'setup/password',
+                       'enrollment/session', 'enrollment/begin', 'enrollment/confirm', 'enrollment/recovery-codes'):
             view = resolve(f'/api/staff/auth/v1/{action}/', urlconf='staff_auth.transport_test_urls').func
             with self.subTest(action=action), override_settings(RUNNING_TESTS=False), self.assertRaises(ImproperlyConfigured):
                 view(RequestFactory().get('/'))
@@ -56,6 +84,7 @@ class TransportClosureTests(SimpleTestCase):
     STAFF_BROWSER_AUTH_ENABLED=True, STAFF_MFA_ENCRYPTION_KEYS=[TEST_KEY],
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend', SECURE_SSL_REDIRECT=False,
     SESSION_COOKIE_SECURE=False, CSRF_COOKIE_SECURE=False,
+    ACCOUNT_EMAIL_NOTIFICATIONS=False, ACCOUNT_CHANGE_EMAIL=False,
 )
 class BrowserTransportTests(LiveServerTestCase):
     def setUp(self):
@@ -69,6 +98,13 @@ class BrowserTransportTests(LiveServerTestCase):
         self.secret = generate_totp_secret()
         TOTP.activate(self.user, self.secret)
         self.recovery = RecoveryCodes.activate(self.user).get_unused_codes()
+        self.new_user = get_user_model().objects.create_user('onboarding_staff', 'onboarding@example.invalid')
+        apply_change(actor=self.root, target_user_id=self.new_user.pk, action='authorize', expected_revision=0,
+                     request_key='synthetic-onboarding-admission', reason='Synthetic explicit onboarding admission')
+        preview = preview_setup(actor=self.root, target_user_id=self.new_user.pk)
+        self.setup_receipt = prepare_setup(actor=self.root, target_user_id=self.new_user.pk,
+                                          expected_revision=preview['revision'], snapshot_fingerprint=preview['snapshot_fingerprint'],
+                                          request_key='synthetic-transport-setup', reason='Synthetic guided onboarding test')
         GroupSheetConfiguration.objects.create(group_id='synthetic-browser-complaints', workflow={'type': 'case'}, complaint_sheet_projection_enabled=False)
         self.grant_count = AccessGrant.objects.count()
         original = socket.socket.connect
@@ -115,8 +151,11 @@ class BrowserTransportTests(LiveServerTestCase):
                 queue.put(line)
             queue.put(None)
         threading.Thread(target=read_output, daemon=True).start()
+        from .models import StaffBrowserSetupGrant
+        grant = StaffBrowserSetupGrant.objects.get(pk=self.setup_receipt['setup_id'])
         config = {'origin': self.live_server_url, 'username': self.user.username, 'password': PASSWORD,
-                  'secret': self.secret, 'recovery': self.recovery, 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD}
+                  'secret': self.secret, 'recovery': self.recovery, 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD,
+                  'setup': {'id': str(grant.pk), 'proof': decrypt_secret(grant.confirmation_cipher), 'username': self.new_user.username}}
         child.stdin.write(json.dumps(config) + '\n')
         child.stdin.flush()
         result = None
@@ -150,6 +189,13 @@ class BrowserTransportTests(LiveServerTestCase):
         self.assertEqual(AccessGrant.objects.count(), self.grant_count)
         self.assertGreaterEqual(ComplianceAuditEvent.objects.filter(action='staff_browser.login_completed', actor=self.user).count(), 2)
         self.assertEqual(len(mail.outbox), 0)
+        self.new_user.refresh_from_db()
+        self.assertTrue(self.new_user.check_password(PASSWORD))
+        self.assertTrue(EmailAddress.objects.get(user=self.new_user).verified)
+        self.assertEqual(Authenticator.objects.filter(user=self.new_user).count(), 2)
+        grant.refresh_from_db()
+        self.assertEqual(grant.state, StaffBrowserSetupGrant.COMPLETED)
+        self.assertEqual(grant.confirmation_cipher, '')
         print(f"Closed React/Django integration: {result['checks']} checks, {result['captures']} synthetic captures; no grants or external delivery.")
 
 

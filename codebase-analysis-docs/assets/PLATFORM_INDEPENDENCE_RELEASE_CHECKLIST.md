@@ -4,7 +4,42 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P1c.5 closed native sign-in handoff
+## Current P1c.6 guided closed onboarding handoff
+
+ADR 0068 / decision section 12 / plan revision 16 govern this slice.
+
+- [x] Scope: guided prepared invitation, native first password, local QR/manual-key
+  enrollment and one-time recovery handoff in the existing dormant ADS build.
+  Autofill/resume/inline errors and one explicit submission sequence avoid an
+  extra password prompt. Setup grants no login assurance or workflow authority.
+- [x] Backend: exact bound-session progress, existing native validation/audit,
+  explicit copy/save and no repeated disclosure. No new user/grant/policy path.
+- [x] Dependencies/config/schema: no new package/archive/override, deployment
+  setting/secret, model or migration. Native QR uses existing allauth MFA.
+- [x] Verification: 59-case backend run (54 passed/five PostgreSQL-only skips);
+  final 10 progress/transport tests passed after metadata/flash fixes. Each native
+  production/development run passed 39 checks and retained 17 masked captures.
+  Full ADS lint/types/builds, 18 UI/server/ratchet tooling tests, changed-Python
+  Ruff, 154-file JS/final-runner syntax, architecture, source/report/asset/registry
+  bindings and Django/migration-drift checks pass. No migration. Normal/error/QR/
+  recovery/mobile/enlarged-text captures inspected; no human/device certification.
+- [x] Limits: clipboard UI uses a count-only test sink; real OS clipboard and QR
+  scanning/device/assistive remain unaccepted. Unchanged fixed preview returns
+  root/review 200 with zero-connect CSP; auth/setup 404. No full repository/remote
+  CI run; 119 pre-existing environment-example parity omissions remain.
+- [x] Telegram/production: unchanged Telegram identity/UI/grants/root dependencies;
+  browser remains off/E006 blocking/unmounted. No real staff/provider/external
+  write, production migration, merge or deployment.
+- [x] Monitoring: test-loopback only; stop for external/non-test data, retained
+  proof or stale hashes. Mask QR/key/codes; never retain proof in reports.
+- [x] Rollback: remove the guided-client/progress/QR/test/doc slice and rebuild
+  P1c.5; preserve native passwords/factors/sessions/admissions/audit and workflows.
+  No schema reversal or operational data restore applies.
+- [ ] Actual invitation delivery/verified support and factor replacement;
+  PostgreSQL/native shared cache/privacy, production origin/static/CSP, devices/
+  assistive, backup/staging and M0/M1 acceptance before Complaints admission.
+
+## Historical P1c.5 closed native sign-in handoff
 
 ADR 0067 / decision section 11 / plan revision 15 govern this bounded slice.
 The user requested continued implementation and easy onboarding/authentication.

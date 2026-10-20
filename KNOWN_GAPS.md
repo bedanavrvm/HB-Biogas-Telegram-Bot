@@ -1,6 +1,23 @@
 # Known Gaps and Verified Workarounds
 
-## Native sign-in client remains closed; guided onboarding is next - 20 October 2026
+## Guided browser onboarding is connected; readiness remains open - 20 October 2026
+
+P1c.6 / ADR 0068 connects native first-password and enrollment to short ADS
+screens. Invitation proof is erased from the fragment before authentication requests/render;
+verified setup and fresh QR drafts resume from their bound session. Recovery
+codes are shown once with explicit copy/save. Password creation continues to
+enrollment without another password prompt; fresh sign-in after saving codes
+remains native policy. Lost one-time disclosure is never replayed.
+
+This closes the local onboarding UI gap. Actual canonical-address invitation
+delivery/verified support, PostgreSQL/shared-cache, production origin/static/CSP,
+device/assistive and M0/M1 acceptance remain open before Complaints. The fixed
+preview stays separate and production auth disabled/unmounted. No real account,
+mail, grant, migration or deployment change. Current record: decision section 12.
+The 119 pre-existing environment-example parity omissions below remain.
+
+
+## Historical P1c.5 native sign-in handoff - 20 October 2026
 
 P1c.5 connects a separate React build to the existing native password/MFA/session
 boundary in isolated tests. It preserves usernames after errors, uses autofill

@@ -1,6 +1,8 @@
 """Dormant, closed TOTP setup; no provisioning, replacement or business login."""
+import base64
 import time
 from contextlib import contextmanager
+from xml.etree import ElementTree
 
 from allauth.account import app_settings as account_settings
 from allauth.account.forms import ReauthenticateForm
@@ -34,6 +36,39 @@ class _Rejected(Exception):
 
 class _AuditUnavailable(Exception):
     pass
+
+
+@sensitive_variables()
+def _enrollment_details(request, secret, expires_at):
+    adapter = get_mfa_adapter()
+    uri = adapter.build_totp_url(request.user, secret)
+    # Native QR generation stays local. A white quiet zone is part of the
+    # machine-readable image, including when the surrounding UI is dark.
+    svg = ElementTree.fromstring(adapter.build_totp_svg(uri))
+    svg.insert(0, ElementTree.Element('{http://www.w3.org/2000/svg}rect', width='100%', height='100%', fill='white'))
+    image = base64.b64encode(ElementTree.tostring(svg, encoding='utf-8')).decode('ascii')
+    return _response('enrollment_required', username=request.user.username, otpauth_uri=uri,
+                     qr_data='data:image/svg+xml;base64,' + image, expires_at=expires_at)
+
+
+@browser_endpoint(('GET',))
+@sensitive_variables()
+def enrollment_session(request):
+    """Resume this exact fresh draft; never create a seed or disclose codes."""
+    try:
+        with _locked_channel(request) as (channel, row):
+            state = _state(request)
+            saved = enrollment_context(request, channel, row)
+            if state != 'enrollment_required' or saved is None:
+                extra = {'username': row.user.username} if state in ('enrollment_required', 'recovery_codes_required', 'reauthentication_required') else {}
+                return _response(state, **extra)
+            if Authenticator.objects.filter(user_id=row.user_id).exists() or SECRET_SESSION_KEY not in request.session:
+                return _response('enrollment_restart_required', 409)
+            return _enrollment_details(request, request.session[SECRET_SESSION_KEY], saved['started_at'] + ENROLLMENT_SECONDS)
+    except _Rejected as exc:
+        return _response(exc.state, exc.status)
+    except (MFASecretUnavailable, ImproperlyConfigured):
+        return _response('enrollment_restart_required', 409)
 
 
 def _discard_draft(request):
@@ -153,10 +188,7 @@ def _begin(request, data, channel, row):
             'session_key': request.session.session_key,
         }
         request.session[ENROLLMENT_CONTEXT_KEY] = saved
-    return _response(
-        'enrollment_required', otpauth_uri=get_mfa_adapter().build_totp_url(row.user, secret),
-        expires_at=saved['started_at'] + ENROLLMENT_SECONDS,
-    )
+    return _enrollment_details(request, secret, saved['started_at'] + ENROLLMENT_SECONDS)
 
 
 @sensitive_variables()

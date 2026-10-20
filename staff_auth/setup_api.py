@@ -251,6 +251,19 @@ def setup_session(request):
         return response
     if not request.session.session_key:
         request.session.create()
+    saved = request.session.get(SETUP_CONTEXT_KEY)
+    setup_id = request_uuid(saved.get('setup_id')) if isinstance(saved, dict) else None
+    if setup_id is not None:
+        try:
+            with _locked_setup(setup_id) as (grant, user, address):
+                if _session_matches(request, grant) and address.verified and _receipt(grant, 'verified', grant.verify_audit_id, user.pk):
+                    completed = grant.state == StaffBrowserSetupGrant.COMPLETED
+                    if not completed or _receipt(grant, 'completed', grant.completed_audit_id, user.pk):
+                        return _response('reauthentication_required' if completed else 'password_required',
+                                         setup_id=str(grant.pk), username=user.username, csrf_token=get_token(request))
+        except (_Rejected, InitialSetupError, DatabaseError, MFASecretUnavailable):
+            # Stale/cross-session/revoked context exposes no account details.
+            pass
     return _response('setup_required', csrf_token=get_token(request))
 
 

@@ -3,6 +3,11 @@
 Decision date: 19 October 2026; D13a evidence follow-up on the same date. Governing decision: ADR 0062,
 `docs/adr/0062-browser-react-ads-and-headless-auth-boundary.md`.
 
+Current P1c.6 / plan revision 16: section 12 records guided native initial-password,
+QR enrollment and one-time recovery handoff under ADR 0068. Section 11 retains
+P1c.5 sign-in evidence. Production auth stays disabled/unmounted; readiness and
+M0/M1 acceptance remain open before the Complaints read pilot.
+
 ## 1. Approved direction versus permission still needed
 
 The user chose React and Atlassian Design System (ADS) for the **new standalone
@@ -1357,3 +1362,122 @@ records. No schema reversal or operational data restore is required.
 - GLOSSARY_DELTA: existing React client definition extended for the closed build.
 - NEXT_READ_QUEUE: short guided setup/enrollment/recovery handoff and remaining
   identity/support prerequisites; M1 before Complaints, M3 before later apps.
+
+## 12. P1c.6 - guided closed onboarding
+
+### Scope and user journey
+
+The user instructed proceeding and avoiding further authentication delay.
+ADR 0068 connects the existing native contracts in the same dormant auth build:
+prepared existing-account invitation -> native first password -> QR/manual-key
+TOTP enrollment -> one-time recovery codes -> fresh password/MFA sign-in.
+Password-manager autofill, inline errors and bound-session resume apply. A
+create-password submission proceeds through native login/recheck into enrollment
+without another password prompt. Ordinary unenrolled login also proceeds directly
+into setup. This is one explicit action sequence, never credential replay.
+
+Invitation proof is accepted only from a fragment, erased before authentication requests/render,
+and submitted by explicit Continue. It is not put in a query, form, storage,
+report or screenshot. The browser creates no user, grant, admission or delivery.
+Existing-password reset/address verification and lost-cookie setup remain verified
+support procedures, not signup or identity-merging shortcuts.
+
+QR images use the already-installed allauth MFA adapter/qrcode dependency, entirely
+locally. The SVG image's white quiet zone is machine-readable content; Box renders
+it without HTML injection, external images or a new package. A setup key supports
+same-phone use. Desktop places the QR beside the single-column code form using
+ADS Grid; mobile stacks naturally. Other focused tasks retain the 500px bound.
+Guidance follows current official Form, Section Message and Button docs in
+browser/DESIGN.md; actual installed Box/Grid APIs are checked. No new lint exception,
+custom palette or vendor CSS override is introduced. Code/key text uses the ADS
+font.code token. Authenticator fields use the numeric mobile keyboard, while
+recovery fields retain general text entry. Enrollment errors ask for the newly
+added authenticator code, not recovery codes that do not exist yet. Anonymous Cancel preserves verified bound first-password progress
+and offers Continue account setup, rather than stranding a verified invitation.
+A stale owned Django cookie cannot force native signed-out users through anonymous
+setup resume; its expected 409 preserves the ordinary sign-in screen.
+
+### Progress, disclosure and failure boundary
+
+GET setup/session now reports password-required/completed progress and username
+only for the exact verified bound session with fresh native grant/admission/audit
+checks. Cross-session, expired or revoked state exposes no account detail.
+GET enrollment/session reads only a fresh same-channel enrollment draft under the
+existing locks, retaining its own username for sign-in after refresh; it cannot generate a seed, activate a factor, repeat recovery-code
+disclosure or issue assurance. Both remain private/no-store, test-only/unmounted.
+
+Native begin additionally returns a bounded data-image QR of its existing URI.
+After explicit code confirmation, native one-time recovery disclosure follows in
+that action. Copy is explicit and failure offers manual selection. A saved-codes
+action signs out into the fresh native login required by ADR 0063; setup never
+grants identity/workflow access. Lost confirmation is reconciled by progress;
+lost recovery disclosure is not replayed or silently regenerated. Hide/navigation/
+errors clear transient proof; resumed drafts require the same fresh server context.
+
+Native setup callbacks must not queue unused Django flash-message cookies.
+The JSON endpoint marks its request for explicit JSON feedback; StaffAccountAdapter
+suppresses only new flashes on that request, including on-commit callbacks.
+Other requests retain ordinary native messages, and notification/audit/credential
+behavior is unchanged. This avoids retaining staff email in an unused cookie.
+
+The synthetic preview and its zero-connect CSP remain unchanged. Only the guarded
+test URLconf adds setup/enrollment routes and data-image permission. Test captures
+mask QR/key/codes, request reports omit data URLs, and synthetic invitation proof
+travels over stdin. No mail is dispatched, and identity-only tests still fail
+existing Complaints authorization without grants.
+
+### Verification and handoff
+
+The affected backend progress/enrollment/setup suite ran 59 tests: 54 passed,
+five PostgreSQL-only cases skipped. After the final response metadata and native
+flash boundary fixes, all 10 focused progress/transport tests passed, including
+same-session resume, anonymous/cross-session/revoked denial, normal-message
+preservation and production-route closure. Both production and development/
+StrictMode browser journeys passed 39 checks with 17 masked captures each.
+These repeat the same scenarios; do not count them as 78 distinct journeys. Browser TOTP submissions wait for a fresh native time
+window when necessary; no clock/tolerance or MFA-validation bypass is used. The
+clipboard UI success branch uses an in-memory count-only test sink to avoid
+overwriting the host clipboard with proof. It does not establish real OS
+clipboard behavior; authentication and recovery disclosure remain native.
+TypeScript, full recommended ADS lint and both builds pass. Each auth build has
+25 assets / 56 noticed packages: production 1,339,987 bytes; development 3,871,969.
+Current source/report/asset/registry bindings pass. Legacy baselines/inventory and
+migration hold remain unchanged. Eighteen focused UI/server/ratchet tooling tests,
+changed-Python Ruff, the 154-file JavaScript check and final runner syntax check,
+architecture boundaries and default Django/migration-drift checks pass. No new
+migration exists. Inspected normal/error/QR/recovery/mobile/enlarged-text masked
+captures remain candidate evidence; real devices/assistive and OS clipboard are
+not accepted here. The unchanged preview returns root/review 200 with zero-connect
+CSP and auth/setup URLs 404. No remote CI or full repository suite is claimed.
+
+No new external package/archive/override, environment secret, schema/migration,
+permission matrix/grant, Telegram source/asset or production setting/URL change.
+No real account/factor/provider/Sheets/Drive write, commit, merge or deployment.
+CI's existing native transport job includes the extended journeys; configured CI
+is not an executed remote run. The pre-existing 119 environment-example parity
+omissions remain documented, and full repository/production readiness is not claimed.
+
+Actual canonical-address invitation delivery, verified support/factor replacement,
+PostgreSQL/native shared cache/privacy, origin/static/CSP, real-device/assistive,
+backup/support/staging and M0/M1 acceptance remain release prerequisites. The next
+work package is readiness and M1 acceptance, then Complaints read; do not restart
+local authentication layout work without a concrete defect. M3 remains mandatory
+before TAT/Origination/Portal investment.
+
+Monitor isolated loopback traffic only; stop on non-test data, external requests,
+retained proof or stale source bindings. Rollback removes this guided-client,
+progress/QR and test/doc slice and rebuilds the P1c.5 auth entry. Preserve accepted
+native passwords, factors, admissions, sessions, audit and workflow records; no
+schema reversal or operational data restore applies.
+
+- INDEX_VERSION: browser-react-ads-decision-9 / P1c.6 / 20 October 2026; ADR 0068;
+  plan revision 16. Earlier sections retain their historical counts/scope.
+- FILE_MAP_SUMMARY: existing auth client; enrollment/setup progress and native QR; JSON-only native
+  flash handling;
+  native/regression test extension; candidate bindings and canonical handoff docs.
+- OPEN_QUESTIONS: delivery/support, PostgreSQL/cache/privacy, production static/
+  origin/CSP, device/assistive/backup and M0/M1 acceptance.
+- KNOWN_RISKS: local guided integration is not operational provisioning or workflow
+  authority; lost one-time codes/session need the verified support procedure.
+- GLOSSARY_DELTA: existing React browser client definition extended.
+- NEXT_READ_QUEUE: readiness/staging acceptance for M1, then Complaints read.

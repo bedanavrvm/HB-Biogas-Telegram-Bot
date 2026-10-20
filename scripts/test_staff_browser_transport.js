@@ -19,10 +19,11 @@ async function main() {
   assert.ok(['localhost','127.0.0.1'].includes(origin.hostname));
   const output = path.join(root, 'test-results', 'staff-browser-transport', manifest.mode);
   fs.mkdirSync(output, { recursive: true });
-  const allowed = new Set(['/', ...manifest.files.map(row => '/' + row.name), ...['session','login','mfa','logout'].map(name => '/api/staff/auth/v1/' + name + '/'), '/test-context/identity/', '/test-context/complaints/']);
+  const allowed = new Set(['/', ...manifest.files.map(row => '/' + row.name), ...['session','login','mfa','logout','setup/session','setup/verify-email','setup/password','enrollment/session','enrollment/begin','enrollment/confirm','enrollment/recovery-codes'].map(name => '/api/staff/auth/v1/' + name + '/'), '/test-context/identity/', '/test-context/complaints/']);
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width:1280, height:720 }, colorScheme:'light' });
+  const context = await browser.newContext({ viewport: { width:1280, height:720 }, colorScheme:'light', permissions:['clipboard-read','clipboard-write'] });
   const page = await context.newPage();
+  page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(30000);
   const requests=[], errors=[], captures=[], evidence=[];
   let checks=0;
   const control = async name => { process.stdout.write(JSON.stringify({control:name})+'\n'); assert.equal(JSON.parse((await lines.next()).value).ok,true); };
@@ -31,7 +32,7 @@ async function main() {
     if(url.origin===origin.origin && allowed.has(url.pathname) && !url.search && ['GET','POST'].includes(request.method())) await route.continue();
     else { errors.push('Unexpected network destination or path'); await route.abort(); }
   });
-  page.on('request', request => requests.push({path:new URL(request.url()).pathname,method:request.method()}));
+  page.on('request', request => { const url=new URL(request.url()); if(url.origin===origin.origin)requests.push({path:url.pathname,method:request.method()}); });
   page.on('pageerror', () => errors.push('Unhandled browser exception'));
   page.on('console', message => { if(message.type()==='error' && !/^Failed to load resource:/.test(message.text())) errors.push('Unexpected console error'); });
   const heading=async name=>{ await page.getByRole('heading',{level:1,name,exact:true}).waitFor(); await page.getByTestId('auth-content').locator('section[aria-busy]').evaluate(async el=>{while(el.getAttribute('aria-busy')==='true')await new Promise(resolve=>setTimeout(resolve,10));}); };
@@ -43,12 +44,12 @@ async function main() {
     if(layout.width===1280){assert.ok(layout.pageHeight<=layout.height+1);assert.ok(layout.mainScrollHeight<=layout.mainHeight+1);}
     evidence.push({capture:name,...layout});
     await page.evaluate(async()=>{await Promise.all(document.getAnimations().filter(a=>a.effect?.getComputedTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
-    await page.screenshot({path:path.join(output,name),fullPage:true}); captures.push(name);
+    await page.screenshot({path:path.join(output,name),fullPage:true,mask:[page.locator('[data-sensitive]')]}); captures.push(name);
   };
   const count=action=>requests.filter(row=>row.method==='POST' && row.path==='/api/staff/auth/v1/'+action+'/').length;
   const recheck=()=>page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-  const password=async(value=input.password)=>{
-    await page.getByLabel(/^Staff username\s*\*?$/).fill(input.username);
+  const password=async(value=input.password,username=input.username)=>{
+    await page.getByLabel(/^Staff username\s*\*?$/).fill(username);
     await page.getByLabel(/^Password\s*\*?$/).fill(value);
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
   };
@@ -59,14 +60,15 @@ async function main() {
     await page.getByLabel(/^Recovery code\s*\*?$/).fill(input.recovery[index]);
     await page.getByRole('button',{name:'Verify',exact:true}).click(); await heading('Your workspace');
   };
-  const totp=()=>{
+  const totp=(secret=input.secret)=>{
     const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits='';
-    for(const character of input.secret.toUpperCase().replace(/=+$/,'')) bits+=alphabet.indexOf(character).toString(2).padStart(5,'0');
+    for(const character of secret.toUpperCase().replace(/=+$/,'')) bits+=alphabet.indexOf(character).toString(2).padStart(5,'0');
     const bytes=[]; for(let i=0;i+8<=bits.length;i+=8)bytes.push(parseInt(bits.slice(i,i+8),2));
     const counter=Buffer.alloc(8);counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));
     const digest=crypto.createHmac('sha1',Buffer.from(bytes)).update(counter).digest(); const offset=digest[19]&15;
     return String((digest.readUInt32BE(offset)&0x7fffffff)%1000000).padStart(6,'0');
   };
+  const freshTotp=async secret=>{const remaining=30000-(Date.now()%30000);if(remaining<5000)await new Promise(resolve=>setTimeout(resolve,remaining+100));return totp(secret);};
   try {
     await page.goto(origin.origin+'/#authenticated'); await heading('Sign in');
     assert.equal(await page.getByRole('combobox').count(),0);
@@ -89,7 +91,7 @@ async function main() {
     await capture('mfa-light-1280.png');checks++;
     let dropped=0;
     await page.route('**/api/staff/auth/v1/mfa/',async route=>{dropped++;const response=await route.fetch();await route.fulfill({response,body:'{'});});
-    await page.getByLabel(/^Authenticator code\s*\*?$/).fill(totp());await page.getByRole('button',{name:'Verify',exact:true}).click();await heading('Check your session');
+    await page.getByLabel(/^Authenticator code\s*\*?$/).fill(await freshTotp());await page.getByRole('button',{name:'Verify',exact:true}).click();await heading('Check your session');
     const used=count('mfa');assert.equal(dropped,1);assert.equal(await page.getByRole('heading',{name:'Your workspace',exact:true}).count(),0);
     await page.unroute('**/api/staff/auth/v1/mfa/');await page.getByRole('button',{name:'Check session',exact:true}).click();await heading('Your workspace');assert.equal(count('mfa'),used);checks++;
     const newCsrf=(await context.cookies()).find(cookie=>cookie.name==='csrftoken').value; assert.notEqual(oldCsrf,newCsrf);checks++;
@@ -129,9 +131,72 @@ async function main() {
     assert.equal(await page.getByRole('heading',{level:1,name:'Your workspace',exact:true}).count(),0);checks++;
     if(await page.getByRole('button',{name:'Cancel sign in',exact:true}).count())await page.getByRole('button',{name:'Cancel sign in',exact:true}).click();
     await heading('Sign in');
-    await control('unenroll');await password();await heading('Authenticator setup required');
+    // Existing password users enter native enrollment directly, without another prompt.
+    await control('unenroll');await password();await heading('Set up your authenticator');
+    assert.equal(await page.getByLabel(/^Password\s*\*?$/).count(),0);
     assert.equal(await page.evaluate(async()=>(await fetch('/test-context/identity/')).status),403);
-    await capture('setup-handoff-light-1280.png');await page.getByRole('button',{name:'Sign out',exact:true}).click();await heading('Sign in');checks++;
+    const draftSecret=await page.locator('code[data-sensitive]').textContent();
+    const starts=count('enrollment/begin');await page.reload();await heading('Set up your authenticator');
+    assert.equal(await page.locator('code[data-sensitive]').textContent(),draftSecret);assert.equal(count('enrollment/begin'),starts);
+    await capture('enrollment-resumed-light-1280.png');checks++;
+    await page.getByLabel(/^Authenticator code\s*\*?$/).fill('incorrect-code');await page.getByRole('button',{name:'Verify',exact:true}).click();await page.getByRole('alert').waitFor();await heading('Set up your authenticator');
+    await capture('enrollment-invalid-code-light-1280.png');checks++;
+    await page.route('**/api/staff/auth/v1/enrollment/confirm/',async route=>{const response=await route.fetch();await route.fulfill({response,body:'{'});});
+    await page.getByLabel(/^Authenticator code\s*\*?$/).fill(await freshTotp(draftSecret));await page.getByRole('button',{name:'Verify',exact:true}).click();await heading('Check your session');
+    await page.unroute('**/api/staff/auth/v1/enrollment/confirm/');await page.getByRole('button',{name:'Check session',exact:true}).click();await heading('Save your recovery codes');
+    assert.equal(await page.locator('[data-sensitive]').count(),0);checks++;
+    // A lost one-time disclosure must never fetch/regenerate codes automatically.
+    await page.route('**/api/staff/auth/v1/enrollment/recovery-codes/',async route=>{const response=await route.fetch();await route.fulfill({response,body:'{'});});
+    await page.getByRole('button',{name:'Show recovery codes',exact:true}).click();await heading('Check your session');
+    const disclosures=count('enrollment/recovery-codes');
+    await page.unroute('**/api/staff/auth/v1/enrollment/recovery-codes/');await page.getByRole('button',{name:'Check session',exact:true}).click();await heading('Finish signing in');
+    assert.equal(await page.locator('[data-sensitive]').count(),0);assert.equal(count('enrollment/recovery-codes'),disclosures);
+    await capture('lost-recovery-handoff-light-1280.png');await page.getByRole('button',{name:'Continue to sign in',exact:true}).click();await heading('Sign in');checks++;
+    // Real prepared existing-account invitation: no signup or simulated mailbox proof.
+    const invitation=key=>origin.origin+'/#setup='+encodeURIComponent(input.setup.id)+'&key='+encodeURIComponent(key);
+    // An email invitation opens a new document, not an in-app hash transition.
+    const openInvitation=async key=>{await page.goto('about:blank');await page.goto(invitation(key));await heading('Set up your account');};
+    await openInvitation('invalid-proof');
+    assert.equal(await page.evaluate(()=>location.hash),'');await page.getByRole('button',{name:'Continue setup',exact:true}).click();await heading('Reopen your setup invitation');checks++;
+    await openInvitation(input.setup.proof);
+    assert.equal(await page.evaluate(()=>location.hash),'');
+    const verifications=count('setup/verify-email');await capture('invitation-light-1280.png');assert.equal(count('setup/verify-email'),verifications);
+    await page.getByRole('button',{name:'Continue setup',exact:true}).click();await heading('Create your password');checks++;
+    assert.equal(await page.evaluate(async()=>(await fetch('/test-context/identity/')).status),403);
+    await page.reload();await heading('Create your password');assert.equal(count('setup/verify-email'),verifications+1);checks++;
+    await page.getByRole('button',{name:'Cancel setup',exact:true}).click();await heading('Sign in');
+    await page.getByRole('button',{name:'Continue account setup',exact:true}).click();await heading('Create your password');
+    assert.equal(count('setup/verify-email'),verifications+1);checks++;
+    assert.equal(await page.getByLabel(/^New password\s*\*?$/).getAttribute('autocomplete'),'new-password');
+    await page.getByLabel(/^New password\s*\*?$/).fill('weak');await page.getByLabel(/^Confirm password\s*\*?$/).fill('mismatch');
+    await page.getByRole('button',{name:'Create password and continue',exact:true}).click();await page.getByRole('alert').waitFor();await heading('Create your password');
+    await capture('initial-password-error-light-1280.png');checks++;
+    await page.getByLabel(/^New password\s*\*?$/).fill(input.password);await page.getByLabel(/^Confirm password\s*\*?$/).fill(input.password);
+    await page.getByRole('button',{name:'Create password and continue',exact:true}).click();await heading('Set up your authenticator');
+    assert.equal(await page.getByLabel(/^Password\s*\*?$/).count(),0);
+    assert.ok((await page.getByRole('img',{name:'Scan with your authenticator app'}).getAttribute('src')).startsWith('data:image/svg+xml;base64,'));
+    await page.waitForFunction(()=>{const img=document.querySelector('img[data-sensitive]');return img?.complete && img.naturalWidth>0;});
+    assert.equal(await page.getByLabel(/^Authenticator code\s*\*?$/).getAttribute('inputmode'),'numeric');
+    const newSecret=await page.locator('code[data-sensitive]').textContent();await capture('new-authenticator-light-1280.png');checks++;
+    await page.setViewportSize({width:390,height:844});await page.emulateMedia({colorScheme:'dark'});await page.reload();await heading('Set up your authenticator');
+    await page.waitForFunction(()=>document.documentElement.dataset.colorMode==='dark');await capture('new-authenticator-dark-390.png');checks++;
+    await page.setViewportSize({width:1280,height:720});await page.emulateMedia({colorScheme:'light'});
+    await page.getByLabel(/^Authenticator code\s*\*?$/).fill(await freshTotp(newSecret));await page.getByRole('button',{name:'Verify',exact:true}).click();await heading('Save your recovery codes');
+    assert.equal(await page.locator('code[data-sensitive]').count(),10);assert.equal(await page.evaluate(async()=>(await fetch('/test-context/identity/')).status),403);
+    await capture('recovery-codes-masked-light-1280.png');
+    // Exercise the clipboard control without overwriting the host clipboard with
+    // proof. Authentication, enrollment, disclosure and code validation stay native.
+    await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__copiedCodeCount=text.split('\n').length;}}});});
+    await page.getByRole('button',{name:'Copy codes',exact:true}).click();await page.getByRole('status').filter({hasText:'Codes copied'}).waitFor();
+    assert.equal(await page.evaluate(()=>window.__copiedCodeCount),10);checks++;
+    await page.getByRole('button',{name:'I saved my codes - sign in',exact:true}).click();await heading('Sign in');
+    assert.equal(await page.getByLabel(/^Staff username\s*\*?$/).inputValue(),input.setup.username);assert.equal(await page.locator('[data-sensitive]').count(),0);checks++;
+    await password(input.password,input.setup.username);await heading('Check your authenticator');await page.getByLabel(/^Authenticator code\s*\*?$/).fill(await freshTotp(newSecret));
+    await page.getByRole('button',{name:'Verify',exact:true}).click();await heading('Your workspace');
+    assert.deepEqual(await page.evaluate(async()=>({identity:(await fetch('/test-context/identity/')).status,complaints:(await fetch('/test-context/complaints/')).status})),{identity:200,complaints:403});checks++;
+    await page.getByRole('button',{name:'Sign out',exact:true}).click();await heading('Sign in');
+    await openInvitation(input.setup.proof);await page.getByRole('button',{name:'Continue setup',exact:true}).click();await heading('Reopen your setup invitation');
+    assert.equal(await page.getByLabel(/^New password\s*\*?$/).count(),0);await page.getByRole('button',{name:'Back to sign in',exact:true}).click();await heading('Sign in');checks++;
     await page.setViewportSize({width:390,height:844});await page.emulateMedia({colorScheme:'dark'});await page.reload();await heading('Sign in');
     await page.waitForFunction(()=>document.documentElement.dataset.colorMode==='dark');
     assert.equal(await page.getByRole('button',{name:'Show more',exact:true}).count(),0,'No empty mobile action menu on sign-in.');
@@ -140,8 +205,8 @@ async function main() {
     assert.deepEqual(await page.evaluate(()=>({local:localStorage.length,session:sessionStorage.length})),{local:0,session:0});
     assert.ok((await context.cookies()).every(cookie=>['csrftoken','sessionid'].includes(cookie.name)));
     assert.deepEqual(errors,[]);checks++;
-    const harnessSources=['scripts/test_staff_browser_transport.js','staff_auth/browser_api.py','staff_auth/assurance.py','staff_auth/replay.py','staff_auth/tests_transport.py','staff_auth/transport_test_urls.py','staff_auth/transport_test_settings.py','staff_auth/transport_test_runner.py'].map(name=>({path:name,sha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,name),'utf8').replace(/\r\n/g,'\n')).digest('hex')}));
-    fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({checks,sources:manifest.sources,harnessSources,dependencyLock:manifest.dependencyLock,mode:manifest.mode,captures,requests,evidence,syntheticOnly:true,realNativeAuthentication:true,productionAccepted:false,errors},null,2)+'\n');
+    const harnessSources=['scripts/test_staff_browser_transport.js','staff_auth/browser_api.py','staff_auth/assurance.py','staff_auth/replay.py','staff_auth/enrollment.py','staff_auth/enrollment_state.py','staff_auth/setup_api.py','staff_auth/initial_setup.py','staff_auth/tests_transport.py','staff_auth/transport_test_urls.py','staff_auth/transport_test_settings.py','staff_auth/transport_test_runner.py'].map(name=>({path:name,sha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,name),'utf8').replace(/\r\n/g,'\n')).digest('hex')}));
+    fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({checks,sources:manifest.sources,harnessSources,dependencyLock:manifest.dependencyLock,mode:manifest.mode,captures,requests,evidence,syntheticOnly:true,realNativeAuthentication:true,guidedOnboarding:true,productionAccepted:false,errors},null,2)+'\n');
     fs.rmSync(path.join(output,'failure.json'),{force:true});
     process.stdout.write(JSON.stringify({passed:true,checks,captures:captures.length})+'\n');
   } catch (error) {

@@ -117,6 +117,33 @@ class InitialStaffSetupTests(TestCase):
         self.assertFalse(mail.outbox)
         self.assertFalse(admin.site.is_registered(StaffBrowserSetupGrant))
 
+    def test_progress_resumes_only_the_verified_bound_session_without_writes(self):
+        self.prepared_verified()
+        count = ComplianceAuditEvent.objects.count()
+        result = self.bootstrap().json()
+        self.assertEqual(result['state'], 'password_required')
+        self.assertEqual(result['setup_id'], str(self.grant.pk))
+        self.assertEqual(result['username'], self.user.username)
+        self.assertEqual(ComplianceAuditEvent.objects.count(), count)
+        other = Client(enforce_csrf_checks=True)
+        self.assertEqual(self.bootstrap(other).json()['state'], 'setup_required')
+        copied = other.session
+        copied[SETUP_CONTEXT_KEY] = self.client.session[SETUP_CONTEXT_KEY]
+        copied.save()
+        self.assertNotIn('username', self.bootstrap(other).json())
+        self.assertEqual(self.password().json()['state'], 'reauthentication_required')
+        self.assertEqual(self.bootstrap().json()['state'], 'reauthentication_required')
+
+    def test_progress_hides_expired_or_revoked_setup(self):
+        self.prepared_verified()
+        StaffBrowserSetupGrant.objects.filter(pk=self.grant.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(self.bootstrap().json()['state'], 'setup_required')
+        StaffBrowserSetupGrant.objects.filter(pk=self.grant.pk).update(expires_at=timezone.now() + timedelta(minutes=5))
+        row = StaffBrowserAdmission.objects.get(user=self.user)
+        apply_change(actor=self.root, target_user_id=self.user.pk, action='suspend', expected_revision=row.revision,
+                     request_key='synthetic-progress-suspend', reason='Synthetic revoked progress denial')
+        self.assertNotIn('username', self.bootstrap().json())
+
     def test_preparation_retry_is_payload_bound_and_has_one_receipt_and_generation_change(self):
         first = self.prepare()
         cipher = self.grant.confirmation_cipher

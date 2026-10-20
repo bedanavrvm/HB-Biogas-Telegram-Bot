@@ -1,5 +1,14 @@
 # P1b.2a: dormant browser JSON authentication boundary
 
+Current P1c.6 addendum (20 October 2026): ADR 0068 and browser decision section 12
+connect the native contracts to guided first-password/QR enrollment/one-time
+recovery screens in the closed React build. Setup/session resumes only exact
+verified bound progress; enrollment/session reads a fresh same-channel draft
+without seed generation or code redisclosure. Native QR stays local/transient.
+Production remains disabled/unmounted; actual delivery/support and M0/M1 remain
+open. The sections below retain their original backend scope and test counts.
+
+
 Date: 19 October 2026. This is a bounded backend slice, **not usable browser
 login/enrollment/recovery or an accepted M1 milestone**. Governing ADR:
 `docs/adr/0062-browser-react-ads-and-headless-auth-boundary.md`.

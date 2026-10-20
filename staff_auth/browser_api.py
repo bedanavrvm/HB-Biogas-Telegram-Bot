@@ -62,6 +62,10 @@ def browser_endpoint(methods):
                 response = _response('method_not_allowed', 405)
                 response['Allow'] = ', '.join(methods)
             else:
+                # Native flows/callbacks use JSON feedback here. Keep this
+                # request-local marker through commit; unused flash cookies
+                # must not retain staff data or reappear in another page.
+                request._staff_browser_json_feedback = True
                 response = protected(request, *args, **kwargs)
             response['Cache-Control'] = 'no-store, private'
             response['Pragma'] = 'no-cache'

@@ -1,5 +1,17 @@
 # Changelog
 
+## 20 October 2026 - Guided closed browser onboarding (P1c.6)
+
+- Connected prepared invitation, native first-password, QR/manual-key enrollment
+  and one-time recovery handoff in the dormant ADS client. Autofill, bound-session
+  resume and no duplicate password prompt keep the flow short.
+- Added read-only setup/enrollment progress and local native QR generation using
+  the existing allauth MFA dependency. Transient proof is masked in captures;
+  lost recovery-code disclosure is never automatically repeated.
+- Production stays off/unmounted; no package, schema, migration, grant, Telegram,
+  real delivery or deployment change. ADR 0068, decision section 12 and the
+  release checklist record verification and remaining M0/M1 gates.
+
 ## 20 October 2026 - Closed native browser sign-in integration (P1c.5)
 
 - Added a separately built dormant React/ADS client for real same-origin Django

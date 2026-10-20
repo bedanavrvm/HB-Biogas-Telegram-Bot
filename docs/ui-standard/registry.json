@@ -552,26 +552,26 @@
     {
       "path": "browser/src/access.html",
       "sha256": "66c65695444f902508b7d91e3d07a3b9c8a73b6c728f4abfc99f584fd819e956",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
-      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
     },
     {
       "path": "browser/src/auth-index.tsx",
-      "sha256": "cd807f13674f6f6950c0e7564b5d8dc9ce5a9bd845a7dd943fa8d52a0dc4fdd7",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
-      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+      "sha256": "71a6565876d540dd8fb3b76624cf9ecee63ed8ff0dfe12aa376df69b3ce995a3",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
     },
     {
       "path": "browser/src/auth-transport.ts",
-      "sha256": "bd12e0136dcac69b805e7f6087991b4a2cf72a381b3d84eb6830fa83c13df4aa",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
-      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+      "sha256": "d94fcaa3ba992323845f14eb9bec68c5524ba8360ecd14b6ba8b03f282a80e65",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "91193d835fbe652abe2a1b177d2d00300149c7471f6ff07b04b777092fdc2381",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#11-p1c5--closed-native-session-integration",
-      "reason": "Separately built dormant React/ADS authentication client under ADR 0067, following documented form/feedback patterns. Isolated native Django CSRF/session/password/MFA tests only; not an operational mount, workflow authority, human design approval or Telegram migration."
+      "sha256": "fdc8659df216cf5dcea5a1c54ca73c827460391d1c2253220ed8749751f13ecc",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
     }
   ],
   "source_roots": [

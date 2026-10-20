@@ -1199,3 +1199,16 @@ impact counts, PostgreSQL locking and real Telegram-device acceptance remain
 unverified until authorized release checks. **Next Steps:** review/apply the
 normal migration and any explicitly approved legacy reconciliation; do not
 rewrite historical visits, signed documents or financial approvals.
+
+
+## Guided closed browser onboarding - P1c.6 / 20 October 2026
+
+ADR 0068 extends the separate dormant React/ADS auth entry with prepared existing-
+account invitation, native first-password, QR/manual-key enrollment and one-time
+recovery handoff. Native setup/enrollment progress reads resume exact fresh bound
+sessions; no seed generation, code redisclosure, user/grant creation or assurance
+comes from reads/setup. Local QR uses the existing allauth MFA dependency; proof
+is transient and masked in captures. Decision section 12 and plan revision 16
+record source/test evidence, rollback and remaining readiness/M0/M1 gates.
+Production stays off/unmounted; no Telegram/schema/migration/dependency change.
+Next is operational readiness and M1 acceptance, then the Complaints read pilot.

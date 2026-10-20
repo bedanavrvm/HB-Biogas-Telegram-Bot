@@ -1,5 +1,14 @@
 # Closed existing-staff initial setup — P1b.2b.3
 
+Current P1c.6 addendum (20 October 2026): ADR 0068 and browser decision section 12
+connect the native contracts to guided first-password/QR enrollment/one-time
+recovery screens in the closed React build. Setup/session resumes only exact
+verified bound progress; enrollment/session reads a fresh same-channel draft
+without seed generation or code redisclosure. Native QR stays local/transient.
+Production remains disabled/unmounted; actual delivery/support and M0/M1 remain
+open. The sections below retain their original backend scope and test counts.
+
+
 20 October 2026. Starts at `3d2ffdfb` on Platform-Interdependence. Production
 release/migrations remain unknown. This increment adds a dormant backend, not
 operational provisioning or delivery. Browser remains disabled, E006 blocking

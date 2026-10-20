@@ -104,7 +104,7 @@ PostgreSQL, support/backup owners, staging and both-channel acceptance.
 Rollback stops the local server and reverts this workspace/tooling/docs; retain
 the backend's existing staff, credentials, sessions, audit and workflow data.
 
-## Closed native authentication integration (P1c.5)
+## Closed native authentication and onboarding (P1c.5/P1c.6)
 
 ADR 0067 adds a **separate dormant build**, not another mode of the synthetic
 preview. `node browser/scripts/build.cjs --authentication` builds editable ADS
@@ -117,9 +117,16 @@ Routine sign-in has two short steps, uses standard autofill, retains the usernam
 after mistakes and resumes the server-owned stage on refresh. Recovery is on the
 code screen. CSRF refresh/rotation and session checks happen in the background;
 uncertain requests prompt a safe session read rather than resending credentials.
-Secrets are cleared from forms and never stored or logged. Workflow tools,
-initial password/enrollment UI and real staff/provider delivery remain separate
-increments; the setup handoff is not a completed onboarding product.
+Secrets are cleared from forms and never stored or logged. Workflow tools
+and real staff/provider delivery remain separate increments.
+ADR 0068 adds the local guided existing-account invitation, first-password,
+QR/manual-key enrollment and one-time recovery handoff. The invitation uses a
+fragment erased before requests and is consumed only by explicit Continue.
+Verified setup and fresh enrollment drafts resume from their bound server
+session. One create-password action invokes native setup/login/recheck without
+retaining the password between screens. Saving codes enters fresh sign-in;
+setup never grants identity assurance or workflow access. No operational
+invitation URL, mail dispatch or proof export is supplied by this local build.
 
 Run real React -> Django middleware/database sessions -> native allauth tests
 with the existing root Playwright tooling and Python environment. From a shell
@@ -148,10 +155,10 @@ Its two context probes test identity success and existing Complaints denial;
 they expose no cases and are not P2 endpoints. Requests stay on ephemeral
 loopback, Python outbound connections are rejected, and email uses locmem.
 Proof travels to the browser runner through stdin only. Reports contain source
-hashes, request paths/methods, bounds and proof-free synthetic captures under
+hashes, request paths/methods, bounds and synthetic captures with QR/key/codes masked under
 `test-results/staff-browser-transport/{production,development}/`.
 
 This remains local SQLite/headless evidence. PostgreSQL races, real devices,
 assistive review, operational shared cache, production static/CSP/session origin,
-guided setup/delivery/recovery/support and M0/M1 remain acceptance gates. No
+actual delivery/recovery support and M0/M1 remain acceptance gates. No
 dependency, schema, policy matrix, Telegram, merge or deployment change applies.

@@ -1,10 +1,15 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **15 — 20 October 2026**. P1c.5 adds a separately built, dormant native session/CSRF/password/MFA/logout client and isolated React-to-Django integration evidence. Routine sign-in stays short, autofill and stage resume are automatic, usernames survive errors and recovery stays inline. Guided setup/enrollment remains the next bounded increment. The accepted P1c.4 composition and all operational gates remain. Required pilot order:
+Plan revision: **16 - 20 October 2026**. P1c.6 connects guided existing-account
+invitation, first-password, local QR enrollment and one-time recovery handoff
+in the closed React/ADS client under ADR 0068. The local onboarding UI gap is
+closed; actual delivery/support and operational readiness/M0/M1 remain open.
+Next: readiness and staging acceptance before the Complaints read pilot.
+Required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-P1c.5 follows the user's proceed/usability instructions under ADR 0067. Real
+Historical P1c.5 follows the user's proceed/usability instructions under ADR 0067. Real
 native authentication is tested against synthetic accounts in an isolated full
 schema; the fixed-value preview stays separate. Stale owned cookies permit a
 fresh sign-in, without converting unrelated Admin/other-channel sessions. No
@@ -28,9 +33,9 @@ checks cover all pages/form errors, controls open/closed and both themes. Mobile
 and enlarged text retain natural scrolling. Historical evidence/checklist: decision
 section 9. No dependency, backend, schema, grant, Telegram or activation change.
 
-Status: **P1a/P1b closed identity backends, P1c.4 synthetic ADS pages and P1c.5 closed native sign-in integration are present. Browser authentication is globally disabled, production routes unmounted and M0/M1 operational acceptance open.** The exact browser graph is locally accepted under the user's implementation instructions, with an explicit peer exception, fixed development parser, notices and asset exclusions (ADR 0066). These bounded slices do not authorize merge/deployment or real staff admission. Current backend contracts are in STAFF_BROWSER_LIFECYCLE/JSON_AUTH/ENROLLMENT/REPLAY_GUARD/INITIAL_SETUP.md; frontend scope and evidence are in BROWSER_REACT_ADS_DECISION.md section 11 and browser/DEPENDENCIES.md.
+Status: **P1a/P1b closed identity backends, P1c.4 synthetic ADS pages and P1c.5 native sign-in and P1c.6 guided closed onboarding are present. Browser authentication is globally disabled, production routes unmounted and M0/M1 operational acceptance open.** The exact browser graph is locally accepted under the user's implementation instructions, with an explicit peer exception, fixed development parser, notices and asset exclusions (ADR 0066). These bounded slices do not authorize merge/deployment or real staff admission. Current backend contracts are in STAFF_BROWSER_LIFECYCLE/JSON_AUTH/ENROLLMENT/REPLAY_GUARD/INITIAL_SETUP.md; frontend scope and evidence are in BROWSER_REACT_ADS_DECISION.md section 12 and browser/DEPENDENCIES.md.
 
-P1c.2 implements the user's full browser design adoption request: all current
+Historical P1c.2 implements the user's full browser design adoption request: all current
 browser pages now compose ADS layout/typography/navigation/form components and
 typed semantic tokens. Native review selectors, custom CSS, global font/focus
 overrides and broad lint exemptions are removed. Both ADS recommended lint sets
@@ -326,11 +331,11 @@ No dormant slice satisfies M1 or usable browser access.
 P1c.1 now completes the exact local build/component scope above, with synthetic
 access pages and source review. Native API/CSRF/session transport, deployment
 static/CSP/cache integration and operational M1 were unimplemented/unaccepted.
-P1c.5 now implements the bounded native session/password/MFA/logout client and
-isolated end-to-end boundary under ADR 0067 (decision section 11). Initial
-setup/enrollment/recovery-handoff UI, actual delivery/support, production static/
-CSP/origin/cache, PostgreSQL/device and M0/M1 acceptance remain open. Do not
-describe the setup support handoff as completed onboarding.
+P1c.5 implements native sign-in under ADR 0067. P1c.6 connects the guided
+initial-password, QR enrollment and one-time recovery UI under ADR 0068
+(decision section 12). Actual delivery/support, production static/CSP/origin/
+cache, PostgreSQL/device and M0/M1 acceptance remain open. Local guided UI
+is not operational onboarding acceptance.
 P1b.2b and P1c continue in bounded increments under their own gates; local build
 acceptance never relaxes authentication or approves an unreviewed graph. No
 calendar promises or traffic percentages are inferred.
@@ -614,7 +619,26 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 | Revision 9 | Closed existing-staff initial setup; scope/schema/verification/checklist in STAFF_BROWSER_INITIAL_SETUP.md; real delivery/support, native shared rate-cache and P1c/M1 gates remain open; no frontend installation or production activation |
 | Revision 10 | Local source-only access wireframe and synthetic browser evidence; BROWSER_REACT_ADS_DECISION.md section 6; historical no-install state |
 | Revision 11 | Actual local React/ADS access demo, exact dependency/build decision, notices/module checks and browser evidence; section 7; synthetic frontend foundation only |
-| This revision (15) | Separate dormant native session/password/MFA/logout client, short sign-in and isolated React/Django integration under ADR 0067; decision section 11. Guided initial setup/enrollment/recovery UI, production distribution and M0/M1 remain open |
+| Revision 15 | Separate dormant native session/password/MFA/logout client, short sign-in and isolated React/Django integration under ADR 0067; decision section 11. Guided initial setup/enrollment/recovery UI, production distribution and M0/M1 remain open |
+
+| This revision (16) | Guided existing-account native first-password/QR enrollment/one-time recovery UI under ADR 0068; decision section 12. Local onboarding UI gap closed; delivery/support and M0/M1 remain open |
+
+### STATE BLOCK - revision 16 / P1c.6 guided closed onboarding
+
+- INDEX_VERSION: platform-independence-plan-16 / 20 October 2026; ADR 0068.
+- FILE_MAP_SUMMARY: dormant React auth sources; bound-session setup/enrollment
+  progress and native QR; native/regression tests; candidate bindings and docs.
+- OPEN_QUESTIONS: actual invitation delivery/verified support, shared cache/privacy/
+  PostgreSQL, production static/origin/CSP, devices/assistive, named support/backup
+  and M0/M1 staging acceptance.
+- KNOWN_RISKS: closed integration is not operational admission or workflow access;
+  lost one-time recovery disclosure needs verified support.
+- GLOSSARY_DELTA: React client definition extended for guided native setup.
+- VERIFICATION: 59-case backend run (54 passed/five PostgreSQL-only skips); final
+  10 progress/transport tests passed with 39 native checks/17 masked captures per
+  build. Exact source bindings, limits and rollback: decision section 12/checklist.
+- NEXT_READ_QUEUE: readiness/staging acceptance for M1, then Complaints read;
+  mandatory M3 review before TAT/Origination/Portal investment.
 
 ### STATE BLOCK — revision 15 / P1c.5 closed native sign-in
 

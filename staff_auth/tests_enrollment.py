@@ -102,6 +102,26 @@ class BrowserEnrollmentTests(EnrollmentJourney, TestCase):
         self.assertEqual(self.post('enrollment/begin', {'request_key': key(), 'password': PASSWORD}).json()['state'], 'enrollment_in_progress')
         self.assert_not_business()
 
+    def test_progress_resumes_the_same_draft_without_seed_or_audit_writes(self):
+        self.assertNotIn('otpauth_uri', self.client.get('/test-staff-auth/v1/enrollment/session/').json())
+        started = self.begin().json()
+        count = ComplianceAuditEvent.objects.count()
+        pending = self.client.session[SECRET_SESSION_KEY]
+        progress = self.client.get('/test-staff-auth/v1/enrollment/session/')
+        self.assertEqual(progress.json()['otpauth_uri'], started['otpauth_uri'])
+        self.assertEqual(progress.json()['username'], self.user.username)
+        self.assertTrue(progress.json()['qr_data'].startswith('data:image/svg+xml;base64,'))
+        self.assertEqual(self.client.session[SECRET_SESSION_KEY], pending)
+        self.assertEqual(ComplianceAuditEvent.objects.count(), count)
+        self.assertEqual(progress['Cache-Control'], 'no-store, private')
+        other = Client(enforce_csrf_checks=True)
+        denied = other.get('/test-staff-auth/v1/enrollment/session/')
+        self.assertEqual(denied.status_code, 401)
+        self.assertNotIn('username', denied.json())
+        self.confirm()
+        self.assertNotIn('otpauth_uri', self.client.get('/test-staff-auth/v1/enrollment/session/').json())
+        self.assert_not_business()
+
     def test_native_activation_recovery_handoff_and_new_mfa_login(self):
         self.begin()
         with self.captureOnCommitCallbacks(execute=True):

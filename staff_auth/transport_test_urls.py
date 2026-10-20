@@ -15,7 +15,7 @@ from core.models import GroupSheetConfiguration
 from core.services.complaint_cases import ComplaintCaseError, staff_actor_for_user
 from scripts.serve_ads_browser_preview import importmap_hashes, TYPES
 
-from . import browser_api
+from . import browser_api, enrollment, setup_api
 from .browser_api import require_company_browser_user
 
 
@@ -68,7 +68,7 @@ def asset(request, filename='access.html'):
     response['X-Content-Type-Options'] = 'nosniff'
     response['Content-Security-Policy'] = (
         "default-src 'none'; script-src 'self' " + hashes + "; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; img-src 'none'; font-src 'none'; form-action 'none'; "
+        "connect-src 'self'; img-src data:; font-src 'none'; form-action 'none'; "
         "base-uri 'none'; object-src 'none'; frame-ancestors 'none'"
     )
     return response
@@ -114,5 +114,9 @@ urlpatterns += [
     for action, view in (
         ('session', browser_api.session_state), ('login', browser_api.password_login),
         ('mfa', browser_api.authenticate_mfa), ('logout', browser_api.browser_logout),
+        ('setup/session', setup_api.setup_session), ('setup/verify-email', setup_api.verify_setup_email),
+        ('setup/password', setup_api.set_initial_password), ('enrollment/session', enrollment.enrollment_session),
+        ('enrollment/begin', enrollment.begin_enrollment), ('enrollment/confirm', enrollment.confirm_enrollment),
+        ('enrollment/recovery-codes', enrollment.enrollment_recovery_codes),
     )
 ]
