@@ -1,4 +1,13 @@
 MODEL_METADATA = {
+    'staff_auth.StaffBrowserSetupGrant': {
+        'domain': 'staff_auth',
+        'purpose': 'Closed, expiring preparation/mailbox-proof/first-password state for the exact existing admitted non-Admin account; no login or workflow authority.',
+        'classification': 'security_state',
+        'source_of_truth': True,
+        'lifecycle': 'temporary',
+        'retention': 'Erase native proof at completion. Purge only expired grants with bounded preview-first purge_staff_browser_setups; retain native addresses/passwords and immutable compliance receipts. No automatic scheduler until operational owner acceptance.',
+        'index_justifications': {'staff_setup_expiry_idx': 'Bound expiry-only setup-capability cleanup without scanning live grants.'},
+    },
     'staff_auth.StaffBrowserAdmission': {
         'domain': 'staff_auth',
         'purpose': 'Explicit existing-staff browser opt-in and current browser-only session revocation generation; never workflow authority.',

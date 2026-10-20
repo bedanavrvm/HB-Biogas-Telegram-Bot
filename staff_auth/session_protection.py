@@ -17,6 +17,7 @@ from .models import StaffBrowserAdmission
 
 CHANNEL_KEY = 'staff_browser_channel_v1'
 ENROLLMENT_CONTEXT_KEY = 'staff_browser_enrollment_v1'
+SETUP_CONTEXT_KEY = 'staff_browser_initial_setup_v1'
 ENROLLMENT_SECONDS = 600
 
 
@@ -24,6 +25,7 @@ def clear_browser_context(request):
     if request is not None and hasattr(request, 'session'):
         request.session.pop(CHANNEL_KEY, None)
         request.session.pop(ENROLLMENT_CONTEXT_KEY, None)
+        request.session.pop(SETUP_CONTEXT_KEY, None)
         # Discard opaque encrypted/expired material without decrypting it.
         if SECRET_SESSION_KEY in request.session:
             del request.session[SECRET_SESSION_KEY]

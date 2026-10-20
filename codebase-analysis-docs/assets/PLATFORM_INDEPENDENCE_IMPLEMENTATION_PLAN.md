@@ -1,10 +1,10 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **8 — 20 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment/shared browser TOTP guard and required pilot order:
+Plan revision: **9 — 20 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment/shared browser TOTP guard/initial staff setup and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a, P1b.1, P1b.2a JSON/storage, P1b.2b.1 closed TOTP enrollment and P1b.2b.2 shared browser TOTP claims are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md, codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md and codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md.
+Status: **P1a, P1b.1, P1b.2a JSON/storage, P1b.2b.1 closed TOTP enrollment, P1b.2b.2 shared browser TOTP claims and P1b.2b.3 closed existing-staff initial setup are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md, codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md, codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md and codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md.
 
 D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
 archives / 546 entries, zero remaining inspection errors). It exposes an
@@ -229,8 +229,13 @@ code normalization without changing the global cache. It does not complete
 native shared rate-limit caching or accept general worker/cache operation.
 See ADR 0064 and STAFF_BROWSER_REPLAY_GUARD.md for schema, expiry, failure,
 verification and rollback. No production route or browser flag is opened.
-Remaining increments must separately cover controlled existing-user/address/
-password provisioning, interrupted setup/helpdesk, native shared replay cache,
+**P1b.2b.3** adds exact-account Superuser preparation and closed native mailbox/
+first-password handlers for admitted non-Admin accounts with unusable passwords.
+It sends/exports no proof and grants no login/MFA/business authority. Native
+password changes affect that account's Django session hash; signed Telegram
+identity and grants remain. See ADR 0065 and STAFF_BROWSER_INITIAL_SETUP.md.
+Remaining increments must separately cover accepted provisioning delivery/UI,
+usable-password address verification/recovery, interrupted setup/helpdesk, native shared replay cache,
 accepted notification behavior, operational support and staging acceptance.
 No dormant slice satisfies M1 or usable browser access.
 
@@ -545,9 +550,9 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
 | D13a | Exact-graph review slice; no frontend installation or dependency approval. Current evidence/limits/checklist in BROWSER_REACT_ADS_DECISION.md section 5 |
-| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1/P1b.2b.2 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
+| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1/P1b.2b.2/P1b.2b.3 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
-| This revision | Shared one-use native browser TOTP guard; scope/schema/verification/checklist in STAFF_BROWSER_REPLAY_GUARD.md; native shared rate-cache and other P1b/P1c gates remain open; no frontend installation or production activation |
+| This revision | Closed existing-staff initial setup; scope/schema/verification/checklist in STAFF_BROWSER_INITIAL_SETUP.md; real delivery/support, native shared rate-cache and P1c/M1 gates remain open; no frontend installation or production activation |
 
 ### STATE BLOCK — revision 6 / D13a dependency review
 
@@ -584,6 +589,16 @@ release gates. **Open Questions:** operational acceptance remains open.
 - GLOSSARY_DELTA: browser TOTP use claim reserves successful native code use across independent caches. It is not a verifier, login receipt, MFA assurance or workflow grant.
 - NEXT_READ_QUEUE: another bounded P1b prerequisite; resolve exact ADS graph; P1c; M1 before Complaints; M3 review before TAT/Origination/Portal investment.
 - VERIFICATION: current executed results and limits are maintained in STAFF_BROWSER_REPLAY_GUARD.md section 4; earlier phase counts remain historical.
+
+### STATE BLOCK — revision 9 / P1b.2b.3 closed existing-staff initial setup
+
+- INDEX_VERSION: platform-independence-plan-9; starts at `3d2ffdfb` on Platform-Interdependence. No merge/deployment/production inspection; actual release/migrations unknown.
+- FILE_MAP_SUMMARY: initial_setup.py; setup_api.py; setup model/metadata/admin/migration 0003; prepare/purge commands; session protection; tests_initial_setup.py; ADR 0065; STAFF_BROWSER_INITIAL_SETUP.md; plan/checklist/catalogue/glossary.
+- OPEN_QUESTIONS: actual proof delivery/support, usable-password address verification/recovery, shared native cache/log privacy, notifications, PostgreSQL, deployed baseline, cleanup/backup owners, D13/frontend and M1.
+- KNOWN_RISKS: proof delivery/session loss, callbacks/native upgrades, shared session-hash effects, unsafe schema rollback/live-state cleanup and premature mounts. No operational admission authorized.
+- GLOSSARY_DELTA: closed staff initial setup prepares and verifies the exact existing unusable-password account; it never creates identity, resets usable credentials or grants login/MFA/workflow authority.
+- NEXT_READ_QUEUE: controlled delivery/support or native shared cache/privacy prerequisite; exact frontend acceptance/P1c; M1 before Complaints; M3 before later application investment.
+- VERIFICATION: current executed results/limits are maintained in STAFF_BROWSER_INITIAL_SETUP.md section 6; earlier phase counts remain historical.
 
 ## 13. Primary-source references
 

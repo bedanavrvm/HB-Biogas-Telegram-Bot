@@ -4,7 +4,28 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P1b.2b.2 shared browser TOTP handoff
+## Current P1b.2b.3 closed existing-staff initial setup handoff
+
+Exact-account Superuser preparation now creates only an unverified native
+address and encrypted expiring proof for the existing admitted non-Admin account
+with an unusable password. Three unmounted CSRF handlers perform session-bound
+native verification and first-password save with atomic receipts; setup grants
+no login/MFA/workflow authority and has no proof dispatch/export. Review actual
+shared Django session-hash consequences separately from browser-only revocation.
+
+Migration `staff_auth.0003_staffbrowsersetupgrant` is additive. Normal rollback
+retains accepted native credentials and audit. Exact destructive pre-use reversal:
+`python manage.py migrate staff_auth 0002_stafftotpreplaystate`. Never reverse or
+clear live setup grants while a worker can consume them. Preview-first retention
+cleanup preserves native credentials and audit. No real preparation, password,
+mail, merge or deployment action is performed here.
+
+Use STAFF_BROWSER_INITIAL_SETUP.md sections 6–7 for current verification, limits
+and the change-specific merge/deploy/monitoring checklist. Browser remains off,
+E006 blocking and production routes unmounted; actual deployed state, delivery,
+support, shared cache/privacy, PostgreSQL, frontend/D13 and M1 remain open.
+
+## Historical P1b.2b.2 shared browser TOTP handoff
 
 The closed browser MFA adapter now reserves one native-validated TOTP use in a
 shared database table before authentication is saved. Native-normalized variants

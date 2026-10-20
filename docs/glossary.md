@@ -60,6 +60,15 @@ together; retries never re-show/regenerate codes. Lost response means uncertain
 delivery and a separate verified support decision, not authorization to retry
 disclosure. A working TOTP authenticator remains usable for normal login.
 
+**Closed staff initial setup:** The dormant P1b.2b.3 path from an explicit
+Superuser preparation of the exact existing admitted non-Admin account through
+native mailbox verification and its first usable Django password. It retains
+encrypted, expiring proof and session/request/audit bindings, creates no user,
+does not reset usable credentials, and grants no login, MFA or workflow access.
+Delivery/export is absent. First-password setting changes the account's shared
+Django session hash; signed Telegram identity and grants survive. See ADR 0065
+and `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`.
+
 **React browser client:** New standalone presentation layer selected by the user
 with Atlassian Design System. Package/transitive/asset licence review precedes
 installation. Django still owns identity, grants, workflows and records. Existing

@@ -30,6 +30,12 @@ changing the global cache. See `codebase-analysis-docs/assets/STAFF_BROWSER_REPL
 and ADR 0064 for the additive security-state schema, expiry-only cleanup,
 verification and rollback. Native shared rate-limit caching and the other M1
 operational gates remain open.
+P1b.2b.3 adds a closed exact-existing-account initial setup backend (preparation,
+native mailbox proof and first password), no mail/proof export or login grant.
+See `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md` and ADR 0065.
+It excludes existing usable/Admin credentials. First-password setting changes
+the exact user's Django session hash while preserving signed Telegram identity
+and grants. Browser remains off/unmounted and delivery/P1c/M1 are unaccepted.
 
 ## How to use this document
 
@@ -54,12 +60,13 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Source-only findings and research on channel independence; revision 2 aligns the pilot order to Complaints → TAT → Origination → Portal. No runtime or production readiness is established. |
-| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-8 gated plan: Django/allauth browser MFA including closed enrollment/shared TOTP use, React/ADS exact-graph review (D13a), existing grants, Complaints first and M3 review. Review evidence and dormant backend slices do not authorize installation/activation. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-9 gated plan: Django/allauth browser MFA including closed enrollment/shared TOTP use/initial staff setup, React/ADS exact-graph review (D13a), existing grants, Complaints first and M3 review. Review evidence and dormant backend slices do not authorize installation/activation. |
 | `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` | P1b.1 explicit admission, audited browser-only suspension/revocation/reset, additive model and hard-delete compatibility; current checks, limits and release checklist. Browser remains disabled. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` | P1b.2a constrained JSON password/MFA/session/logout contract, audit gate, protected pending-secret storage, verification and release checklist; no production routes or finished enrollment/recovery. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md` | P1b.2b.2 shared database claim after native browser TOTP validation, additive security-state migration, bounded expiry-only cleanup, verification, rollback and remaining operational gates. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md` | P1b.2b.3 closed exact-account preparation, native mailbox/first-password handlers, temporary schema/retention, shared-session effects, verification and remaining delivery/support/M1 gates. |
 | `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` | P1b.2b.1 closed native password-rechecked TOTP setup, transactional factor/view audit, one-time recovery handoff, interrupted-setup behavior, tests and change-specific monitoring/rollback. No provisioning, replacement, UI or production routes. |
 | `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` | User-selected browser frontend; D13a exact-archive evidence, confirmed original-peer conflict, notice/asset/licence findings and review/merge checklist. No frontend packages/assets installed or approved. |
 | `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_CANDIDATE.json` | Proposed exact login/shell runtime and build/lint versions for review; not an approved application manifest. |

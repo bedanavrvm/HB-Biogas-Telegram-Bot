@@ -1,5 +1,51 @@
 # Known Gaps and Verified Workarounds
 
+## Closed initial setup still needs delivery and operational acceptance - 20 October 2026
+
+P1b.2b.3 adds an audited existing-account preparation service and unmounted
+native mailbox/first-password handlers. Only exact active admitted non-Admin
+accounts with unusable passwords and unambiguous canonical addresses qualify.
+No usable password reset, new account, email-based identity merge, privilege or
+workflow grant is supported. Same-session/request proofs and audit receipts
+govern every credential write; no login or MFA assurance is issued by setup.
+
+No proof dispatch/export exists: synthetic tests decrypt their own proof to
+exercise the native backend. Actual mail delivery, safe link/log handling,
+uncertain dispatch/retry and support acceptance remain unimplemented. Never mark
+the address verified or print/send a capability through operator logs as a
+workaround. Existing usable-password address verification/recovery remains a
+separate verified-support boundary. Native callback/notification changes hold
+setup until reviewed.
+
+If setup expires or loses its anonymous session after mailbox verification but
+before the first password, normal preparation deliberately refuses to downgrade
+the now-verified native address. A separately reviewed resume/support procedure
+is required before operational admission; deleting or un-verifying that address
+is not a workaround.
+
+First-password setting changes the exact account's Django session-auth hash and
+can expire its existing Django cookies, including the Telegram session bridge.
+Signed Telegram identity and grants survive; a fresh valid signed launch can
+re-establish its session. Do not promise browser-only session revocation for a
+password mutation or force browser password/MFA into Telegram.
+
+Browser remains false, E006 blocking and routes unmounted. Migration
+`staff_auth.0003_staffbrowsersetupgrant` is additive with no backfill; no real
+preparation, password, provider, grant, merge or deployment action occurs.
+Evidence, schema reversal and merge/deploy/monitoring checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`. Remaining shared
+native cache/log privacy, PostgreSQL, frontend/D13, owners and M0/M1 gates are not
+waived; previous environment/artifact/dependency-audit findings remain separate.
+
+Final combined isolated verification: **187 tests, 178 passed and nine
+PostgreSQL-only skips**, including all 28 new SQLite cases. Two overlapping native
+configured-hasher journeys, all 44 governance/tool tests, narrow Ruff, relevant
+catalogue/static checks and isolated migration forward/reversal passed. The
+expanded run uses a process-only fast synthetic password hasher and a dedicated
+ignored local SQLite test database. Initial failed fixture assumptions and
+current commands/limits are disclosed in the phase document. These results do
+not certify full CI, PostgreSQL, live delivery, staging or M1.
+
 ## Shared TOTP guard is a bounded browser prerequisite - 20 October 2026
 
 P1b.2b.2 adds shared one-use TOTP claims after native validation in the dormant

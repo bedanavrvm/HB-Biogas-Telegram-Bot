@@ -1,5 +1,30 @@
 # Changelog
 
+## 20 October 2026 - Closed existing-staff initial setup (P1b.2b.3)
+
+- Added active-Superuser, preview/snapshot/revision/request-key-controlled
+  preparation of the exact existing admitted non-Admin account's canonical
+  unverified address. No signup, identity matching, grant changes or usable
+  credential reset. Encrypted native proof is bound to one expiring preparation;
+  operator output never exports proof or credentials, and no mail is sent.
+- Added three unmounted CSRF handlers for anonymous setup bootstrap, native
+  mailbox verification and native first-password validation/save. Audit failure
+  rolls back credentials; session-bound retries cannot switch accounts or grant
+  business/MFA access. Fresh normal login and MFA enrollment still follow.
+- Added `staff_auth.0003_staffbrowsersetupgrant`, bounded security-state metadata
+  and preview-first expired-only cleanup. Accepted native credentials and audit
+  survive normal rollback. Initial password setting changes that user's Django
+  session hash; Telegram signed-launch identity/grants are preserved.
+- Browser remains off, E006 blocking and production routes unmounted. No new
+  dependency/env variable/frontend/global cache, real staff/provider action,
+  merge or deployment. Real mail/support, shared cache/privacy, frontend and M1
+  acceptance remain open. Verification and release checklist:
+  `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`, ADR 0065.
+- Final isolated auth/Telegram/user-lifecycle run: 187 tests, 178 passed and nine
+  PostgreSQL-only skips. Two overlapping configured-password-hasher journeys,
+  all 44 governance/tool tests, narrow Ruff, catalogue/static checks and isolated
+  migration reversal passed. Known wider CI and operational gates remain.
+
 ## 20 October 2026 - Shared browser TOTP one-use guard (P1b.2b.2)
 
 - Restored the already-pinned allauth MFA dependency in the local environment;

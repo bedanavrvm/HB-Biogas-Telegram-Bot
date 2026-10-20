@@ -245,6 +245,7 @@
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
         "requisitions/tests_operations_api.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ]
     },
@@ -665,6 +666,7 @@
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_enrollment.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ],
       "django_model": "core.ComplianceAuditChainState",
@@ -686,6 +688,7 @@
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_enrollment.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ]
     },
@@ -761,9 +764,12 @@
         "payments/receipt_batches.py",
         "staff_auth/browser_api.py",
         "staff_auth/enrollment_state.py",
+        "staff_auth/initial_setup.py",
         "staff_auth/lifecycle.py",
+        "staff_auth/setup_api.py",
         "staff_auth/tests_browser_api.py",
         "staff_auth/tests_enrollment.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
         "staff_auth/tests_replay.py"
       ]
@@ -5949,6 +5955,7 @@
       "table": "core_userharddeletionbatch",
       "used_by": [
         "core/services/user_hard_delete.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ]
     },
@@ -5987,7 +5994,8 @@
       ],
       "direct_orm_writers": [
         "core/services/staff_lifecycle.py",
-        "core/services/staff_telegram_onboarding.py"
+        "core/services/staff_telegram_onboarding.py",
+        "staff_auth/tests_initial_setup.py"
       ],
       "django_model": "core.UserProfile",
       "domain": "access",
@@ -6006,7 +6014,8 @@
         "core/services/staff_lifecycle.py",
         "core/services/staff_telegram_onboarding.py",
         "core/services/telegram_identity.py",
-        "core/services/user_hard_delete.py"
+        "core/services/user_hard_delete.py",
+        "staff_auth/tests_initial_setup.py"
       ]
     },
     {
@@ -7812,13 +7821,16 @@
     },
     {
       "application_area": "Staff Auth",
-      "children": [],
+      "children": [
+        "staff_auth.StaffBrowserSetupGrant"
+      ],
       "classification": "authoritative_record",
       "column_count": 7,
       "cross_domain_parents": [
         "auth.User"
       ],
       "direct_orm_writers": [
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ],
       "django_model": "staff_auth.StaffBrowserAdmission",
@@ -7838,12 +7850,50 @@
         "staff_auth/browser_api.py",
         "staff_auth/catalogue.py",
         "staff_auth/enrollment.py",
+        "staff_auth/initial_setup.py",
         "staff_auth/lifecycle.py",
         "staff_auth/migrations/0001_initial.py",
         "staff_auth/models.py",
         "staff_auth/session_protection.py",
+        "staff_auth/setup_api.py",
         "staff_auth/tests.py",
+        "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
+      ]
+    },
+    {
+      "application_area": "Staff Auth",
+      "children": [],
+      "classification": "security_state",
+      "column_count": 16,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "staff_auth/initial_setup.py",
+        "staff_auth/management/commands/purge_staff_browser_setups.py",
+        "staff_auth/tests_initial_setup.py"
+      ],
+      "django_model": "staff_auth.StaffBrowserSetupGrant",
+      "domain": "staff_auth",
+      "explicit_indexes": [
+        "staff_setup_expiry_idx"
+      ],
+      "lifecycle": "temporary",
+      "parents": [
+        "staff_auth.StaffBrowserAdmission"
+      ],
+      "purpose": "Closed, expiring preparation/mailbox-proof/first-password state for the exact existing admitted non-Admin account; no login or workflow authority.",
+      "retention": "Erase native proof at completion. Purge only expired grants with bounded preview-first purge_staff_browser_setups; retain native addresses/passwords and immutable compliance receipts. No automatic scheduler until operational owner acceptance.",
+      "source_of_truth": true,
+      "table": "staff_auth_browser_setup_grant",
+      "used_by": [
+        "staff_auth/admin.py",
+        "staff_auth/catalogue.py",
+        "staff_auth/initial_setup.py",
+        "staff_auth/management/commands/purge_staff_browser_setups.py",
+        "staff_auth/migrations/0003_staffbrowsersetupgrant.py",
+        "staff_auth/models.py",
+        "staff_auth/setup_api.py",
+        "staff_auth/tests_initial_setup.py"
       ]
     },
     {
