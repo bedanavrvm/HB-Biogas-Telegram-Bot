@@ -12,13 +12,14 @@ from allauth.account.internal.stagekit import clear_login, get_pending_stage
 from allauth.account.models import EmailAddress
 from allauth.headless.account.views import LoginView
 from allauth.headless.constants import Client
-from allauth.headless.mfa.views import AuthenticateView
 from allauth.mfa.models import Authenticator
 from allauth.mfa.stages import AuthenticateStage
 from django.conf import settings
 from django.contrib.auth import HASH_SESSION_KEY, get_user_model
 from django.contrib.auth.hashers import make_password
-from django.core.exceptions import PermissionDenied
+from django.contrib.sessions.backends.base import UpdateError
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied
+from django.db import DatabaseError
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import csrf_protect
@@ -30,13 +31,15 @@ from core.models import ComplianceAuditEvent
 from core.services.request_throttling import consume_identity, consume_ip
 
 from .assurance import MAX_LOGIN_SECONDS, clear_assurance, require_browser_user
+from .crypto import MFASecretUnavailable
 from .enrollment_state import enrollment_progress
 from .models import StaffBrowserAdmission
+from .replay import BrowserAuthenticateView, ReplayStoreUnavailable
 from .session_protection import CHANNEL_KEY, clear_browser_context, protected_browser_session
 
 
 _login = LoginView.as_api_view(client=Client.BROWSER)
-_mfa = AuthenticateView.as_api_view(client=Client.BROWSER)
+_mfa = BrowserAuthenticateView.as_api_view(client=Client.BROWSER)
 
 
 def _response(state, status=200, **extra):
@@ -263,8 +266,19 @@ def authenticate_mfa(request):
     limited = _throttle(request, 'mfa', row.user_id)
     if limited is not None:
         return limited
-    with protected_browser_session(request):
-        response = _mfa(request)
+    try:
+        with protected_browser_session(request):
+            response = _mfa(request)
+    except (ReplayStoreUnavailable, MFASecretUnavailable, ImproperlyConfigured):
+        _discard(request)
+        # SessionMiddleware does not save 5xx responses. Persist browser-local
+        # cleanup when its store is healthy; an unavailable store never permits
+        # an assurance or successful response.
+        try:
+            request.session.save()
+        except (DatabaseError, UpdateError):
+            pass
+        return _response('authentication_unavailable', 503)
     if response.status_code >= 400:
         return _response('mfa_required', 400)
     return _complete(request)

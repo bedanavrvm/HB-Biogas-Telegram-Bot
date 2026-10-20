@@ -1,5 +1,44 @@
 # Known Gaps and Verified Workarounds
 
+## Shared TOTP guard is a bounded browser prerequisite - 20 October 2026
+
+P1b.2b.2 adds shared one-use TOTP claims after native validation in the dormant
+browser adapter. It addresses code reuse across independent native caches on
+that adapter, not general allauth cache sharing or operational readiness. Generic
+and headed allauth routes remain unmounted. Never expose them as an alternative
+MFA entry point or clear unexpired replay claims to repair a failed login.
+
+The local missing `django-allauth[mfa]==65.20.0` dependency was restored using
+the existing pin. Native verification is retained; no dependency manifest,
+frontend, global cache, Telegram credential policy or business role changed.
+Migration `staff_auth.0002_stafftotpreplaystate` is additive, with no backfill.
+Production deployment/migrations remain unknown; no real claims were provisioned
+or cleared. Evidence, explicit reversal and the merge/deploy/monitoring checklist
+are in `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`.
+
+Controlled existing-staff provisioning, verified address/password setup,
+operational recovery/helpdesk, shared native rate-limit/cache topology,
+notifications, PostgreSQL races, staging/both-channel/support acceptance and M1
+remain open. Browser stays false and E006 blocking; React/ADS acceptance is still
+held. Existing environment-template, artifact and dependency-audit findings are
+not waived by this increment.
+
+Final combined isolated auth/Telegram/user-lifecycle run: **156 tests, 150 passed
+and six PostgreSQL-only skips**, including all 14 new SQLite cases. All **44
+governance/tool tests**, relevant static/catalogue checks and isolated SQLite
+migration forward/reversal passed. A separate restored-dependency baseline used
+the configured native password hasher (136 passed, four skipped); the final
+expanded rerun used a process-only fast synthetic hasher. These are scoped local
+results, not full CI or operational acceptance. Actual commands/limits are in
+the phase document.
+
+The pinned native TOTP cache key contains the submitted code. The synthetic
+formatted-code test observed `CacheKeyWarning` including that key when whitespace
+is submitted. The test captures this expected warning without printing even
+synthetic codes; runtime warning suppression is not added. Native cache key/log
+privacy must be reviewed and resolved with the remaining shared-cache design
+before any operational browser mount. The new shared table stores HMAC only.
+
 ## Closed enrollment is not operational browser access - 19 October 2026
 
 P1b.2b.1 adds native TOTP setup/one-time recovery handoff behind current admission,

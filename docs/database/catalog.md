@@ -212,6 +212,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | requisitions | `requisition_order_workbook_version` | `requisitions.OrderWorkbookVersion` | source_evidence | active | Exact immutable generated workbook bytes and membership for each order version. |
 | requisitions | `requisition_order_workspace_event` | `requisitions.OrderWorkspaceEvent` | immutable_event | active | Append-only generation, amendment and cancellation evidence. |
 | staff_auth | `staff_auth_browser_admission` | `staff_auth.StaffBrowserAdmission` | authoritative_record | active | Explicit existing-staff browser opt-in and current browser-only session revocation generation; never workflow authority. |
+| staff_auth | `staff_auth_totp_replay_state` | `staff_auth.StaffTOTPReplayState` | security_state | temporary | Atomically reserve successful native browser TOTP use across workers without retaining plaintext codes or identities. |
 | tat_recognition | `tat_recognition_live_standing` | `tat_recognition.TatRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live rank baseline for one authorized period and filter scope. |
 | tat_recognition | `tat_recognition_period_snapshot` | `tat_recognition.TatRecognitionPeriodSnapshot` | immutable_event | active | Frozen completed-stage facts for one TAT group and settled calendar period. |
 | ui_review | `ui_review_decision_event` | `ui_review.ReviewDecision` | immutable_event | active | Append-only human design choices and explicitly recorded device checks. |
@@ -460,7 +461,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`
-- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_laf_bootstrap.py`, `payments/receipt_batches.py`, `staff_auth/browser_api.py`, `staff_auth/enrollment_state.py`, `staff_auth/lifecycle.py`, `staff_auth/tests_browser_api.py`, `staff_auth/tests_enrollment.py`, `staff_auth/tests_lifecycle.py`
+- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_laf_bootstrap.py`, `payments/receipt_batches.py`, `staff_auth/browser_api.py`, `staff_auth/enrollment_state.py`, `staff_auth/lifecycle.py`, `staff_auth/tests_browser_api.py`, `staff_auth/tests_enrollment.py`, `staff_auth/tests_lifecycle.py`, `staff_auth/tests_replay.py`
 
 ### `core_deleteduseridentity`
 
@@ -2507,6 +2508,17 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `staff_auth/tests_lifecycle.py`
 - Used by: `staff_auth/admin.py`, `staff_auth/assurance.py`, `staff_auth/browser_api.py`, `staff_auth/catalogue.py`, `staff_auth/enrollment.py`, `staff_auth/lifecycle.py`, `staff_auth/migrations/0001_initial.py`, `staff_auth/models.py`, `staff_auth/session_protection.py`, `staff_auth/tests.py`, `staff_auth/tests_lifecycle.py`
+
+### `staff_auth_totp_replay_state`
+
+- Application identity: `staff_auth.StaffTOTPReplayState` in **Staff Auth**
+- Source of truth: **Yes**
+- Retention: Keep every live claim until expiry. Expired claims may be renewed in place or removed by bounded preview-first purge_staff_totp_replays; schedule/owner acceptance precedes operational use. No credentials or compliance events are removed.
+- Parents: None
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `staff_auth/management/commands/purge_staff_totp_replays.py`, `staff_auth/replay.py`, `staff_auth/tests_replay.py`
+- Used by: `staff_auth/admin.py`, `staff_auth/catalogue.py`, `staff_auth/management/commands/purge_staff_totp_replays.py`, `staff_auth/migrations/0002_stafftotpreplaystate.py`, `staff_auth/models.py`, `staff_auth/replay.py`, `staff_auth/tests_replay.py`
 
 ### `tat_recognition_live_standing`
 

@@ -74,3 +74,18 @@ class StaffBrowserAdmission(models.Model):
     def delete(self, *args, **kwargs):
         require_mutation()
         return super().delete(*args, **kwargs)
+
+
+class StaffTOTPReplayState(models.Model):
+    key_digest = models.CharField(
+        primary_key=True, max_length=64, editable=False,
+        db_comment='Purpose-separated factor-seed HMAC of factor identity and normalized accepted code; no plaintext credential.',
+    )
+    expires_at = models.DateTimeField(
+        db_comment='Earliest safe reuse or cleanup time; live claims must never be evicted.',
+    )
+
+    class Meta:
+        db_table = 'staff_auth_totp_replay_state'
+        db_table_comment = 'Shared one-use TOTP claims for the closed browser MFA adapter; not login assurance or workflow authority.'
+        indexes = [models.Index(fields=['expires_at'], name='staff_totp_replay_expiry_idx')]

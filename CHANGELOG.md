@@ -1,5 +1,26 @@
 # Changelog
 
+## 20 October 2026 - Shared browser TOTP one-use guard (P1b.2b.2)
+
+- Restored the already-pinned allauth MFA dependency in the local environment;
+  no manifest pin or frontend dependency changed.
+- Added a shared database reservation after native code validation in the closed
+  browser MFA input, including native punctuation normalization, safe storage
+  failure and unchanged authenticated lost-response retries. Native recovery
+  codes retain their existing one-use path.
+- Added the bounded `StaffTOTPReplayState` security table and additive migration
+  `staff_auth.0002_stafftotpreplaystate`, catalogue metadata and preview-first,
+  bounded expiry-only cleanup. Live claims are never evicted by this maintenance.
+- Browser stays disabled and production routes unmounted. Global cache,
+  Telegram assets/authentication, grants and business workflows are unchanged.
+  Provisioning/recovery/support, shared native rate-limit caching, frontend
+  acceptance and M1 remain open. No production mutation or deployment.
+- Evidence, remaining limits and change-specific migration/rollback checklist:
+  `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md` and ADR 0064.
+- Final isolated auth/Telegram/user-lifecycle run: 156 tests, 150 passed and six
+  PostgreSQL-only skips. All 44 governance/tool tests, catalogue/static checks
+  and additive/reversal rehearsal passed; known wider CI findings remain.
+
 ## 19 October 2026 - Closed native TOTP enrollment backend (P1b.2b.1)
 
 - Added three unmounted, cookie/CSRF JSON handlers for password-rechecked native

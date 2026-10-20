@@ -1,10 +1,10 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **7 — 19 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment backend and required pilot order:
+Plan revision: **8 — 20 October 2026**. This revision incorporates the user's review, identity decisions, D13a frontend evidence, closed enrollment/shared browser TOTP guard and required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
 
-Status: **P1a, P1b.1, P1b.2a JSON/storage and P1b.2b.1 closed TOTP enrollment are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md and codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md.
+Status: **P1a, P1b.1, P1b.2a JSON/storage, P1b.2b.1 closed TOTP enrollment and P1b.2b.2 shared browser TOTP claims are present in source; browser globally disabled, production routes unmounted and M0/M1 operational acceptance open.** React/Atlassian is selected for the new browser frontend, not installed. Exact package/licence/asset/build acceptance gates installation. These manageable local slices do not authorize merge/deployment or operational staff admission. Pilot ordering is a preference, not measured complexity. Current contracts, verification and checklists are in codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md, codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md, codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md and codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md.
 
 D13a follow-up: exact forensic graph/archive evidence is collected (529 unique
 archives / 546 entries, zero remaining inspection errors). It exposes an
@@ -223,6 +223,12 @@ activation and one-time code disclosure have transactional audit receipts.
 Setup does not issue MFA assurance: explicit logout and a new native password/
 MFA login follow. See codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md.
 This is not completed provisioning, operational recovery or a usable UI.
+**P1b.2b.2** adds shared one-use TOTP claims to the closed native browser MFA
+input before authentication is saved. It uses a bounded domain table and native
+code normalization without changing the global cache. It does not complete
+native shared rate-limit caching or accept general worker/cache operation.
+See ADR 0064 and STAFF_BROWSER_REPLAY_GUARD.md for schema, expiry, failure,
+verification and rollback. No production route or browser flag is opened.
 Remaining increments must separately cover controlled existing-user/address/
 password provisioning, interrupted setup/helpdesk, native shared replay cache,
 accepted notification behavior, operational support and staging acceptance.
@@ -539,9 +545,9 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 | Required pilot sequence | User specified: Complaints → TAT → Origination → Portal |
 | D1–D3 | User selected Django/allauth MFA, browser convenience with possible later exit, existing Django Complaints grants |
 | D13a | Exact-graph review slice; no frontend installation or dependency approval. Current evidence/limits/checklist in BROWSER_REACT_ADS_DECISION.md section 5 |
-| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
+| P0–P7/M0–M7 | P1a/P1b.1/P1b.2a/P1b.2b.1/P1b.2b.2 dormant backend slices; browser closed, operational M0/M1 and later milestones not accepted |
 | Source investigation | Read-only source inspection; code findings are not runtime verification |
-| This revision | Closed native enrollment/recovery-handoff backend; scope/verification/checklist in STAFF_BROWSER_ENROLLMENT.md; no frontend installation or production activation |
+| This revision | Shared one-use native browser TOTP guard; scope/schema/verification/checklist in STAFF_BROWSER_REPLAY_GUARD.md; native shared rate-cache and other P1b/P1c gates remain open; no frontend installation or production activation |
 
 ### STATE BLOCK — revision 6 / D13a dependency review
 
@@ -568,6 +574,16 @@ Excluded unless separately commissioned: Telegram React/SPA rewrite, microservic
 **Decisions/Findings:** progress the closed backend without weakening frontend or
 release gates. **Open Questions:** operational acceptance remains open.
 **Next Steps:** one bounded prerequisite, not production admission.
+
+### STATE BLOCK — revision 8 / P1b.2b.2 shared browser TOTP use
+
+- INDEX_VERSION: platform-independence-plan-8; starts at `bb232703` on Platform-Interdependence. Existing pinned local allauth dependency restored. No merge/deployment/production inspection; actual release/migrations unknown.
+- FILE_MAP_SUMMARY: staff_auth/replay.py; browser_api.py; StaffTOTPReplayState and migration 0002; catalogue/admin; purge_staff_totp_replays; tests_replay.py; ADR 0064; STAFF_BROWSER_REPLAY_GUARD.md; release checklist/catalogue.
+- OPEN_QUESTIONS: controlled existing-staff provisioning/password/address, recovery/support, native shared rate-limit cache, notifications, PostgreSQL and actual worker/cache evidence, deployed baseline, cleanup/backup owners, D13 and M1.
+- KNOWN_RISKS: native normalization changes, live-claim eviction/schema reversal, uncertain login after code use, cache topology and premature alternate mounts. No operational admission authorized.
+- GLOSSARY_DELTA: browser TOTP use claim reserves successful native code use across independent caches. It is not a verifier, login receipt, MFA assurance or workflow grant.
+- NEXT_READ_QUEUE: another bounded P1b prerequisite; resolve exact ADS graph; P1c; M1 before Complaints; M3 review before TAT/Origination/Portal investment.
+- VERIFICATION: current executed results and limits are maintained in STAFF_BROWSER_REPLAY_GUARD.md section 4; earlier phase counts remain historical.
 
 ## 13. Primary-source references
 

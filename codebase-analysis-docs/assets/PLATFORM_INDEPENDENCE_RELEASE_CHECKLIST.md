@@ -4,7 +4,24 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P1b.2b.1 closed-enrollment handoff
+## Current P1b.2b.2 shared browser TOTP handoff
+
+The closed browser MFA adapter now reserves one native-validated TOTP use in a
+shared database table before authentication is saved. Native-normalized variants
+share one factor-seed HMAC key; live claims are not evicted. Native recovery codes
+and the global cache remain unchanged. Migration
+`staff_auth.0002_stafftotpreplaystate` is additive; normal rollback preserves it.
+Exact destructive pre-use reversal: `python manage.py migrate staff_auth 0001_initial`.
+Never reverse or clear claims while browser workers can authenticate.
+
+`purge_staff_totp_replays` previews a bounded expired-only batch; no operational
+cleanup or scheduler is run. Use STAFF_BROWSER_REPLAY_GUARD.md sections 4–5 for
+actual verification, limits and change-specific merge/deploy/monitoring checks.
+Browser remains off/unmounted, E006 blocking, production state unknown and
+provisioning/recovery/native shared rate-cache/frontend/M1 acceptance open.
+Restoring the existing pinned local allauth package changes no manifest.
+
+## Historical P1b.2b.1 closed-enrollment handoff
 
 New backend TOTP enrollment and one-time recovery-code handoff use the existing
 pinned allauth forms/flows. Begin rechecks the password; factor activation and

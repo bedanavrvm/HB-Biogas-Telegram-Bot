@@ -764,7 +764,8 @@
         "staff_auth/lifecycle.py",
         "staff_auth/tests_browser_api.py",
         "staff_auth/tests_enrollment.py",
-        "staff_auth/tests_lifecycle.py"
+        "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_replay.py"
       ]
     },
     {
@@ -7843,6 +7844,38 @@
         "staff_auth/session_protection.py",
         "staff_auth/tests.py",
         "staff_auth/tests_lifecycle.py"
+      ]
+    },
+    {
+      "application_area": "Staff Auth",
+      "children": [],
+      "classification": "security_state",
+      "column_count": 2,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "staff_auth/management/commands/purge_staff_totp_replays.py",
+        "staff_auth/replay.py",
+        "staff_auth/tests_replay.py"
+      ],
+      "django_model": "staff_auth.StaffTOTPReplayState",
+      "domain": "staff_auth",
+      "explicit_indexes": [
+        "staff_totp_replay_expiry_idx"
+      ],
+      "lifecycle": "temporary",
+      "parents": [],
+      "purpose": "Atomically reserve successful native browser TOTP use across workers without retaining plaintext codes or identities.",
+      "retention": "Keep every live claim until expiry. Expired claims may be renewed in place or removed by bounded preview-first purge_staff_totp_replays; schedule/owner acceptance precedes operational use. No credentials or compliance events are removed.",
+      "source_of_truth": true,
+      "table": "staff_auth_totp_replay_state",
+      "used_by": [
+        "staff_auth/admin.py",
+        "staff_auth/catalogue.py",
+        "staff_auth/management/commands/purge_staff_totp_replays.py",
+        "staff_auth/migrations/0002_stafftotpreplaystate.py",
+        "staff_auth/models.py",
+        "staff_auth/replay.py",
+        "staff_auth/tests_replay.py"
       ]
     },
     {

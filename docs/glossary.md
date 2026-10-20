@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 19-October-2026
+Last reviewed: 20-October-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -35,6 +35,16 @@ P1b.2a has no production routes and remains disabled. See
 **Pending enrollment secret:** allauth's temporary TOTP seed, wrapped per browser
 request as expiring dedicated-key ciphertext bound to user/admission/revision.
 Storage protection is not permission to enroll; no production enrollment API is exposed.
+
+**Browser TOTP use claim:** An expiring shared database record reserving one
+native-validated TOTP in the closed company-browser adapter. Its factor-seed
+HMAC covers the native-normalized code and factor identity; the table retains
+no plaintext code, seed or employee identifier. A claim prevents reuse across
+independent native worker caches; it is not MFA assurance or workflow authority.
+Live claims must not be evicted. Preview-first expiry cleanup and migration
+rollback rules are in ADR 0064 and
+`codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`. Native shared
+rate-limit caching remains an operational prerequisite.
 
 **Closed browser enrollment:** Dormant P1b.2b.1 native TOTP setup for an existing,
 explicitly admitted password-only company-browser session, including fresh
