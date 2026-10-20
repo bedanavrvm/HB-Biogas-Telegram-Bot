@@ -359,13 +359,21 @@ def list_cases_page(
     group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'pending',
     branch: str = '', priority: str = '', assignment: str = '', sla: str = '', cursor: str = '', limit: int = 40,
     page: int | str | None = None, page_size: int = 10, category: str = '',
+    search_mode: str = 'default',
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
     cases = cases.annotate(hb_comment_count=Count(
         'case_updates', filter=Q(case_updates__source='mini_app_comment'),
     ))
-    cases = _filter_query(cases, query)
+    if search_mode == 'reference_or_name':
+        if query.strip():
+            cases = cases.filter(Q(complaint_control__reference_number__icontains=query.strip()) |
+                                 Q(customer_name__icontains=query.strip()))
+    elif search_mode == 'default':
+        cases = _filter_query(cases, query)
+    else:
+        raise ComplaintCaseError('The requested search mode is invalid.')
     def branch_filter(rows):
         if not branch:
             return rows

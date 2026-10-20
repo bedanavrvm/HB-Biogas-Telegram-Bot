@@ -1,5 +1,11 @@
 # Mini App Design Lab
 
+P2a / ADR 0070 now connects a separate closed React/ADS Complaints workspace to
+native company authentication and owning Complaint read services in isolated
+synthetic tests. Decision section 13 and the component index record the new
+candidate. The fixed preview and Telegram migration hold remain separate;
+operational M1/privacy/named-reader/human acceptance are still required.
+
 ## Current stage
 
 The Design Lab covers Portal, TAT Tracker, Complaints and Origination. All

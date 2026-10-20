@@ -70,3 +70,44 @@ Text implementation does not forward role despite its broad TypeScript props;
 DOM role checks must verify announcements. Applied references:
 https://atlassian.design/components/primitives/box/usage and
 https://atlassian.design/components/primitives/text/code .
+
+## Closed Complaints workspace (P2a / ADR 0070)
+
+The separately built `complaints.html` entry composes the same native sign-in
+with the first authorized read workspace. Current official guidance consulted
+20 October 2026: [Select usage](https://atlassian.design/components/select/usage),
+[SectionMessage usage](https://atlassian.design/components/section-message/usage),
+[Navigation System layout](https://atlassian.design/components/navigation-system/layout/code),
+[Grid](https://atlassian.design/components/primitives/grid) and
+[applying the grid](https://atlassian.design/foundations/grid-beta/applying-grid).
+The Grid and Navigation System code pages were also consulted after the
+overview pages returned incomplete text; installed versioned APIs were inspected.
+Form references: https://atlassian.design/components/form/usage and
+https://atlassian.design/components/form/code . Applied filters are restored
+when Refresh remounts the form, so its visible query matches the result set.
+
+Intentional composition exception to the long-form single-column guidance:
+this compact queue filter toolbar places search, immediate status and submit
+beside each other on desktop. Each has a visible label; mobile stacks them.
+It has no required fields or setup task. This application-specific candidate
+remains subject to human review and is recorded in the source ratchet.
+
+Use the fixed-wide 1296px grid, 32px desktop/16px mobile margins, a flat queue
+beside detail at 64rem and labelled ADS search/status controls. Five cases per
+page keep the ordinary laptop queue visible. Mobile stacks; long names,
+descriptions, history and enlarged-text reflow retain natural scrolling.
+The installed Button selected state identifies the case being reviewed.
+Previous/Next are real actions, with disabled boundaries. No unimplemented
+navigation, sunken-on-raised surface, custom selection widget or new asset.
+
+This is a new source-bound candidate, not approval of a Telegram standard.
+Read requests clear superseded detail, cancel on replacement/unmount and never
+replay credentials. A 401 returns to native session checking; a workflow denial
+does not claim that company sign-in supplies Complaint authority. Persistent
+section feedback offers Refresh without extra authentication steps.
+
+Keep the local single-column Grid declaration as `repeat(1, minmax(0, 1fr))`,
+as in the existing preview. Reusing Root's exact `minmax(0, 1fr)` base atomic
+class can inject that base rule after its desktop media rule in development,
+leaving four named areas with only one explicit column and narrowing Main.
+Both build modes must verify the actual main width after sign-in and reload.

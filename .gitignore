@@ -92,6 +92,8 @@ browser/.parcel-cache/
 browser/dist-development/
 browser/dist-authentication/
 browser/dist-authentication-development/
+browser/dist-complaints/
+browser/dist-complaints-development/
 coverage.json
 coverage-subsystems.json
 .coverage

@@ -1,6 +1,15 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **17 - 20 October 2026**. P1b.2b.4 hardens the dormant browser
+Plan revision: **18 - 20 October 2026**. P2a starts the closed Complaints read
+integration under ADR 0070 and the user's explicit agreement to begin now.
+Native company login, existing Complaint permissions, list/search/paging,
+selected detail and bounded history are connected using synthetic isolated
+data. Development now runs alongside remaining M1 operational work. Real
+staff admission still requires M1, named readers, privacy review and human
+acceptance. Production stays disabled/unmounted. Current evidence, rollback
+and unresolved gates are in the release checklist.
+
+Historical revision 17 / P1b.2b.4 hardens the dormant browser
 abuse boundary under ADR 0069: native proxy/IP policy for durable limits, HMAC
 native cache keys, honest throttle/unavailable responses and activation checks
 for a reviewed shared cache. The default cache remains local; this slice does
@@ -12,7 +21,8 @@ Historical revision 16 / P1c.6 connects guided existing-account
 invitation, first-password, local QR enrollment and one-time recovery handoff
 in the closed React/ADS client under ADR 0068. The local onboarding UI gap is
 closed; actual delivery/support and operational readiness/M0/M1 remain open.
-Next: readiness and staging acceptance before the Complaints read pilot.
+Next: accept the closed Complaints candidate and complete readiness/staging
+before any operational Complaints read pilot. P3 writes remain a separate gate.
 Required pilot order:
 
 **Complaints → TAT → Origination → Portal.**
@@ -373,7 +383,17 @@ Work:
 
 ### P2 — Complaints read pilot
 
-**Entry:** M1 accepted, named Complaints audience and privacy-reviewed display projection.
+**Operational entry:** M1 accepted, named Complaints audience and privacy-reviewed display projection.
+
+**P2a development exception (20 October 2026):** the user agreed to start
+isolated Complaints integration now. ADR 0070 permits the separate dormant
+read client/API and native end-to-end synthetic tests alongside M1 work.
+This does not admit real staff, accept a privacy projection or satisfy M2.
+The initial projection excludes identifiers, raw messages, evidence/location,
+sync diagnostics and history notes/diffs; names/descriptions still require
+human privacy review. Browser search uses names/references only. Existing
+read-side control/reference initialization and daily capability usage remain;
+case state, history and external publication are not changed by these reads.
 
 Work:
 
@@ -759,6 +779,24 @@ release gates. **Open Questions:** operational acceptance remains open.
   later TAT, Origination, Portal order and M3 investment review.
 - VERIFICATION: executed results and explicit not-run gates live in the current
   release checklist; historical frontend/backend counts remain phase-specific.
+
+### STATE BLOCK - revision 18 / P2a closed Complaints reads
+
+- INDEX_VERSION: platform-independence-plan-18; starts at `7ceac557`. Production
+  state remains uninspected; no merge, deployment or real staff admission.
+- FILE_MAP_SUMMARY: separate Complaints React entry/transport/workspace/build;
+  dormant owning read API; native company-auth composition; isolated native
+  backend/browser tests and guarded assets; ADR 0070/current checklist.
+- OPEN_QUESTIONS: privacy/named readers, real delivery/support, shared cache/
+  workers, PostgreSQL, production origin/static/CSP and human/device acceptance.
+- KNOWN_RISKS: free-text personal information, history materialization/group
+  discovery cost, stale client data and premature operational admission.
+- GLOSSARY_DELTA: React browser client includes the closed Complaints read
+  integration; identity and owning workflow authority remain independent.
+- NEXT_READ_QUEUE: review the closed Complaints candidate and finish M1 before
+  real read admission; P3 and the TAT/Origination/Portal sequence remain gated.
+- VERIFICATION: final executed results/limits are in the current release
+  checklist and browser decision section 13; earlier counts are historical.
 
 ## 13. Primary-source references
 

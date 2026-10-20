@@ -1481,3 +1481,74 @@ schema reversal or operational data restore applies.
   authority; lost one-time codes/session need the verified support procedure.
 - GLOSSARY_DELTA: existing React browser client definition extended.
 - NEXT_READ_QUEUE: readiness/staging acceptance for M1, then Complaints read.
+
+## 13. P2a - closed Complaints read integration
+
+ADR 0070 and plan revision 18 record the user's agreement to start closed
+Complaints work now alongside remaining M1 operational readiness. This is a
+development sequence change. M1, a named already-authorized audience, privacy
+projection review and human acceptance still precede real staff admission.
+
+The separate `complaints.html` build composes native company password/MFA with
+the existing canonical-user Complaint actor and `complaint.queue.view` checks.
+The dormant GET API discovers authorized enabled database groups and exposes
+name/reference search, five-row paging, status, selected detail and bounded
+history. Existing shared-branch access inside one permitted group is retained;
+other workflow grants and case UUID knowledge supply no authority.
+
+Projection excludes phone/National ID, raw/source Telegram information,
+evidence/location, sync diagnostics, history notes and field diffs. Names,
+descriptions and staff display remain personal free text requiring privacy
+acceptance. Existing detail materializes history before the 100-row response
+cap; discovery iterates enabled groups. Review production scale before admission.
+Existing missing control/reference initialization remains idempotent, and daily
+capability usage counts requests. There are no complaint transitions, new
+case/history rows or external publication from these reads.
+
+Current official ADS links and applied decisions are in `browser/DESIGN.md`.
+Actual Navigation System and ADS Grid/Box/Stack/Inline/Text/Heading/Form/Select/
+Textfield/Button/SectionMessage use the existing exact dependency graph and
+tokens. At laptop width, the queue and detail sit side by side in a full-width
+container bounded at 1296px; mobile stacks and permits readable natural scroll.
+Source candidates are recorded in the UI ratchet without changing approved
+baselines or the Telegram migration hold.
+
+The isolated test URLconf verifies source/build/asset hashes before proof enters
+the browser. Native password/recovery authentication precedes owning workflow
+reads. Requests are confined to ephemeral loopback and email is in-memory.
+Failures/revocation clear displayed detail; stale responses are aborted/ignored.
+Proof remains stdin/transient, never browser storage or captures. The fixed-value
+preview and pure-authentication entry stay separate.
+
+Final local verification: 18 focused tests pass: ten new native-session read
+boundary tests, six existing Telegram queue/scope/paging regressions and both
+Complaints build modes. Each mode passes 24 browser checks and retains 14
+synthetic captures, including themes, mobile queue/detail, failures, empty/no
+access, keyboard, 200%-equivalent reflow and session resume. Applied search
+remains visible after Refresh. Normal 1280x720
+views use all 1280px of Main with 672px content height and no content overflow.
+The development build caught late atomic CSS insertion overriding Root's
+desktop grid; a distinct one-column declaration fixes the actual layout in
+both modes, including after native sign-in/reload. Captures wait for the
+requested theme/finite transitions; technical checks do not establish human
+perceptual/accessibility acceptance.
+
+Existing pure-auth journeys also pass 39 checks and 17 masked captures per mode,
+with five closure tests passing. TypeScript, full ADS lint, exact dependency/
+asset/notice builds, changed-Python Ruff, architecture, 12 UI/server/ratchet
+tooling tests, source ratchet, runner JS syntax, CI YAML parsing, Django check
+and migration-drift checks pass. No migration. The full repository test suite,
+remote CI, PostgreSQL and real devices were not run. Existing environment/
+artifact audit baseline findings are unchanged; no baseline was updated.
+
+Evidence is under
+`test-results/complaints-browser-transport/{production,development}/`.
+It is synthetic local SQLite/headless evidence, not human design certification,
+PostgreSQL/shared-worker validation, M1/M2, a real pilot or a production mount.
+No new package, setting, migration, production grant, Telegram change or external
+write. Rollback removes this separate candidate and dormant boundary while
+preserving legitimate operational/auth/audit records. P3 writes remain gated.
+
+- INDEX_VERSION: browser-react-ads-decision-10 / P2a / 20 October 2026; ADR 0070.
+- NEXT_READ_QUEUE: review the closed Complaints candidate; finish operational
+  M1/privacy/named-reader acceptance before a restricted real read pilot.

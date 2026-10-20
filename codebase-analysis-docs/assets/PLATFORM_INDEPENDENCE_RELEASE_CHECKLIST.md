@@ -4,7 +4,47 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P1b.2b.4 abuse-control handoff
+## Current P2a closed Complaints read handoff
+
+- [x] Scope/decision: ADR 0070 and plan revision 18 record the user's agreement
+  to start isolated Complaints development alongside M1. Operational entry
+  still requires M1, named current readers, privacy and human acceptance.
+- [x] Additions: dormant browser-only GET group/list/detail boundary; owning
+  canonical-user actor/capability checks; separate React/ADS Complaints build;
+  native company sign-in composition; search/status/paging/detail/history.
+- [x] Authorization/data: current Complaint grants on every request, existing
+  same-group shared-branch reads, foreign group/UUID denial, explicit output
+  allowlist, name/reference-only search and 100-entry history response cap.
+  Names/descriptions/staff display remain subject to privacy acceptance.
+- [x] Writes: no complaint transitions, new case/history rows, evidence or
+  external publication. Existing read-side missing-control/reference
+  initialization is idempotent; daily capability usage counts each request.
+- [x] Configuration/dependencies: no new package, schema, migration, setting,
+  provider, real staff admission or production URL. Existing native session/
+  CSRF/abuse controls reused; browser flag stays off and E006 stays blocking.
+- [x] Telegram compatibility: existing credential/view paths and default
+  service search remain; no template/token/role migration or grant expansion.
+- [x] Verification: 18 focused backend/native-browser tests pass (10 new read
+  boundary tests, six existing Telegram read regressions, both Complaints build
+  modes). Each Complaints mode passes 24 browser checks with 14 captures,
+  including restoration of the applied search after Refresh.
+  Existing pure-auth native journeys pass 39 checks/17 masked captures per mode;
+  five closure tests pass. Types, full ADS lint, reviewed builds/notices/assets,
+  changed-Python Ruff, architecture, 12 UI/server/ratchet tooling tests,
+  source ratchet, JS syntax, CI YAML, Django check and no migration drift pass.
+  Decision section 13 records source/evidence limits. Remote CI/PostgreSQL/real
+  devices remain not run; configured CI is not an execution claim.
+- [ ] Operational acceptance: actual delivery/support, shared cache across
+  workers, production static/CSP/origin/session behavior, PostgreSQL races,
+  real-device/assistive design review, named audience and privacy review.
+- [x] Monitor before release: deny/revocation responses, retained browser data,
+  control/reference initialization, group-discovery cost, long histories,
+  native 401 resume, stale response isolation and shared-worker limits.
+- [x] Rollback: remove the separate closed entry/API from review/test use;
+  retain existing auth/audit/operational records. No production mount or data
+  migration to reverse. P3 writes/later apps require their own gated increment.
+
+## Historical P1b.2b.4 abuse-control handoff
 
 ADR 0069 / plan revision 17 govern this bounded local prerequisite.
 

@@ -54,7 +54,7 @@ function AccessField({ name, label, password = false, newPassword = false, code 
   </Field>;
 }
 
-export function StaffAccess({ invitation = null }: { invitation?: Invitation | null }) {
+export function StaffAccess({ invitation = null, renderAuthenticated }: { invitation?: Invitation | null; renderAuthenticated?: (actions: { signOut: () => void; recheck: () => void }) => React.ReactNode }) {
   const [state, setState] = useState<State>('checking');
   const invitationRef = useRef(invitation);
   const [details, setDetails] = useState<Pick<Result, 'enrollment' | 'codes' | 'setupId' | 'fieldErrors'>>({});
@@ -68,6 +68,7 @@ export function StaffAccess({ invitation = null }: { invitation?: Invitation | n
   const pendingKind = useRef<'read' | 'write' | null>(null);
   const generation = useRef(0);
   const currentState = useRef<State>('checking');
+  const hasWorkspace = Boolean(renderAuthenticated);
 
   const run = useCallback(async (action?: Action, values: Record<string, string> = {}, quiet = false) => {
     if (pending.current) {
@@ -125,9 +126,10 @@ export function StaffAccess({ invitation = null }: { invitation?: Invitation | n
 
   useEffect(() => {
     currentState.current = state;
+    if (state === 'authenticated' && hasWorkspace) return;
     document.title = `${titles[state]} - JBL staff access`;
     if (state !== 'checking') (document.querySelector<HTMLInputElement>('[data-testid="auth-content"] input') || document.getElementById('access-heading'))?.focus();
-  }, [state]);
+  }, [state, hasWorkspace]);
   const routineForm = state === 'signed_out' || state === 'mfa_required';
   const enrollmentForm = state === 'enrollment_required';
   const passwordForm = state === 'setup_password';
@@ -147,6 +149,7 @@ export function StaffAccess({ invitation = null }: { invitation?: Invitation | n
     try { await navigator.clipboard.writeText(details.codes!.join('\n')); setCopied(true); }
     catch { setFeedback({ title: 'Copy was unavailable', message: 'Select the codes below and save them in your password manager.' }); }
   };
+  if (state === 'authenticated' && renderAuthenticated) return <>{renderAuthenticated({ signOut: () => void run('logout'), recheck: () => void run() })}</>;
   return <Root>
     <TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold">JBL Staff workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle>{state === 'authenticated' && <TopNavEnd><Button onClick={() => void run('logout', {})} isLoading={busy}>Sign out</Button></TopNavEnd>}</TopNav>
     <Main id="content" testId="auth-content" skipLinkLabel="Page content"><Box xcss={styles.page}><Box as="section" aria-labelledby="access-heading" aria-busy={busy} xcss={details.enrollment ? styles.enrollmentAccess : styles.access}><Stack space="space.150">

@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+P2a / ADR 0070 adds the separate closed Complaints candidate in
+`browser/src/{complaints.html,complaints-index.tsx,complaints-transport.ts,complaints-workspace.tsx}`.
+It composes native StaffAccess with actual ADS navigation, a responsive
+queue/detail Grid, labelled search/status controls and persistent feedback.
+Its source-bound isolated browser evidence is recorded in decision section 13.
+This is no operational mount, human design approval or Telegram migration.
+
 The executable inventory is `ui_review.catalog.PATTERNS`; the lab projects it
 without a second editable component dictionary. It groups 31 patterns into
 Foundations, Navigation, Queues, Forms, Actions, States, Evidence, Reports and

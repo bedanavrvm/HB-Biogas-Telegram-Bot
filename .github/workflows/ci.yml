@@ -223,12 +223,17 @@ jobs:
           node browser/scripts/build.cjs --authentication
           node browser/scripts/build.cjs --authentication --development
           python manage.py test staff_auth.tests_transport --settings=staff_auth.transport_test_settings --noinput
+          node browser/scripts/build.cjs --complaints
+          node browser/scripts/build.cjs --complaints --development
+          python manage.py test core.tests_browser_complaints staff_auth.tests_complaints_transport --settings=staff_auth.transport_test_settings --noinput
       - name: Retain proof-free closed transport evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: staff-browser-native-transport-unapproved
-          path: test-results/staff-browser-transport/
+          path: |
+            test-results/staff-browser-transport/
+            test-results/complaints-browser-transport/
           retention-days: 14
           if-no-files-found: warn
 

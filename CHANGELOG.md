@@ -1,5 +1,18 @@
 # Changelog
 
+## 20 October 2026 - Closed Complaints browser reads (P2a)
+
+- Started Complaints integration under the user's revised development sequence
+  (ADR 0070, plan revision 18): native company login followed by current owning
+  Complaint role/capability/group authorization on every read.
+- Added a separate React/ADS queue with name/reference search, status, paging,
+  side-by-side case detail/history and responsive mobile layout. Responses use
+  an explicit candidate field allowlist; identifiers/raw messages/media and
+  history notes/diffs remain excluded. Existing same-group branch policy stays.
+- Added isolated native-session backend and real React/Django browser checks.
+  No new dependency, schema/migration, workflow grant, Telegram change, external
+  publication or production mount. M1/privacy/named-reader acceptance remain.
+
 ## 20 October 2026 - Closed browser abuse-control hardening (P1b.2b.4)
 
 - Unified browser database limits and setup bootstrap with native allauth proxy

@@ -24,14 +24,17 @@ def _guard():
         raise ImproperlyConfigured('This URLconf is restricted to isolated transport tests.')
 
 
-def assets():
+def assets(*, complaints=False):
     _guard()
-    if settings.STAFF_BROWSER_TRANSPORT_BUILD not in ('dist-authentication', 'dist-authentication-development'):
+    builds = ('dist-complaints', 'dist-complaints-development') if complaints else ('dist-authentication', 'dist-authentication-development')
+    if settings.STAFF_BROWSER_TRANSPORT_BUILD not in builds:
         raise ValueError('Only isolated authentication build directories are supported.')
     directory = Path(settings.BASE_DIR) / 'browser' / settings.STAFF_BROWSER_TRANSPORT_BUILD
     manifest = json.loads((directory / 'build-manifest.json').read_bytes())
     if manifest.get('schemaVersion') != 1 or manifest.get('demoOnly') is not False or manifest.get('closedAuthentication') is not True:
         raise ValueError('Expected a separately built closed authentication client.')
+    if bool(manifest.get('closedComplaints')) != complaints:
+        raise ValueError('Wrong isolated workflow build kind.')
     routes = {}
     for row in manifest['sources']:
         if not row['path'].startswith('browser/src/') or '..' in Path(row['path']).parts:
@@ -50,14 +53,18 @@ def assets():
         if len(raw) != row['bytes'] or hashlib.sha256(raw).hexdigest() != row['sha256'] or '/' + name in routes:
             raise ValueError('Reject changed or duplicate authentication assets.')
         routes['/' + name] = raw, TYPES[source.suffix] + '; charset=utf-8'
-    if '/access.html' not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
+    if ('/complaints.html' if complaints else '/access.html') not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
         raise ValueError('Missing entry or notices.')
     return routes
 
 
 @require_GET
 def asset(request, filename='access.html'):
-    routes = assets()
+    return asset_response(request, filename)
+
+
+def asset_response(request, filename, *, complaints=False):
+    routes = assets(complaints=complaints)
     if request.GET or '/' + filename not in routes:
         raise Http404
     raw, content_type = routes['/' + filename]
@@ -109,7 +116,7 @@ def test_only(view):
     return guarded
 
 
-urlpatterns += [
+auth_patterns = [
     path(f'api/staff/auth/v1/{action}/', test_only(view))
     for action, view in (
         ('session', browser_api.session_state), ('login', browser_api.password_login),
@@ -120,3 +127,4 @@ urlpatterns += [
         ('enrollment/recovery-codes', enrollment.enrollment_recovery_codes),
     )
 ]
+urlpatterns += auth_patterns

@@ -162,3 +162,29 @@ This remains local SQLite/headless evidence. PostgreSQL races, real devices,
 assistive review, operational shared cache, production static/CSP/session origin,
 actual delivery/recovery support and M0/M1 remain acceptance gates. No
 dependency, schema, policy matrix, Telegram, merge or deployment change applies.
+
+## Closed Complaints integration
+
+ADR 0070 / P2a adds a separate dormant workspace, alongside remaining M1 work:
+
+```powershell
+node browser/scripts/build.cjs --complaints
+node browser/scripts/build.cjs --complaints --development
+$env:RUN_STAFF_BROWSER_E2E='1'
+python manage.py test core.tests_browser_complaints staff_auth.tests_complaints_transport --settings=staff_auth.transport_test_settings --keepdb --noinput
+```
+
+Use the pinned Node 22.23.3 runtime for builds and set
+`STAFF_BROWSER_TEST_NODE` to that executable when it is not your shell's Node.
+The test-only `staff_auth.complaints_transport_test_urls` verifies the exact
+Complaints build/source/assets and native login before accessing synthetic
+cases. It is separate from both the fixed preview and pure-auth harness.
+Reports/captures live in `test-results/complaints-browser-transport/` by mode.
+No customer data, credential screenshots, external publication or real staff
+admission. These settings always select the isolated full-schema SQLite test DB.
+
+This connects current Complaint permissions and list/search/paging/detail/
+history. The allowlisted candidate omits phone/National ID, Telegram/source
+identifiers, raw messages, evidence/location URLs and history notes/diffs.
+Names/descriptions still need privacy acceptance before operational use.
+Production remains off/unmounted; M1 and named-reader acceptance still apply.

@@ -54,10 +54,11 @@ async function main() {
   process.env.PARCEL_WORKERS = '2';
   process.chdir(root);
   const development = process.argv.includes('--development');
-  const authentication = process.argv.includes('--authentication');
-  const dist = path.join(root, authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
+  const complaints = process.argv.includes('--complaints');
+  const authentication = process.argv.includes('--authentication') || complaints;
+  const dist = path.join(root, complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
   const parcel = new Parcel({
-    entries: authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
+    entries: complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
     defaultConfig: require.resolve('@parcel/config-default'),
     mode: development ? 'development' : 'production',
     shouldAutoInstall: false,
@@ -103,7 +104,7 @@ async function main() {
     path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
-  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, closedAuthentication: authentication, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, closedAuthentication: authentication, closedComplaints: complaints, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
   console.log(`Built real React/ADS ${development ? 'development' : 'production'} ${authentication ? 'closed authentication' : 'demo'}: ${files.length} assets, ${owners.size} noticed packages, ${files.reduce((n, file) => n + file.bytes, 0)} bytes; no excluded assets.`);
 }
 

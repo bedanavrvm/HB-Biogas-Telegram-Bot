@@ -1,5 +1,28 @@
 # Known Gaps and Verified Workarounds
 
+## Closed Complaints browser connected; operational read pilot pending - 20 October 2026
+
+P2a / ADR 0070 now connects native company password/MFA to existing Complaint
+permissions and list/search/paging/detail/history in isolated synthetic tests.
+The user approved starting this development alongside M1 readiness. A separate
+React/ADS entry uses the existing dependency graph and current official design
+references; the fixed preview and Telegram UI remain independent.
+
+The candidate projection still includes personal free-text names/descriptions.
+It is not an approved live privacy projection. Notes/diffs, raw messages,
+phone/National ID, source identifiers, media/location and sync diagnostics are
+excluded. History response is capped at 100 entries; the existing owning detail
+service still materializes history before projection. Workspace discovery checks
+current authority per enabled database group; production scale needs review.
+No writes UI is supplied. Missing controls/references may be initialized by
+existing read services and daily capability usage records count requests.
+
+Production remains off/unmounted and E006 remains. Real delivery/support,
+reviewed shared cache/worker operation, PostgreSQL, production origin/static/CSP,
+devices/assistive review, named readers, privacy and M0/M1/M2 are still open.
+Current verification and rollback are in the release checklist. P3 writes and
+later workflows have not begun. Existing baseline audit findings below remain.
+
 ## Browser abuse boundary hardened; shared cache still required - 20 October 2026
 
 P1b.2b.4 / ADR 0069 resolves spoofable forwarded-IP browser limits, native

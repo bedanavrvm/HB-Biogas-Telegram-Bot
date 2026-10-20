@@ -569,9 +569,33 @@
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "fdc8659df216cf5dcea5a1c54ca73c827460391d1c2253220ed8749751f13ecc",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
-      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
+      "sha256": "fb002a23258ffd8feadfcc63160248bbe74d3e68ae7d2ed732d5cfcd2ae68fe8",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints.html",
+      "sha256": "83d95465fbd45210172c4d21a3554856749dda5373af71e2de8dbcf38ab60b25",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-index.tsx",
+      "sha256": "828809905fb806c831db2e53162a24cf734c8e28ac5768152028e452977157f9",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-transport.ts",
+      "sha256": "86e2f672fcf933c65f7be4cf9ae0059dcf72cdb7a039b8d5113e2092e4507a70",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-workspace.tsx",
+      "sha256": "a0346b02f84965e81d823936de803fab3e07503a8ff4391eb7f5ddf5a7c0ab8d",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration. Intentional compact horizontal filter toolbar on desktop; mobile stacks. See DESIGN.md for the exception to long-form layout guidance."
     }
   ],
   "source_roots": [

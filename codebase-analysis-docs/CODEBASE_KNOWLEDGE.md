@@ -1212,3 +1212,17 @@ is transient and masked in captures. Decision section 12 and plan revision 16
 record source/test evidence, rollback and remaining readiness/M0/M1 gates.
 Production stays off/unmounted; no Telegram/schema/migration/dependency change.
 Next is operational readiness and M1 acceptance, then the Complaints read pilot.
+
+## Closed Complaints browser integration - P2a / 20 October 2026
+
+The user agreed to begin isolated Complaints integration alongside remaining M1
+work. ADR 0070 / plan revision 18 add a separate dormant React/ADS queue/detail
+entry and company-browser-only GET API. Native password/MFA identity and current
+Complaint grants/capabilities remain independent; the existing owning services
+and same-group shared-branch read policy are reused. An explicit candidate field
+projection excludes identifiers/raw messages/media/location and history notes/
+diffs. Names/descriptions still require human privacy acceptance. Read-side
+control/reference initialization and per-request capability usage are disclosed.
+Source-bound local evidence and remaining gates are in decision section 13 and
+the release checklist. Production remains off/unmounted, no new schema/package,
+Telegram change, real staff admission or external publication. P3 remains gated.
