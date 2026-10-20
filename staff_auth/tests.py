@@ -1,5 +1,6 @@
 """Synthetic-only MFA contracts; no business URLs or external services."""
 import time
+from datetime import timedelta
 from unittest.mock import patch
 
 from allauth.account.adapter import get_adapter as get_account_adapter
@@ -33,6 +34,7 @@ from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import Resolver404, resolve
+from django.utils import timezone
 
 from core.production import production_security_readiness_issues
 
@@ -126,7 +128,7 @@ class DormantConfigurationTests(SimpleTestCase):
 
     @override_settings(STAFF_BROWSER_AUTH_ENABLED=True, STAFF_MFA_ENCRYPTION_KEYS=[TEST_KEY], DEBUG=True)
     def test_even_safe_configuration_cannot_activate_incomplete_browser_product(self):
-        self.assertEqual([issue.id for issue in staff_browser_checks(None)], ['staff_auth.E006'])
+        self.assertEqual([issue.id for issue in staff_browser_checks(None)], ['staff_auth.E006', 'staff_auth.E007'])
         issues = production_security_readiness_issues(settings, check_database=False)
         self.assertIn('staff-browser-foundation-only', [issue.code for issue in issues])
 
@@ -139,7 +141,7 @@ class DormantConfigurationTests(SimpleTestCase):
         ):
             self.assertEqual(
                 {issue.id for issue in staff_browser_checks(None)},
-                {f'staff_auth.E00{index}' for index in range(1, 7)},
+                {f'staff_auth.E00{index}' for index in range(1, 8)},
             )
 
 
@@ -153,7 +155,11 @@ class BrowserAssuranceTests(TestCase):
     def setUp(self):
         cache.clear()
         self.user = get_user_model().objects.create_user('synthetic_browser_actor', password=PASSWORD)
-        admit_synthetic_user(self.user)
+        # datetime.now() and time.time() can straddle different Windows clock
+        # ticks. This fixture requires admission strictly before authentication;
+        # give it an explicit past instant instead of relaxing runtime checks.
+        with patch('django.utils.timezone.now', return_value=timezone.now() - timedelta(seconds=1)):
+            admit_synthetic_user(self.user)
         self.secret = generate_totp_secret()
         self.totp = TOTP.activate(self.user, self.secret).instance
         self.request = RequestFactory().get('/synthetic-probe/')

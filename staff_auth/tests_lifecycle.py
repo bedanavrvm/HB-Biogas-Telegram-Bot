@@ -1,5 +1,6 @@
 """Browser-only identity administration, rollback, retry and compatibility."""
 import json
+from datetime import timedelta
 from io import StringIO
 from unittest import skipUnless
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.utils import timezone
 
 from core.models import AccessGrant, ComplianceAuditChainState, ComplianceAuditEvent, UserHardDeletionBatch
 from core.services.compliance_audit import verify_integrity
@@ -255,7 +257,11 @@ class BrowserRevocationAssuranceTests(foundation_tests.BrowserAssuranceTests):
 
     def test_no_explicit_admission_and_pre_revocation_password_step_cannot_issue(self):
         self.completed_login()
-        self.change('revoke_sessions', 1, 'revoke-pending-login-001')
+        # This test exercises strictly earlier authentication timestamps.
+        # Windows can give adjacent events the same coarse wall-clock value;
+        # make their intended ordering explicit without sleeping/relaxing policy.
+        with patch('django.utils.timezone.now', return_value=timezone.now() + timedelta(seconds=1)):
+            self.change('revoke_sessions', 1, 'revoke-pending-login-001')
         self.assertFalse(issue_assurance(self.request, self.user))
         self.assert_denied()
         # A user with a factor but no explicit admission must fail as well.

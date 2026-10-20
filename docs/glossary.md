@@ -46,6 +46,12 @@ rollback rules are in ADR 0064 and
 `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`. Native shared
 rate-limit caching remains an operational prerequisite.
 
+P1b.2b.4 (ADR 0069) applies native proxy/IP policy to browser database limits
+and protects native cache keys through Django's key hook. Throttling is a retry
+response, never a bad-password/code diagnosis. E007/E008 require a reviewed
+shared cache and the privacy hook on activation; the default remains local,
+E006 remains blocking and shared-worker/M1 evidence is still required.
+
 **Closed browser enrollment:** Dormant P1b.2b.1 native TOTP setup for an existing,
 explicitly admitted password-only company-browser session, including fresh
 password recheck, encrypted pending/permanent seeds, exact factor receipts and

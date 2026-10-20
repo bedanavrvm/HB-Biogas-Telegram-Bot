@@ -1,6 +1,14 @@
 # Platform independence: gated pilots without disrupting Telegram
 
-Plan revision: **16 - 20 October 2026**. P1c.6 connects guided existing-account
+Plan revision: **17 - 20 October 2026**. P1b.2b.4 hardens the dormant browser
+abuse boundary under ADR 0069: native proxy/IP policy for durable limits, HMAC
+native cache keys, honest throttle/unavailable responses and activation checks
+for a reviewed shared cache. The default cache remains local; this slice does
+not supply or accept a shared service. Current handoff: release checklist.
+Actual delivery/support, shared-cache/worker and staging M0/M1 acceptance remain
+open before the Complaints read pilot. Production stays disabled/unmounted.
+
+Historical revision 16 / P1c.6 connects guided existing-account
 invitation, first-password, local QR enrollment and one-time recovery handoff
 in the closed React/ADS client under ADR 0068. The local onboarding UI gap is
 closed; actual delivery/support and operational readiness/M0/M1 remain open.
@@ -291,6 +299,14 @@ identity and grants remain. See ADR 0065 and STAFF_BROWSER_INITIAL_SETUP.md.
 Remaining increments must separately cover accepted provisioning delivery/UI,
 usable-password address verification/recovery, interrupted setup/helpdesk, native shared replay cache,
 accepted notification behavior, operational support and staging acceptance.
+**P1b.2b.4** now applies the pinned native proxy/IP policy to the browser's
+database limits (including anonymous setup), protects native cache keys through
+Django's key hook and preserves native throttling as JSON 429. Native/cache
+failure never falls back to another identity or returns bad-credential feedback.
+E007/E008 additionally block activation without a reviewed shared backend and
+privacy hook; E006 still blocks the unreleased product. The unchanged local
+backend is not shared-cache acceptance. See ADR 0069 and the current addendum in
+STAFF_BROWSER_REPLAY_GUARD.md for operation, privacy, verification and rollback.
 No dormant slice satisfies M1 or usable browser access.
 
 **P1c React/ADS frontend foundation**, before any operational P2 pilot:
@@ -725,6 +741,24 @@ release gates. **Open Questions:** operational acceptance remains open.
 - GLOSSARY_DELTA: closed staff initial setup prepares and verifies the exact existing unusable-password account; it never creates identity, resets usable credentials or grants login/MFA/workflow authority.
 - NEXT_READ_QUEUE: controlled delivery/support or native shared cache/privacy prerequisite; exact frontend acceptance/P1c; M1 before Complaints; M3 before later application investment.
 - VERIFICATION: current executed results/limits are maintained in STAFF_BROWSER_INITIAL_SETUP.md section 6; earlier phase counts remain historical.
+
+### STATE BLOCK - revision 17 / P1b.2b.4 closed abuse boundary
+
+- INDEX_VERSION: platform-independence-plan-17; starts at `d74c72c9`. Production
+  release/migrations remain uninspected; no merge, deployment or real staff action.
+- FILE_MAP_SUMMARY: abuse.py, cache_keys.py, checks.py, browser/setup/enrollment
+  handlers, tests_abuse.py, native harness bindings, ADR 0069 and current checklist.
+- OPEN_QUESTIONS: approved shared cache/service/client/topology, real delivery and
+  verified support, PostgreSQL/workers, production origin/static/CSP, devices and M0/M1.
+- KNOWN_RISKS: premature mounting, untrusted proxy configuration, early eviction,
+  cache/key rotation with live state, and unavailable session cleanup storage.
+- GLOSSARY_DELTA: native IP policy and cache privacy strengthen the existing
+  browser boundary; neither grants workflow authority or shared-cache acceptance.
+- NEXT_READ_QUEUE: controlled invitation delivery/support and deployment-ready
+  cache/worker evidence; M1 staging acceptance before Complaints. Preserve the
+  later TAT, Origination, Portal order and M3 investment review.
+- VERIFICATION: executed results and explicit not-run gates live in the current
+  release checklist; historical frontend/backend counts remain phase-specific.
 
 ## 13. Primary-source references
 

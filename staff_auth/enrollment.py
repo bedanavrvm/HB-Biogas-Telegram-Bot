@@ -22,7 +22,8 @@ from django.views.decorators.debug import sensitive_variables
 
 from core.services.compliance_audit import record_event
 
-from .browser_api import _body, _channel, _response, _state, _throttle, browser_endpoint
+from .browser_api import _body, _channel, _rate_limited, _response, _state, _throttle, browser_endpoint
+from .abuse import native_authentication
 from .crypto import MFASecretUnavailable
 from .enrollment_state import activation_receipt, enrollment_context, receipt, request_uuid
 from .models import StaffBrowserAdmission
@@ -141,6 +142,8 @@ def _execute(request, fields, scope, operation):
         with _locked_channel(request) as (channel, row):
             return operation(request, data, channel, row)
     except _Rejected as exc:
+        if exc.state == 'rate_limited':
+            return _rate_limited()
         return _response(exc.state, exc.status)
     except _AuditUnavailable:
         _discard_failed_draft(request)
@@ -158,7 +161,11 @@ def _begin(request, data, channel, row):
     if _state(request) != 'enrollment_required' or Authenticator.objects.filter(user_id=row.user_id).exists():
         raise _Rejected('enrollment_unavailable')
     form = ReauthenticateForm(user=row.user, data={'password': data['password']})
-    if not form.is_valid():
+    with native_authentication():
+        valid = form.is_valid()
+    if not valid:
+        if form.has_error('password', 'too_many_login_attempts'):
+            raise _Rejected('rate_limited', 429)
         raise _Rejected('invalid_credentials', 400)
     try:
         validate_can_add_authenticator(row.user)
@@ -211,7 +218,11 @@ def _confirm(request, data, channel, row):
     # if no pending secret exists. Never confirm an unbegun/expired operation.
     request.session[SECRET_SESSION_KEY]
     form = ActivateTOTPForm(user=row.user, data={'code': data['code']})
-    if not form.is_valid():
+    with native_authentication():
+        valid = form.is_valid()
+    if not valid:
+        if form.has_error('code', 'rate_limited'):
+            raise _Rejected('rate_limited', 429)
         raise _Rejected('invalid_code', 400)
     totp, recovery = activate_totp(request, form)
     if recovery is None:

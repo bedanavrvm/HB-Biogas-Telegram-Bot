@@ -16,7 +16,7 @@ from django.contrib.auth import SESSION_KEY, get_user, get_user_model
 from django.core import mail
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
-from django.db import close_old_connections, connection
+from django.db import OperationalError, close_old_connections, connection
 from django.test import Client, RequestFactory, TestCase, TransactionTestCase, override_settings
 from django.urls import Resolver404, resolve
 from django.utils import timezone
@@ -133,6 +133,23 @@ class InitialStaffSetupTests(TestCase):
         self.assertNotIn('username', self.bootstrap(other).json())
         self.assertEqual(self.password().json()['state'], 'reauthentication_required')
         self.assertEqual(self.bootstrap().json()['state'], 'reauthentication_required')
+
+    def test_outer_limiter_outages_preserve_verified_invitation_progress(self):
+        self.prepared_verified()
+        original_key = self.client.session.session_key
+        saved = self.client.session[SETUP_CONTEXT_KEY]
+        for target, operation in (('staff_auth.setup_api.consume_network', self.bootstrap),
+                                  ('staff_auth.browser_api.consume_identity', self.password)):
+            with self.subTest(target=target), patch(target, side_effect=OperationalError('synthetic limiter outage')):
+                response = operation()
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.json()['state'], 'authentication_unavailable')
+            self.assertEqual(self.client.session.session_key, original_key)
+            self.assertEqual(self.client.session[SETUP_CONTEXT_KEY], saved)
+            self.assertNotIn(SESSION_KEY, self.client.session)
+            self.assertNotIn(ASSURANCE_KEY, self.client.session)
+        self.assertEqual(self.bootstrap().json()['state'], 'password_required')
+        self.assertEqual(self.password().json()['state'], 'reauthentication_required')
 
     def test_progress_hides_expired_or_revoked_setup(self):
         self.prepared_verified()

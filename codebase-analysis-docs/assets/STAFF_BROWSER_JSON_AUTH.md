@@ -1,6 +1,14 @@
 # P1b.2a: dormant browser JSON authentication boundary
 
-Current P1c.6 addendum (20 October 2026): ADR 0068 and browser decision section 12
+Current P1b.2b.4 addendum (20 October 2026): ADR 0069 applies native trusted-proxy
+and IPv6 policy to browser database limits, protects native cache keys through
+Django's key hook and retains native throttling as JSON 429. Native/cache
+failure returns fixed unavailable feedback with no fallback/assurance. E007/E008
+add shared-backend/privacy activation checks, without contacting/provisioning a
+cache. The default stays local; E006 and production closure remain. Current
+scope/evidence/rollback: STAFF_BROWSER_REPLAY_GUARD.md and release checklist.
+
+Historical P1c.6 addendum (20 October 2026): ADR 0068 and browser decision section 12
 connect the native contracts to guided first-password/QR enrollment/one-time
 recovery screens in the closed React build. Setup/session resumes only exact
 verified bound progress; enrollment/session reads a fresh same-channel draft

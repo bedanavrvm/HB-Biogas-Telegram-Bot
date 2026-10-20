@@ -28,13 +28,13 @@ from django.utils.crypto import constant_time_compare
 
 from core.services.compliance_audit import record_event
 from core.models import ComplianceAuditEvent
-from core.services.request_throttling import consume_identity, consume_ip
+from core.services.request_throttling import consume_identity
 
 from .assurance import MAX_LOGIN_SECONDS, clear_assurance, require_browser_user
-from .crypto import MFASecretUnavailable
+from .abuse import AbuseControlUnavailable, AuthenticationUnavailable, consume_network, native_authentication
 from .enrollment_state import enrollment_progress
 from .models import StaffBrowserAdmission
-from .replay import BrowserAuthenticateView, ReplayStoreUnavailable
+from .replay import BrowserAuthenticateView
 from .session_protection import CHANNEL_KEY, clear_browser_context, protected_browser_session
 
 
@@ -66,7 +66,12 @@ def browser_endpoint(methods):
                 # request-local marker through commit; unused flash cookies
                 # must not retain staff data or reappear in another page.
                 request._staff_browser_json_feedback = True
-                response = protected(request, *args, **kwargs)
+                try:
+                    response = protected(request, *args, **kwargs)
+                except AbuseControlUnavailable:
+                    response = _response('authentication_unavailable', 503)
+                except AuthenticationUnavailable:
+                    response = _authentication_unavailable(request)
             response['Cache-Control'] = 'no-store, private'
             response['Pragma'] = 'no-cache'
             return response
@@ -173,13 +178,54 @@ def _body(request, fields):
 
 def _throttle(request, scope, identity):
     # These are initial abuse-control limits, not measured service objectives.
-    network = consume_ip(request, scope=f'staff-browser-{scope}', limit=30, window_seconds=600)
-    actor = consume_identity(scope=f'staff-browser-{scope}', kind='staff-auth', value=identity, limit=10, window_seconds=600)
+    try:
+        network = consume_network(request, scope=f'staff-browser-{scope}')
+        actor = consume_identity(scope=f'staff-browser-{scope}', kind='staff-auth', value=identity, limit=10, window_seconds=600)
+    except (DatabaseError, ImproperlyConfigured):
+        raise AbuseControlUnavailable from None
     if not network.allowed or not actor.allowed:
-        response = _response('rate_limited', 429)
-        response['Retry-After'] = str(max(network.retry_after, actor.retry_after))
-        return response
+        return _rate_limited(max(network.retry_after, actor.retry_after))
     return None
+
+
+def _rate_limited(retry_after=60):
+    response = _response('rate_limited', 429)
+    # Native allauth supplies no reset time; 60 seconds is a retry hint, not
+    # a promise that its independent sliding window has already reopened.
+    response['Retry-After'] = str(retry_after)
+    return response
+
+
+def _native_rate_limited(response):
+    if response.status_code == 429:
+        return True
+    if response.status_code != 400:
+        return False
+    # Pinned headless forms also return throttle errors as HTTP 400. Inspect
+    # only stable error codes; never return/log native messages or user data.
+    try:
+        data = json.loads(response.content)
+        return any(error.get('code') in ('rate_limited', 'too_many_login_attempts') for error in data.get('errors', []))
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _authentication_unavailable(request):
+    owned = _owns_browser_session(request)
+    if owned:
+        try:
+            with protected_browser_session(request):
+                get_adapter(request).logout(request)
+        except (DatabaseError, UpdateError):
+            pass  # Persisted cleanup cannot be promised with a failed store.
+    _discard(request)
+    # SessionMiddleware skips 5xx saves. Persist cleanup if its store is
+    # healthy; failure never produces assurance or a successful response.
+    try:
+        request.session.save()
+    except (DatabaseError, UpdateError):
+        pass
+    return _response('authentication_unavailable', 503)
 
 
 def _discard(request):
@@ -260,8 +306,13 @@ def password_login(request):
         'started_at': time.time(), 'attempt_id': str(uuid.uuid4()),
     }
     request.session.pop(AUTHENTICATION_METHODS_SESSION_KEY, None)
-    with protected_browser_session(request):
+    with native_authentication(), protected_browser_session(request):
         response = _login(request)
+    if _native_rate_limited(response):
+        _discard(request)
+        return _rate_limited()
+    if response.status_code >= 500:
+        raise AuthenticationUnavailable
     if response.status_code >= 400 and _state(request) != 'mfa_required':
         _discard(request)
         return _response('invalid_credentials', 400)
@@ -285,19 +336,12 @@ def authenticate_mfa(request):
     limited = _throttle(request, 'mfa', row.user_id)
     if limited is not None:
         return limited
-    try:
-        with protected_browser_session(request):
-            response = _mfa(request)
-    except (ReplayStoreUnavailable, MFASecretUnavailable, ImproperlyConfigured):
-        _discard(request)
-        # SessionMiddleware does not save 5xx responses. Persist browser-local
-        # cleanup when its store is healthy; an unavailable store never permits
-        # an assurance or successful response.
-        try:
-            request.session.save()
-        except (DatabaseError, UpdateError):
-            pass
-        return _response('authentication_unavailable', 503)
+    with native_authentication(), protected_browser_session(request):
+        response = _mfa(request)
+    if _native_rate_limited(response):
+        return _rate_limited()
+    if response.status_code >= 500:
+        raise AuthenticationUnavailable
     if response.status_code >= 400:
         return _response('mfa_required', 400)
     return _complete(request)

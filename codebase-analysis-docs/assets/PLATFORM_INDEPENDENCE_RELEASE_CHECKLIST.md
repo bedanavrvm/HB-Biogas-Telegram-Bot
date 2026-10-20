@@ -4,7 +4,55 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P1c.6 guided closed onboarding handoff
+## Current P1b.2b.4 abuse-control handoff
+
+ADR 0069 / plan revision 17 govern this bounded local prerequisite.
+
+- [x] Additions: one native proxy/IP policy for browser database limits and setup
+  bootstrap; HMAC native allauth cache keys before backend validation; native
+  limits return JSON 429 and safe failures return unavailable without assurance.
+- [x] Activation: E007 rejects local/file/database/dummy/unreviewed caches; E008
+  requires the privacy hook. E006, browser off and unmounted production routes
+  remain. Static checks do not contact a cache or establish shared operation.
+- [x] Scope: company-browser authentication only; no role, capability, admission,
+  user-provisioning or workflow-state change. No new user-facing step or UI edit.
+- [x] Configuration/dependencies/schema: default CACHES explicitly retains the
+  existing LocMem backend/location; non-allauth key transformation is identical.
+  No new environment variable, secret, dependency, model or migration. No schema
+  reversal command applies.
+- [x] Verification: the final staff-authentication and Telegram route/throttle
+  regression ran 189 tests: 180 passed and nine PostgreSQL-only tests skipped.
+  It includes 19 abuse-control tests, verified-invitation interruption coverage,
+  and deterministic synthetic admission/revocation timing. Runtime clock,
+  password, MFA and authorization checks are not relaxed.
+- [x] Native client: production and development each passed 39 checks with 17
+  masked captures on Node 22.23.3; these repeat the same journeys, not 78 distinct
+  cases. All 16 backend/harness source hashes match the current files. Existing
+  auth builds/React sources are unchanged; no UI/design acceptance is inferred.
+- [x] Other checks: changed-Python Ruff, architecture boundaries, Django check
+  (zero issues), migration drift (none), 154-file JavaScript syntax and 12
+  preview/server tooling tests pass. Final log is ignored synthetic-only
+  test-results/staff-browser-abuse-verified.log; native reports/captures remain
+  under test-results/staff-browser-transport/{production,development}/.
+- [x] Limits recorded: no full-repository/remote CI, PostgreSQL/worker/shared-cache
+  service, real device/assistive or staging run. Environment parity still reports
+  119 pre-existing omissions. The artifact audit reports 17 pre-existing hash
+  mismatches; all 17 files are byte-identical to HEAD. Baselines are unchanged.
+- [x] Telegram: existing endpoint/IP limits, signed identity, roles, sessions,
+  UI/assets and root/frontend dependencies are untouched. No external write,
+  operational staff action, production migration, merge or deployment.
+- [x] Monitoring: fixed native-failure log message without exception/key/proof;
+  observe denial/unavailable rates without logging credentials. Stop a future
+  rollout for worker disagreement, premature eviction or unsupported IP trust.
+- [x] Rollback: keep browser off and revert this code/config slice. Preserve
+  users/passwords/factors/admissions/sessions/TOTP claims/audit and operational
+  records. Future operational cache/key changes require a drained rollout or
+  full live-window hold; never clear live abuse/replay state to enable rollback.
+- [ ] Shared service/client approval and deployment topology, non-eviction and
+  concurrency/failure evidence; real delivery/support, PostgreSQL, production
+  origin/static/CSP, device/assistive and M0/M1 acceptance before Complaints.
+
+## Historical P1c.6 guided closed onboarding handoff
 
 ADR 0068 / decision section 12 / plan revision 16 govern this slice.
 

@@ -80,6 +80,13 @@ STAFF_MFA_ENCRYPTION_KEYS = [
     value.strip() for value in config('STAFF_MFA_ENCRYPTION_KEYS', default='').split(',') if value.strip()
 ]
 STAFF_BROWSER_SESSION_AGE_SECONDS = config('STAFF_BROWSER_SESSION_AGE_SECONDS', default=28800, cast=int)
+# Preserve the existing local backend and ordinary workflow keys. Native
+# allauth keys contain identifiers/codes: digest them before backend validation.
+# This remains local-only and is deliberately rejected for browser activation.
+CACHES = {'default': {
+    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    'KEY_FUNCTION': 'staff_auth.cache_keys.native_cache_key',
+}}
 ACCOUNT_ADAPTER = 'staff_auth.adapters.StaffAccountAdapter'
 ACCOUNT_LOGIN_METHODS = {'username'}
 ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*', 'password2*']

@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Browser abuse boundary hardened; shared cache still required - 20 October 2026
+
+P1b.2b.4 / ADR 0069 resolves spoofable forwarded-IP browser limits, native
+throttle misdiagnosis and native cache-key privacy in the configured application
+cache. Browser/setup network limits now follow native proxy/IP/IPv6 policy;
+native form/view limits return JSON 429 and failures return safe unavailable
+feedback without new assurance. Ordinary workflow keys and Telegram limits
+retain their existing behavior. No new frontend step or dependency/schema.
+
+The default cache is still process-local. E007/E008 now block attempted browser
+activation without a reviewed shared backend/privacy hook, while E006 remains.
+These checks are offline and do not certify service/client availability, shared
+worker state, atomic add, consistency, capacity/non-eviction or deployed proxy
+trust. Do not mount production routes or rotate/clear live security state to
+make a check pass. Shared-cache approval/operation, real delivery/support,
+PostgreSQL, production origin/static/CSP, devices and M0/M1 remain open before
+Complaints admission. See the current plan/release checklist for evidence.
+The existing environment-template checker still reports 119 omissions; the
+artifact audit reports 17 allowlist hash mismatches, all byte-identical to HEAD.
+Neither baseline is changed to make a check pass. Full CI is not claimed.
+
 ## Guided browser onboarding is connected; readiness remains open - 20 October 2026
 
 P1c.6 / ADR 0068 connects native first-password and enrollment to short ADS

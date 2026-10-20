@@ -6,7 +6,55 @@ disabled, E006 blocking and production auth/business routes unmounted. Actual
 deployed release/migrations are unknown. No commit, merge, deployment, real
 staff action or external provider write is performed by this increment.
 
-## 1. Scope and implementation
+## Current P1b.2b.4 abuse-control addendum
+
+20 October 2026 / ADR 0069 / plan revision 17. The replay claim remains
+unchanged. The browser's outer database throttle and anonymous setup bootstrap
+now use the same pinned native proxy/IP and IPv6-prefix policy as allauth.
+Untrusted forwarding headers are ignored by default. Only a purpose-separated
+network HMAC reaches the existing throttle table. Telegram/public limits keep
+their existing behavior; deployment must prove the configured proxy topology.
+
+The default cache explicitly keeps its existing local backend/location and adds
+`staff_auth.cache_keys.native_cache_key` through Django's supported KEY_FUNCTION.
+Native `allauth:` / `allauth.` keys are HMAC-SHA256 digests, binding namespace,
+prefix and version. Raw TOTP codes/user/IP keys do not reach backend validation
+or its CacheKeyWarning. Ordinary workflow keys retain Django's exact original
+transformation. This resolves the native-key privacy defect below for the
+configured application cache; it does not sanitize arbitrary vendor exceptions,
+other logging or cache values, and supplies no shared cache.
+
+Native 429 and native form throttle codes become a fixed JSON `rate_limited`
+429 with Retry-After. Native's 60-second retry hint is not a guaranteed window
+reset; outer database limits retain their computed reset. Invalid credentials
+remain invalid. Native/cache failures emit a fixed log line without exception
+text, return `authentication_unavailable` 503, discard the channel/draft and
+clear only an owned browser password/login session when storage is healthy.
+Ordinary Admin/other-channel cookies survive. No assurance or fallback follows
+failure; unavailable session storage cannot guarantee persisted cleanup.
+
+Outer database-limiter outages block the request before credential operations
+and preserve existing session/setup/enrollment progress for a later explicit
+retry. No new authentication or workflow authority is issued. This avoids
+discarding a verified invitation or QR draft during a transient limiter outage.
+
+E007 rejects local/file/database/dummy/unreviewed default backends on attempted
+activation. E008 requires the privacy hook. Only the reviewed built-in Django
+Redis/Memcached backend names are recognized; their clients/services are not
+installed or provisioned by this slice. These offline checks prove neither
+connectivity nor shared state, capacity/non-eviction, atomic add, consistent
+reads, failure handling or actual workers. E006 still blocks the unreleased
+browser product. M0/M1 and all operational routes remain closed.
+
+No new environment variable, secret, package, model or migration. Rollback keeps
+browser access off and removes this code/config slice without changing native
+credentials, sessions, admissions, shared TOTP claims or audit. Future live cache
+backend/key-function/Django-secret rotation must drain workers or hold for the
+longest live TTL; never clear live security state or mix key versions to make a
+request pass. Read the current release checklist for executed evidence and open
+delivery/support/PostgreSQL/shared-service/staging/device gates.
+
+## 1. Historical P1b.2b.2 scope and implementation
 
 The existing local virtual environment lacked the already-pinned
 `django-allauth[mfa]==65.20.0`. Restoring that package and its declared extras

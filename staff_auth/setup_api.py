@@ -21,9 +21,9 @@ from django.views.decorators.debug import sensitive_variables
 
 from core.models import ComplianceAuditEvent
 from core.services.compliance_audit import record_event
-from core.services.request_throttling import consume_ip
 
-from .browser_api import _body, _response, _throttle, browser_endpoint
+from .abuse import AbuseControlUnavailable, consume_network
+from .browser_api import _body, _rate_limited, _response, _throttle, browser_endpoint
 from .crypto import MFASecretUnavailable, decrypt_secret
 from .enrollment_state import request_uuid
 from .initial_setup import PROOF_SALT, SETUP_SECONDS, InitialSetupError, binding_digest, canonical_address, require_initial_account
@@ -244,11 +244,12 @@ def _password(request, data, grant, user, address):
 def setup_session(request):
     if request.user.is_authenticated:
         return _response('sign_out_required', 409)
-    limited = consume_ip(request, scope='staff-browser-setup-bootstrap', limit=30, window_seconds=600)
+    try:
+        limited = consume_network(request, scope='staff-browser-setup-bootstrap')
+    except (DatabaseError, ImproperlyConfigured):
+        raise AbuseControlUnavailable from None
     if not limited.allowed:
-        response = _response('rate_limited', 429)
-        response['Retry-After'] = str(limited.retry_after)
-        return response
+        return _rate_limited(limited.retry_after)
     if not request.session.session_key:
         request.session.create()
     saved = request.session.get(SETUP_CONTEXT_KEY)

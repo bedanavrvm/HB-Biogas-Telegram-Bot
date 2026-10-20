@@ -1,5 +1,20 @@
 # Changelog
 
+## 20 October 2026 - Closed browser abuse-control hardening (P1b.2b.4)
+
+- Unified browser database limits and setup bootstrap with native allauth proxy
+  and IPv6 policy, closing spoofed-forwarding-header limit avoidance. Native
+  throttling now returns retry feedback; backend failures never become incorrect
+  password/code errors or authenticated success. No extra onboarding steps.
+- HMAC native code/identity/IP cache keys before backend validation using Django's
+  supported hook; ordinary workflow keys keep their previous transformation.
+  Added offline shared-backend/privacy activation checks. Default caching stays
+  local and is explicitly unsuitable for browser activation.
+- No new dependency, environment variable, schema, migration, workflow authority,
+  Telegram endpoint/UI, real provider write or deployment. ADR 0069, plan revision
+  17 and the release checklist record scope/evidence/rollback. Shared service,
+  actual delivery/support and operational M0/M1 remain open before Complaints.
+
 ## 20 October 2026 - Guided closed browser onboarding (P1c.6)
 
 - Connected prepared invitation, native first-password, QR/manual-key enrollment

@@ -4,6 +4,7 @@ from django.core.checks import Error, register
 from django.core.exceptions import ImproperlyConfigured
 
 from .crypto import keyring
+from .cache_keys import PRIVACY_KEY_FUNCTION, SHARED_CACHE_BACKENDS
 
 
 @register()
@@ -47,4 +48,16 @@ def staff_browser_checks(app_configs, **kwargs):
         errors.append(Error('Company browser sessions require secure server-side cookies and CSRF.', id='staff_auth.E005'))
     # P1a is only a dormant foundation, not a provision/enroll/recover product.
     errors.append(Error('P1a has no approved browser login/enrollment/recovery routes. Keep STAFF_BROWSER_AUTH_ENABLED=False.', id='staff_auth.E006'))
+    default_cache = settings.CACHES.get('default', {})
+    if default_cache.get('BACKEND') not in SHARED_CACHE_BACKENDS:
+        errors.append(Error(
+            'Browser authentication requires a reviewed shared Redis/Memcached cache; local, file, database and dummy caches are not accepted.',
+            hint='Prove all workers share non-evicting security state, consistent reads and atomic add before M1. This check does not connect to a cache.',
+            id='staff_auth.E007',
+        ))
+    if default_cache.get('KEY_FUNCTION') != PRIVACY_KEY_FUNCTION:
+        errors.append(Error(
+            'Native authentication cache keys require staff_auth.cache_keys.native_cache_key before backend validation.',
+            id='staff_auth.E008',
+        ))
     return errors
