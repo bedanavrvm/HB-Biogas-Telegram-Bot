@@ -60,3 +60,32 @@ retained but ignored by older code; reversal increments the access-policy versio
 
 See `codebase-analysis-docs/assets/PHONE_ID_CHECKS.md` for configuration, API,
 retention, review evidence and verification results.
+
+## 21 October 2026: explicit recheck and safe diagnostics
+
+The operator needs to investigate unexpected results and deliberately request a
+new check, rather than be trapped by thirty-day result reuse. A confirmed
+`fresh_check: true` bypasses conclusive-result reuse for that action only. It
+does not bypass an in-flight check, current IT scope, saved-value binding,
+request-key replay protection, the operator throttle or the fifty-per-day
+allowance. Ordinary requests retain thirty-day reuse. The flag is part of the
+request fingerprint without changing fingerprints of historical ordinary
+requests. Every fresh attempt and its receipt are new records; old outcomes
+remain immutable. There are still no automatic paid retries.
+
+The existing Integration Operation retains a bounded, allowlisted diagnostic
+view of the exchange and the adapter emits the same safe structure to logs.
+Phone/National ID and credentials are never logged or copied into diagnostics;
+untrusted free-text/unknown response fields are excluded. Environment, API path,
+request reference, safe response codes/status/reference and interpretation
+remain visible. OAuth payloads are excluded. Existing exact response parsing is
+unchanged; diagnostics do not claim the public provider contract was verified.
+
+The compact recheck icon uses the existing Origination icon-button pattern and
+one explicit cost warning. Sandbox results are labelled as test results. This
+is a narrow UI candidate, not permission to migrate foundations or other apps.
+No new schema, dependency, role or automatic dispatch is introduced.
+
+Alternatives rejected: deleting cached evidence, making every request skip
+reuse, allowing overlapping paid calls, or logging unrestricted payloads. A
+code rollback restores ordinary reuse and leaves all recorded evidence intact.

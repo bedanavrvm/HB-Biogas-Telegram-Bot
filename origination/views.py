@@ -1832,6 +1832,10 @@ def portal_origination_signed_packet(request, application_id: str):
         from origination.services.loan_origination import _record_event
         from origination.services.origination_esign import signed_package_content
         package, content = signed_package_content(package_id=package.pk)
+        document_key = str(request.GET.get('document_key') or '').strip()
+        if document_key:
+            from origination.services.application_copies import signed_document_content
+            content, _selected = signed_document_content(package, content, document_key)
         preview_format = str(request.GET.get('preview_format') or 'pdf').strip().lower()
         page_number = int(request.GET.get('page') or 1)
         if preview_format == 'image':
@@ -1850,6 +1854,7 @@ def portal_origination_signed_packet(request, application_id: str):
                         else 'view'
                     ),
                     'signed_document_hash': package.signed_document_hash,
+                    'document_key': document_key,
                 },
             )
     except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
@@ -2080,13 +2085,13 @@ def portal_origination_document_preview(request, application_id: str, document_k
             raise OriginationConflict('This application changed. Refresh before previewing it.')
         content = render_document(application, document_key)
         preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
-        mark_document_previewed(application, document_key)
+        complete = mark_document_previewed(application, document_key, allow_incomplete=body.get('allow_incomplete') is True)
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
             from origination.services.loan_origination import _record_event
             _record_event(
                 application, 'supporting_document_previewed', actor=request.origination_user,
-                request_id=request_id, after={'document_key': document_key},
+                request_id=request_id, after={'document_key': document_key, 'complete': complete},
             )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -2105,6 +2110,7 @@ def portal_origination_document_preview(request, application_id: str, document_k
     else:
         response = HttpResponse(content, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}.pdf"'
+    response['X-Preview-Complete'] = 'true' if complete else 'false'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

@@ -175,6 +175,54 @@ Results contain application-local `receipt_id`, target, status, freshness,
 States are `not_checked`, `checking`, `matched`, `not_matched`, `unavailable`, or
 `unknown`; freshness distinguishes current, changed and expired evidence.
 
+GET and receipts now identify the environment. Sandbox feedback is explicitly
+labelled `Sandbox test`; a test mismatch is not presented without that context.
+This label does not assert which pairs Safaricom's sandbox supports.
+
+### Check again and diagnostics (21 October 2026)
+
+After a result, the refresh icon beside it means **Check again**, not merely
+reload the saved status. It opens one confirmation with the saved phone/ID
+suffixes and warns that a charge may apply. Cancellation sends no check. While
+a check is running the icon is disabled. It remains available in read-only
+applications to authorized Origination IT/Superusers; it never grants editing
+or approval authority.
+
+The confirmed POST adds `"fresh_check": true` and uses a new stable request key.
+Only a Boolean is accepted. This bypasses thirty-day conclusive-result reuse
+for this action only; default/false requests retain normal reuse. An in-flight
+attempt is joined before either reuse or new dispatch, including when an older
+conclusive result exists. Same-key retries return the same receipt without a
+second call. Adding the flag to a previous ordinary request key is a conflict,
+not permission to reinterpret it. Historical ordinary fingerprints stay valid.
+All existing scope, confirmation, value/revision, throttle and daily-allowance
+checks remain. Prior outcomes/receipts are never deleted or rewritten.
+
+New calls emit structured INFO messages beginning:
+
+```text
+Origination Daraja phone check request:
+Origination Daraja phone check response:
+```
+
+In Render logs, search for that prefix or the safe `requestRefID`. The diagnostic
+includes environment, provider URL, request structure, identifier lengths, HTTP
+status, allowlisted response code/status/reference fields and interpretation.
+Known response envelopes retain their structure with free text/other values
+omitted or redacted. Phone/ID values and all credentials are excluded; OAuth
+payloads are never logged. This is a safe diagnostic view, not an unrestricted
+raw request/response archive, and it cannot recover earlier discarded bodies.
+
+The same final diagnostic is retained as `provider_exchange` in the existing
+Integration Operation metadata. In Django Admin, open **Integration operations**,
+filter integration `daraja` and type `origination_phone_identity`, and inspect
+the matching operation's metadata. `source_id` is the attempt UUID sent as
+`requestRefID`; an application-local `receipt_id` is a different identifier.
+Neither HTTP 200 nor operation success alone establishes a positive match.
+Old operations have no diagnostic backfill. GET/reuse does not make a provider
+call or manufacture a new exchange log. Provider response parsing is unchanged;
+logging is not proof that the external contract or a live result is correct.
+
 - `200`: conclusive evidence or reuse; `202`: existing execution pending.
 - `400`: invalid input/confirmation; `403`: current pilot authority denied.
 - `409`: revision/identity/request-key conflict.
@@ -230,6 +278,25 @@ new style is a scoped 44px minimum target, matching existing controls. No lab
 tokens, foundation migration, visual-baseline refresh or Phase 6 activation is
 included. The source ratchet's `changes` references this record; legacy hashes
 remain untouched. Design Lab source discovery follows the template's new script.
+
+The 21 October user-requested extension reuses the existing Origination refresh
+glyph and icon-button pattern beside the result, with a 44px target and wrapping
+status text. It adds no global design tokens or unrelated UI changes. The real
+shell browser suite covers fresh/reused outcomes, explicit fresh flag and new
+request key, cancellation, double click, loading, failure, stale revision,
+non-IT denial and read-only applications. Eleven Chromium checks passed in the
+initial UI run. Light/dark screenshots were inspected at 360px under:
+
+```text
+test-results/playwright/origination_phone_identity-257d7-quests-a-fresh-check-light-/phone-check-again-light.png
+test-results/playwright/origination_phone_identity-cc913-equests-a-fresh-check-dark-/phone-check-again-dark.png
+```
+
+These are temporary synthetic candidate evidence, not approved baselines or
+proof of deployed fonts/native Telegram behaviour. The HTML bumps only the
+changed phone-check script and compact stylesheet cache versions. Deploy and
+collect static assets normally; no new migration, setting or dependency is
+needed for this extension. Do not enable production provider calls implicitly.
 
 `core/tests_browser/origination_phone_identity.spec.js` renders the real
 Origination shell, styles, field renderer and action controller with synthetic

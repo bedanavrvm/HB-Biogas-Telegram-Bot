@@ -473,27 +473,27 @@
     },
     {
       "path": "origination/static/miniapp/phone_identity_checks.js",
-      "sha256": "1f97585a65cb25229ce162225f69fe5968413809dc331b052b4ae89542063fd7",
+      "sha256": "88a2a7abb96ee187a9e66c8e15461f0bd55a8c66f7fff8e0a1f379b7418c9ec4",
       "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "User-requested IT-only inline action candidate: existing buttons and Telegram confirmation; field validation, save-before-confirm, scoped status polling and neutral outcomes. Synthetic source-faithful evidence is not human approval; no live API calls, token migration or visual baseline update."
+      "reason": "User-requested IT-only fresh-check icon and explicit charge confirmation, using the existing refresh glyph; sandbox results are labelled. Real-shell light/dark, cancel, double-click, failure and scope evidence is synthetic candidate evidence, not human approval or Phase 6 migration."
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "43aedb798cefa206ca68175ab162ac14b221edde439615f74949f9d3ae13d3fd",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Preserves the earlier document-management changes; adds the explicitly requested IT-only inline phone-check candidate using existing fields and confirmation. Source-bound mobile light/dark and failure evidence is synthetic, not human approval. No candidate tokens or Phase 6 migration."
+      "sha256": "3beb54059845ea185f80edb7301a86ceff5a5e6e3ec84e21fd8f8863fe45f04d",
+      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
+      "reason": "User-approved scoped application simplification: one page per support document, shared-value summaries, header dial/copy actions and confirmed Guarantor 2 clearing. Preserves the phone-check/recheck candidate and uses existing patterns. Synthetic source-bound light/dark, failure and recovery evidence is not human baseline approval or Phase 6 migration."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "6258a199ec1bec066f90dbb91b6fc8a3d1c4b1410fba842ec172e32854dc1751",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Preserves existing supporting-form rules; the new phone action alone reuses the established 44px touch minimum. A narrow candidate declaration, not a theme migration or baseline approval."
+      "sha256": "2e00591a5223c4329540e642d6f764699be4af481d0d4dea95701451066d3f39",
+      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
+      "reason": "Scoped compact header contacts and read-only shared-value summaries retain existing form sizes, theme and icon patterns; new links use readable theme text in dark mode. Preserves wrapping phone-check feedback. Real-shell mobile evidence accompanies the candidate; no tokens, visual baselines or cross-app migration changed."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "579309de48238a14d558cb13f85f1a44f5aaf9d3e5c251f9257e4d6d944a6a25",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Nonvisual loading and cache-version changes for the requested advisory phone-check script. Existing foundations, legacy source baselines and migration hold remain unchanged."
+      "sha256": "3e295db3b6d8919d1789b3f6354adbfc4d543c02a736a621858183a344c2a231",
+      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
+      "reason": "Nonvisual static cache-version changes for the scoped application/document simplification, retaining the advisory phone-check script. Existing foundations, legacy baselines and Phase 6 migration hold remain unchanged."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",

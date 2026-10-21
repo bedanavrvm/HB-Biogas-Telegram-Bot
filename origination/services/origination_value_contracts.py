@@ -483,6 +483,17 @@ def application_input_schema(application: Any) -> dict:
     contract = packet_contract(application)
     schema['fields'] = [deepcopy(field) for field in contract['fields'].values()
                         if field['value_contract']['source'] == 'entered']
+    # Presentation provenance only: the full shared contract remains available
+    # to validation and persistence. Never write this onto captured schemas.
+    owners = {field['key']: {'kind': 'main', 'section_key': field.get('section_key') or 'document_details'}
+              for field in _fields(application_document_schema(application))}
+    for document in application.packet_documents.all():
+        if not document.selected or not getattr(document, 'applicable', True) or document.document_role == 'primary':
+            continue
+        for field in _fields(application_document_schema(application, document)):
+            owners.setdefault(field['key'], {'kind': 'document', 'document_key': document.document_key})
+    for field in schema['fields']:
+        field['input_owner'] = owners[field['key']]
     sections = schema.setdefault('sections', [])
     known = {section['key'] for section in sections}
     labels = {}

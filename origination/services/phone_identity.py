@@ -114,7 +114,7 @@ def _reset_at(when):
 
 
 def _receipt(event, application, current_pair=None):
-    check = Check.objects.select_related('subject').get(pk=event.metadata['check_id'])
+    check = Check.objects.select_related('subject', 'operation').get(pk=event.metadata['check_id'])
     now = timezone.now()
     state = 'unavailable' if check.state == 'failed' else check.state
     if state in {'pending', 'running'}:
@@ -129,6 +129,7 @@ def _receipt(event, application, current_pair=None):
     retry = max(0, int((_reset_at(check.completed_at or now) - now).total_seconds())) if code == 'daily_limit' else 0
     return {
         'receipt_id': str(event.pk), 'target': event.metadata['target'], 'status': state,
+        'environment': check.operation.metadata.get('environment', settings.DARAJA_ENVIRONMENT if applies else ''),
         'freshness': freshness, 'applies_to_current_values': applies,
         'reused': bool(event.metadata.get('reused')),
         'checked_at': check.completed_at.isoformat() if check.completed_at else None,
@@ -142,7 +143,8 @@ def projection(application, actor, access=None):
     if not allowed(application, actor, access):
         return None
     error = provider.configuration_error()
-    result = {'allowed': True, 'enabled': not error, 'reason': error, 'revision': application.revision, 'targets': []}
+    result = {'allowed': True, 'enabled': not error, 'reason': error, 'environment': settings.DARAJA_ENVIRONMENT,
+              'revision': application.revision, 'targets': []}
     for target, mapping in targets(application).items():
         item = {**mapping, 'target': target, 'can_check': False, 'subject_token': '',
                 'status': 'not_checked', 'freshness': 'none'}
@@ -164,6 +166,10 @@ def _fingerprint(body, actor):
     value = [str(actor.pk), *[body.get(key) for key in (
         'target', 'revision', 'subject_token', 'confirmed', 'confirmation_version',
     )]]
+    # Keep historical ordinary-request fingerprints valid; only the explicit
+    # fresh action introduces a new request meaning.
+    if body.get('fresh_check') is True:
+        value.append({'fresh_check': True})
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -172,6 +178,7 @@ def _event(application, actor, request_id, body, check, action, reused):
     _record_event(application, EVENT_PREFIX + action, actor=actor, request_id=request_id,
                   adopt_form_projection=False, metadata={
                       'check_id': str(check.pk), 'target': body['target'], 'reused': reused,
+                      'fresh_check': body.get('fresh_check') is True,
                       'confirmation_version': 1, 'confirmed_at': timezone.now().isoformat(),
                       'request_fingerprint': _fingerprint(body, actor),
                   })
@@ -205,20 +212,22 @@ def _admit(application_id, actor, request_id, body):
     subject, _ = Subject.objects.get_or_create(provider_context=provider.provider_context(), subject_hmac=provider.subject_digest(*values))
     subject = Subject.objects.select_for_update().get(pk=subject.pk)
     now = timezone.now()
-    conclusive = subject.checks.filter(state__in=['matched', 'not_matched'], reusable_until__gt=now).order_by('-completed_at').first()
-    if conclusive:
-        return application, _event(application, actor, request_id, body, conclusive, 'reused', True), None
     active = subject.checks.filter(state__in=['pending', 'running']).first()
     if active and active.created_at + timedelta(seconds=LEASE_SECONDS) > now:
         return application, _event(application, actor, request_id, body, active, 'joined', True), None
     if active:
         active.state, active.error_code, active.completed_at = 'unknown', 'unknown', now
         active.save(update_fields=['state', 'error_code', 'completed_at'])
+    if body.get('fresh_check') is not True:
+        conclusive = subject.checks.filter(state__in=['matched', 'not_matched'], reusable_until__gt=now).order_by('-completed_at').first()
+        if conclusive:
+            return application, _event(application, actor, request_id, body, conclusive, 'reused', True), None
     check_id = uuid.uuid4()
     operation, _ = reserve_operation(
         integration=IntegrationOperation.INTEGRATION_DARAJA, operation_type='origination_phone_identity',
         deduplication_key=f'origination.phone-id:{check_id}', source_model=Check._meta.label,
         source_id=str(check_id), request_id=request_id, requested_by=actor, max_attempts=1,
+        metadata={'environment': settings.DARAJA_ENVIRONMENT, 'fresh_check': body.get('fresh_check') is True},
     )
     check = Check.objects.create(id=check_id, subject=subject, operation=operation)
     return application, _event(application, actor, request_id, body, check, 'requested', False), check
@@ -253,7 +262,7 @@ def _before_dispatch(check, actor, application_id, target, values, operation):
 
 
 @transaction.atomic
-def _finish(check, operation, *, outcome=None, code='', uncertain=False, provider_code=''):
+def _finish(check, operation, *, outcome=None, code='', uncertain=False, provider_code='', diagnostics=None):
     Subject.objects.select_for_update().get(pk=check.subject_id)
     saved = Check.objects.select_for_update().get(pk=check.pk)
     current_op = IntegrationOperation.objects.select_for_update().get(pk=operation.pk)
@@ -270,6 +279,9 @@ def _finish(check, operation, *, outcome=None, code='', uncertain=False, provide
         saved.state = 'unknown' if uncertain else 'failed'
         saved.error_code, saved.provider_code = code, provider_code
     saved.save(update_fields=['state', 'provider_code', 'provider_response_ref', 'error_code', 'completed_at', 'reusable_until'])
+    if diagnostics:
+        current_op.metadata = {**current_op.metadata, 'provider_exchange': diagnostics}
+        current_op.save(update_fields=['metadata'])
 
 
 def _execute(check, application, actor, target):
@@ -281,10 +293,11 @@ def _execute(check, application, actor, target):
             with external_call_budget(20):
                 outcome = provider.validate(phone=values[0], national_id=values[1], request_ref=str(check.pk),
                     before_dispatch=lambda: _before_dispatch(check, actor, application.pk, target, values, operation))
-            _finish(check, operation, outcome=outcome)
+            _finish(check, operation, outcome=outcome, diagnostics=outcome.diagnostics)
             return {'id': str(check.pk)}
         except provider.ProviderFailure as exc:
-            _finish(check, operation, code=exc.code, uncertain=exc.uncertain, provider_code=exc.provider_code)
+            _finish(check, operation, code=exc.code, uncertain=exc.uncertain, provider_code=exc.provider_code,
+                    diagnostics=exc.diagnostics)
             raise
         except PhoneIdentityError as exc:
             _finish(check, operation, code=exc.code, uncertain=exc.code == 'unknown')
@@ -310,9 +323,12 @@ def _execute(check, application, actor, target):
 
 
 def request_check(*, application_id, actor, request_id: str, body: dict):
-    accepted = {'target', 'revision', 'subject_token', 'confirmed', 'confirmation_version', 'client_request_id', 'request_id'}
+    accepted = {'target', 'revision', 'subject_token', 'confirmed', 'confirmation_version',
+                'client_request_id', 'request_id', 'fresh_check'}
     if not isinstance(body, dict) or set(body) - accepted:
         raise PhoneIdentityError('invalid_request', 'Supply only the saved target, revision, confirmation and request identity.')
+    if 'fresh_check' in body and type(body['fresh_check']) is not bool:
+        raise PhoneIdentityError('invalid_request', 'The fresh-check option must be a Boolean.')
     if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128:
         raise PhoneIdentityError('request_id_required', 'A valid request key is required.')
     if not isinstance(body.get('target'), str) or body['target'] not in {'primary', 'alternate'}:

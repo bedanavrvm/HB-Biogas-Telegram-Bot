@@ -248,6 +248,49 @@ class PacketValueSaveTests(TestCase):
         self.assertEqual(keys.count('applicant_name'), 1)
         self.assertNotIn('visited', keys)
 
+    def test_input_owners_are_response_only_and_support_only_values_have_one_owner(self):
+        original_main = deepcopy(self.application.schema_snapshot)
+        original_support = deepcopy(self.document.schema_snapshot)
+        second = OriginationApplicationDocument.objects.create(application=self.application, document_key='second_visit',
+            document_role='supporting', name='Second visit', selected=True, applicable=True,
+            schema_snapshot=deepcopy(original_support), display_order=2)
+        projected = application_input_schema(self.application)
+        fields = {item['key']: item for item in projected['fields']}
+        self.assertEqual(fields['applicant_name']['input_owner'], {'kind': 'main', 'section_key': 'applicant'})
+        self.assertEqual(fields['extra_shared']['input_owner'], {'kind': 'document', 'document_key': 'visit'})
+        self.assertNotIn('visit_notes', fields)
+        self.assertNotIn('visited', fields)
+        self.application.refresh_from_db(); self.document.refresh_from_db()
+        self.assertEqual(self.application.schema_snapshot, original_main)
+        self.assertEqual(self.document.schema_snapshot, original_support)
+        self.document.selected = False
+        self.document.save(update_fields=['selected'])
+        fields = {item['key']: item for item in application_input_schema(self.application)['fields']}
+        self.assertEqual(fields['extra_shared']['input_owner']['document_key'], second.document_key)
+
+    def test_unlink_and_clear_second_guarantor_does_not_change_spouse(self):
+        fields = [field(f'{role}_{kind}', subject=role) for role in ['spouse', 'guarantor_1', 'guarantor_2']
+                  for kind in ['name', 'national_id', 'phone']]
+        self.application.schema_snapshot = schema(*fields)
+        self.application.form_payload = {f'{role}_{kind}': f'Synthetic {role} {kind}'
+            for role in ['spouse', 'guarantor_1', 'guarantor_2'] for kind in ['name', 'national_id', 'phone']}
+        self.application.save(update_fields=['schema_snapshot', 'form_payload'])
+        self.document.selected = False
+        self.document.save(update_fields=['selected'])
+        linked = save_application_fields(application_id=self.application.pk, actor=self.officer,
+            payload={'_person_role_bindings': {'guarantor_2': 'spouse'}}, expected_revision=self.application.revision, request_id='link-second')
+        cleared = save_application_fields(application_id=linked.pk, actor=self.officer,
+            payload={'_person_role_bindings': {}, **{f'guarantor_2_{kind}': '' for kind in ['name', 'national_id', 'phone']}},
+            expected_revision=linked.revision, request_id='clear-second')
+        self.assertEqual(cleared.form_payload['spouse_name'], 'Synthetic spouse name')
+        self.assertEqual(cleared.form_payload['guarantor_1_name'], 'Synthetic guarantor_1 name')
+        self.assertEqual(cleared.form_payload['guarantor_2_name'], '')
+        self.assertEqual(cleared.form_payload['_person_role_bindings'], {})
+        replay = save_application_fields(application_id=linked.pk, actor=self.officer,
+            payload={'_person_role_bindings': {}, **{f'guarantor_2_{kind}': '' for kind in ['name', 'national_id', 'phone']}},
+            expected_revision=linked.revision, request_id='clear-second')
+        self.assertEqual(replay.revision, cleared.revision)
+
     def test_generated_post_and_other_officer_fail_without_mutation(self):
         with self.assertRaises(OriginationError): self.save({'visited': '2026-10-08'})
         with self.assertRaises(OriginationError):
@@ -255,6 +298,30 @@ class PacketValueSaveTests(TestCase):
                 payload={'visit_notes': 'Unauthorized'}, expected_revision=self.application.revision, request_id='other')
         self.document.refresh_from_db()
         self.assertEqual(self.document.field_payload, {})
+
+    def test_confirmed_incomplete_preview_does_not_mark_document_ready(self):
+        from origination.services.origination_documents import mark_document_previewed
+        self.document.schema_snapshot = schema(field('visit_notes', scope='document', required=True))
+        self.document.save(update_fields=['schema_snapshot'])
+        with self.assertRaises(OriginationError):
+            mark_document_previewed(self.application, 'visit')
+        self.assertFalse(mark_document_previewed(self.application, 'visit', allow_incomplete=True))
+        self.document.refresh_from_db()
+        self.assertIsNone(self.document.previewed_application_revision)
+        self.assertIsNone(self.document.completed_at)
+        from django.test import RequestFactory
+        from origination.views import portal_origination_document_preview
+        request = RequestFactory().post('/', data={'revision': self.application.revision, 'allow_incomplete': True,
+            'preview_format': 'pdf', 'request_id': 'incomplete-preview'}, content_type='application/json')
+        request.origination_user = self.officer
+        with patch('origination.views._capability_error', return_value=None), \
+                patch('origination.views._application_access_error', return_value=None), \
+                patch('origination.views.render_document', return_value=b'%PDF-synthetic'):
+            response = portal_origination_document_preview(request, str(self.application.pk), 'visit')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['X-Preview-Complete'], 'false')
+        self.document.refresh_from_db()
+        self.assertIsNone(self.document.completed_at)
 
     def test_preview_does_not_invent_visit_or_money_events(self):
         context = preview_context(self.application)

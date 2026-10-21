@@ -1,5 +1,43 @@
 # Changelog
 
+## 21 October 2026 - Origination application and supporting-document pages
+
+- Replaced redundant supporting-document index/extra shared-field steps with
+  one fill-and-preview page per selected supporting document. Main LAF sections
+  remain grouped; shared values are entered once and reused through read-only
+  summaries with links to their input source.
+- Moved contact actions and scoped phone checks into the applicant-named header:
+  phones launch the dialler and National ID copies with success/failure feedback.
+- Fixed linked Guarantor 2 clearing, truthful save confirmation, document save
+  serialisation, navigation saves and document-aware encrypted draft recovery.
+- Confirmed incomplete document previews no longer imply readiness. Individual
+  signed previews retain exact manifest-bound source pages and never regenerate
+  signed documents. No schema, role or provider configuration changes.
+- Source-bound candidate and screenshot instructions:
+  `docs/ui-standard/origination-application-sections.md`. Normal code/static
+  deployment is required; no production changes or live-provider calls made.
+
+## 21 October 2026 - Origination phone-check diagnostics and check again
+
+- Added a compact refresh icon beside phone-check results. One explicit
+  confirmation requests a new provider check instead of reusing the old result;
+  it warns about possible cost. Ordinary requests retain thirty-day reuse.
+  Active checks are joined, double clicks/replays do not rebill, and current
+  Origination IT scope, saved-value checks and dispatch limits remain intact.
+- Added safe structured request/response diagnostics in logs and the existing
+  Integration Operation metadata. Personal identifiers, credentials and
+  untrusted free-text/body values are excluded; environment, request structure,
+  HTTP/code/status/reference and interpretation can be inspected. Earlier raw
+  bodies cannot be recovered. No production lookup was made to obtain logs.
+- Sandbox results are labelled. Mobile light/dark screenshots were reviewed
+  using the existing icon-button pattern; the source-bound candidate does not
+  approve foundations, update visual baselines or start Phase 6 migration.
+- No new schema, environment variable, role or dependency. Normal code/static
+  deployment is needed. Verification and remaining gates are in `KNOWN_GAPS.md`.
+- Final focused checks: 35 backend tests and eleven real-shell browser checks
+  passed; two PostgreSQL-only concurrency tests skipped. Lint, route/UI
+  integrity and whitespace checks passed. No live-provider success is claimed.
+
 ## 21 October 2026 - Origination phone-check request fix
 
 - Fixed phone verification being rejected by CSRF middleware before its

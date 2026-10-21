@@ -712,9 +712,9 @@ def render_document(
         raise OriginationError(str(exc)) from exc
 
 
-def mark_document_previewed(application: LoanOriginationApplication, document_key: str) -> None:
+def mark_document_previewed(application: LoanOriginationApplication, document_key: str, *, allow_incomplete: bool = False) -> bool:
     if application.status == application.STATUS_COMPLETED:
-        return  # Viewing a completed copy must not move its document dates.
+        return True  # Viewing a completed copy must not move its document dates.
     document = application.packet_documents.filter(document_key=document_key).first()
     if document and document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY:
         from origination.services.loan_origination import OriginationError, validate_form_payload
@@ -727,10 +727,13 @@ def mark_document_previewed(application: LoanOriginationApplication, document_ke
             require_complete=True,
         )
         if not result.valid:
+            if allow_incomplete and application.status in {'draft', 'correction_required'}:
+                return False  # A draft preview is not readiness or completion.
             raise OriginationError('Complete every required supporting-document field before previewing.', errors=result.errors)
         document.previewed_application_revision = application.revision
         document.completed_at = document.completed_at or timezone.now()
         document.save(update_fields=['previewed_application_revision', 'completed_at', 'updated_at'])
+    return True
 
 
 def mark_packet_previewed(application: LoanOriginationApplication) -> None:

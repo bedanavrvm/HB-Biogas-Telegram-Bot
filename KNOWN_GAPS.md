@@ -1,5 +1,76 @@
 # Known Gaps and Verified Workarounds
 
+## Origination application sections and supporting forms - 21 October 2026
+
+Implemented the scoped application simplification and preserved the existing
+phone-check/recheck work. Supporting forms have one page per selected applicable
+instance, one canonical input location for shared values, individual previews,
+and document-aware save/recovery. Header contacts are dial/copy actions rather
+than repeated disabled inputs. Linked Guarantor 2 clearing, overlapping saves,
+failed saves and encrypted recovery were exercised through the real Mini App shell.
+
+Final isolated run through `scripts/test_named_sheets.py` covered value contracts,
+document management, placement projection, unsigned completion, application
+downloads, identity copies, phone verification and retained signed-document
+preview: **166 tests run, 163 passed, 3 PostgreSQL-only tests skipped**. SQLite
+does not verify PostgreSQL row locking. The four related Playwright files ran
+**124 tests, all passed**, including independent supporting-document values,
+reused values, incomplete-preview confirmation, clipboard failure and recovery
+after reloading. Mobile light/dark and save-failure screenshots were inspected;
+reproduction/evidence is in `docs/ui-standard/origination-application-sections.md`.
+Ruff, JavaScript syntax, UI source ratchet and whitespace checks passed.
+
+The separate `core.tests_loan_origination_frontend` module retains four stale
+source-string failures (old wording and static cache versions). A read-only
+comparison against HEAD reproduced the same four failing test names; these are
+not evidence of new operational failures and were not rewritten to hide them.
+An initial ad-hoc Python test invocation omitted Django's test argv marker and
+therefore enabled production AccessGrant fixture guards; rerunning with the
+repository's isolated test harness resolved those setup errors without changing
+access-control code or production settings.
+
+Real Telegram dialler/clipboard permissions, native keyboard behaviour and exact
+production font rendering remain human/device checks. The local virtualenv
+(Python 3.14.6 / Django 5.1.6) differs from deployment pins. No production
+deployment, live provider request, schema migration, role grant, document upgrade,
+visual baseline approval or Phase 6 migration was performed.
+
+## Origination check-again and exchange diagnostics - 21 October 2026
+
+Implemented an explicitly confirmed fresh check without deleting prior
+verification evidence. Default reuse remains thirty days. The same request key
+cannot be repurposed from reuse to fresh dispatch; pending attempts are joined
+before an older conclusive result can be reused. Scope, confirmation, value
+binding, throttle and daily allowance are unchanged. There are no automatic
+paid retries.
+
+New provider calls emit allowlisted, redacted request/response diagnostics and
+retain that safe view in Integration Operation metadata. This cannot restore
+old discarded payloads and does not establish the cause of the reported live
+mismatch. Exact Safaricom KYC sandbox fixtures/response contract still need
+provider confirmation; no real call was made. No full identifiers, credentials
+or unrestricted provider text are logged. Operator instructions and candidate
+screenshots: `codebase-analysis-docs/assets/PHONE_ID_CHECKS.md`.
+
+The initial browser run passed eleven real-shell tests, including light/dark
+fresh-check icons, cancellation and double-click protection. Both new mobile
+screenshots were inspected; native Telegram and deployed font acceptance remain
+unverified. The original missing-icon and unsupported-fresh-request failures
+were reproduced before implementation. The final isolated backend run executed
+`manage.py test origination.tests_phone_identity --noinput --verbosity 1`:
+**35 passed, zero failed, two PostgreSQL-only concurrency tests skipped**.
+Coverage includes fresh-over-cache dispatch, preserved history, same-key replay,
+old ordinary fingerprint compatibility, in-flight joining, scoped signed
+Telegram transport, confirmation/allowance denials, diagnostic persistence and
+redaction of credentials/identifiers including echoed references/nested bodies.
+Ruff, the 202-route write inventory, UI source ratchet and whitespace checks
+passed. All Node/client checks and syntax checks for 147 first-party JavaScript
+files passed. SQLite comment and dependency deprecation warnings are unchanged.
+The local Python 3.14.6/Django 5.1.6 environment differs from deployment pins;
+PostgreSQL concurrency and production-runtime parity remain release checks.
+No schema migration, settings/credential change, role change, production
+deployment or live provider request was performed.
+
 ## Origination phone-check CSRF rejection - 21 October 2026
 
 The phone-check POST was missing the endpoint-local CSRF exemption used by
