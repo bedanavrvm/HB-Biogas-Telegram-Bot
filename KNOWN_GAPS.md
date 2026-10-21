@@ -1,5 +1,39 @@
 # Known Gaps and Verified Workarounds
 
+## Origination phone-check CSRF rejection - 21 October 2026
+
+The phone-check POST was missing the endpoint-local CSRF exemption used by
+other signed-Telegram Origination staff APIs. Production logs and a local
+middleware reproduction confirm it returned `CSRF token missing` before
+Telegram authentication, scoped IT authorization or provider dispatch. The
+generic permission message did not mean an Origination role was missing.
+
+The narrow fix retains verified Telegram identity, current Origination
+IT/Superuser scope, confirmation, idempotency, paid-call limits and no automatic
+paid retries. Regression tests exercise the mounted route with real synthetic
+Telegram HMACs and enforced CSRF checks; cookie-only and invalid Telegram
+requests, other-workflow IT and out-of-branch IT are denied. Provider calls are
+mocked and socket connections are blocked in the new transport tests.
+
+Final isolated verification: `manage.py test origination.tests_phone_identity
+--noinput --verbosity 1` ran 28 tests: **26 passed, zero failed, two skipped**.
+The skips require PostgreSQL row-lock/concurrency behaviour, not SQLite. The
+original middleware reproduction now reaches Telegram authentication and still
+denies unsigned requests. Ruff, the 202-route write inventory, UI source ratchet
+and `git diff --check` passed. The initial red run reproduced the CSRF rejection
+on an authorized signed request before the endpoint decorator was added.
+
+The local virtualenv uses Python 3.14.6/Django 5.1.6 rather than the repository's
+Python 3.12.3/Django 5.2.17 pins. Deployment-runtime parity, PostgreSQL concurrency,
+real Telegram and live-provider verification remain unverified; the wider
+repository test suite was not run. Existing SQLite table/column-comment warnings
+and a dependency deprecation warning remain unchanged.
+
+No production deployment, real Safaricom call, schema migration, dependency,
+credential or permission change is included. Normal code deployment is required
+before retesting the live action; do not disable global CSRF protection or grant
+unrelated roles as a workaround.
+
 ## HB Deposits implementation verification - 19 October 2026
 
 The pre-visit HB Deposits workspace, cumulative-total audit, FarmUp ownership

@@ -1,5 +1,22 @@
 # Changelog
 
+## 21 October 2026 - Origination phone-check request fix
+
+- Fixed phone verification being rejected by CSRF middleware before its
+  Telegram authentication and Origination IT authorization could run. The
+  exemption applies only to the phone-check endpoint, matching the existing
+  signed-Telegram staff API pattern; a browser login alone still grants no
+  access.
+- Added real-HMAC, CSRF-enforcing route tests for scoped IT, Superuser,
+  idempotent replay and explicit authentication/workflow/scope denials. Provider
+  calls are mocked. Roles, paid-call limits, reuse and retry rules are unchanged.
+- No migrations, settings changes or dependencies are required. Normal code
+  deployment is required for the live fix; no production deployment or real
+  Safaricom calls were performed. Verification details are in `KNOWN_GAPS.md`.
+- Focused verification: 26 tests passed, two PostgreSQL-only tests skipped;
+  lint and route/UI integrity checks passed. Deployment-runtime parity remains
+  unverified because the local virtualenv differs from the repository pins.
+
 ## 19 October 2026 - HB Deposits and JBL first-visit eligibility
 
 - Added HB Actions → Deposits for scoped HB staff to record cumulative HB totals

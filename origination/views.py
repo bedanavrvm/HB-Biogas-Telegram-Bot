@@ -226,6 +226,7 @@ def origination_app(request):
     return response
 
 
+@csrf_exempt  # Verified Telegram identity, not a session cookie, authorizes this staff API.
 @require_http_methods(['GET', 'POST'])
 def portal_origination_phone_identity_checks(request, application_id: str):
     from origination.services.phone_identity import PhoneIdentityError, projection, request_check, require_access

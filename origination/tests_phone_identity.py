@@ -10,11 +10,12 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection, connections, IntegrityError, transaction
-from django.test import TestCase, SimpleTestCase, TransactionTestCase, override_settings
+from django.test import Client, TestCase, SimpleTestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, IntegrationOperation, IntegrationCircuitState
+from core.models import AccessGrant, IntegrationOperation, IntegrationCircuitState, UserProfile
+from core.tests_telegram_authentication import BOT_TOKEN, signed_init_data
 from origination.models import (
     LoanOriginationApplication, OriginationProductDefinition,
     OriginationPhoneIdentityCheck as Check, OriginationPhoneIdentityDailyUsage as Usage,
@@ -326,6 +327,111 @@ class PhoneIdentityTests(Fixtures, TestCase):
         self.client.force_login(self.officer)
         self.assertEqual(self.client.get(url).status_code, 403)
         self.assertEqual(self.client.post(url, json.dumps(body), content_type='application/json').status_code, 403)
+
+
+@override_settings(
+    **CONFIG,
+    TELEGRAM_BOT_TOKEN=BOT_TOKEN,
+    ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=True,
+    ORIGINATION_WEBAPP_AUTH_MAX_AGE_SECONDS=86400,
+    REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True,
+    SECURE_SSL_REDIRECT=False,
+)
+class PhoneIdentityTelegramTransportTests(Fixtures, TestCase):
+    """Exercise the mounted route with real Telegram HMAC and CSRF middleware."""
+
+    def setUp(self):
+        network = patch('socket.socket.connect', side_effect=AssertionError('External network forbidden'))
+        network.start()
+        self.addCleanup(network.stop)
+        validation = patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
+        self.validate = validation.start()
+        self.addCleanup(validation.stop)
+        self.setup_data()
+        self.actor.is_superuser = False
+        self.actor.save(update_fields=['is_superuser'])
+        AccessGrant.objects.create(
+            user=self.actor, workflow='loan_origination', role='IT', branch='Synthetic Branch',
+        )
+        for user, telegram_id in ((self.actor, '731901'), (self.officer, '731902')):
+            UserProfile.objects.update_or_create(user=user, defaults={'telegram_id': telegram_id})
+        self.client = Client(enforce_csrf_checks=True)
+        self.url = reverse('loan_origination_phone_identity_checks', args=[self.app.pk])
+        self.headers = {'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731901})}
+        self.payload = {**self.body(), 'client_request_id': 'synthetic-telegram-phone-check'}
+
+    def post(self, headers):
+        return self.client.post(self.url, json.dumps(self.payload), content_type='application/json', **headers)
+
+    def assert_no_dispatch(self):
+        self.validate.assert_not_called()
+        self.assertFalse(Check.objects.exists())
+        self.assertFalse(Usage.objects.exists())
+
+    def test_scoped_it_can_check_without_csrf_token_and_replay_does_not_rebill(self):
+        response = self.client.get(self.url, **self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assert_no_dispatch()
+        first = self.post(self.headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['result']['status'], 'matched')
+        self.assertIn('no-store', first['Cache-Control'])
+        replay = self.post(self.headers)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(first.json()['result']['receipt_id'], replay.json()['result']['receipt_id'])
+        self.assertEqual(self.validate.call_count, 1)
+        self.assertEqual(Usage.objects.get().dispatch_count, 1)
+
+    def test_active_superuser_can_check_with_signed_telegram_identity(self):
+        self.actor.is_superuser = True
+        self.actor.save(update_fields=['is_superuser'])
+        response = self.post(self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.validate.call_count, 1)
+
+    def test_cookie_session_without_signed_telegram_identity_is_rejected(self):
+        self.client.force_login(self.actor)
+        response = self.post({})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['code'], 'authentication_required')
+        self.assert_no_dispatch()
+
+    def test_invalid_or_expired_telegram_identity_is_rejected(self):
+        invalid = {
+            'missing': '',
+            'unsigned': signed_init_data(user={'id': 731901}, include_hash=False),
+            'expired': signed_init_data(auth_date=1, user={'id': 731901}),
+            'tampered': signed_init_data(user={'id': 731901}, include_hash=False) + '&hash=' + '0' * 64,
+        }
+        for reason, init_data in invalid.items():
+            with self.subTest(reason=reason):
+                response = self.post({'HTTP_X_TELEGRAM_INIT_DATA': init_data})
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()['code'], 'authentication_required')
+                self.assert_no_dispatch()
+
+    def test_other_workflow_it_does_not_grant_origination_access(self):
+        AccessGrant.objects.create(user=self.officer, workflow='jawabu_portal', role='IT')
+        response = self.post({'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731902})})
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['ok'])
+        self.assert_no_dispatch()
+
+    def test_officer_or_wrong_branch_it_cannot_check(self):
+        AccessGrant.objects.create(
+            user=self.officer, workflow='loan_origination', role='JBL_OFFICER', branch='Synthetic Branch',
+        )
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731902})}
+        for role in ('officer', 'other_branch_it'):
+            with self.subTest(role=role):
+                if role == 'other_branch_it':
+                    AccessGrant.objects.create(
+                        user=self.officer, workflow='loan_origination', role='IT', branch='Other Branch',
+                    )
+                response = self.post(headers)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()['code'], 'forbidden')
+                self.assert_no_dispatch()
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Requires PostgreSQL row locks and partial uniqueness')

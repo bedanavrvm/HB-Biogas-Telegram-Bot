@@ -143,6 +143,16 @@ GET/POST:
 `/api/origination/api/applications/<application_id>/phone-id-checks/`.
 Use the current signed Telegram identity and existing idempotency headers.
 
+This endpoint is CSRF-exempt because every staff request is authenticated by
+verified Telegram `initData`, not by a browser session cookie. The Origination
+authentication wrapper and the scoped-IT/Superuser service authorization still
+run for every request. A cookie-only login, missing/invalid/expired Telegram
+signature, another Mini App's IT role or an out-of-scope grant cannot authorize
+a check. Do not disable CSRF middleware globally or add cookie authentication
+as a fallback. The 21 October fix corrects the missing endpoint exemption that
+caused `CSRF token missing` before these checks could execute; it requires only
+normal code deployment, not a new migration or configuration change.
+
 GET returns `phone_id_checks` with server-resolved targets, eligibility, application
 revision, opaque saved-value token and this application's receipt-linked status.
 It does not expose shared results before this application confirms their use.
