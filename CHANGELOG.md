@@ -1,5 +1,21 @@
 # Changelog
 
+## 22 October 2026 - Origination compact application corrections
+
+- Compact applicant header with plain document-action icons and dial/copy
+  contacts; registration details expand on demand rather than stretching it.
+- One Main LAF/supporting field renderer, aligned feedback below controls,
+  grey read-only reused values without source links, and stable card identity slots.
+- Combined incomplete previews now honour explicit confirmation without marking
+  readiness; malformed supplied values and signing/submission rules remain checked.
+- Explicit front/back camera capture, retake and file selection reuse existing
+  ID-to-PDF collation and preserve staged photos on upload failure.
+- Add permanent ORG-N display references through checked-in migration 0012;
+  original references, historical documents and signed bytes are unchanged.
+- Candidate and reproducible screenshot evidence:
+  `docs/ui-standard/origination-ui-corrections.md`. No cross-app migration or
+  production/provider action is included.
+
 ## 21 October 2026 - Origination application and supporting-document pages
 
 - Replaced redundant supporting-document index/extra shared-field steps with

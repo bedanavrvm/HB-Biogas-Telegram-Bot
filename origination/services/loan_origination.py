@@ -39,6 +39,12 @@ class OriginationConflict(OriginationError):
     """The caller attempted to change a stale application revision."""
 
 
+class OriginationPreviewConfirmationRequired(OriginationError):
+    """A renderable draft is incomplete, not invalid or ready for submission."""
+
+    code = 'incomplete_preview_confirmation_required'
+
+
 class OriginationRecallConfirmationRequired(OriginationConflict):
     """A recall discovered a prepared packet the officer has not confirmed."""
 
@@ -1366,9 +1372,12 @@ def create_application(
                 template_configuration_snapshot = _published_template_configuration(definition)
             if 'field_overlay_manifest' in template_configuration_snapshot:
                 schema_snapshot['form_projection_version'] = 1
+            from origination.services.application_references import next_application_reference
+            reference = next_application_reference()
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
-                reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
+                reference_number=reference,
+                display_reference=reference,
                 product_definition=definition,
                 product_version=definition.product_version,
                 officer=officer,
@@ -2739,6 +2748,7 @@ def serialize_application(
         )
     payload = {
         'id': str(application.pk), 'reference_number': application.reference_number,
+        'display_reference': application.display_reference or application.reference_number,
         'product_key': application.product_definition.product_key,
         'product_name': application.product_definition.name,
         'product_version': application.product_definition.version,

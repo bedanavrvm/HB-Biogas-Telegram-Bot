@@ -1,5 +1,31 @@
 # Known Gaps and Verified Workarounds
 
+## Origination UI corrections - 22 October 2026
+
+Implemented the compact header/plain icons, aligned Main LAF/supporting field
+renderer, grey read-only reused values without links, explicit front/back camera
+capture, truthful incomplete bundle preview and permanent short application
+references. Details/evidence: `docs/ui-standard/origination-ui-corrections.md`.
+
+Final related browser run: **139 passed**, with inspected screenshots under
+`test-results/origination-oct22-acceptance`. The 430px light/dark font metadata
+also records loaded Plus Jakarta Sans faces. Fresh isolated backend acceptance:
+**161 run, 159 passed, 2 PostgreSQL-only skips**. Reference concurrency is not
+claimed verified on SQLite. A separate 58-test migration/phone/field/frontend
+run had **52 passes, 2 skips and the same 4 older source-string failures** noted
+below; ownership upgrade/rollback completed. A migration-rewind run can leave a
+retained SQLite test database without seeded policy/audit rows, so final
+acceptance used `--fresh-database` instead of relying on its leftover state.
+Final missing-value card spacing was corrected after screenshot inspection;
+all **9 focused card checks** passed and the updated capture is retained in
+`test-results/origination-oct22-card-spacing`.
+
+Ruff, JS syntax/field rules, Django checks, migration drift, UI source ratchet
+and whitespace checks passed. Physical Telegram camera/dialler/keyboard checks
+and PostgreSQL locking remain unverified. Migration 0012 is checked in for the
+normal release process; no production migration/deployment/provider calls were
+performed. Local runtime remains Python 3.14.6 / Django 5.1.6.
+
 ## Origination application sections and supporting forms - 21 October 2026
 
 Implemented the scoped application simplification and preserved the existing

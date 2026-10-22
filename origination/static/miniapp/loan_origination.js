@@ -80,6 +80,7 @@
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
   let activeCameraStream = null;
+  let cameraDialog = null;
   let sheetCleanup = null;
   let mainActionController = null;
   let lastActivatedButton = null;
@@ -304,6 +305,8 @@
       document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h6"/>',
       documents: '<path d="M15 3H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5M3 7v13a2 2 0 0 0 2 2h10"/>',
       copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/>',
+      phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7l.5 2.8a2 2 0 0 1-.6 1.7L7.7 9.5a16 16 0 0 0 6.8 6.8l1.3-1.3a2 2 0 0 1 1.7-.6l2.8.5a2 2 0 0 1 1.7 2Z"/>',
+      camera: '<path d="M14.5 4h-5L7 7H3v13h18V7h-4Z"/><circle cx="12" cy="13" r="4"/>',
       download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
       undo: '<path d="M3 7v6h6M3 13l4-4a7 7 0 1 1 1 10"/>',
     };
@@ -443,7 +446,7 @@
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
       try {
-        if (sheetMode || reviewDialogMode || previewOpen || current || document.querySelector('.recovery-dialog[open]')) tg.BackButton.show?.();
+        if (cameraDialog || sheetMode || reviewDialogMode || previewOpen || current || document.querySelector('.recovery-dialog[open]')) tg.BackButton.show?.();
         else tg.BackButton.hide?.();
       } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
@@ -717,6 +720,7 @@
   }
 
   function closeSheet({ restoreFocus = true } = {}) {
+    cameraDialog?.close();
     sheetCleanup?.(); sheetCleanup = null;
     window.OriginationSigningCompletion?.active?.dispose();
     const overlay = document.getElementById('origination-sheet-overlay');
@@ -1620,20 +1624,24 @@
     return ` data-rule-field="${escapeHtml(JSON.stringify({type: field.type, validation: field.validation || {}, options: field.options || []}))}"`;
   }
 
-  function fieldInput(field, value, disabled, documentContext = null) {
+  function fieldInput(field, value, disabled, documentContext = null, readOnly = false) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(normalizeLabel(field));
-    const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
+    const classes = `laf-field miniapp-aligned-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
-    if (field.type === 'repeating_group') {
+    if (readOnly && field.type !== 'repeating_group') {
+      const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-reused-field="${key}" type="text" readonly aria-readonly="true" value="${escapeHtml(readOnlyFieldValue(field,value))}" placeholder="Not entered"></div>`;
+    } else if (field.type === 'repeating_group') {
       const structure = field.structure || {};
       const columns = structure.columns || [];
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 20);
       const policyBound = field.key === 'loan_fees';
       const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel, repeatableGridStyle(field))).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
+      const binding = readOnly ? `data-readonly-repeatable="${key}"` : `data-repeatable-field="${key}" data-main-repeatable="${key}"`;
+      control = `<div class="repeatable-field" ${binding} data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel, repeatableGridStyle(field))).join('')}</div>${policyBound || readOnly ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
     } else if (field.type === 'branch') {
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
@@ -1681,7 +1689,7 @@
         : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${disabled ? ' disabled' : ''}>`;
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
-    if (field.type !== 'repeating_group') {
+    if (field.type !== 'repeating_group' && !readOnly) {
       control = control.replace(/<(input|select|textarea)\b/g, match => match + ruleAttributes(field) + (field.required ? ' aria-required="true"' : ''));
     }
     const identifierHelp = field.type === 'national_id' ? '' : '';
@@ -1692,13 +1700,27 @@
       ? requiredDocuments.length === 1 && requiredDocuments[0].length <= 50
         ? `Required for ${requiredDocuments[0]}` : 'Required by a supporting document'
       : '';
-    const helpText = [field.help_text, identifierHelp, requirementHelp].filter(Boolean).join(' ');
+    const helpText = readOnly ? '' : [field.help_text, identifierHelp, requirementHelp].filter(Boolean).join(' ');
     const help = helpText ? `<small class="field-help">${escapeHtml(helpText)}</small>` : '';
-    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
+    const correction = !readOnly && ['ready_for_review', 'signed_pending_approval'].includes(current.status)
       ? documentContext ? correctionToggle('document_field', `${documentContext.key}.${field.key}`, `${documentContext.name}: ${field.label || field.key}`)
         : correctionToggle('field', field.key, normalizeLabel(field)) : '';
     const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
-    return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
+    const fieldId = `laf-${documentContext?.key || 'main'}-${key}`;
+    if (field.type !== 'repeating_group') control = control.replace(/<(input|select|textarea)\b/, match => `${match} id="${fieldId}" aria-describedby="${fieldId}-feedback"`);
+    return `<${wrapperTag} class="${classes}" ${readOnly ? 'data-reused-wrap' : 'data-field-wrap'}="${key}"><span class="field-label miniapp-field-caption">${label}${required}</span><div class="field-control">${control}</div><div class="field-feedback miniapp-field-feedback" id="${fieldId}-feedback">${help}${correction}</div></${wrapperTag}>`;
+  }
+
+  function readOnlyFieldValue(field, value) {
+    const empty = value === '' || value == null;
+    let display = empty ? '' : value;
+    if (field.type === 'choice') {
+      const option = (field.options || []).find(item => String(item?.code ?? item) === String(value));
+      display = option?.label || option?.code || display;
+    } else if (field.type === 'boolean' && !empty) display = value === true || value === 'true' ? 'Yes' : 'No';
+    else if (field.type === 'date' && !empty) display = formatKenyanDate(value);
+    else if (field.type === 'datetime' && !empty) display = new Date(value).toLocaleString('en-KE', {timeZone:'Africa/Nairobi'});
+    return display;
   }
 
   function numericInputError(input) {
@@ -2402,10 +2424,10 @@
       || fields.find(field => ['applicant_other_phone', 'applicant_alternative_phone', 'applicant_alternate_phone'].includes(field.key))?.key;
     const phones = [{label:'Phone',target:'primary',value:current.applicant_summary?.phone || current.form_payload?.[primary]},
       {label:'Alternative phone',target:'alternate',value:current.form_payload?.[alternate]}];
-    const rows = phones.filter(item => item.value || targets.some(target => target.target === item.target)).map(item =>
-      `<div class="editor-contact"><span class="editor-contact-label">${item.label}</span>${window.MiniAppUtils?.phoneLink?.(item.value) || escapeHtml(item.value || 'Not entered')}${targets.some(target => target.target === item.target) ? `<div data-phone-id-target="${item.target}" hidden></div>` : ''}</div>`);
+    const rows = phones.filter(item => item.value).map(item =>
+      `<div class="editor-contact" aria-label="${item.label}">${iconSvg('phone')}${window.MiniAppUtils?.phoneLink?.(item.value) || escapeHtml(item.value)}${targets.some(target => target.target === item.target) ? `<div data-phone-id-target="${item.target}" data-phone-id-compact hidden></div>` : ''}</div>`);
     const id = current.applicant_summary?.national_id;
-    if (id) rows.push(`<div class="editor-contact"><span class="editor-contact-label">National ID</span><button type="button" class="contact-copy" data-copy-applicant-id aria-label="Copy National ID">${escapeHtml(id)} ${iconSvg('copy')}</button></div>`);
+    if (id) rows.push(`<div class="editor-contact"><button type="button" class="contact-copy" data-copy-applicant-id aria-label="Copy National ID">${iconSvg('copy')} ${escapeHtml(id)}</button></div>`);
     return rows.join('');
   }
 
@@ -2467,7 +2489,7 @@
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = editable && application.status === 'draft'
       ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
-    root().innerHTML = `<header class="editor-summary"><div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><small>${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><div class="editor-contacts" aria-label="Applicant contacts"></div></header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<header class="editor-summary"><div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small>${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><div class="editor-contacts" aria-label="Applicant contacts"></div></header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     refreshHeaderContacts();
@@ -2560,53 +2582,20 @@
   }
 
   function supportingDocumentField(field, document, editable) {
-    const key = escapeHtml(field.key);
     const shared = current.form_payload?.[field.key];
     const isShared = current.value_contract_version === 2 && field.value_contract?.scope === 'application';
     const value = isShared ? shared ?? '' : document.field_payload?.[field.key] ?? '';
     const locked = field.source_type === 'system';
     const correctionKey = `${document.key}.${field.key}`;
     const disabled = !editable || locked || field.editable === false || !correctionAllows(isShared ? 'field' : 'document_field', isShared ? field.key : correctionKey);
-    if (field.type !== 'repeating_group') {
-      return fieldInput(field, value, disabled, isShared ? null : document)
-        .replaceAll('data-field="', 'data-document-field="');
-    }
-    const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
-    let control;
-    if (field.type === 'repeating_group') {
-      const structure = field.structure || {};
-      const columns = structure.columns || [];
-      const rows = Array.isArray(value) ? value : [];
-      const maxItems = Number(structure.max_items || 11);
-      const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel, repeatableGridStyle(field))).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0</span></strong></div></div>`;
-    } else if (field.type === 'choice') {
-      const options = (field.options || []).map(option => {
-        const code = option && typeof option === 'object' ? option.code : option;
-        const label = option && typeof option === 'object' ? (option.label || option.code) : option;
-        return `<option value="${escapeHtml(code)}"${value === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-      }).join('');
-      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select>`;
-    } else if (field.type === 'boolean') {
-      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;
-    } else if (field.type === 'textarea') {
-      control = `<textarea data-document-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value)}</textarea>`;
-    } else {
-      const type = field.type === 'datetime' ? 'datetime-local' : 'text';
-      control = field.type === 'date'
-        ? nativeDateControl(`data-document-field="${key}"${field.required ? ' required' : ''}`, value, disabled)
-        : `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
-    }
-    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
-      ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
-      : '';
-    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
-    return `<${wrapperTag} class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span><small class="field-error" aria-live="polite"></small>${correction}${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}</${wrapperTag}>`;
+    return fieldInput(field, value, disabled, document)
+      .replaceAll('data-field="', 'data-document-field="')
+      .replaceAll('data-main-repeatable=', 'data-document-repeatable=');
   }
 
   function supportingDocumentMarkup(document, editable) {
     const sharedValues = current?.value_contract_version === 2;
-    const fields = (document?.schema?.fields || []).filter(field => documentOwnsInput(field, document)).map(field =>
+    const fields = (document?.schema?.fields || []).map(field =>
       sharedValues && field.value_contract?.scope === 'application'
         ? {...field, ...(current.form_schema.fields.find(item => item.key === field.key) || {}), section_key:field.section_key} : field);
     const configured = document?.schema?.sections || [];
@@ -2616,19 +2605,14 @@
       if (!items.length) return '';
       const section = configured.find(item => item.key === key);
       const heading = section ? `<div class="section-title"><div><h4>${escapeHtml(section.label || key)}</h4>${section.help_text ? `<p>${escapeHtml(section.help_text)}</p>` : ''}</div></div>` : '';
-      return `<section class="supporting-form-section">${heading}<div class="laf-grid">${items.map(field => supportingDocumentField(field, document, editable)).join('')}</div></section>`;
+      return `<section class="supporting-form-section">${heading}<div class="laf-grid">${items.map(field => {
+        if (documentOwnsInput(field, document)) return supportingDocumentField(field, document, editable);
+        const value = field.value_contract?.source === 'entered'
+          ? current.form_payload?.[field.key] : document.resolved_values?.[field.key];
+        return fieldInput(field, value, true, document, true);
+      }).join('')}</div></section>`;
     }).join('');
-    const reused = sharedValues ? (document?.schema?.fields || []).filter(field => !documentOwnsInput(field, document)) : [];
-    const values = reused.map(field => {
-      const entered = field.value_contract?.source === 'entered';
-      const value = entered ? current.form_payload?.[field.key] : document.resolved_values?.[field.key];
-      const target = entered ? inputSectionKey(field) : '';
-      const section = wizardSections().find(item => item.key === target);
-      const display = Array.isArray(value) ? `${value.length} entries` : value === true ? 'Yes' : value === false ? 'No' : value;
-      const text = value === '' || value == null ? 'Not entered' : display;
-      return `<div><dt>${escapeHtml(field.label || field.key)}</dt><dd>${escapeHtml(text)}${section ? `<button type="button" class="shared-value-source" data-input-source="${escapeHtml(target)}" aria-label="Edit ${escapeHtml(field.label || field.key)} in ${escapeHtml(section.label)}">${escapeHtml(section.label)} ${iconSvg('arrowRight')}</button>` : ''}</dd></div>`;
-    }).join('');
-    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div>${values ? `<dl class="supporting-shared-values">${values}</dl>` : ''}${sections || (!values ? '<p class="field-help">No additional details needed. Preview this document above.</p>' : '')}`;
+    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div>${sections || '<p class="field-help">No additional details needed. Preview this document above.</p>'}`;
   }
 
   function correctionTargetStep(identity) {
@@ -2890,14 +2874,13 @@
     let uploadKey = requestKey('id-copy');
     openSheet({mode: 'id-capture', title: option.label, eyebrow: '',
       hint: 'Optional. Add both sides to save one PDF.', trigger,
-      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-id-side="${side}" hidden><span data-id-caption="${side}">Take / choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
+      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><button type="button" class="btn btn-secondary" data-id-camera="${side}" aria-label="Take ${side} photo">${iconSvg('camera')}<span data-id-caption="${side}">Take photo</span></button><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" data-id-side="${side}" hidden><span>Choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
       footer: '<button type="button" class="btn btn-secondary" data-id-cancel>Cancel</button><button type="button" class="btn btn-primary" data-id-upload>Save ID copy</button>',
     });
     const cleanup = () => Object.values(urls).forEach(url => URL.revokeObjectURL(url));
     sheetCleanup = cleanup;
     document.querySelector('[data-id-cancel]').onclick = () => {cleanup();closeSheet();};
-    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => {
-      const side = input.dataset.idSide, file = input.files?.[0];
+    const setPhoto = (side, file) => {
       if (!file) return;
       if (urls[side]) URL.revokeObjectURL(urls[side]);
       photos[side] = file; urls[side] = URL.createObjectURL(file);
@@ -2919,9 +2902,13 @@
         dialog.addEventListener('close',()=>{gestures?.dispose?.();dialog.remove();image.focus?.();},{once:true});
         display();dialog.showModal();
       };
-      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake / replace';
+      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake';
       tg?.HapticFeedback?.notificationOccurred?.('success');
-    });
+      showToast(`${side === 'front' ? 'Front' : 'Back'} photo ready.`, 'success');
+    };
+    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => setPhoto(input.dataset.idSide, input.files?.[0]));
+    document.querySelectorAll('[data-id-camera]').forEach(button => button.onclick = () =>
+      openEvidenceCamera(requirementKey, button, file => setPhoto(button.dataset.idCamera, file)));
     document.querySelector('[data-id-upload]').onclick = async event => {
       const status = document.querySelector('[data-id-status]');
       if (!photos.front || !photos.back) {status.textContent = 'Add both the front and back.';return;}
@@ -2942,47 +2929,66 @@
           status.textContent = result.error || 'Could not save. Your photos are kept; retry.';showToast(status.textContent,result.pending?'info':'error');return;
         }
         cleanup();closeSheet();renderEditor(current,step);showToast('ID copy saved.');
-      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';});
+      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';showToast(status.textContent,'error');});
     };
   }
 
-  async function openEvidenceCamera(requirementKey, trigger) {
+  async function openEvidenceCamera(requirementKey, trigger, onCapture = null) {
     if (!navigator.mediaDevices?.getUserMedia) {
       return showToast('This Telegram WebView cannot open the camera directly. Use Choose file instead.', true);
     }
-    openSheet({
-      mode: 'camera', eyebrow: 'Requirement evidence', title: 'Take photo',
-      hint: 'Keep the document inside the frame. Nothing is uploaded until you use this photo.', trigger,
-      body: '<div class="evidence-camera-stage"><video id="evidence-camera-video" autoplay playsinline muted></video><canvas id="evidence-camera-canvas" hidden></canvas></div>',
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture">Use photo</button>',
-    });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    const capture = document.getElementById('evidence-camera-capture');
-    const video = document.getElementById('evidence-camera-video');
+    cameraDialog?.close();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'camera-capture-dialog';
+    dialog.setAttribute('aria-labelledby', 'camera-capture-title');
+    dialog.innerHTML = '<header><h2 id="camera-capture-title">Take photo</h2><button type="button" class="icon-button" data-camera-cancel aria-label="Close camera">'+iconSvg('close')+'</button></header><p>Keep the whole document in the frame.</p><div class="evidence-camera-stage"><video autoplay playsinline muted></video><canvas hidden></canvas></div><footer><button type="button" class="btn btn-secondary" data-camera-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture" disabled>Use photo</button></footer>';
+    document.body.append(dialog);
+    cameraDialog = dialog;
+    let stream = null, closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      stream?.getTracks().forEach(track => track.stop());
+      if (activeCameraStream === stream) activeCameraStream = null;
+      if (cameraDialog === dialog) cameraDialog = null;
+      dialog.remove();
+      syncTelegramControls();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    dialog.addEventListener('close', cleanup, {once:true});
+    dialog.querySelectorAll('[data-camera-cancel]').forEach(button => button.onclick = () => {dialog.close();cleanup();});
+    const capture = dialog.querySelector('#evidence-camera-capture');
+    const video = dialog.querySelector('video');
+    dialog.showModal();syncTelegramControls();
     try {
-      activeCameraStream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }, audio: false,
       });
-      video.srcObject = activeCameraStream;
+      if (closed || !dialog.isConnected) {stream.getTracks().forEach(track => track.stop());return;}
+      activeCameraStream = stream;
+      video.srcObject = stream;
       await video.play();
+      if (!closed) capture.disabled = false;
     } catch (_) {
-      closeSheet();
+      dialog.close();cleanup();
       return showToast('Camera access was unavailable. Allow camera permission or use Choose file.', true);
     }
     capture.onclick = async () => {
       if (!video.videoWidth || !video.videoHeight) return showToast('The camera is still starting. Try again.', true);
       capture.disabled = true;
-      const canvas = document.getElementById('evidence-camera-canvas');
+      const canvas = dialog.querySelector('canvas');
       const maximum = 2000;
       const scale = Math.min(1, maximum / Math.max(video.videoWidth, video.videoHeight));
       canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
       canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
       canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+      if (closed) return;
       if (!blob) { capture.disabled = false; return showToast('The photo could not be captured. Try again.', true); }
       const file = new File([blob], `evidence-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      closeSheet({ restoreFocus: false });
-      await uploadEvidenceFile(file, requirementKey, trigger);
+      dialog.close();cleanup();
+      if (onCapture) onCapture(file);
+      else await uploadEvidenceFile(file, requirementKey, trigger);
     };
   }
 
@@ -3179,7 +3185,6 @@
       if (incomplete && !window.confirm('Some details are missing. Preview this document as it is?')) return;
       await openSupportingPreview(button.dataset.supportPreview, incomplete);
     });
-    root().querySelectorAll('[data-input-source]').forEach(button => button.onclick = () => goToSection(button.dataset.inputSource));
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       refreshRepeatableField(container);
       container.querySelector('[data-repeat-add]')?.addEventListener('click', () => {
@@ -3271,7 +3276,8 @@
       }
       return openPreview();
     });
-    document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
+    document.getElementById('origination-preview-early')?.addEventListener('click', () =>
+      (current.document_packet?.documents || []).filter(item => item.selected).length > 1 ? openPacketPreview() : openPreview());
     document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Preparing documents...', async () => {
       if (['draft','correction_required'].includes(current.status) && !validateSubmission()) return;
       if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
@@ -3585,7 +3591,7 @@
       return cached;
     }
     if (previewPageLoads.has(pageNumber)) return previewPageLoads.get(pageNumber);
-    const key = previewRequestId || requestKey('preview');
+    let key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
     const individualSigned = hasFinalSignedPacket() && previewDocumentKey && !previewDocumentKey.startsWith('__');
@@ -3601,7 +3607,7 @@
       : previewDocumentKey
       ? `/applications/${applicationId}/documents/${encodeURIComponent(previewDocumentKey)}/preview/`
       : `/applications/${applicationId}/preview/`;
-    const pending = apiFetch(previewPath, signedPacketPreview ? {
+    const requestPreview = () => apiFetch(previewPath, signedPacketPreview ? {
       headers: { 'X-Request-ID': key },
     } : {
       method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({
@@ -3610,9 +3616,21 @@
         unsigned_document_hash: previewDocumentKey === '__review_packet__' ? current?.signing_package?.unsigned_document_hash : undefined,
         review_scope_sha256: previewDocumentKey === '__review_packet__' ? current?.signing_package?.review_scope_sha256 : undefined,
       }),
-    }).then(result => {
+    });
+    const pending = (async () => {
+      let result = await requestPreview();
+      if (pageNumber === 1 && !previewAllowIncomplete && result.data?.code === 'incomplete_preview_confirmation_required'
+          && key === previewRequestId && current?.id === applicationId && current?.revision === revision) {
+        if (!window.confirm('Some required details are missing. Preview this copy as it is? It will not be ready for submission.')) return {cancelled:true};
+        previewAllowIncomplete = true;
+        key = previewRequestId = requestKey('incomplete-preview');
+        result = await requestPreview();
+      }
+      return result;
+    })().then(result => {
+      if (key !== previewRequestId || current?.id !== applicationId || current?.revision !== revision) return { stale: true };
+      if (result.cancelled) return {cancelled:true};
       if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
-      if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
       const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1), packetVersion: result.packetVersion || '' };
       if (signedPacketPreview && result.packetVersion) previewPacketVersion = result.packetVersion;
       if (previewDocumentKey === '__signing_packet__' && pageNumber === 1 && result.packetVersion) {
@@ -3623,7 +3641,7 @@
         previewedRevision = current.revision;
         previewSucceeded = true;
       }
-      if (previewDocumentKey === '__packet__' && pageNumber === 1) {
+      if (previewDocumentKey === '__packet__' && pageNumber === 1 && result.previewComplete) {
         previewedRevision = current.revision;
         previewSucceeded = true;
         (current?.document_packet?.documents || []).filter(item => item.selected).forEach(item => {
@@ -3654,6 +3672,7 @@
     const wasCached = previewPageUrls.has(requestedPage);
     if (!wasCached) showToast('Generating filled PDF…');
     const entry = await fetchPreviewPage(requestedPage);
+    if (entry?.cancelled) {dismissPreviewProgressToast();closePreview();return;}
     if (entry?.error) { return showToast(entry.error + ' Use Refresh to try again.', true); }
     if (!entry || entry.stale || requestedPage !== previewPage) return;
     previewUrl = entry.url;
@@ -3794,12 +3813,12 @@
     const cards = applications.map(item => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = [identity.national_id ? `<span><small>ID</small><span data-card-id-value>${escapeHtml(identity.national_id)}</span></span>` : '', identity.phone ? `<span><small>Phone</small><span data-miniapp-phone>${escapeHtml(identity.phone)}</span></span>` : ''].filter(Boolean).join('');
+      const identifiers = `<span><small>ID</small><span data-card-id-value>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span>Not provided</span>'}</span>`;
       return `<article class="application-card" data-application-id="${escapeHtml(item.id)}">
         <div class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
-        <div class="application-card-meta"><span class="application-reference">${escapeHtml(item.reference_number)}</span><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span></div>
-        ${identifiers ? `<div class="application-card-identifiers">${identifiers}</div>` : ''}
-        <div class="application-card-footer"><small class="application-officer">${capabilities.can_review && item.officer_name ? escapeHtml(item.officer_name) : ''}</small><span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || 'View application')}</small>${iconSvg('arrowRight')}</span></div>
+        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span></div>
+        <div class="application-card-identifiers">${identifiers}</div>
+        <div class="application-card-footer">${capabilities.can_review && item.officer_name ? `<small class="application-officer">${escapeHtml(item.officer_name)}</small>` : ''}<span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || 'View application')}</small>${iconSvg('arrowRight')}</span></div>
         <button type="button" class="application-card-open" data-application-open="${escapeHtml(item.id)}" aria-label="Open application for ${escapeHtml(applicantName)}"></button>
       </article>`;
     }).join('');
@@ -3989,7 +4008,6 @@
   document.getElementById('preview-next').onclick = () => navigatePreviewPage(1);
   document.getElementById('preview-regenerate').onclick = async () => {
     if (['draft', 'correction_required'].includes(current?.status) && !(await saveDraft(true))) return;
-    previewedRevision = current.revision;
     clearPreviewPageCache();
     previewRequestId = requestKey('preview');
     await loadPreviewPage();
@@ -4018,7 +4036,7 @@
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   bindPreviewPinch();
   window.addEventListener('beforeunload', () => { preserveDraftOnExit(); closePreview(); });
-  window.addEventListener('pagehide', () => preserveDraftOnExit());
+  window.addEventListener('pagehide', () => {preserveDraftOnExit();cameraDialog?.close();activeCameraStream?.getTracks().forEach(track => track.stop());});
   window.addEventListener('pageshow', () => { void resumeDraftSynchronization(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') preserveDraftOnExit();
@@ -4044,6 +4062,7 @@
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (cameraDialog) {cameraDialog.close();return;}
     if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
@@ -4057,6 +4076,7 @@
   try {
     tg?.BackButton?.onClick?.(async () => {
       if (window.MiniAppRecovery?.closeTop()) return;
+      if (cameraDialog) return cameraDialog.close();
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
       if (!document.getElementById('document-preview-overlay').hidden) return closePreview();

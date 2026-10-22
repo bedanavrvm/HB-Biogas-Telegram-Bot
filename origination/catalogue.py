@@ -18,7 +18,12 @@ PHONE_IDENTITY_METADATA = {
         'retention': 'Retain operational allowance evidence; no automatic purge or testing reset.', 'index_justifications': {},
     },
 }
-MODEL_METADATA = {'origination.LoanOriginationApplication': {'domain': 'origination',
+MODEL_METADATA = {'origination.OriginationApplicationReferenceSequence': {
+    'domain': 'origination', 'purpose': 'Permanent deployment-wide ORG application reference allocator.',
+    'classification': 'processing_record', 'source_of_truth': True, 'lifecycle': 'active',
+    'retention': 'Permanent; excluded from application/testing deletion and never reset.',
+    'index_justifications': {},
+}, 'origination.LoanOriginationApplication': {'domain': 'origination',
                                             'purpose': 'Canonical, revision-controlled application captured by a field officer.',
                                             'classification': 'authoritative_record',
                                             'source_of_truth': True,

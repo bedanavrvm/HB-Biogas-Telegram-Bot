@@ -712,56 +712,44 @@ def render_document(
         raise OriginationError(str(exc)) from exc
 
 
+def _preview_complete(application, *, allow_incomplete=False, document_key='') -> bool:
+    """Viewing missing draft values is allowed; invalid supplied values are not."""
+    from origination.services.application_copies import copy_readiness
+    from origination.services.loan_origination import OriginationError, OriginationPreviewConfirmationRequired
+    invalid = copy_readiness(application, require_complete=False, document_key=document_key)
+    if invalid:
+        raise OriginationError('Check the entered values before previewing.', errors=invalid)
+    missing = copy_readiness(application, document_key=document_key)
+    if missing:
+        if allow_incomplete and application.status in {'draft', 'correction_required'}:
+            return False
+        raise OriginationPreviewConfirmationRequired('Some required details are missing. Preview this copy anyway?', errors=missing)
+    return True
+
+
 def mark_document_previewed(application: LoanOriginationApplication, document_key: str, *, allow_incomplete: bool = False) -> bool:
     if application.status == application.STATUS_COMPLETED:
         return True  # Viewing a completed copy must not move its document dates.
     document = application.packet_documents.filter(document_key=document_key).first()
+    if not _preview_complete(application, allow_incomplete=allow_incomplete, document_key=document_key):
+        return False
     if document and document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY:
-        from origination.services.loan_origination import OriginationError, validate_form_payload
-        fields = _document_fields(document)
-        context = document_context(application, document)
-        result = validate_form_payload(
-            {'fields': fields, 'input_rules_version': (document.schema_snapshot or {}).get('input_rules_version')},
-            {str(item.get('key')): (context.get('_canonical_values') or {}).get(
-                str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
-            require_complete=True,
-        )
-        if not result.valid:
-            if allow_incomplete and application.status in {'draft', 'correction_required'}:
-                return False  # A draft preview is not readiness or completion.
-            raise OriginationError('Complete every required supporting-document field before previewing.', errors=result.errors)
         document.previewed_application_revision = application.revision
         document.completed_at = document.completed_at or timezone.now()
         document.save(update_fields=['previewed_application_revision', 'completed_at', 'updated_at'])
     return True
 
 
-def mark_packet_previewed(application: LoanOriginationApplication) -> None:
+def mark_packet_previewed(application: LoanOriginationApplication, *, allow_incomplete: bool = False) -> bool:
     """Mark one complete combined-packet preview for the current revision."""
     if application.status == application.STATUS_COMPLETED:
-        return
-    from origination.services.loan_origination import OriginationError, validate_form_payload
+        return True
+    from origination.services.loan_origination import OriginationError
     selected = list(application.packet_documents.filter(selected=True))
     if not selected:
         raise OriginationError('This application has no selected document packet.')
-    errors = {}
-    for document in selected:
-        if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
-            continue
-        fields = _document_fields(document)
-        context = document_context(application, document)
-        result = validate_form_payload(
-            {'fields': fields, 'input_rules_version': (document.schema_snapshot or {}).get('input_rules_version')},
-            {str(item.get('key')): (context.get('_canonical_values') or {}).get(
-                str(item.get('key')), context.get(str(item.get('key')))) for item in fields},
-            require_complete=True,
-        )
-        errors.update({f'{document.document_key}.{key}': value for key, value in result.errors.items()})
-    if errors:
-        raise OriginationError(
-            'Complete every required supporting-document field before previewing the packet.',
-            errors=errors,
-        )
+    if not _preview_complete(application, allow_incomplete=allow_incomplete):
+        return False
     application.primary_previewed_revision = application.revision
     application.save(update_fields=['primary_previewed_revision', 'updated_at'])
     application.packet_documents.filter(selected=True).exclude(
@@ -770,6 +758,7 @@ def mark_packet_previewed(application: LoanOriginationApplication) -> None:
         previewed_application_revision=application.revision,
         completed_at=timezone.now(), updated_at=timezone.now(),
     )
+    return True
 
 
 def render_packet(

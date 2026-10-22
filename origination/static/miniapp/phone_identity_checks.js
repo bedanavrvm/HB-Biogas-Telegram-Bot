@@ -38,8 +38,10 @@
       for (const target of status.targets || []) {
         const host = container.querySelector(`[data-phone-id-target="${target.target}"]`);
         if (!host) continue;
+        const compact = host.hasAttribute('data-phone-id-compact');
+        const expanded = host.querySelector('details')?.open;
         host.replaceChildren();
-        host.className = 'field-help';
+        host.className = compact ? 'phone-id-compact' : 'field-help';
         host.setAttribute('aria-live', 'polite');
         const revisionMatches = status.revision === options.current()?.revision;
         const same = revisionMatches && equalSaved(target);
@@ -57,18 +59,33 @@
           if (target.freshness === 'expired') text += ' · Expired';
         } else if (['unknown', 'unavailable'].includes(target.status)) text = target.message || 'Could not verify. This is not a mismatch.';
         if (text && status.environment === 'sandbox') text = `Sandbox test · ${text}`;
+        let content = host;
+        if (compact && text) {
+          const details = document.createElement('details');
+          details.open = Boolean(expanded);
+          const summary = document.createElement('summary');
+          summary.title = text;
+          summary.setAttribute('aria-label', 'Phone registration details');
+          summary.innerHTML = target.status === 'matched'
+            ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>'
+            : '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 3v1"/></svg>';
+          content = document.createElement('div');
+          content.className = 'phone-check-popover';
+          details.append(summary, content);
+          host.appendChild(details);
+        }
         if (text) {
           const feedback = document.createElement('span');
           feedback.className = 'field-help';
           feedback.textContent = text;
           feedback.setAttribute('role', 'status');
-          host.appendChild(feedback);
+          content.appendChild(feedback);
         }
         if (status.enabled && revisionMatches && valid(target)) {
           const button = document.createElement('button');
           button.type = 'button';
-          button.className = checkAgain ? 'icon-button' : 'btn btn-secondary';
-          if (checkAgain) {
+          button.className = checkAgain || compact ? 'icon-button' : 'btn btn-secondary';
+          if (checkAgain || compact) {
             // Same refresh glyph and sizing as the existing Origination controls.
             button.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>';
           } else button.textContent = busy ? 'Checking…' : 'Check against ID';
@@ -76,7 +93,7 @@
           button.setAttribute('aria-label', `Check ${target.target === 'alternate' ? 'alternate' : 'primary'} Applicant phone against ID${checkAgain ? ' again' : ''}`);
           button.disabled = busy;
           button.addEventListener('click', () => check(target.target, checkAgain), {signal:abort.signal});
-          host.appendChild(button);
+          content.appendChild(button);
         }
         host.hidden = !host.childNodes.length;
       }
@@ -86,9 +103,11 @@
       const result = await options.get(path);
       if (!live()) return false;
       if (result.ok && result.data?.phone_id_checks?.allowed) {
+        const checking = new Set((status.targets || []).filter(target => target.status === 'checking').map(target => target.target));
         status = result.data.phone_id_checks;
         options.current().phone_id_checks = status;
         update();
+        for (const target of status.targets || []) if (checking.has(target.target) && target.status !== 'checking') announce(target);
         return true;
       }
       if (result.status === 403) {
@@ -96,6 +115,13 @@
         container.querySelectorAll('[data-phone-id-target]').forEach(host => host.replaceChildren());
       }
       return false;
+    }
+
+    function announce(target) {
+      const prefix = status.environment === 'sandbox' ? 'Sandbox test · ' : '';
+      if (target?.status === 'matched') options.toast(prefix + 'Registration matched.', 'success');
+      else if (target?.status === 'not_matched') options.toast(prefix + 'Registration does not match this ID.', 'warning');
+      else if (target && ['unknown', 'unavailable'].includes(target.status)) options.toast(prefix + (target.message || 'Could not verify. This is not a mismatch.'), 'info');
     }
 
     function poll() {
@@ -149,6 +175,7 @@
         if (response.data?.result) Object.assign(target, response.data.result);
         if (!response.ok) options.toast(response.data?.error || 'Could not confirm the result. No automatic check retry was made.', 'warning');
         await refresh();
+        if (response.ok && response.status !== 202) announce(status.targets?.find(item => item.target === targetName));
         if (response.status === 202 || response.status === 0 || status.targets?.some(item => item.status === 'checking')) poll();
       } catch (_) {
         if (live()) options.toast('Could not complete the check. No automatic retry was made.', 'warning');

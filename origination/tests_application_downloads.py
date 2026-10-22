@@ -131,6 +131,50 @@ class ApplicationDownloadTests(TestCase):
         with self.assertRaises(OriginationError):
             self.prepare('home_visit', allow_incomplete=True)
 
+    def test_bundle_preview_uses_real_renderer_for_missing_supporting_fields(self):
+        from origination.views import portal_origination_packet_preview
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        request = RequestFactory().post('/', {'revision': self.app.revision, 'allow_incomplete': True,
+            'client_request_id': 'actual-rendered-bundle'}, content_type='application/json')
+        request.origination_user = self.actor
+        request.origination_access = user_access(self.actor, 'loan_origination')
+        response = portal_origination_packet_preview(request, str(self.app.pk))
+        self.assertEqual(response.status_code, 200, response.content[:150])
+        self.assertEqual(response['X-Preview-Complete'], 'false')
+        self.assertEqual(response['X-Document-Count'], '3')
+        pages = PdfReader(BytesIO(response.content)).pages
+        self.assertEqual([page.extract_text().strip() for page in pages],
+            ['Main page 1', 'Main page 2', 'Guarantee page', 'Home visit page'])
+        self.app.refresh_from_db()
+        self.assertIsNone(self.app.primary_previewed_revision)
+        self.assertFalse(self.app.packet_documents.filter(completed_at__isnull=False).exists())
+
+    def test_incomplete_preview_confirmation_never_grants_access(self):
+        from origination.views import portal_origination_packet_preview
+        actor = get_user_model().objects.create_user('synthetic-unauthorized-preview')
+        request = RequestFactory().post('/', {'revision': self.app.revision, 'allow_incomplete': True}, content_type='application/json')
+        request.origination_user = actor
+        request.origination_access = user_access(actor, 'loan_origination')
+        self.assertEqual(portal_origination_packet_preview(request, str(self.app.pk)).status_code, 403)
+
+    def test_bundle_warning_code_survives_authenticated_message_contract(self):
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        with override_settings(ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=False):
+            self.client.force_login(self.actor)
+            response = self.client.post(reverse('loan_origination_packet_preview', args=[self.app.pk]),
+                {'revision': self.app.revision, 'client_request_id': 'authenticated-warning'},
+                content_type='application/json', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2')
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'incomplete_preview_confirmation_required')
+        from core.services.miniapp_messages import normalize_miniapp_response
+        normalized = normalize_miniapp_response(RequestFactory().post('/', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2'),
+            response, workflow='loan_origination')
+        payload = json.loads(normalized.content)
+        self.assertEqual(payload['code'], 'incomplete_preview_confirmation_required')
+        self.assertIn('missing', payload['message'])
+
     def test_supporting_copy_does_not_require_unrelated_main_input(self):
         self.app.schema_snapshot = {'fields': [{'key': 'applicant_phone', 'type': 'phone', 'required': True}]}
         self.app.form_payload['applicant_phone'] = 'bad-phone'

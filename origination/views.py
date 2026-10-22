@@ -599,6 +599,7 @@ def portal_origination_applications(request):
             term = query[:80]
             queryset = queryset.filter(
                 Q(reference_number__icontains=term)
+                | Q(display_reference__icontains=term)
                 | Q(identity_snapshot__name__icontains=term)
                 | Q(identity_snapshot__national_id__icontains=term)
                 | Q(identity_snapshot__phone__icontains=term)
@@ -630,6 +631,7 @@ def portal_origination_applications(request):
                 'id': str(item.pk),
                 'application_id': str(item.application_id),
                 'reference_number': item.application.reference_number,
+                'display_reference': item.application.display_reference or item.application.reference_number,
                 'message': item.message,
                 'notice_type': item.notice_type,
                 'created_at': item.created_at.isoformat(),
@@ -2137,14 +2139,14 @@ def portal_origination_packet_preview(request, application_id: str):
             from core.services.partnership_laf_preview import render_pdf_page
             page_number = int(body.get('page') or 1)
             content, total_pages = render_pdf_page(content, page_number=page_number)
-        mark_packet_previewed(application)
+        complete = mark_packet_previewed(application, allow_incomplete=body.get('allow_incomplete') is True)
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
             from origination.services.loan_origination import _record_event
             _record_event(
                 application, 'document_packet_previewed', actor=request.origination_user,
                 request_id=request_id,
-                after={'document_keys': [item.get('key') for item in manifest]},
+                after={'document_keys': [item.get('key') for item in manifest], 'complete': complete},
             )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -2158,6 +2160,7 @@ def portal_origination_packet_preview(request, application_id: str):
         response = HttpResponse(content, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet.pdf"'
     response['X-Document-Count'] = str(len(manifest))
+    response['X-Preview-Complete'] = 'true' if complete else 'false'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

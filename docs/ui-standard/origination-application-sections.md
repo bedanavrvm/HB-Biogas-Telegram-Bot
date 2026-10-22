@@ -1,5 +1,10 @@
 # Origination application sections - scoped UI candidate
 
+Header, supporting-value presentation and incomplete bundle preview were
+superseded on 22 October by [the corrective candidate](origination-ui-corrections.md).
+The behaviour/evidence below records the earlier implementation, not approval
+of the superseded source-navigation design.
+
 User-requested implementation, 21 October 2026. This is not approval of a
 shared design standard, new tokens, visual baselines or Phase 6 migration.
 

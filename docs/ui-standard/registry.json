@@ -473,27 +473,27 @@
     },
     {
       "path": "origination/static/miniapp/phone_identity_checks.js",
-      "sha256": "88a2a7abb96ee187a9e66c8e15461f0bd55a8c66f7fff8e0a1f379b7418c9ec4",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "User-requested IT-only fresh-check icon and explicit charge confirmation, using the existing refresh glyph; sandbox results are labelled. Real-shell light/dark, cancel, double-click, failure and scope evidence is synthetic candidate evidence, not human approval or Phase 6 migration."
+      "sha256": "edff4dd60443749e560d889e9a7adecf74ecc97c16026c383d69b5e94aad8aa6",
+      "review_reference": "docs/ui-standard/origination-ui-corrections.md#evidence",
+      "reason": "User-requested Origination-only corrective candidate: compact plain-icon header, aligned feedback and read-only supporting fields, explicit camera capture, stable cards and truthful preview status. Actual-shell synthetic mobile interaction/screenshots are evidence, not baseline approval or Phase 6 migration. Phone-check authority/provider policies and signed bytes remain unchanged."
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "3beb54059845ea185f80edb7301a86ceff5a5e6e3ec84e21fd8f8863fe45f04d",
-      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
-      "reason": "User-approved scoped application simplification: one page per support document, shared-value summaries, header dial/copy actions and confirmed Guarantor 2 clearing. Preserves the phone-check/recheck candidate and uses existing patterns. Synthetic source-bound light/dark, failure and recovery evidence is not human baseline approval or Phase 6 migration."
+      "sha256": "39a2fe434fc3f7023bf60e650eedd3d25959822c3c8b46bff0722f6b5b4b6d71",
+      "review_reference": "docs/ui-standard/origination-ui-corrections.md#evidence",
+      "reason": "User-requested Origination-only corrective candidate: compact plain-icon header, aligned feedback and read-only supporting fields, explicit camera capture, stable cards and truthful preview status. Actual-shell synthetic mobile interaction/screenshots are evidence, not baseline approval or Phase 6 migration. Phone-check authority/provider policies and signed bytes remain unchanged."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "2e00591a5223c4329540e642d6f764699be4af481d0d4dea95701451066d3f39",
-      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
-      "reason": "Scoped compact header contacts and read-only shared-value summaries retain existing form sizes, theme and icon patterns; new links use readable theme text in dark mode. Preserves wrapping phone-check feedback. Real-shell mobile evidence accompanies the candidate; no tokens, visual baselines or cross-app migration changed."
+      "sha256": "268cf2d31790946843bb3108dee8b7fc5a33259e9f77470baf3dc668e827033c",
+      "review_reference": "docs/ui-standard/origination-ui-corrections.md#evidence",
+      "reason": "User-requested Origination-only corrective candidate: compact plain-icon header, aligned feedback and read-only supporting fields, explicit camera capture, stable cards and truthful preview status. Actual-shell synthetic mobile interaction/screenshots are evidence, not baseline approval or Phase 6 migration. Phone-check authority/provider policies and signed bytes remain unchanged."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "3e295db3b6d8919d1789b3f6354adbfc4d543c02a736a621858183a344c2a231",
-      "review_reference": "docs/ui-standard/origination-application-sections.md#evidence",
-      "reason": "Nonvisual static cache-version changes for the scoped application/document simplification, retaining the advisory phone-check script. Existing foundations, legacy baselines and Phase 6 migration hold remain unchanged."
+      "sha256": "e50b64bcdf4f7f7fb94e7d56c2db90c34a5ed0ef9dfb2c7bc68906dfadfcbdfe",
+      "review_reference": "docs/ui-standard/origination-ui-corrections.md#evidence",
+      "reason": "Nonvisual cache-version changes for the requested Origination correction; no candidate tokens, approved baselines or Phase 6 migration are enabled."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",

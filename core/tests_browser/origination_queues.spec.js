@@ -517,7 +517,7 @@ for (const width of [320, 430]) {
     await expect(page.locator('[data-document-field="notes"]')).toBeEditable();
     await expect(page.locator('[data-document-field="applicant_name"]')).toHaveCount(0);
     await expect(page.locator('[data-document-field="interest"]')).toHaveCount(0);
-    await expect(page.locator('.supporting-shared-values>div').filter({hasText:'Interest amount'})).toContainText('0');
+    await expect(page.locator('[data-reused-field="interest"]')).toHaveValue('0');
     await expect(page.locator('[data-document-field="notes"]')).toHaveValue('Saved local note');
     for(const dark of [false,true]) {
       await page.evaluate(value => {

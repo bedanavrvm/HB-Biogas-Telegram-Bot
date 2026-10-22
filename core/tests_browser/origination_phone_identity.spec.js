@@ -88,6 +88,7 @@ for(const dark of [false,true]) test(`refresh icon explicitly requests a fresh c
   const {writes}=await boot(page,{dark,outcome:'not_matched'});
   await page.getByRole('button',{name:'Check primary Applicant phone against ID',exact:true}).click();
   const host=page.locator('[data-phone-id-target=primary]');
+  await host.getByLabel('Phone registration details').click();
   const again=page.getByRole('button',{name:'Check primary Applicant phone against ID again',exact:true});
   await expect(again).toBeVisible();
   await expect(host).toContainText('Sandbox');
