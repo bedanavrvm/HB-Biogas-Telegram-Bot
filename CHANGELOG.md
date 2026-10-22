@@ -1,5 +1,31 @@
 # Changelog
 
+## 22 October 2026 - Origination reference header
+
+- Adopt the supplied two-row header: applicant/product/status and plain document
+  action icons, then section dropdown and end-aligned arrows with a thin progress
+  line. No phone/National ID header strip; existing form scale is unchanged.
+- Keep save-before-navigation, failure recovery, actual document actions and
+  scoped phone checks in the Applicant form. See the source-bound evidence in
+  `docs/ui-standard/origination-reference-header.md`.
+- Apply the user's main-page reference with segmented tabs, search/filter row
+  and aligned identity cards. Remove repeated Complete/View application action
+  rows while retaining whole-card activation, phone dial links, permissions and
+  specific correction feedback. Missing identifiers keep their aligned slots.
+
+## 22 October 2026 - Automatic unsigned Origination document updates
+
+- Opening/resuming an unsigned application automatically adopts the latest
+  published versions of its selected documents, without a refresh button.
+  Submission checks again and returns the updated form if needed.
+- Keep the application number, compatible answers, uploads and loan terms.
+  New inputs use the existing form design; old previews/reviews, signing links
+  and OTP challenges are invalidated without changing historical package bytes.
+- Any confirmed signature on any document prevents adoption, even if an earlier
+  signature was subsequently invalidated. Typed/unconfirmed previews do not lock.
+- See ADR 0060 and `docs/ui-standard/origination-automatic-documents.md` for
+  scope, safety boundaries and source-bound evidence. No production/provider work.
+
 ## 22 October 2026 - Origination compact application corrections
 
 - Compact applicant header with plain document-action icons and dial/copy

@@ -37,6 +37,7 @@
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
   let step = 0;
+  let sectionNavigationInFlight = false;
   let saveTimer = null;
   let previewUrl = '';
   let evidencePreviewUrl = '';
@@ -53,6 +54,8 @@
   let approvalReview = null;
   let signingRefreshTimer = null;
   let signingRefreshGeneration = 0;
+  let documentResumeInFlight = false;
+  let editorOpenGeneration = 0;
   let dirty = false;
   let editGeneration = 0;
   let saveInFlight = null;
@@ -298,6 +301,7 @@
       calendar: '<path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
       close: '<path d="m6 6 12 12M18 6 6 18"/>',
       filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+      search: '<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
       refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
@@ -1094,24 +1098,38 @@
     };
   }
 
-  function openSectionSheet(trigger) {
-    const sections = wizardSections();
-    openSheet({
-      mode: 'sections', eyebrow: 'Application progress', title: 'Go to section',
-      hint: 'Sections come from the approved product schema.', trigger,
-      body: `<div class="section-picker">${sections.map((item, index) => `<button type="button" data-section-index="${index}" class="section-picker-item${index === step ? ' active' : ''}"><span>${index < step ? iconSvg('check') : index + 1}</span><strong>${escapeHtml(item.label)}</strong>${index === step ? '<small>Current</small>' : ''}</button>`).join('')}</div>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Close</button>',
-    });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    document.querySelectorAll('[data-section-index]').forEach(button => button.onclick = async () => {
-      const editable = ['draft', 'correction_required'].includes(current.status);
-      const activeSection = wizardSections()[step];
-      if (editable && !(activeSection?.key.startsWith('document:')
-        ? await saveSupportingDocument(activeSection.key.slice(9)) : await saveDraft(true))) return;
-      const target = Number(button.dataset.sectionIndex);
-      closeSheet({ restoreFocus: false });
-      renderEditor(current, target);
-    });
+  function closeSectionMenu(restoreFocus = false) {
+    const menu = document.getElementById('origination-section-menu');
+    const trigger = document.getElementById('origination-section-picker');
+    if (!menu || menu.hidden) return false;
+    menu.hidden = true;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger?.focus();
+    return true;
+  }
+
+  function toggleSectionMenu(focusCurrent = false) {
+    const menu = document.getElementById('origination-section-menu');
+    const trigger = document.getElementById('origination-section-picker');
+    if (!menu || !trigger || sectionNavigationInFlight) return;
+    if (!menu.hidden) return closeSectionMenu();
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    if (focusCurrent) menu.querySelector('[aria-current="step"]')?.focus();
+  }
+
+  async function navigateSection(key) {
+    if (sectionNavigationInFlight) return;
+    if (syncConflict) return showToast('Choose which draft to keep first.', 'warning');
+    closeSectionMenu();
+    sectionNavigationInFlight = true;
+    root()?.querySelector('.wizard-section-row')?.setAttribute('aria-busy', 'true');
+    try {
+      if (await goToSection(key)) document.getElementById('origination-section-picker')?.focus({preventScroll:true});
+    } finally {
+      sectionNavigationInFlight = false;
+      root()?.querySelector('.wizard-section-row')?.removeAttribute('aria-busy');
+    }
   }
 
   async function startApplication(event) {
@@ -1182,7 +1200,8 @@
     renderList({ restoreScroll: true });
   }
 
-  async function openEditor(application, requestedStep) {
+  async function openEditor(application, requestedStep, {checkUpdates = true} = {}) {
+    const openingGeneration = ++editorOpenGeneration;
     const changingApplication = String(current?.id || '') !== String(application.id);
     if (changingApplication) {
       dirty = false;
@@ -1190,6 +1209,16 @@
       window.clearTimeout(commercialQuoteTimer);
       commercialQuoteState = null;
       commercialQuoteGeneration += 1;
+    }
+    let updateWarning = '';
+    if (checkUpdates && application.auto_update_documents && capabilities.can_create && (!dirty || changingApplication)) {
+      const key = requestKey('document-updates');
+      const updated = await postJson(`/applications/${application.id}/documents/updates/`, {
+        revision:application.revision, request_id:key, client_request_id:key,
+      });
+      if (openingGeneration !== editorOpenGeneration) return;
+      if (updated.ok) application = updated.data.application;
+      else updateWarning = updated.data?.error || 'Could not check document updates. Reopen the application to retry; your saved answers are kept.';
     }
     current = application;
     if (draftSectionApplicationId !== String(application.id)) {
@@ -1202,6 +1231,7 @@
     conflictDraft = null;
     conflictServerLoaded = false;
     const recoveredDocumentKey = await recoverDraft(application);
+    if (openingGeneration !== editorOpenGeneration) return;
     if (recoveredDocumentKey) {
       const recoveredStep = wizardSections().findIndex(section => section.key === `document:${recoveredDocumentKey}`);
       if (recoveredStep >= 0) requestedStep = recoveredStep;
@@ -1215,6 +1245,9 @@
       root()?.replaceChildren();
     }
     renderEditor(current, requestedStep);
+    const notice = application.document_update_notice;
+    if (updateWarning) showToast(updateWarning, 'warning');
+    else if (notice) showToast(notice.message, notice.status === 'updated' ? 'info' : 'warning');
   }
 
   function currentPacketVersion(application = current) {
@@ -1230,7 +1263,7 @@
   }
 
   async function refreshCurrentSigning({ manual = false } = {}) {
-    if (!current || document.visibilityState === 'hidden') return false;
+    if (!current || document.visibilityState === 'hidden' || dirty || saveInFlight || syncConflict) return false;
     const applicationId = String(current.id);
     const generation = ++signingRefreshGeneration;
     const oldVersion = currentPacketVersion();
@@ -1705,10 +1738,15 @@
     const correction = !readOnly && ['ready_for_review', 'signed_pending_approval'].includes(current.status)
       ? documentContext ? correctionToggle('document_field', `${documentContext.key}.${field.key}`, `${documentContext.name}: ${field.label || field.key}`)
         : correctionToggle('field', field.key, normalizeLabel(field)) : '';
-    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
+    const phoneTarget = !documentContext && !readOnly && current.phone_id_checks?.allowed
+      ? current.phone_id_checks.targets?.find(target => target.field_key === field.key) : null;
+    const wrapperTag = field.type === 'repeating_group' || phoneTarget ? 'div' : 'label';
     const fieldId = `laf-${documentContext?.key || 'main'}-${key}`;
     if (field.type !== 'repeating_group') control = control.replace(/<(input|select|textarea)\b/, match => `${match} id="${fieldId}" aria-describedby="${fieldId}-feedback"`);
-    return `<${wrapperTag} class="${classes}" ${readOnly ? 'data-reused-wrap' : 'data-field-wrap'}="${key}"><span class="field-label miniapp-field-caption">${label}${required}</span><div class="field-control">${control}</div><div class="field-feedback miniapp-field-feedback" id="${fieldId}-feedback">${help}${correction}</div></${wrapperTag}>`;
+    const caption = phoneTarget ? `<label for="${fieldId}" class="field-label miniapp-field-caption">${label}${required}</label>`
+      : `<span class="field-label miniapp-field-caption">${label}${required}</span>`;
+    const phoneCheck = phoneTarget ? `<div data-phone-id-target="${escapeHtml(phoneTarget.target)}" hidden></div>` : '';
+    return `<${wrapperTag} class="${classes}" ${readOnly ? 'data-reused-wrap' : 'data-field-wrap'}="${key}">${caption}<div class="field-control">${control}</div><div class="field-feedback miniapp-field-feedback" id="${fieldId}-feedback">${help}${correction}${phoneCheck}</div></${wrapperTag}>`;
   }
 
   function readOnlyFieldValue(field, value) {
@@ -2064,7 +2102,7 @@
     syncCloseProtection();
     await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');
-    refreshHeaderContacts();
+    refreshEditorIdentity();
     if (showError) showToast('Changes saved.', 'success');
     return true;
   }
@@ -2131,15 +2169,31 @@
       await loadApplications();
       return true;
     }
-    if (!dirty || syncConflict || !['draft', 'correction_required'].includes(current.status)) return true;
-    return saveDraft(false);
+    if (dirty && !syncConflict && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(false))) return false;
+    if (documentResumeInFlight || !current.auto_update_documents || !capabilities.can_create || dirty
+        || saveInFlight || draftSaveOperation || syncConflict || sheetMode || reviewDialogMode
+        || sectionNavigationInFlight || document.getElementById('origination-section-picker')?.getAttribute('aria-expanded') === 'true'
+        || !document.getElementById('document-preview-overlay').hidden || isKeyboardInput(document.activeElement)) return true;
+    documentResumeInFlight = true;
+    const applicationId = current.id, revision = current.revision, generation = editGeneration;
+    try {
+      const key = requestKey('document-updates');
+      const result = await postJson(`/applications/${applicationId}/documents/updates/`, {
+        revision, request_id:key, client_request_id:key,
+      });
+      if (current?.id !== applicationId || current.revision !== revision || dirty || editGeneration !== generation) return false;
+      if (!result.ok) return false; // Opening/submitting retries and supplies feedback.
+      const updated = result.data.application;
+      if (updated?.document_update_notice?.status === 'updated') await openEditor(updated, step, {checkUpdates:false});
+      return true;
+    } finally { documentResumeInFlight = false; }
   }
 
   function progressMarkup() {
     const sections = wizardSections();
     const section = sections[step];
     const percent = Math.round(((step + 1) / sections.length) * 100);
-    return `<div class="wizard-progress-compact"><div class="wizard-section-row"><button type="button" class="icon-button" id="section-previous" aria-label="Previous section" ${step === 0 ? 'disabled' : ''}>${iconSvg('arrowLeft')}</button><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>${step + 1} / ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><button type="button" class="icon-button" id="section-next" aria-label="Next section" ${step === sections.length - 1 ? 'disabled' : ''}>${iconSvg('arrowRight')}</button></div><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
+    return `<div class="wizard-progress-compact"><nav class="wizard-section-row" aria-label="Application section navigation"><button type="button" class="icon-button" id="section-previous" aria-label="Previous section" ${step === 0 ? 'disabled' : ''}>${iconSvg('arrowLeft')}</button><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section" aria-expanded="false" aria-controls="origination-section-menu"><span><small>${step + 1} / ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><button type="button" class="icon-button" id="section-next" aria-label="Next section" ${step === sections.length - 1 ? 'disabled' : ''}>${iconSvg('arrowRight')}</button></nav><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div><nav id="origination-section-menu" class="section-picker editor-section-menu" aria-label="Application sections" hidden>${sections.map((item, index) => `<button type="button" data-section-index="${index}" class="section-picker-item${index === step ? ' active' : ''}"${index === step ? ' aria-current="step"' : ''}><span>${index + 1}</span><strong>${escapeHtml(item.label)}</strong>${index === step ? '<small>Current</small>' : ''}</button>`).join('')}</nav></div>`;
   }
 
   function hasFinalSignedPacket() {
@@ -2415,35 +2469,17 @@
     return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div><nav class="signing-tools" aria-label="Application actions">${preview}${workspace.can_recall ? `<button type="button" class="icon-button" id="origination-recall" aria-label="Withdraw for changes" title="Withdraw for changes">${iconSvg('undo')}</button>` : ''}</nav></header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
   }
 
-  function headerContactsMarkup() {
-    if (current?.presentation === 'masked') return '';
-    const targets = current?.phone_id_checks?.allowed ? current.phone_id_checks.targets || [] : [];
-    const fields = current?.form_schema?.fields || [];
-    const primary = targets.find(item => item.target === 'primary')?.field_key;
-    const alternate = targets.find(item => item.target === 'alternate')?.field_key
-      || fields.find(field => ['applicant_other_phone', 'applicant_alternative_phone', 'applicant_alternate_phone'].includes(field.key))?.key;
-    const phones = [{label:'Phone',target:'primary',value:current.applicant_summary?.phone || current.form_payload?.[primary]},
-      {label:'Alternative phone',target:'alternate',value:current.form_payload?.[alternate]}];
-    const rows = phones.filter(item => item.value).map(item =>
-      `<div class="editor-contact" aria-label="${item.label}">${iconSvg('phone')}${window.MiniAppUtils?.phoneLink?.(item.value) || escapeHtml(item.value)}${targets.some(target => target.target === item.target) ? `<div data-phone-id-target="${item.target}" data-phone-id-compact hidden></div>` : ''}</div>`);
-    const id = current.applicant_summary?.national_id;
-    if (id) rows.push(`<div class="editor-contact"><button type="button" class="contact-copy" data-copy-applicant-id aria-label="Copy National ID">${iconSvg('copy')} ${escapeHtml(id)}</button></div>`);
-    return rows.join('');
+  function readOnlyPhoneChecksMarkup() {
+    if (!current?.phone_id_checks?.allowed || current.presentation === 'masked') return '';
+    return `<details class="application-phone-checks"><summary>Phone registration</summary>${(current.phone_id_checks.targets || []).map(target => `<div><span>${target.target === 'alternate' ? 'Alternative phone' : 'Applicant phone'}</span>${window.MiniAppUtils?.phoneLink?.(current.form_payload?.[target.field_key]) || ''}<div data-phone-id-target="${escapeHtml(target.target)}" hidden></div></div>`).join('')}</details>`;
   }
 
-  function refreshHeaderContacts() {
-    const host = root()?.querySelector('.editor-contacts');
-    if (!host) return;
-    host.innerHTML = headerContactsMarkup();
-    host.hidden = !host.childElementCount;
+  function refreshEditorIdentity() {
     const identity = root().querySelector('.editor-identity>strong');
-    if (identity) identity.textContent = current.applicant_summary?.name || 'New applicant';
-    host.querySelector('[data-copy-applicant-id]')?.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(current.applicant_summary.national_id);
-        showToast('National ID copied.', 'success');
-      } catch (_) { showToast('Could not copy the National ID. Try again or copy it from Applicant details.', 'error'); }
-    });
+    if (identity) {
+      identity.textContent = current.applicant_summary?.name || 'New applicant';
+      identity.title = identity.textContent;
+    }
     window.OriginationPhoneIdentity?.mount(root(), {
       current:() => current, save:() => saveDraft(true), get:apiFetch, post:postJson,
       requestKey, toast:showToast,
@@ -2489,10 +2525,16 @@
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = editable && application.status === 'draft'
       ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
-    root().innerHTML = `<header class="editor-summary"><div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small>${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div><div class="editor-contacts" aria-label="Applicant contacts"></div></header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<header class="editor-summary">
+      <div class="editor-context">
+        <button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button>
+        <div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small class="editor-product">${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div>
+        <div class="editor-document-actions" role="group" aria-label="Document actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      </div>${editable ? progressMarkup() : ''}
+    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
-    refreshHeaderContacts();
+    refreshEditorIdentity();
     root().querySelectorAll('.preview-link').forEach(button => {
       const label = button.textContent.trim();
       button.setAttribute('aria-label',label);button.title=label;
@@ -3103,9 +3145,8 @@
   function bindEditor(editable) {
     root().querySelectorAll('[data-id-capture]').forEach(button => button.onclick = () => openIdentityCapture(button.dataset.idCapture,button));
     const browseSection = async direction => {
-      if (syncConflict) return showToast('Choose which draft to keep first.', 'warning');
       const target = wizardSections()[step + direction];
-      if (target) await goToSection(target.key);
+      if (target) await navigateSection(target.key);
     };
     document.getElementById('section-previous')?.addEventListener('click', () => browseSection(-1));
     document.getElementById('section-next')?.addEventListener('click', () => browseSection(1));
@@ -3137,7 +3178,26 @@
       void saveDraft(true);
     });
     document.getElementById('origination-back').onclick = exitEditor;
-    document.getElementById('origination-section-picker')?.addEventListener('click', event => openSectionSheet(event.currentTarget));
+    document.getElementById('origination-section-picker')?.addEventListener('click', () => toggleSectionMenu());
+    document.getElementById('origination-section-picker')?.addEventListener('keydown', event => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      if (document.getElementById('origination-section-menu')?.hidden) toggleSectionMenu(true);
+      else document.querySelector('#origination-section-menu [aria-current="step"]')?.focus();
+    });
+    const menu = document.getElementById('origination-section-menu');
+    menu?.querySelectorAll('[data-section-index]').forEach(button => button.addEventListener('click', () => {
+      const section = wizardSections()[Number(button.dataset.sectionIndex)];
+      if (section) void navigateSection(section.key);
+    }));
+    menu?.addEventListener('keydown', event => {
+      const buttons = [...menu.querySelectorAll('button')];
+      const index = buttons.indexOf(document.activeElement);
+      const next = {ArrowDown:(index + 1) % buttons.length, ArrowUp:(index - 1 + buttons.length) % buttons.length, Home:0, End:buttons.length - 1}[event.key];
+      if (next == null) return;
+      event.preventDefault();
+      buttons[next]?.focus();
+    });
     root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = async () => {
       const targetStep = Number(button.dataset.editStep);
       const targetSection = wizardSections()[targetStep];
@@ -3286,6 +3346,7 @@
       }
       const result = await postJson(`/applications/${current.id}/confirm-signing/`, { revision: current.revision });
       if (!result.ok) {
+        if (result.data?.code === 'documents_updated' && result.data.application) await openEditor(result.data.application, 0);
         if (result.data?.errors) showServerErrors(result.data.errors);
         return showToast(result.data?.error || 'Could not prepare the documents for signing.', true);
       }
@@ -3299,6 +3360,7 @@
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
       const result = await postJson(`/applications/${current.id}/submit/`, { revision: current.revision });
       if (!result.ok) {
+        if (result.data?.code === 'documents_updated' && result.data.application) await openEditor(result.data.application, 0);
         if (result.data?.errors) showServerErrors(result.data.errors);
         return showToast(result.data?.error || 'Could not submit the application.', true);
       }
@@ -3813,12 +3875,12 @@
     const cards = applications.map(item => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = `<span><small>ID</small><span data-card-id-value>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span>Not provided</span>'}</span>`;
+      const identifiers = `<span><small>National ID</small><span data-card-id-value${identity.national_id ? '' : ' class="not-provided"'}>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone number</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span class="not-provided">Not provided</span>'}</span>`;
       return `<article class="application-card" data-application-id="${escapeHtml(item.id)}">
         <div class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
-        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span></div>
+        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}<span class="card-meta-separator" aria-hidden="true"> · </span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span></div>
         <div class="application-card-identifiers">${identifiers}</div>
-        <div class="application-card-footer">${capabilities.can_review && item.officer_name ? `<small class="application-officer">${escapeHtml(item.officer_name)}</small>` : ''}<span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || 'View application')}</small>${iconSvg('arrowRight')}</span></div>
+        ${capabilities.can_review && item.officer_name ? `<div class="application-card-footer"><small class="application-officer"><span>Officer:</span> ${escapeHtml(item.officer_name)}</small></div>` : ''}
         <button type="button" class="application-card-open" data-application-open="${escapeHtml(item.id)}" aria-label="Open application for ${escapeHtml(applicantName)}"></button>
       </article>`;
     }).join('');
@@ -3836,7 +3898,7 @@
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
-    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><div class="application-search-field">${iconSvg('search')}<input type="search" name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, phone…" aria-label="Search applications"></div><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list" aria-label="Applications">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
     const heading = root().querySelector('.list-heading');
     heading.classList.add('sr-only');
     heading.setAttribute('aria-live', 'polite');
@@ -4041,8 +4103,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') preserveDraftOnExit();
     else {
-      void resumeDraftSynchronization();
-      void refreshCurrentSigning();
+      void resumeDraftSynchronization().then(() => refreshCurrentSigning());
     }
   });
   window.addEventListener('online', () => { void resumeDraftSynchronization(); });
@@ -4060,8 +4121,15 @@
       setKeyboardViewportOpen(false);
     }, 120);
   });
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest('.wizard-progress-compact')) closeSectionMenu();
+  });
+  document.addEventListener('focusin', event => {
+    if (!event.target.closest('.wizard-progress-compact')) closeSectionMenu();
+  });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (closeSectionMenu(true)) {event.preventDefault();return;}
     if (cameraDialog) {cameraDialog.close();return;}
     if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
@@ -4077,6 +4145,7 @@
     tg?.BackButton?.onClick?.(async () => {
       if (window.MiniAppRecovery?.closeTop()) return;
       if (cameraDialog) return cameraDialog.close();
+      if (closeSectionMenu(true)) return;
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
       if (!document.getElementById('document-preview-overlay').hidden) return closePreview();

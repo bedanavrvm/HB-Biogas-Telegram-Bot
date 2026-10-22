@@ -2783,6 +2783,10 @@ def serialize_application(
     from origination.services.origination_consent import short_acknowledgement
     from origination.services.application_completion import without_signing
     payload['completion_without_signing'] = without_signing(application)
+    from origination.services.origination_document_refresh import refresh_block_reason
+    payload['auto_update_documents'] = bool(include_payload and actor and actor.pk == application.officer_id
+        and not refresh_block_reason(application))
+    payload['document_update_notice'] = getattr(application, '_document_update_notice', None)
     payload['short_acknowledgement'] = short_acknowledgement(application)
     from origination.services.origination_signing_plans import workspace
     signing_workspace = workspace(application, latest_package if application.status != 'draft' else None, actor) if presentation == 'full' else None

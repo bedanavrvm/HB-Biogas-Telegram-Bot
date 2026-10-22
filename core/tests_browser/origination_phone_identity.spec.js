@@ -88,7 +88,6 @@ for(const dark of [false,true]) test(`refresh icon explicitly requests a fresh c
   const {writes}=await boot(page,{dark,outcome:'not_matched'});
   await page.getByRole('button',{name:'Check primary Applicant phone against ID',exact:true}).click();
   const host=page.locator('[data-phone-id-target=primary]');
-  await host.getByLabel('Phone registration details').click();
   const again=page.getByRole('button',{name:'Check primary Applicant phone against ID again',exact:true});
   await expect(again).toBeVisible();
   await expect(host).toContainText('Sandbox');
@@ -136,7 +135,9 @@ test('invalid values hide action and failures leave the form usable',async({page
 
 test('completed application offers advisory checks without editing or approval',async({page})=>{
   await boot(page,{status:'completed'});
-  await expect(page.locator('.editor-contacts a[href="tel:+254700000001"]')).toBeVisible();
+  await expect(page.locator('.editor-summary [data-phone-id-target]')).toHaveCount(0);
+  await page.locator('.application-phone-checks summary').click();
+  await expect(page.locator('.application-phone-checks a[href="tel:+254700000001"]')).toBeVisible();
   await expect(page.locator('[data-field=applicant_phone]')).toHaveCount(0);
   await page.getByRole('button',{name:'Check alternate Applicant phone against ID'}).click();
   await expect(page.locator('[data-phone-id-target=alternate]')).toContainText('Registration matched');

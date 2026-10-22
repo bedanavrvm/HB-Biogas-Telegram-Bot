@@ -283,6 +283,19 @@ def _request_id(request, body: dict) -> str:
     return bind_miniapp_write_request(request, body).key
 
 
+def _auto_update_before_submission(request, application, body):
+    from origination.services.origination_document_refresh import auto_refresh_documents
+    saved = auto_refresh_documents(application, actor=request.origination_user,
+                                  expected_revision=int(body.get('revision')))
+    notice = getattr(saved, '_document_update_notice', None) or {}
+    if notice.get('status') == 'updated':
+        return JsonResponse({'ok': False, 'code': 'documents_updated', 'error': notice['message'],
+            'application': serialize_application(saved, actor=request.origination_user)}, status=409)
+    if notice.get('status') == 'warning':
+        return JsonResponse({'ok': False, 'error': notice['message']}, status=409)
+    return None
+
+
 def _application(application_id: str):
     return LoanOriginationApplication.objects.select_related(
         'product_definition', 'product_version__product', 'officer', 'recheck_assigned_to',
@@ -826,6 +839,8 @@ def portal_origination_submit(request, application_id: str):
         return access_error
     try:
         body = _body(request)
+        if (updated := _auto_update_before_submission(request, application, body)) is not None:
+            return updated
         from origination.services.application_completion import without_signing
         if not without_signing(application) and (application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required'):
             package, _ = confirm_and_start_conditional_signing(
@@ -858,6 +873,8 @@ def portal_origination_confirm_signing(request, application_id: str):
         return error
     try:
         body = _body(request)
+        if (updated := _auto_update_before_submission(request, application, body)) is not None:
+            return updated
         package, replayed = confirm_and_start_conditional_signing(
             application_id=application.pk, actor=request.origination_user,
             expected_revision=int(body.get('revision')),
@@ -1996,6 +2013,34 @@ def portal_origination_evidence_download(request, evidence_id: str):
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def portal_origination_document_updates(request, application_id: str):
+    """Uses the existing authenticated, scope-checked Origination write boundary."""
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'origination.create', application)) is not None:
+        return error
+    if (error := _application_access_error(request, application)) is not None:
+        return error
+    if application.officer_id != request.origination_user.pk:
+        return JsonResponse({'ok': False, 'error': 'Only the assigned officer may update these documents.'}, status=403)
+    from origination.services.origination_document_refresh import document_updates, auto_refresh_documents
+    try:
+        if request.method == 'GET':
+            return JsonResponse({'ok': True, **document_updates(application)})
+        body = _body(request)
+        _request_id(request, body)
+        saved = auto_refresh_documents(application, actor=request.origination_user,
+            expected_revision=int(body.get('revision')))
+        return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
 
 
 @csrf_exempt

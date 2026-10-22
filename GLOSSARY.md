@@ -20,3 +20,9 @@ _Avoid_: Approved application, signed application
 **Application copy**:
 One PDF containing all selected application documents, or an individual document
 from that application. Downloading a copy is not review, signing or approval.
+
+**Unsigned application**:
+An application with no confirmed signature on any of its documents. Typing or
+previewing a signature is not confirmation; one confirmed signature fixes the
+document bundle for everyone.
+_Avoid_: Draft-only application

@@ -237,7 +237,8 @@ test('supporting forms use placed fields and sections and restore saved answers 
   await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
   await page.getByRole('button',{name:'Choose application section'}).click();
   await expect(page.locator('[data-section-index]').filter({hasText:'Home visit'})).toHaveCount(0);
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#origination-section-menu')).toBeHidden();
   await page.getByRole('button',{name:'Manage documents',exact:true}).click();
   await page.locator('[name=supporting_template_ids][value=support-2]').check();
   await page.getByRole('button',{name:'Save changes',exact:true}).click();
@@ -310,7 +311,10 @@ for (const width of [320,360,390,430,1280]) {
     await expect(page.getByRole('button',{name:'Needs your action 1'})).toHaveAttribute('aria-pressed','true');
     await expect(page.locator('.application-card')).toHaveCount(1);
     await expect(page.locator('.reviewer-alerts')).toHaveCount(0);
-    await expect(page.locator('.application-card')).toContainText('Make corrections');
+    await expect(page.locator('.application-card')).toContainText('Changes requested');
+    await expect(page.locator('.application-card')).toContainText('Please check the repayment details.');
+    await expect(page.locator('.application-card-state')).toHaveCount(0);
+    await expect(page.getByText('Complete application',{exact:true})).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:info.outputPath(`queues-${width}.png`)});
     await page.getByRole('button',{name:'Filters',exact:true}).click();

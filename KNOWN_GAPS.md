@@ -1,5 +1,41 @@
 # Known Gaps and Verified Workarounds
 
+## Origination supplied header/main-page references - 22 October 2026
+
+Implemented both scoped references: integrated two-row editor header without
+phone/National ID strip; anchored section chooser/end-aligned navigation; and
+the main page's segmented tabs, search/filter row and aligned clickable cards.
+Removed redundant Complete/View application rows. Form scale, independent
+phone links, actual document actions and current authorization are preserved.
+Evidence: `docs/ui-standard/origination-reference-header.md`.
+
+**92 browser checks passed**, followed by **18 final responsive layout checks**
+with inspected light/dark and enlarged-text screenshots. Related isolated
+backend checks: **63 run, 61 passed, 2 PostgreSQL-only skips**. JavaScript syntax,
+Ruff, Django/migration checks, UI source ratchet and diff whitespace checks passed.
+No shared baseline/Phase 6 approval, production deployment or real Telegram-device
+verification is implied. The app still needs normal code/static deployment.
+
+## Automatic unsigned Origination documents - 22 October 2026
+
+Implemented lazy automatic same-family document adoption on officer open/resume
+and before submission, with compatible-answer retention and a first-confirmed-
+signature lock. Source, evidence and limits:
+`docs/ui-standard/origination-automatic-documents.md` and ADR 0060.
+
+Local acceptance: **231 backend tests run, 226 passed, 5 PostgreSQL-only skips**;
+**33 browser tests passed**, plus five final automatic-update/runtime checks.
+Light/dark mobile screenshots were inspected. PostgreSQL first-signature versus
+refresh concurrency has a checked-in regression test but was skipped on SQLite;
+the other four skips also require PostgreSQL. Actual Telegram resume behaviour
+still needs device verification. No new database schema or provider setup is
+required; normal code/static deployment is required and has not been performed.
+
+Adoption is triggered by the assigned officer opening/resuming/submitting, not a
+background sweep of dormant applications. It does not change product terms,
+switch Main LAF family, resurrect closed applications, upgrade unsigned legacy
+records without a governed catalogue or rewrite signed documents.
+
 ## Origination UI corrections - 22 October 2026
 
 Implemented the compact header/plain icons, aligned Main LAF/supporting field

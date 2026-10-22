@@ -2,6 +2,11 @@
 
 Accepted - 16 October 2026.
 
+Update - 22 October: ADR 0060 adds automatic same-family version adoption before
+the first signature, including unsigned submitted/reviewed applications. The
+chooser still does not upgrade implicitly; changing Main LAF family still starts
+a blank replacement.
+
 ## Context
 
 The Main LAF action required an alternative form even when an officer only

@@ -2,6 +2,9 @@
 
 Accepted - 13 October 2026.
 
+Update - 22 October: ADR 0060 supersedes the new-applications-only publication
+boundary below for unsigned applications. Signed documents retain their mappings.
+
 ## Context
 
 Publishing an unfinished alignment is deliberately allowed (ADR 0046), but

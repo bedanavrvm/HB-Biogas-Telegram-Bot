@@ -12,7 +12,9 @@ const shell = execFileSync(path.join(root,process.platform==='win32'?'.venv/Scri
     DJANGO_SECRET_KEY:'synthetic-origination-browser-only-'+ '0'.repeat(32),SENTRY_DSN:'',TELEGRAM_BOT_TOKEN:''}});
 const clone = value => JSON.parse(JSON.stringify(value));
 
-async function boot(page, {linked=false, failure=false, dark=false, width=360, delay=0, configure=()=>{}}={}) {
+async function boot(page, {linked=false, failure=false, dark=false, width=360, delay=0, configure=()=>{}, documentUpdate=false, updateFailure=false}={}) {
+  const runtimeErrors=[];
+  page.on('pageerror',error=>runtimeErrors.push(error.message));
   await page.setViewportSize({width,height:844});
   const field = (key, section_key, subject='applicant', owner={kind:'main',section_key}) => ({
     key, label:key.replaceAll('_',' '),type:'text',section_key,input_owner:owner,
@@ -44,7 +46,9 @@ async function boot(page, {linked=false, failure=false, dark=false, width=360, d
       resolved_values:{applicant_name:'Synthetic Wanjiku Mwangi-Kamau'},schema:{sections:[],fields:[shared]}}]},
   };
   configure(app);
-  const writes=[]; const previews=[]; const previewBodies=[];
+  const writes=[]; const previews=[]; const previewBodies=[]; const documentUpdates=[];
+  let hasDocumentUpdate = documentUpdate === true;
+  let failDocumentUpdate = updateFailure;
   let fail=failure;
   await page.route('http://127.0.0.1:8161/**',async route=>{
     const request=route.request(),url=new URL(request.url());
@@ -58,6 +62,21 @@ async function boot(page, {linked=false, failure=false, dark=false, width=360, d
     }
     if(url.pathname.endsWith('/products/')) return route.fulfill({json:{ok:true,products:[],branches:[],capabilities:{can_create:true,user_id:1}}});
     if(url.pathname.endsWith('/applications/')) return route.fulfill({json:{ok:true,applications:[app],tab_counts:{action:1,applications:1},status_options:[],pagination:{page:1,pages:1,total:1},capabilities:{can_create:true,user_id:1}}});
+    if(url.pathname.endsWith('/documents/updates/')) {
+      expect(request.method()).toBe('POST');
+      documentUpdates.push(request.postDataJSON());
+      if(failDocumentUpdate) {failDocumentUpdate=false; return route.fulfill({status:503,json:{ok:false,error:'Could not check document updates. Your saved answers are kept.'}});}
+      app.document_update_notice=null;
+      if(hasDocumentUpdate) {
+        hasDocumentUpdate=false;
+        app.revision++;app.status='draft';
+        const doc=app.document_packet.documents[0];doc.template_version=2;
+        doc.schema.fields.push({key:'visit_reason',label:'Visit reason',type:'text',section_key:'undertaking',
+          value_contract:{version:2,scope:'document',source:'entered',subject:'document'}});
+        app.document_update_notice={status:'updated',message:'Documents updated automatically. Check any new or changed fields.'};
+      }
+      return route.fulfill({json:{ok:true,application:clone(app)}});
+    }
     if(url.pathname.includes('/preview/')) {previews.push(url.pathname);previewBodies.push(request.postDataJSON());return route.fulfill({status:503,json:{ok:false,error:'Synthetic preview unavailable'}});}
     if(request.method()==='PATCH'||url.pathname.endsWith('/fields/')) {
       const body=request.postDataJSON();writes.push(clone(body));
@@ -93,7 +112,7 @@ async function boot(page, {linked=false, failure=false, dark=false, width=360, d
   await page.evaluate(()=>document.fonts.ready);
   };
   await reopen();
-  return {app,writes,previews,previewBodies,reopen,retry:()=>{fail=false;}};
+  return {app,writes,previews,previewBodies,reopen,retry:()=>{fail=false;},documentUpdates,runtimeErrors,publishDocument:()=>{hasDocumentUpdate=true;}};
 }
 
 async function section(page,label) {
@@ -101,6 +120,50 @@ async function section(page,label) {
   await page.locator('[data-section-index]').filter({hasText:label}).click();
   await expect(page.locator('#origination-section-picker strong')).toHaveText(label);
 }
+
+for(const dark of [false,true]) test(`unsigned documents update automatically without a confirmation (dark=${dark})`,async({page},info)=>{
+  const {app,documentUpdates,runtimeErrors}=await boot(page,{dark,width:dark?390:360,documentUpdate:true,
+    configure:app=>{app.auto_update_documents=true;app.status='reviewed';}});
+  expect(documentUpdates).toHaveLength(1);
+  expect(app.revision).toBe(2);
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Documents updated automatically');
+  await expect(page.getByRole('button',{name:'Update documents',exact:true})).toHaveCount(0);
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Synthetic Wanjiku Mwangi-Kamau');
+  await section(page,'Guarantor form');
+  await expect(page.locator('[data-reused-field=applicant_name]')).toHaveValue('Synthetic Wanjiku Mwangi-Kamau');
+  await expect(page.getByLabel('Visit reason')).toBeVisible();
+  await page.screenshot({path:info.outputPath(`automatic-support-${dark?'dark':'light'}.png`),fullPage:true});
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('automatic update failure keeps the saved form usable and reopening retries',async({page})=>{
+  const {reopen,documentUpdates}=await boot(page,{documentUpdate:true,updateFailure:true,configure:app=>{app.auto_update_documents=true;}});
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Your saved answers are kept');
+  await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Synthetic Wanjiku Mwangi-Kamau');
+  await reopen();
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Documents updated automatically');
+  expect(documentUpdates).toHaveLength(2);
+});
+
+test('resuming an unsigned application adopts a publication without a refresh button',async({page})=>{
+  const {publishDocument,documentUpdates,runtimeErrors}=await boot(page,{configure:app=>{app.auto_update_documents=true;}});
+  expect(documentUpdates).toHaveLength(1);
+  publishDocument();
+  await page.locator('#origination-section-picker').focus();
+  await page.evaluate(()=>window.dispatchEvent(new Event('pageshow')));
+  await expect.poll(()=>documentUpdates.length).toBe(2);
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Documents updated automatically');
+  await section(page,'Guarantor form');
+  await expect(page.getByLabel('Visit reason')).toBeVisible();
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('signed application does not request document updates',async({page})=>{
+  const {documentUpdates}=await boot(page,{configure:app=>{app.status='approved';app.auto_update_documents=false;}});
+  expect(documentUpdates).toHaveLength(0);
+  await expect(page.getByRole('button',{name:'Update documents',exact:true})).toHaveCount(0);
+});
 
 for(const linked of [false,true]) test(`clear Guarantor 2 persists without changing source (linked=${linked})`,async({page})=>{
   const {app}=await boot(page,{linked});
@@ -142,18 +205,120 @@ test('supporting documents have one page each and reuse Main LAF values',async({
   await page.screenshot({path:info.outputPath('autofilled-document.png'),fullPage:true});
 });
 
-for(const dark of [false,true]) test(`header contacts dial and copy without reference clutter (${dark?'dark':'light'})`,async({page},info)=>{
+for(const dark of [false,true]) test(`two-row header without contact or reference clutter (${dark?'dark':'light'})`,async({page},info)=>{
   await boot(page,{dark,width:dark?390:360});
-  await expect(page.locator('.editor-contacts a[href="tel:+254700000001"]')).toBeVisible();
+  await expect(page.locator('.editor-contacts')).toHaveCount(0);
+  await expect(page.locator('.editor-summary')).not.toContainText('0700000001');
+  await expect(page.locator('.editor-summary')).not.toContainText('00099001');
+  await expect(page.locator('.editor-summary>.editor-context')).toHaveCount(1);
+  await expect(page.locator('.editor-summary>.wizard-progress-compact')).toHaveCount(1);
+  await expect(page.locator('.editor-summary .wizard-progress-track')).toHaveCount(1);
+  await expect(page.locator('[data-field=applicant_phone]')).toHaveValue('0700000001');
+  await expect(page.locator('[data-field=applicant_id_number]')).toHaveValue('00099001');
+  expect((await page.locator('.editor-summary').boundingBox()).height).toBeLessThanOrEqual(112);
   await page.screenshot({path:info.outputPath(`application-header-${dark?'dark':'light'}.png`),fullPage:true});
-  await page.getByRole('button',{name:'Copy National ID',exact:true}).click();
-  expect(await page.evaluate(()=>window.__copied)).toEqual(['00099001']);
   await expect(page.locator('.editor-identity')).not.toContainText('ORG-SYNTHETIC');
   await expect(page.getByText('Applicant contacts',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Manage documents',exact:true})).toHaveCount(1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await section(page,'Guarantor form');
   await page.screenshot({path:info.outputPath(`supporting-document-${dark?'dark':'light'}.png`),fullPage:true});
+});
+
+for(const dark of [false,true]) test(`header dropdown is anchored, keyboard-operable and closes cleanly (${dark?'dark':'light'})`,async({page},info)=>{
+  const {runtimeErrors}=await boot(page,{dark,configure:app=>{
+    app.applicant_summary.name='Mary Wanjiku';app.product_name='Inua';
+    app.form_schema.sections[0].label='Applicant details';
+  }});
+  const trigger=page.locator('#origination-section-picker'),menu=page.locator('#origination-section-menu');
+  await expect(page.locator('#section-previous')).toBeDisabled();
+  await trigger.focus();await trigger.press('ArrowDown');
+  await expect(trigger).toHaveAttribute('aria-expanded','true');
+  await expect(menu.locator('[aria-current=step]')).toBeFocused();
+  await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
+  const header=await page.locator('.editor-summary').boundingBox(),box=await menu.boundingBox();
+  expect(box.y).toBeGreaterThanOrEqual(header.y+header.height);
+  expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(360);
+  await page.screenshot({path:info.outputPath(`section-menu-${dark?'dark':'light'}.png`),fullPage:true});
+  await menu.locator('[aria-current=step]').press('ArrowDown');
+  await expect(menu.locator('[data-section-index="1"]')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute('aria-expanded','false');
+  await trigger.click();await page.locator('[data-field=spouse_phone]').click();
+  await expect(menu).toBeHidden();
+  await trigger.click();await page.locator('[data-field=applicant_name]').focus();
+  await expect(menu).toBeHidden();
+  await trigger.focus();await trigger.press('ArrowDown');await page.keyboard.press('End');
+  await expect(menu.locator('[data-section-index="4"]')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(trigger.locator('strong')).toHaveText('Review');await expect(trigger).toBeFocused();
+  await expect(page.locator('#section-next')).toBeDisabled();
+  await expect(page.locator('.wizard-progress-track')).toHaveAttribute('aria-valuenow','5');
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('header controls use real preview, document choices and individual/combined downloads',async({page})=>{
+  const {previews,writes,runtimeErrors}=await boot(page,{configure:app=>{
+    app.download_choices=[{document_key:'',label:'All documents',description:'Combined PDF',available:true},
+      ...app.document_packet.documents.map(doc=>({document_key:doc.key,label:doc.name,available:true}))];
+  }});
+  let choices=0;
+  await page.route('**/documents/choices/',route=>{
+    choices++;
+    return route.fulfill({json:{ok:true,primary_template_id:'synthetic-main',catalogue_revision:'fixture',
+      main_lafs:[{id:'synthetic-main',name:'Synthetic Main LAF',selected:true,version:6}],supporting_documents:[]}});
+  });
+  await page.locator('#origination-restart-laf').click();
+  await expect(page.locator('#origination-documents-form')).toContainText('Synthetic Main LAF');
+  expect(choices).toBe(1);
+  await page.locator('[data-sheet-cancel]').click();
+  await page.locator('#origination-preview-early').click();
+  await expect.poll(()=>previews.length).toBe(1);
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Synthetic preview unavailable');
+  await page.locator('#preview-close').click();
+  await page.locator('#origination-download').click();
+  await expect(page.locator('.document-download-choice')).toHaveCount(3);
+  await expect(page.locator('.document-download-list')).toContainText('Guarantor form');
+  await expect(page.locator('.document-download-list')).toContainText('Confirmation');
+  await page.locator('#origination-sheet-close').click();
+  expect(writes).toHaveLength(0);expect(runtimeErrors).toEqual([]);
+});
+
+test('header arrows serialize navigation and keep unsaved answers on failure',async({page})=>{
+  const {writes,retry,runtimeErrors}=await boot(page,{failure:true,delay:150});
+  await page.locator('[data-field=applicant_name]').fill('Keep this synthetic name');
+  await page.locator('#section-next').evaluate(button=>{button.click();button.click();});
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Synthetic save failed');
+  await expect(page.locator('#origination-section-picker strong')).toHaveText('Applicant');
+  await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Keep this synthetic name');
+  expect(writes).toHaveLength(1);
+  retry();await page.locator('#section-next').click();
+  await expect(page.locator('#origination-section-picker strong')).toHaveText('Guarantors');
+  await page.locator('#section-previous').click();
+  await expect(page.locator('[data-field=applicant_name]')).toHaveValue('Keep this synthetic name');
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('header tolerates long names, long section labels and 200 percent text',async({page},info)=>{
+  const {runtimeErrors}=await boot(page,{width:320,configure:app=>{
+    app.applicant_summary.name="Synthetic Wanjiku O'Kamau-Mwangi Wambui";
+    app.product_name='Synthetic product with a long descriptive name';
+    app.form_schema.sections[0].label='Applicant identity, household and residence details';
+  }});
+  await page.evaluate(()=>document.documentElement.style.fontSize='200%');
+  await page.locator('#origination-section-picker').click();
+  const metrics=await page.locator('.editor-summary').evaluate(header=>{
+    const box=element=>{const rect=element.getBoundingClientRect();return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom};};
+    return {title:box(header.querySelector('.editor-identity')),actions:box(header.querySelector('.editor-document-actions')),
+      previous:box(header.querySelector('#section-previous')),trigger:box(header.querySelector('#origination-section-picker')),next:box(header.querySelector('#section-next'))};
+  });
+  expect(metrics.title.right).toBeLessThanOrEqual(metrics.actions.left);
+  expect(metrics.previous.right).toBeLessThanOrEqual(metrics.trigger.left);
+  expect(metrics.trigger.right).toBeLessThanOrEqual(metrics.next.left);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('header-large-text.png'),fullPage:true});
+  expect(runtimeErrors).toEqual([]);
 });
 
 test('reused values are read only and refresh after saving their source section',async({page})=>{
@@ -204,11 +369,15 @@ test('clearing save failure never reports success and can be retried',async({pag
   await expect.poll(()=>app.form_payload.guarantor_2_name).toBe('');
 });
 
-test('clipboard failure is visible without a false success message',async({page})=>{
-  await boot(page);
-  await page.evaluate(()=>navigator.clipboard.writeText=async()=>{throw new Error('Synthetic denial');});
-  await page.getByRole('button',{name:'Copy National ID',exact:true}).click();
-  await expect(page.locator('#miniapp-shared-toast')).toContainText('Could not copy');
+test('applicant header reflects confirmed saves, not failed edits',async({page})=>{
+  const {retry}=await boot(page,{failure:true});
+  await page.locator('[data-field=applicant_name]').fill('Synthetic saved name');
+  await page.locator('#section-next').click();
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Synthetic save failed');
+  await expect(page.locator('.editor-identity>strong')).toHaveText('Synthetic Wanjiku Mwangi-Kamau');
+  retry();await page.locator('#section-next').click();
+  await expect(page.locator('.editor-identity>strong')).toHaveText('Synthetic saved name');
+  await expect(page.locator('.editor-identity>strong')).toHaveAttribute('title','Synthetic saved name');
 });
 
 test('separate document instances share canonical values but keep their own notes',async({page})=>{
@@ -414,12 +583,79 @@ test('queue identity slots remain aligned with absent data and show the readable
   const labels=await page.locator('.application-card-identifiers>span>small').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().y));
   expect(Math.abs(labels[0]-labels[1])).toBeLessThan(1);
   const separated=await page.locator('.application-card-identifiers>span').evaluateAll(nodes=>nodes.every(node=>
-    node.querySelector('small').getBoundingClientRect().right+4<=node.querySelector('span').getBoundingClientRect().left));
+    node.querySelector('small').getBoundingClientRect().bottom<=node.querySelector('span').getBoundingClientRect().top));
   expect(separated).toBe(true);
   await page.screenshot({path:info.outputPath('missing-card-values.png'),fullPage:true});
 });
 
-test('phone-check outcome stays behind its compact control instead of expanding the header',async({page},info)=>{
+for(const dark of [false,true]) test(`reference main page uses aligned clickable cards without repeated actions (${dark?'dark':'light'})`,async({page},info)=>{
+  const {app,runtimeErrors}=await boot(page,{dark,width:dark?390:360});
+  const entries=[clone(app),clone(app),clone(app)];
+  entries.forEach((entry,index)=>{
+    entry.id=`00000000-0000-4000-8000-00000000007${index}`;
+    entry.display_reference=`ORG-${11+index}`;entry.product_name='Inua';entry.branch='Synthetic branch';
+    entry.officer_name='Synthetic officer';entry.next_action='Complete application';
+  });
+  entries[0].applicant_summary.name='Synthetic Mary Wanjiku';
+  entries[1].applicant_summary={name:'',national_id:'',phone:''};
+  entries[2].status='correction_required';entries[2].status_label='Changes requested';
+  entries[2].applicant_summary.name="Synthetic Wanjiku O'Kamau-Mwangi with a long applicant name";
+  await page.route('**/applications/?*',route=>route.fulfill({json:{ok:true,applications:entries,
+    tab_counts:{action:3,applications:12},status_options:[],pagination:{page:1,pages:1,total:3},
+    capabilities:{can_create:true,can_review:true,user_id:1}}}));
+  await page.route(`**/applications/${entries[0].id}/`,route=>route.fulfill({json:{ok:true,application:entries[0]}}));
+  await page.locator('#origination-back').click();await page.locator('#origination-list-refresh').click();
+  await expect(page.locator('.application-card')).toHaveCount(3);
+  await expect(page.getByText('Complete application',{exact:true})).toHaveCount(0);
+  await expect(page.locator('.application-card-state')).toHaveCount(0);
+  await expect(page.locator('.application-officer')).toHaveCount(3);
+  await expect(page.locator('.application-officer').first()).toContainText('Officer:');
+  await expect(page.locator('.application-card').nth(1)).toContainText('Applicant details pending');
+  await expect(page.locator('.application-card').nth(1).locator('.not-provided')).toHaveCount(2);
+  for(const card of await page.locator('.application-card').all()) {
+    const geometry=await card.evaluate(node=>{
+      const cells=[...node.querySelectorAll('.application-card-identifiers>span')];
+      return {labels:cells.map(cell=>cell.querySelector('small').getBoundingClientRect().y),
+        values:cells.map(cell=>cell.querySelector('span').getBoundingClientRect().y)};
+    });
+    expect(Math.abs(geometry.labels[0]-geometry.labels[1])).toBeLessThan(1);
+    expect(Math.abs(geometry.values[0]-geometry.values[1])).toBeLessThan(1);
+    expect(geometry.values[0]).toBeGreaterThan(geometry.labels[0]);
+  }
+  const phone=page.locator('.application-card').first().getByRole('link',{name:'Call 0700000001'});
+  await expect(phone).toHaveAttribute('href','tel:+254700000001');
+  expect((await phone.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  const search=await page.getByRole('searchbox',{name:'Search applications'}).boundingBox();
+  const filter=await page.locator('#origination-open-filters').boundingBox();
+  expect(Math.abs(search.y-filter.y)).toBeLessThan(1);expect(search.x+search.width).toBeLessThan(filter.x);
+  for(const control of ['#origination-start','#origination-list-refresh','#origination-open-filters','.queue-tab.active'])
+    expect((await page.locator(control).boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`main-page-${dark?'dark':'light'}.png`),fullPage:true});
+  await page.evaluate(()=>document.documentElement.style.fontSize='200%');
+  await page.setViewportSize({width:320,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const bounds=await page.locator('.list-toolbar button').evaluateAll(buttons=>buttons.map(button=>{
+    const rect=button.getBoundingClientRect();return {left:rect.left,right:rect.right};
+  }));
+  expect(bounds.every(rect=>rect.left>=0&&rect.right<=320)).toBe(true);
+  const largeAlignment=await page.locator('.application-card').first().evaluate(card=>{
+    const cells=[...card.querySelectorAll('.application-card-identifiers>span')];
+    const tabs=[...document.querySelectorAll('.queue-tab')];
+    return {values:cells.map(cell=>cell.querySelector('span').getBoundingClientRect().y),
+      tabsFit:tabs.every(tab=>tab.getBoundingClientRect().right<=innerWidth)};
+  });
+  expect(Math.abs(largeAlignment.values[0]-largeAlignment.values[1])).toBeLessThan(1);
+  expect(largeAlignment.tabsFit).toBe(true);
+  await page.screenshot({path:info.outputPath(`main-page-large-text-${dark?'dark':'light'}.png`),fullPage:true});
+  await page.evaluate(()=>document.documentElement.style.fontSize='');
+  await page.setViewportSize({width:dark?390:360,height:844});
+  await phone.click({noWaitAfter:true});await expect(page.locator('.application-card')).toHaveCount(3);
+  await page.locator('.application-card-open').first().focus();await page.keyboard.press('Enter');
+  await expect(page.locator('.editor-summary')).toBeVisible();expect(runtimeErrors).toEqual([]);
+});
+
+test('phone check belongs to its Applicant field, not the header',async({page},info)=>{
   await boot(page,{configure:app=>{
     app.phone_id_checks={allowed:true,enabled:true,environment:'sandbox',revision:1,targets:[{
       target:'primary',field_key:'applicant_phone',id_field_key:'applicant_id_number',status:'not_matched',
@@ -427,15 +663,12 @@ test('phone-check outcome stays behind its compact control instead of expanding 
     }]};
   }});
   const target=page.locator('[data-phone-id-target=primary]');
-  await expect(target.locator('details')).not.toHaveAttribute('open','');
-  await expect(target.locator('.phone-check-popover')).toBeHidden();
-  const height=(await page.locator('.editor-summary').boundingBox()).height;
-  await target.getByLabel('Phone registration details').click();
-  await expect(target.locator('.phone-check-popover')).toContainText('Registration does not match');
-  expect((await page.locator('.editor-summary').boundingBox()).height).toBe(height);
-  const popover=await target.locator('.phone-check-popover').boundingBox();
-  expect(popover.x).toBeGreaterThanOrEqual(0);
-  expect(popover.x+popover.width).toBeLessThanOrEqual(360);
+  await expect(page.locator('.editor-summary [data-phone-id-target]')).toHaveCount(0);
+  await expect(page.locator('[data-field-wrap=applicant_phone] [data-phone-id-target=primary]')).toBeVisible();
+  await expect(target).toContainText('Registration does not match');
+  await expect(target.getByRole('button',{name:/Check primary Applicant phone/})).toBeVisible();
+  await section(page,'Guarantor form');
+  await expect(page.locator('[data-phone-id-target]')).toHaveCount(0);
   await page.screenshot({path:info.outputPath('phone-check-details.png'),fullPage:true});
 });
 
