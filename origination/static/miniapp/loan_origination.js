@@ -34,7 +34,8 @@
   let commercialQuoteGeneration = 0;
   let commercialQuoteState = null;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false, can_staff_sign: false };
-  let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
+  const APPLICATION_PAGE_SIZE = 10;
+  let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1, pageSize: APPLICATION_PAGE_SIZE };
   let current = null;
   let step = 0;
   let sectionNavigationInFlight = false;
@@ -1177,7 +1178,7 @@
   }
 
   function applicationListParams() {
-    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '10' });
+    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: String(APPLICATION_PAGE_SIZE) });
     if (listState.status) params.set(['draft', 'changes', 'progress', 'completed', 'closed'].includes(listState.status) ? 'status_group' : 'status', listState.status);
     if (listState.productKey) params.set('product_key', listState.productKey);
     if (listState.query) params.set('q', listState.query);
@@ -3594,8 +3595,9 @@
       if (result.data?.errors) showServerErrors(result.data.errors);
       return showToast(result.data?.error || 'Could not prepare this application.', 'error');
     }
-    const {download_url:url, filename} = result.data;
-    if (!url || !filename) return showToast('The download is unavailable. Please try again.', 'error');
+    const url = String(result.data.download_url || '').trim();
+    const filename = String(result.data.filename || '').trim();
+    if (!url || !filename || /[\\/\r\n]/.test(filename)) return showToast('The download is unavailable. Please try again.', 'error');
     const fallback = () => {
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename;
       anchor.rel = 'noopener'; anchor.target = '_blank'; document.body.appendChild(anchor); anchor.click(); anchor.remove();
@@ -3612,12 +3614,13 @@
   }
 
   async function openPreview(documentKey = '', allowIncomplete = false) {
+    const overlay = document.getElementById('document-preview-overlay');
+    if (!overlay.hidden) return; // One save/render/handoff per visible viewer.
     // Event listeners must call this through a wrapper. Keep a defensive
     // fallback too, so a future direct binding cannot turn a PointerEvent into
     // a document-key URL segment.
     if (typeof documentKey !== 'string') documentKey = '';
     documentKey = resolveLatestPreviewKey(documentKey);
-    if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     previewDocumentKey = documentKey;
     previewAllowIncomplete = allowIncomplete;
     previewSucceeded = false;
@@ -3625,7 +3628,14 @@
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
     document.querySelector('.preview-toolbar').hidden = false;
-    const overlay = document.getElementById('document-preview-overlay');
+    const openingRequestId = previewRequestId;
+    const applicationId = current.id;
+    const pageLabel = document.getElementById('preview-page');
+    if (pageLabel) pageLabel.textContent = dirty ? 'Saving changes…' : 'Loading preview…';
+    const image = document.getElementById('document-preview-image');
+    if (image) image.removeAttribute('src');
+    const stage = document.getElementById('document-preview-stage');
+    stage?.setAttribute('aria-busy', 'true');
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
       ? 'Signed application'
@@ -3642,6 +3652,12 @@
     previewGestures?.reset();
     syncTelegramControls();
     window.requestAnimationFrame(() => document.getElementById('preview-close')?.focus());
+    if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) {
+      if (previewRequestId === openingRequestId) closePreview();
+      return;
+    }
+    if (previewRequestId !== openingRequestId || current?.id !== applicationId || overlay.hidden) return;
+    if (pageLabel) pageLabel.textContent = 'Loading preview…';
     await loadPreviewPage();
   }
 
@@ -3735,11 +3751,16 @@
     if (!wasCached) showToast('Generating filled PDF…');
     const entry = await fetchPreviewPage(requestedPage);
     if (entry?.cancelled) {dismissPreviewProgressToast();closePreview();return;}
-    if (entry?.error) { return showToast(entry.error + ' Use Refresh to try again.', true); }
+    if (entry?.error) {
+      document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
+      document.getElementById('preview-page').textContent = 'Preview unavailable — tap Refresh';
+      return showToast(entry.error + ' Use Refresh to try again.', true);
+    }
     if (!entry || entry.stale || requestedPage !== previewPage) return;
     previewUrl = entry.url;
     previewPageCount = entry.pageCount;
     updatePreviewFrame();
+    document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
     dismissPreviewProgressToast();
     [requestedPage - 1, requestedPage + 1]
       .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewPageCount)
@@ -3805,6 +3826,7 @@
     dismissPreviewProgressToast();
     const wasApprovalPreview = previewDocumentKey === '__signing_packet__' && (current?.approval_roles || []).length;
     const overlay = document.getElementById('document-preview-overlay');
+    document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
     const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
     if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
@@ -3872,15 +3894,15 @@
     const queueCount = key => {
       return tabCounts[key] ?? '';
     };
-    const cards = applications.map(item => {
+    const cards = applications.map((item, index) => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = `<span><small>National ID</small><span data-card-id-value${identity.national_id ? '' : ' class="not-provided"'}>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone number</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span class="not-provided">Not provided</span>'}</span>`;
+      const position = (listState.page - 1) * listState.pageSize + index + 1;
+      const identifiers = `<span><small>National ID</small><span data-card-id-value${identity.national_id ? '' : ' class="not-provided"'}>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span class="not-provided">Not provided</span>'}</span>`;
       return `<article class="application-card" data-application-id="${escapeHtml(item.id)}">
-        <div class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
-        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}<span class="card-meta-separator" aria-hidden="true"> · </span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span></div>
+        <div class="application-card-header"><div class="application-card-title"><span class="application-card-number" aria-label="List position ${position}">#${position}</span><strong>${escapeHtml(applicantName)}</strong></div><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
+        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}<span class="card-meta-separator" aria-hidden="true"> · </span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span>${capabilities.can_review && item.officer_name ? `<small class="application-officer"><span>Officer:</span> ${escapeHtml(item.officer_name)}</small>` : ''}</div>
         <div class="application-card-identifiers">${identifiers}</div>
-        ${capabilities.can_review && item.officer_name ? `<div class="application-card-footer"><small class="application-officer"><span>Officer:</span> ${escapeHtml(item.officer_name)}</small></div>` : ''}
         <button type="button" class="application-card-open" data-application-open="${escapeHtml(item.id)}" aria-label="Open application for ${escapeHtml(applicantName)}"></button>
       </article>`;
     }).join('');
@@ -4028,6 +4050,7 @@
     capabilities = result.data.capabilities || capabilities;
     listState.page = result.data.pagination?.page || 1;
     listState.pages = result.data.pagination?.pages || 1;
+    listState.pageSize = Number(result.data.pagination?.page_size) || APPLICATION_PAGE_SIZE;
     listTotal = result.data.pagination?.total ?? applications.length;
     renderList({ focusSearch });
   }

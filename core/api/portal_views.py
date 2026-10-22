@@ -738,6 +738,19 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
 # ── Render View ───────────────────────────────────────────────────────────────
 
 
+def _portal_download_response(request, content, *, content_type, filename):
+    """Named bytes for Telegram's native downloader, after each view authorizes."""
+    from django.utils.http import content_disposition_header
+    response = HttpResponse(b'' if request.method == 'HEAD' else content, content_type=content_type)
+    response['Content-Disposition'] = content_disposition_header(True, filename)
+    response['Content-Length'] = str(len(content))
+    response['Access-Control-Allow-Origin'] = 'https://web.telegram.org'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition, Content-Length, Content-Type'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 def _batch_download_url(request, order_number: str) -> str:
     # Excel links are opened in Telegram's system browser, which cannot send
     # the Mini App initData header.  Bind a short-lived signed URL to the
@@ -3301,14 +3314,10 @@ def portal_curated_report_download(request, token: str):
         )
     except PortalReportingError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    response = HttpResponse(
-        b'' if request.method == 'HEAD' else workbook,
+    return _portal_download_response(request, workbook,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=f'portal-{preset}-report.xlsx',
     )
-    response['Content-Disposition'] = f'attachment; filename="portal-{preset}-report.xlsx"'
-    response['Content-Length'] = str(len(workbook))
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
 
 
 @portal_auth_required
@@ -6054,7 +6063,6 @@ def portal_payment_workbook_download(request, token: str):
     except (BadSignature, KeyError, TypeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Download link expired. Reopen this payment and try again.'}, status=404)
     from django.contrib.auth import get_user_model
-    from django.utils.http import content_disposition_header
     from core.services.telegram_identity import user_access
 
     actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
@@ -6070,15 +6078,11 @@ def portal_payment_workbook_download(request, token: str):
     data = bytes(batch.current_document.file_content or b'')
     if not data:
         return JsonResponse({'ok': False, 'error': 'The retained payment workbook is unavailable.'}, status=404)
-    filename = batch.current_document.filename or f'Payment-{batch.payment_number}.xlsx'
-    response = HttpResponse(
-        b'' if request.method == 'HEAD' else data,
+    filename = str(batch.current_document.filename or '').strip() or f'Payment-{batch.payment_number}.xlsx'
+    return _portal_download_response(request, data,
         content_type=batch.current_document.content_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=filename,
     )
-    response['Content-Disposition'] = content_disposition_header(True, filename)
-    response['Content-Length'] = str(len(data))
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
 
 
 @csrf_exempt
@@ -6679,14 +6683,10 @@ def portal_requisition_download(request, token: str):
     from core.models import RequisitionBatch
     if not batch or not batch.file_content:
         return JsonResponse({'ok': False, 'error': 'Generated requisition file was not found for this order.'}, status=404)
-    response = HttpResponse(
-        b'' if request.method == 'HEAD' else batch.file_content,
+    return _portal_download_response(request, batch.file_content,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=str(batch.filename or '').strip() or f'JBL_Requisition_Form_{order_number}.xlsx',
     )
-    filename = batch.filename or f'JBL_Requisition_Form_{order_number}.xlsx'
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
 
 
 @csrf_exempt
@@ -8746,15 +8746,10 @@ def portal_invoice_name_change_download(request, token: str):
             )
             if scope_error:
                 return scope_error
-    response = HttpResponse(
-        b'' if request.method == 'HEAD' else bytes(artifact.file_content),
+    return _portal_download_response(request, bytes(artifact.file_content),
         content_type=artifact.content_type,
+        filename=str(artifact.filename or '').strip() or 'Invoice-name-change.docx',
     )
-    from django.utils.http import content_disposition_header
-    response['Content-Disposition'] = content_disposition_header(True, artifact.filename)
-    response['Cache-Control'] = 'private, no-store'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
 
 
 @csrf_exempt

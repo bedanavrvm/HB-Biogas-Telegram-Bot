@@ -1,5 +1,30 @@
 # Known Gaps and Verified Workarounds
 
+## Compact Origination review and named downloads - 22 October 2026
+
+Implemented compact numbered cards using TAT's queue type roles, two-column
+review cards and a full-width preview action. The viewer now appears during a
+slow saved-data wait, and incomplete bundle confirmation happens before PDF
+generation. Newly generated bundles put Main LAF first; frozen/signed originals
+are not rewritten. See `docs/ui-standard/origination-review-downloads.md` and
+`docs/ui-standard/origination-compact-cards.md` for sources, diagnosis and evidence.
+
+Fixed reproducible whitespace-only Origination/Complaints filename handoffs and
+missing Telegram Web download metadata on four Portal download routes. All four
+native call sites already use the correct `file_name` property. These findings
+do not prove the cause of the user's particular blank native prompt without its
+app/client evidence. If it persists after normal deployment, use the named
+browser fallback and provide the affected app/file and a synthetic/redacted
+screenshot of the Telegram prompt. Do not relax download access or token checks.
+
+**270 browser tests passed**, plus **26 application-copy tests** on isolated
+SQLite and **six Portal metadata/denial tests** with synthetic dependencies.
+Inspected light/dark mobile screenshots; JavaScript syntax, Ruff, UI ratchet and
+whitespace checks passed. Native Telegram dialogs, PostgreSQL and production
+latency remain unverified. No migration/configuration changes are needed; normal
+code/static deployment is needed and has not been performed. No external writes
+or shared visual baseline/Phase 6 approval occurred.
+
 ## Origination supplied header/main-page references - 22 October 2026
 
 Implemented both scoped references: integrated two-row editor header without

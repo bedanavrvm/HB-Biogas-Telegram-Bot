@@ -2178,6 +2178,11 @@ def portal_origination_packet_preview(request, application_id: str):
         body = _body(request)
         if int(body.get('revision')) != application.revision:
             raise OriginationConflict('This application changed. Refresh before previewing the packet.')
+        # Ask before expensive template downloads, rendering and rasterisation.
+        # Marking still happens only after the requested preview renders.
+        if body.get('allow_incomplete') is not True:
+            from origination.services.origination_documents import _preview_complete
+            _preview_complete(application)
         content, manifest = render_packet(application)
         preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
         if preview_format == 'image':

@@ -1928,7 +1928,7 @@
         });
         releaseExportDownload();
         state.exportDownloadUrl = result.download_url;
-        state.exportFilename = result.filename || 'complaints.xlsx';
+        state.exportFilename = String(result.filename || '').trim() || 'complaints.xlsx';
         showExportDownload(state.exportFilename, true);
         const opened = await openExportNatively({ quiet: true });
         notify(opened
@@ -1939,7 +1939,7 @@
       const result = await apiClient.postBlob('global/export/', { group_id: state.groupId, ...exportPayload }, state.initData, utils);
       releaseExportDownload();
       state.exportObjectUrl = URL.createObjectURL(result.blob);
-      state.exportFilename = result.filename || 'complaints.xlsx';
+      state.exportFilename = String(result.filename || '').trim() || 'complaints.xlsx';
       state.exportFile = typeof File === 'function' ? new File([result.blob], state.exportFilename, {
         type: result.blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }) : null;

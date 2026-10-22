@@ -479,21 +479,33 @@
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "15b32a7c5dee04fae1d62a9bd7f34bed3483faef4a7e6ee17598c963360cd521",
-      "review_reference": "docs/ui-standard/origination-reference-header.md#evidence",
-      "reason": "User-supplied Origination header/main-page references: integrated two-row header without contact strip, anchored section navigation and aligned clickable queue cards without redundant action rows. Actual-shell synthetic screenshots and interaction tests accompany this scoped candidate. Earlier automatic unsigned document refresh is retained; no provider/role changes, candidate-token rollout, baseline approval or Phase 6 migration."
+      "sha256": "5fd072796a12fbf318f6905a27e9d8e21a0fbdeaaa3a5315907224eee18e0cb8",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "User-requested compact numbered cards matching TAT typography, with source-bound evidence in origination-compact-cards.md; immediate saved-data-safe preview loading and blank-name rejection. Real-shell synthetic responsive screenshots and failure/retry contracts accompany these scoped refinements. Existing header, forms, automatic document refresh, role rules and signed bytes remain; no Phase 6 or baseline approval."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "4157a92cee4f54f63007252769f73feff8ed7be8d9c11e02be799123c892c36f",
-      "review_reference": "docs/ui-standard/origination-reference-header.md#evidence",
-      "reason": "User-approved scoped header/main-page reference implementation: small unboxed glyphs with independent tap targets, integrated navigation, segmented queues and aligned identity cards. Main/supporting form scale stays unchanged; light/dark and enlarged-text evidence is synthetic, not a shared-standard approval or Phase 6 migration."
+      "sha256": "bd148523b4571e34a09091791260c5bf66a074b4cf7dac194d188bb81072b0b9",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Scoped user-requested compact numbered cards (TAT source font roles) and two-column review with a full-width preview action. Mobile light/dark and enlarged-text screenshots/geometry accompany the candidate; form scale, existing header and tap targets remain. No shared tokens or Phase 6 migration."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "25f28223d9ef2d7a16412b45938a4f9337456e86c13fdaad4fb3980a211f6243",
-      "review_reference": "docs/ui-standard/origination-reference-header.md#evidence",
-      "reason": "Nonvisual cache-version change for the user-supplied Origination header/main-page references and retained automatic document updates; no candidate tokens, changed baseline status or Phase 6 migration."
+      "sha256": "9554ffec16286231c41b0b1b28431932208996f6f31424b29589092b1548e85f",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual cache-version change for compact cards, review and preview/download corrections. No template layout, candidate tokens, baseline status or Phase 6 migration changes."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "ccea673f67cd3f5566513516cc21a857a4cd3c3275d267de93e76616b59e3bde",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual download correctness: trim whitespace metadata and preserve the existing named Excel fallback in native and browser downloads. Actual export controls and native payload regression; no layout, font, role or Phase 6 change."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "043bee9586c51da5eaa539e18dd997e1221db7c51c3776168134d6d0ea063949",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual cache-version update for the blank download-name correction; no application layout/token or shared-baseline change."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",

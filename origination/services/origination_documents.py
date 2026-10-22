@@ -766,7 +766,10 @@ def render_packet(
 ) -> tuple[bytes, list[dict[str, Any]]]:
     writer = PdfWriter()
     manifest = []
-    for document in application.packet_documents.filter(selected=True).order_by('display_order', 'document_key'):
+    documents = sorted(application.packet_documents.filter(selected=True),
+        key=lambda document: (document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY,
+                              document.display_order, document.document_key))
+    for document in documents:
         content = render_document(
             application, document.document_key, context_snapshot=context_snapshot,
         )

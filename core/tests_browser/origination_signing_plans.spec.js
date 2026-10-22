@@ -314,6 +314,16 @@ test('individual supporting download and incomplete confirmation keep the select
   expect(await page.evaluate(()=>window.__downloads[0].file_name)).toBe('Synthetic Guarantee.pdf');
 });
 
+test('blank suggested filename is never handed to Telegram',async({page})=>{
+  await mount(page,{download:'native'});
+  await page.route('**/applications/*/download/',route=>route.fulfill({json:{ok:true,
+    download_url:'https://miniapp.test/copy.pdf',filename:'   \t  '}}));
+  await page.getByRole('button',{name:'Download application',exact:true}).click();
+  await page.getByRole('button',{name:'Download All documents',exact:true}).click();
+  await expect(page.locator('#origination-toast')).toContainText('download is unavailable');
+  expect(await page.evaluate(()=>window.__downloads)).toEqual([]);
+});
+
 test('closing chooser or cancelling incomplete confirmation performs no download',async({page})=>{
   const audit=await mount(page,{download:'native'});
   const opener=page.getByRole('button',{name:'Download application',exact:true});

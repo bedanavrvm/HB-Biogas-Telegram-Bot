@@ -1,5 +1,29 @@
 # Changelog
 
+## 22 October 2026 - Origination review, preview and named downloads
+
+- Keep review section cards in two wrapping columns and the bundle-preview action
+  full width. The existing form/input scale and header remain unchanged.
+- Show the viewer immediately while saving, prevent duplicate opens and ignore
+  closed/stale preview responses. Ask about incomplete bundles before generating
+  PDFs, avoiding a full discarded render before confirmation.
+- Generate new combined documents with Main LAF first, then supporting documents
+  in their configured order. Existing signed bundles are never reordered.
+- Reject blank Origination download names and provide a named Complaints Excel
+  fallback. Portal's report/order/payment/letter downloads now expose consistent
+  named GET/HEAD metadata for Telegram Web; current access checks remain in place.
+- Evidence and device limitations: `docs/ui-standard/origination-review-downloads.md`.
+
+## 22 October 2026 - Compact numbered Origination cards
+
+- Use inline identifier labels/values and wrapping attribution metadata to
+  shorten normal application cards by about 41% in the measured fixture.
+- Add TAT-style list numbering that continues across pages and resets with
+  filtered results, while retaining the application reference separately.
+- Match TAT's card font stack/scale, preserving existing form sizing, full
+  identity values, phone dial targets and independent workflow permissions.
+- Source-bound evidence: `docs/ui-standard/origination-compact-cards.md`.
+
 ## 22 October 2026 - Origination reference header
 
 - Adopt the supplied two-row header: applicant/product/status and plain document

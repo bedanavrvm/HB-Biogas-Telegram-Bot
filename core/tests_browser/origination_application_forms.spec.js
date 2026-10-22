@@ -481,6 +481,47 @@ for (const width of [320,360,390,430]) for(const dark of [false,true]) test(`com
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
+for(const width of [320,390,768]) for(const dark of [false,true]) test(`review uses two columns and a full-width preview ${width} ${dark?'dark':'light'}`,async({page},info)=>{
+  await boot(page,{width,dark});
+  await section(page,'Review');
+  const cards=page.locator('.review-card');
+  const first=await cards.nth(0).boundingBox(),second=await cards.nth(1).boundingBox();
+  expect(Math.abs(first.y-second.y)).toBeLessThan(1);
+  expect(second.x).toBeGreaterThan(first.x+first.width);
+  const container=await page.locator('.review-intro').boundingBox();
+  const preview=await page.locator('#origination-preview').boundingBox();
+  expect(Math.abs(preview.width-container.width)).toBeLessThan(2);
+  expect(Math.abs(preview.x-container.x)).toBeLessThan(2);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('review.png'),fullPage:true,animations:'disabled'});
+  await page.evaluate(()=>document.documentElement.style.fontSize='200%');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('eye preview shows loading before a slow save, avoids double opening and ignores a closed request',async({page})=>{
+  await boot(page,{delay:1200});
+  await page.locator('[data-field=applicant_name]').fill('Synthetic changed name');
+  let release;
+  const pending = new Promise(resolve=>{release=resolve;});
+  const requests=[];
+  await page.route('**/packet/preview/',async route=>{
+    requests.push(route.request().postDataJSON());
+    await pending;
+    await route.fulfill({contentType:'image/png',body:fs.readFileSync(path.join(root,'core/static/miniapp/jawabu-logo.png')),
+      headers:{'X-Preview-Page-Count':'1'}});
+  });
+  // Dispatch synchronously: a 1.2s saved-data wait must not leave the screen inert.
+  await page.locator('#origination-preview-early').dispatchEvent('click');
+  await expect(page.locator('#document-preview-overlay')).toBeVisible({timeout:500});
+  await expect(page.locator('#preview-page')).toHaveText('Saving changes…');
+  await page.locator('#origination-preview-early').dispatchEvent('click');
+  await expect.poll(()=>requests.length).toBe(1);
+  await page.locator('#preview-close').click();
+  release();
+  await expect(page.locator('#document-preview-overlay')).toBeHidden();
+  await expect(page.locator('#document-preview-image')).not.toHaveAttribute('src',/.+/);
+});
+
 test('bundle confirmation opens incomplete preview but never unlocks submission after refresh',async({page})=>{
   await boot(page);
   const requests=[];
@@ -583,7 +624,7 @@ test('queue identity slots remain aligned with absent data and show the readable
   const labels=await page.locator('.application-card-identifiers>span>small').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().y));
   expect(Math.abs(labels[0]-labels[1])).toBeLessThan(1);
   const separated=await page.locator('.application-card-identifiers>span').evaluateAll(nodes=>nodes.every(node=>
-    node.querySelector('small').getBoundingClientRect().bottom<=node.querySelector('span').getBoundingClientRect().top));
+    node.querySelector('small').getBoundingClientRect().right+3<=node.querySelector('span').getBoundingClientRect().left));
   expect(separated).toBe(true);
   await page.screenshot({path:info.outputPath('missing-card-values.png'),fullPage:true});
 });
@@ -620,7 +661,11 @@ for(const dark of [false,true]) test(`reference main page uses aligned clickable
     });
     expect(Math.abs(geometry.labels[0]-geometry.labels[1])).toBeLessThan(1);
     expect(Math.abs(geometry.values[0]-geometry.values[1])).toBeLessThan(1);
-    expect(geometry.values[0]).toBeGreaterThan(geometry.labels[0]);
+    const inline=await card.locator('.application-card-identifiers>span').evaluateAll(cells=>cells.every(cell=>{
+      const label=cell.querySelector('small').getBoundingClientRect(),value=cell.querySelector('span').getBoundingClientRect();
+      return label.right<=value.left&&Math.abs(label.y+label.height/2-value.y-value.height/2)<1;
+    }));
+    expect(inline).toBe(true);
   }
   const phone=page.locator('.application-card').first().getByRole('link',{name:'Call 0700000001'});
   await expect(phone).toHaveAttribute('href','tel:+254700000001');
@@ -631,6 +676,13 @@ for(const dark of [false,true]) test(`reference main page uses aligned clickable
   for(const control of ['#origination-start','#origination-list-refresh','#origination-open-filters','.queue-tab.active'])
     expect((await page.locator(control).boundingBox()).height).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const cardEvidence=await page.locator('.application-card').evaluateAll(cards=>cards.map(card=>{
+    const style=selector=>{const node=card.querySelector(selector),css=getComputedStyle(node);return {font:css.fontFamily,size:css.fontSize,weight:css.fontWeight,lineHeight:css.lineHeight};};
+    const rect=card.getBoundingClientRect();
+    return {height:rect.height,top:rect.top,bottom:rect.bottom,fullyVisible:rect.top>=0&&rect.bottom<=innerHeight,
+      title:style('.application-card-header strong'),identity:style('[data-card-id-value]'),metadata:style('.application-card-meta'),status:style('.status-chip')};
+  }));
+  fs.writeFileSync(info.outputPath('card-layout-evidence.json'),JSON.stringify(cardEvidence,null,2));
   await page.screenshot({path:info.outputPath(`main-page-${dark?'dark':'light'}.png`),fullPage:true});
   await page.evaluate(()=>document.documentElement.style.fontSize='200%');
   await page.setViewportSize({width:320,height:844});
@@ -645,7 +697,8 @@ for(const dark of [false,true]) test(`reference main page uses aligned clickable
     return {values:cells.map(cell=>cell.querySelector('span').getBoundingClientRect().y),
       tabsFit:tabs.every(tab=>tab.getBoundingClientRect().right<=innerWidth)};
   });
-  expect(Math.abs(largeAlignment.values[0]-largeAlignment.values[1])).toBeLessThan(1);
+  // Enlarged text may stack the two labelled identifiers instead of squeezing them.
+  expect(largeAlignment.values[1]).toBeGreaterThanOrEqual(largeAlignment.values[0]);
   expect(largeAlignment.tabsFit).toBe(true);
   await page.screenshot({path:info.outputPath(`main-page-large-text-${dark?'dark':'light'}.png`),fullPage:true});
   await page.evaluate(()=>document.documentElement.style.fontSize='');
@@ -653,6 +706,101 @@ for(const dark of [false,true]) test(`reference main page uses aligned clickable
   await phone.click({noWaitAfter:true});await expect(page.locator('.application-card')).toHaveCount(3);
   await page.locator('.application-card-open').first().focus();await page.keyboard.press('Enter');
   await expect(page.locator('.editor-summary')).toBeVisible();expect(runtimeErrors).toEqual([]);
+});
+
+for(const width of [320,360,390,430]) for(const dark of [false,true]) test(`numbered compact queue fits more cards at ${width}px ${dark?'dark':'light'}`,async({page},info)=>{
+  const {app,runtimeErrors}=await boot(page,{width,dark});
+  const entries=Array.from({length:10},(_,index)=>({...clone(app),id:`00000000-0000-4000-8000-0000000001${String(index).padStart(2,'0')}`,
+    product_name:'Inua',branch:'Embu',display_reference:`ORG-${index+1}`,officer_name:'Synthetic officer',
+    applicant_summary:{name:`Synthetic applicant ${index+1}`,national_id:index===1?'':'00099001',phone:index===1?'':'0700000001'}}));
+  await page.route('**/applications/?*',route=>route.fulfill({json:{ok:true,applications:entries,
+    tab_counts:{action:10,applications:10},pagination:{page:1,page_size:10,pages:1,total:10},
+    capabilities:{can_create:true,can_review:true,user_id:1}}}));
+  await page.locator('#origination-back').click();await page.locator('#origination-list-refresh').click();
+  await expect(page.locator('.application-card-number')).toHaveText(entries.map((_,index)=>`#${index+1}`));
+  await expect(page.locator('.application-reference').first()).toHaveText('ORG-1');
+  await expect(page.locator('.application-card-footer')).toHaveCount(0);
+  await expect(page.locator('.application-officer')).toHaveCount(10);
+  const geometry=await page.locator('.application-card').evaluateAll(cards=>cards.map(card=>{
+    const rect=card.getBoundingClientRect();return {height:rect.height,fullyVisible:rect.top>=0&&rect.bottom<=innerHeight};
+  }));
+  expect(geometry.every(card=>card.height<=120)).toBe(true);
+  expect(geometry.filter(card=>card.fullyVisible).length).toBeGreaterThanOrEqual(4);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  fs.writeFileSync(info.outputPath('density.json'),JSON.stringify({width,dark,cards:geometry},null,2));
+  await page.screenshot({path:info.outputPath(`compact-queue-${width}-${dark?'dark':'light'}.png`)});
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('queue numbering follows pagination, survives refresh and resets with search',async({page})=>{
+  const {app,runtimeErrors}=await boot(page);
+  const queries=[];
+  await page.route('**/applications/?*',route=>{
+    const params=new URL(route.request().url()).searchParams;
+    const pageNumber=Number(params.get('page')||1),query=params.get('q')||'';
+    queries.push({page:pageNumber,query});
+    const entries=query==='none'?[]:Array.from({length:2},(_,index)=>({...clone(app),
+      id:`00000000-0000-4000-8000-0000000002${pageNumber}${index}`,display_reference:`ORG-${pageNumber*10+index}`}));
+    return route.fulfill({json:{ok:true,applications:entries,tab_counts:{action:12,applications:12},
+      pagination:{page:pageNumber,page_size:10,pages:2,total:12},capabilities:{can_create:true,user_id:1}}});
+  });
+  await page.locator('#origination-back').click();await page.locator('#origination-list-refresh').click();
+  await expect(page.locator('.application-card-number')).toHaveText(['#1','#2']);
+  await page.locator('#origination-page-next').click();
+  await expect(page.locator('.application-card-number')).toHaveText(['#11','#12']);
+  await page.locator('#origination-list-refresh').click();
+  await expect(page.locator('.application-card-number')).toHaveText(['#11','#12']);
+  await page.getByRole('searchbox',{name:'Search applications'}).fill('Synthetic');
+  await expect(page.locator('.application-card-number')).toHaveText(['#1','#2']);
+  expect(queries.at(-1)).toEqual({page:1,query:'Synthetic'});
+  await page.getByRole('searchbox',{name:'Search applications'}).fill('none');
+  await expect(page.locator('.application-card-number')).toHaveCount(0);
+  await expect(page.getByText('No matching applications',{exact:true})).toBeVisible();
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('card typography matches TAT and Complaint source styles without changing form scale',async({page},info)=>{
+  const {runtimeErrors}=await boot(page);
+  const formStyle=await page.locator('[data-field=applicant_name]').evaluate(input=>{
+    const css=getComputedStyle(input);return {font:css.fontFamily,size:css.fontSize,height:input.getBoundingClientRect().height};
+  });
+  await page.locator('#origination-back').click();
+  const actual=await page.locator('.application-card').evaluate(card=>{
+    const profile=selector=>{const css=getComputedStyle(card.querySelector(selector));return {font:css.fontFamily,size:css.fontSize,weight:css.fontWeight};};
+    return {title:profile('.application-card-title strong'),identity:profile('[data-card-id-value]'),
+      metadata:profile('.application-card-meta'),number:profile('.application-card-number')};
+  });
+  const references={};
+  for(const name of ['tat_tracker','complaint_cases']) {
+    const template=fs.readFileSync(path.join(root,`core/templates/${name}/app.html`),'utf8');
+    const links=(template.match(/<link\b[^>]+>/g)||[]).join('\n').replace(/{% static '([^']+)' %}/g,'/static/$1');
+    const probe=name==='tat_tracker'
+      ? '<main class="tat-app"><div class="case-card"><div class="case-title"><span class="case-number">#1</span><strong class="case-name">Synthetic applicant</strong></div><div class="case-details">Training branch</div><div class="case-identifiers"><span class="case-identifier"><small>ID</small><span class="case-identifier-value">00099001</span></span></div></div></main>'
+      : '<main class="complaint-app"><div class="case-row"><h2>Synthetic applicant</h2><span class="case-subtitle">Training branch</span></div></main>';
+    await page.route(`**/type-reference-${name}/`,route=>route.fulfill({contentType:'text/html',
+      body:`<!doctype html><html><head>${links}</head><body class="${name==='complaint_cases'?'complaint-cases-app':''}">${probe}</body></html>`}));
+    await page.evaluate(name=>{const frame=document.createElement('iframe');frame.name=name;frame.hidden=true;frame.src=`/type-reference-${name}/`;document.body.append(frame);},name);
+    await expect.poll(()=>Boolean(page.frame({name}))).toBe(true);
+    const frame=page.frame({name});
+    await frame.locator(name==='tat_tracker'?'.case-name':'.case-row h2').waitFor({state:'attached'});
+    references[name]=await frame.evaluate(async name=>{
+      await document.fonts.load('13px "Plus Jakarta Sans"');
+      const profile=selector=>{const css=getComputedStyle(document.querySelector(selector));return {font:css.fontFamily,size:css.fontSize,weight:css.fontWeight};};
+      return name==='tat_tracker'
+        ? {title:profile('.case-name'),identity:profile('.case-identifier-value'),metadata:profile('.case-details'),number:profile('.case-number')}
+        : {title:profile('.case-row h2')};
+    },name);
+  }
+  expect(actual.title.font).toBe(references.tat_tracker.title.font);
+  expect(actual.title.font).toBe(references.complaint_cases.title.font);
+  for(const role of ['title','identity','metadata','number']) expect(actual[role].size).toBe(references.tat_tracker[role].size);
+  expect(actual.title.weight).toBe(references.tat_tracker.title.weight);
+  fs.writeFileSync(info.outputPath('typography-comparison.json'),JSON.stringify({actual,references,formStyle},null,2));
+  await page.locator('.application-card-open').click();
+  const after=await page.locator('[data-field=applicant_name]').evaluate(input=>{
+    const css=getComputedStyle(input);return {font:css.fontFamily,size:css.fontSize,height:input.getBoundingClientRect().height};
+  });
+  expect(after).toEqual(formStyle);expect(runtimeErrors).toEqual([]);
 });
 
 test('phone check belongs to its Applicant field, not the header',async({page},info)=>{

@@ -108,6 +108,27 @@ class ApplicationDownloadTests(TestCase):
                 self.prepare(key)
         self.assertFalse(self.app.events.filter(action='application_copy_prepared').exists())
 
+    def test_main_laf_is_first_even_when_supporting_display_order_is_lower(self):
+        self.app.packet_documents.filter(document_key='primary').update(display_order=99)
+        self.app.packet_documents.filter(document_key='home_visit').update(display_order=0)
+        self.app.packet_documents.filter(document_key='guarantee').update(display_order=0)
+        content, _kind = copy_content(self.app)
+        self.assertEqual([page.extract_text().strip() for page in PdfReader(BytesIO(content)).pages],
+            ['Main page 1', 'Main page 2', 'Guarantee page', 'Home visit page'])
+
+    def test_incomplete_bundle_warning_does_not_generate_a_pdf(self):
+        from origination.views import portal_origination_packet_preview
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        request = RequestFactory().post('/', {'revision': self.app.revision}, content_type='application/json')
+        request.origination_user = self.actor
+        request.origination_access = user_access(self.actor, 'loan_origination')
+        with patch('origination.views.render_packet') as renderer:
+            response = portal_origination_packet_preview(request, str(self.app.pk))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content)['code'], 'incomplete_preview_confirmation_required')
+        renderer.assert_not_called()
+
     def test_completed_unsigned_application_keeps_combined_and_individual_downloads(self):
         self.app.status = 'completed'
         self.app.save(update_fields=['status'])
