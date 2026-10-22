@@ -45,3 +45,10 @@ Native file selection is the narrow documented exception in DESIGN.md; visible
 controls remain ADS. Never connect this write simulator to the native read API.
 Keep its build distinct from the zero-connect preview and native staff client.
 This review availability never authorizes production mounting or real staff access.
+
+ADR 0073 adds a separate closed native Complaints operations candidate, not a
+simulator upgrade or restricted-v1 change. Before editing channel authentication,
+operations routes, SPA navigation or artifacts, read
+`docs/runbooks/browser-channel-parity.md`. Keep native/synthetic graphs separate,
+customer searches out of URLs and production off/unmounted until release
+acceptance. Report verified behavior and remaining parity separately.

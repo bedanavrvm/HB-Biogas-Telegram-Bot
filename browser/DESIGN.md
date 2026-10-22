@@ -1,5 +1,41 @@
 # Browser design references and application decisions
 
+## Native Complaints operations candidate (ADR 0073)
+
+The separate entry composes actual ADS Root/TopNav/Main, token typography, Grid,
+Form/Field/MessageWrapper, Textfield, Select, Button, Anchor and persistent
+SectionMessage feedback. A fluid desktop queue/detail workspace replaces the
+read pilot's width bound. Mobile stacks with selected-case focus. Native form
+constraint popups are disabled in favor of inline field errors. No simulator,
+milestone or implementation-status prose appears in the native workspace.
+
+Official references consulted 22 October 2026:
+
+- https://atlassian.design/components/form/usage
+- https://atlassian.design/components/button/usage
+- https://atlassian.design/components/select/usage
+- https://atlassian.design/components/navigation-system/layout/code
+- https://atlassian.design/components/primitives/anchor
+- https://atlassian.design/components/textarea
+
+Form/Button/Select guidance was retrieved live. Layout/Anchor/textarea fetches
+intermittently failed; previously consulted layout guidance and installed typed
+APIs were also inspected. This is not a claim of ADS design certification.
+
+Intentional candidate exceptions, not approved baseline changes:
+
+- Related staff identity/location inputs pair on desktop and stack on mobile.
+- Hidden native camera/file inputs retain the existing chooser exception.
+- Long notes use native textarea inside ADS Field/Box, with ADS tokens and
+  explicit error associations. The exact approved dependency graph has no
+  textarea package; no new dependency is silently installed. Human review remains.
+- Interactive SVG charts retain keyboard points, textual values/units and ADS
+  colors. They are not static images/buttons; only their implementation scopes
+  two explained lint exceptions. All other recommended rules remain blocking.
+
+Source-bound evidence and acceptance limits are in
+`docs/runbooks/browser-channel-parity.md`. None authorizes Telegram migration.
+
 Consult current official guidance before changing a pattern. This document maps
 our decisions to references; it does not replace the documentation or prove
 visual acceptance. Package APIs come from the pinned workspace and its review.

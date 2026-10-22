@@ -126,6 +126,8 @@ def require_company_browser_user(request):
         subject_id=str(row.pk), deduplication_key=f"staff-browser-login:{context.get('attempt_id', '')}",
     ).exists():
         raise PermissionDenied('Company browser authentication is required.')
+    from core.services.channel_context import bind_verified_channel
+    bind_verified_channel('browser', 'company_mfa_session')
     return user
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 22 October 2026 - Independent channel foundation and closed Complaints operations
+
+- Add trusted request-channel/correlation context and new audit metadata without
+  rewriting historical evidence or accepting client channel claims as proof.
+- Keep Telegram and restricted browser v1 unchanged; add a separate native
+  browser operations candidate over canonical Complaint services, plus History
+  navigation, drafts, media, reports/export/email/settings and provider fallbacks.
+- Add independent operations/demo safety switches and separately verified build
+  graphs. Production authentication/operations remain disabled and unmounted.
+- Record source-bound UI exceptions, synthetic browser evidence and remaining
+  parity/device/provider/M1 gates in docs/runbooks/browser-channel-parity.md.
+
 ## 20 October 2026 - Role-based Complaints demo (P2a.2)
 
 - Added realistic local Officer/Manager intake with required identifiers and

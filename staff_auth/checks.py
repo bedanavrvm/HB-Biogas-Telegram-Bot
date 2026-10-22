@@ -9,6 +9,9 @@ from .cache_keys import PRIVACY_KEY_FUNCTION, SHARED_CACHE_BACKENDS
 
 @register()
 def staff_browser_checks(app_configs, **kwargs):
+    if (getattr(settings, 'STAFF_BROWSER_DEMO_ENABLED', False)
+            and settings.RELEASE_ENVIRONMENT not in {'development', 'staging', 'test'}):
+        return [Error('Synthetic browser demos cannot be enabled in production.', id='staff_auth.E009')]
     if not settings.STAFF_BROWSER_AUTH_ENABLED:
         return []
     errors = []

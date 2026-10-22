@@ -76,6 +76,8 @@ INSTALLED_APPS = [
 # P1a is deliberately dormant: no account/login or browser business URLs are
 # mounted. This flag never disables Telegram's independent signed credentials.
 STAFF_BROWSER_AUTH_ENABLED = config('STAFF_BROWSER_AUTH_ENABLED', default=False, cast=bool)
+STAFF_BROWSER_COMPLAINTS_ENABLED = config('STAFF_BROWSER_COMPLAINTS_ENABLED', default=False, cast=bool)
+STAFF_BROWSER_DEMO_ENABLED = config('STAFF_BROWSER_DEMO_ENABLED', default=False, cast=bool)
 STAFF_MFA_ENCRYPTION_KEYS = [
     value.strip() for value in config('STAFF_MFA_ENCRYPTION_KEYS', default='').split(',') if value.strip()
 ]
@@ -165,6 +167,7 @@ UNFOLD = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.services.channel_context.ChannelRequestMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

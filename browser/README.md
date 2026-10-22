@@ -1,5 +1,12 @@
 # JBL standalone browser client
 
+The ADR 0073 operations candidate is a **separate native build**, not the local
+demo: `npm run build -- --complaints-operations` (optionally `--development`).
+Its company-authenticated Complaint actions, safe soft navigation and reporting
+are exercised only by the isolated Django transport runner. Production stays
+off/unmounted. Setup, evidence, rollback and remaining parity/release gates:
+[`browser-channel-parity.md`](../docs/runbooks/browser-channel-parity.md).
+
 This workspace uses **React 18 and actual Atlassian Design System components**.
 The current entry is a local, deterministic access-flow demo: fixed read-only
 values, no API, credentials, mail, staff/customer records or workflow grants.

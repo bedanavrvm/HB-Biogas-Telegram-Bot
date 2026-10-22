@@ -1,5 +1,15 @@
 # Known Gaps and Verified Workarounds
 
+## Closed native operations candidate - 22 October 2026
+
+ADR 0073 adds a separate native browser candidate without expanding restricted
+v1 or connecting the simulator to real services. Current scope/commands/evidence
+and remaining acceptance are in docs/runbooks/browser-channel-parity.md.
+It is not full production parity: timing-report coverage, all offline/history/
+session-expiry draft paths, native preference application, real providers,
+PostgreSQL/multiworker operation, actual devices/privacy/design review and M1
+remain open. Production routes stay unmounted and all browser flags default off.
+
 ## Local Complaints demo now accessible - 20 October 2026
 
 P2a.2 / ADR 0072 extends P2a.1's synthetic review workspace at

@@ -55,12 +55,14 @@ async function main() {
   process.chdir(root);
   const development = process.argv.includes('--development');
   const complaintsDemo = process.argv.includes('--complaints-demo');
+  const operations = process.argv.includes('--complaints-operations');
   const complaints = process.argv.includes('--complaints');
-  if (complaintsDemo && (complaints || process.argv.includes('--authentication'))) throw new Error('Build the synthetic Complaints demo separately.');
-  const authentication = process.argv.includes('--authentication') || complaints;
-  const dist = path.join(root, complaintsDemo ? (development ? 'dist-complaints-demo-development' : 'dist-complaints-demo') : complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
+  if (complaintsDemo && (operations || complaints || process.argv.includes('--authentication'))) throw new Error('Build the synthetic Complaints demo separately.');
+  if (operations && complaints) throw new Error('Build restricted reads and operations separately.');
+  const authentication = process.argv.includes('--authentication') || complaints || operations;
+  const dist = path.join(root, operations ? (development ? 'dist-complaints-operations-development' : 'dist-complaints-operations') : complaintsDemo ? (development ? 'dist-complaints-demo-development' : 'dist-complaints-demo') : complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
   const parcel = new Parcel({
-    entries: complaintsDemo ? [path.join(root, 'src/complaints-demo.html')] : complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
+    entries: operations ? [path.join(root, 'src/complaints-operations.html')] : complaintsDemo ? [path.join(root, 'src/complaints-demo.html')] : complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
     defaultConfig: require.resolve('@parcel/config-default'),
     mode: development ? 'development' : 'production',
     shouldAutoInstall: false,
@@ -84,6 +86,7 @@ async function main() {
   for (const filename of modules) {
     const relative = path.relative(root, filename).split(path.sep).join('/');
     if (relative.startsWith('../') || /\.(woff2?|ttf|otf|eot|png|jpe?g|svg|gif|webp|node|wasm)$/i.test(relative)) throw new Error('Excluded external/binary/font/image asset in the browser graph.');
+    if (authentication && /(?:^|\/)complaints-demo[^/]*\.[jt]sx?$/.test(relative)) throw new Error('Synthetic workflow code is forbidden in the native staff artifact.');
     if (/@atlaskit\/icon[^/]*\/(?:.*\/)?(?:glyph|svgs|core|utility)\/(?:atlassian|jira|confluence|rovo|trello|bitbucket|compass)(?:[/.\-]|$)/i.test(relative)) throw new Error('Excluded brand glyph in the browser graph.');
     if (relative.includes('node_modules/@atlaskit/logo/')) throw new Error('Atlassian logo code is excluded; use company text.');
     if (relative.startsWith('node_modules/')) {
@@ -106,7 +109,7 @@ async function main() {
     path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
-  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
   console.log(`Built real React/ADS ${development ? 'development' : 'production'} ${authentication ? 'closed authentication' : 'demo'}: ${files.length} assets, ${owners.size} noticed packages, ${files.reduce((n, file) => n + file.bytes, 0)} bytes; no excluded assets.`);
 }
 

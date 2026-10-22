@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+ADR 0073 adds the source-bound native operations candidate in
+`browser/src/complaints-operations*` and `workspace-navigation.ts`: actual ADS
+shell/forms/selection/feedback, fluid queue/detail, private media and reporting.
+Native camera/textarea and interactive SVG exceptions are explicit in
+`browser/DESIGN.md`. Evidence/remaining acceptance:
+`docs/runbooks/browser-channel-parity.md`. No approved baseline or Telegram
+appearance is changed; production stays disabled/unmounted.
+
 P2a.2 / ADR 0072 adds `browser/src/{complaints-demo-api.ts,complaints-demo-forms.tsx}`
 and extends the demo entry/shared workspace with explicit role/action slots.
 Actual ADS Form/Field/MessageWrapper/Textfield/Select/Button/SectionMessage and

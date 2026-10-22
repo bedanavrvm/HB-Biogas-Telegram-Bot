@@ -24,9 +24,9 @@ def _guard():
         raise ImproperlyConfigured('This URLconf is restricted to isolated transport tests.')
 
 
-def assets(*, complaints=False):
+def assets(*, complaints=False, operations=False):
     _guard()
-    builds = ('dist-complaints', 'dist-complaints-development') if complaints else ('dist-authentication', 'dist-authentication-development')
+    builds = ('dist-complaints-operations', 'dist-complaints-operations-development') if operations else ('dist-complaints', 'dist-complaints-development') if complaints else ('dist-authentication', 'dist-authentication-development')
     if settings.STAFF_BROWSER_TRANSPORT_BUILD not in builds:
         raise ValueError('Only isolated authentication build directories are supported.')
     directory = Path(settings.BASE_DIR) / 'browser' / settings.STAFF_BROWSER_TRANSPORT_BUILD
@@ -35,6 +35,8 @@ def assets(*, complaints=False):
         raise ValueError('Expected a separately built closed authentication client.')
     if bool(manifest.get('closedComplaints')) != complaints:
         raise ValueError('Wrong isolated workflow build kind.')
+    if bool(manifest.get('closedComplaintOperations')) != operations:
+        raise ValueError('Wrong isolated operations build kind.')
     routes = {}
     for row in manifest['sources']:
         if not row['path'].startswith('browser/src/') or '..' in Path(row['path']).parts:
@@ -53,7 +55,7 @@ def assets(*, complaints=False):
         if len(raw) != row['bytes'] or hashlib.sha256(raw).hexdigest() != row['sha256'] or '/' + name in routes:
             raise ValueError('Reject changed or duplicate authentication assets.')
         routes['/' + name] = raw, TYPES[source.suffix] + '; charset=utf-8'
-    if ('/complaints.html' if complaints else '/access.html') not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
+    if ('/complaints-operations.html' if operations else '/complaints.html' if complaints else '/access.html') not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
         raise ValueError('Missing entry or notices.')
     return routes
 
