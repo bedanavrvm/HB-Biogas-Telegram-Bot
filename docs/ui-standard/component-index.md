@@ -1,12 +1,19 @@
 # Component index and migration hold
 
+The 22 October recovery slice adds `browser/src/workspace-recovery.ts` for one
+owner-bound, tab-local unfinished task and extends the existing operations
+forms with connection/session feedback and explicit same-request retry. It
+preserves the revised UI and AG Grid. Current references, the temporary
+read-only-input exception, scope and evidence are in `browser/DESIGN.md` and
+`docs/runbooks/browser-channel-parity.md`; no approved baseline changes.
+
 The 22 October `ui.txt` correction adds `browser/src/complaints-ui.tsx` (actual
 ADS Lozenge, human dates and the documented native-dialog composition) and
 `complaints-report-table.tsx` (actual AG Grid Community, token theme, full-query
 sorting and keyboard row opening). Operations tabs, master/detail, contextual
 actions, bounded preferences and compact reports reuse the native shell.
 Official references, intentional differences, source-bound review evidence and
-the paused reliability slice are recorded in browser/DESIGN.md and
+the subsequently resumed reliability slice are recorded in browser/DESIGN.md and
 docs/runbooks/browser-channel-parity.md. This does not approve candidates,
 replace legacy baselines, migrate Telegram or enable production browser access.
 

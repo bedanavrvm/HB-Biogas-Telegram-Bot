@@ -10,7 +10,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
-from core.models import AccessGrant, CaseUpdate, OperationalLocation
+from core.models import AccessGrant, BranchServiceArea, CaseUpdate, ComplaintCategory, OperationalLocation, ParsedMessage
 from core.services.complaint_cases import ensure_case_control
 from core.services.compliance_audit import record_event
 from core.tests_browser_complaints import synthetic_case
@@ -56,6 +56,11 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
         self.cases[3].complaint_status = 'Reopened'
         self.cases[3].save(update_fields=['complaint_status'])
         OperationalLocation.objects.create(location_type='branch', code='BROWSER-FIXTURE', name='Synthetic Other Branch')
+        branch = OperationalLocation.objects.get(code='BROWSER-FIXTURE')
+        county = OperationalLocation.objects.create(location_type='county', code='RECOVERY-COUNTY', name='Synthetic County')
+        OperationalLocation.objects.create(location_type='sub_county', code='RECOVERY-AREA', name='Synthetic Constituency', parent=county)
+        BranchServiceArea.objects.create(branch=branch, area=county)
+        ComplaintCategory.objects.create(key='synthetic-recovery', label='Synthetic service issue')
         for index in range(61):
             CaseUpdate.objects.create(parsed_message=self.cases[1], group_id=self.group.group_id,
                 old_status='Open', new_status='Open', source='mini_app_comment', updated_by='Synthetic history author',
@@ -70,7 +75,7 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
             str(root / 'scripts/test_complaints_operations_transport.js')],
             input=json.dumps({'origin': self.live_server_url, 'username': self.user.username,
                 'password': PASSWORD,
-                'code': self.codes[0], 'group': str(self.group.pk), 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD,
+                'code': self.codes[0], 'resume_code': self.codes[1], 'group': str(self.group.pk), 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD,
                 'preferences_only': os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') == '1',
                 'month_start': timezone.localdate().replace(day=1).isoformat()}),
             cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=240)
@@ -79,6 +84,7 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
         self.assertTrue(report['passed'], report)
         if os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') != '1':
             self.assertEqual(CaseUpdate.objects.filter(resolution_text='Synthetic browser follow-up.').count(), 1)
+            self.assertEqual(ParsedMessage.objects.filter(customer_name__iexact='Synthetic confirmed creation').count(), 1)
         checks = 'preferences checks' if os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') == '1' else 'comment/draft/export/history/preferences checks'
         print(f"Closed operations: {report['captures']} captures, native {checks} passed")
 

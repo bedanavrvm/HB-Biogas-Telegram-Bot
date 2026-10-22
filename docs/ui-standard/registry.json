@@ -575,9 +575,9 @@
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "fb002a23258ffd8feadfcc63160248bbe74d3e68ae7d2ed732d5cfcd2ae68fe8",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
-      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+      "sha256": "7ba9078a54527160904c6f62351f875deeebd7df08944e3454356190a95defe7",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints.html",
@@ -635,9 +635,9 @@
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
-      "sha256": "a81594f698ebe703f32aee2b529f46bc8cdeec5389a54f7abfef58578bc0bfdb",
+      "sha256": "b2bef51fe9a3505cbe9b48010d412c8f5687c0a832a5d23b116381f1f8513985",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
@@ -659,15 +659,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "655078939848f2d165de80bdc9e2c7e2cc70cbdfcf9364ce0d184e31147f9687",
+      "sha256": "dd7bca92795bc55d600e6ad0ce40760d18fa4daf555eeff7d71aa1f9199618a1",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "bc0b49ea20c5c21d03321f9a6d2282534dd17627837718a74facf1620720e3d7",
+      "sha256": "b20f60696fd786648db893e1d2c02a2eb2d7754713d4ce5cc7329bf87a7589ea",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -677,9 +677,9 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "6136055cc23c6f84c01f12b64430e9ee42d2b4eca0d56f9e51a483dc0221ca7e",
+      "sha256": "f5c9e8abcfe76255b60e81a75ba40c124c33a6166a9514302e2b18f56ac527c2",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
@@ -692,6 +692,12 @@
       "sha256": "b928f4cc1d33a7202a79458b18dbe0c6d63f90001e9edbcd04199d35a1f1745c",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+    },
+    {
+      "path": "browser/src/workspace-recovery.ts",
+      "sha256": "135f38c8f8b095c99b8b8bf737d9369dc3fb5aa269d9678971fed3552dfa7e75",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
     }
   ],
   "source_roots": [

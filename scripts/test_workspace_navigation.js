@@ -29,7 +29,7 @@ assert.equal(formDate('22 Sep 2026'),'2026-09-22');
 assert.equal(formDate('2024-02-29'),'2024-02-29');
 for (const value of ['2026-02-31','31 Feb 2026','29 Feb 2026','2026-13-01','0000-01-01','12/01/2026']) assert.equal(formDate(value),'');
 writeRoute({ ...route, report: { ...route.report, branch: 'Synthetic private branch', category: 'Synthetic private category' } });
-assert.equal(writes[0][0], null); // No customer/history-state payload.
+assert.equal(writes[0][0].complaints_position, 1); // Numeric cursor, no customer/history-state payload.
 assert.equal(writes[0][2].includes('Synthetic'), false);
 assert.equal(new URL(writes[0][2], 'http://localhost').searchParams.get('group_by'), 'week');
 assert.equal(initialQueuePreferences(route, { default_filters: { status: 'resolved' } }, 'http://localhost/').status, 'resolved');

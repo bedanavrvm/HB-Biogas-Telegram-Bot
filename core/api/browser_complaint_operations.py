@@ -124,7 +124,15 @@ def project_detail(data, actor, group):
 @endpoint(['GET'])
 def bootstrap(request, group, actor):
     from core.services.miniapp_settings import preference_payload
+    from django.utils.crypto import salted_hmac
+    from staff_auth.models import StaffBrowserAdmission
+    generation = StaffBrowserAdmission.objects.get(user=actor.user).revision
+    # Only the same currently admitted account may resume tab-local form data.
+    # This opaque binding is not a token and grants no access to any endpoint.
+    continuity = salted_hmac('browser-complaint-recovery-v1',
+        f'{actor.user.pk}:{actor.user.get_session_auth_hash()}:{generation}', algorithm='sha256').hexdigest()
     return JsonResponse({**cases.bootstrap_data(group, actor),
+                         'continuity_key': continuity,
                          'preferences': preference_payload(actor.user, 'complaint_cases')})
 
 

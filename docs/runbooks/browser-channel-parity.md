@@ -383,3 +383,99 @@ UI verification record:
 These are technical and synthetic visual checks, not user design acceptance,
 real-device/assistive-technology testing, PostgreSQL/multiworker validation or
 production sign-off. M1 and the previously listed release gates remain open.
+
+## Complaint form recovery handoff (22 October 2026)
+
+This resumes the reliability work parked for `ui.txt`. It completes the bounded
+creation/case-update recovery slice, not all settings/email recovery or release
+acceptance. The codebase-design skill informed the one-task recovery module;
+the two forms use the same retained-value and exact-submission handling.
+
+### Change-specific checklist
+
+- [x] Additions/scope: creation and case-action text, chosen File objects,
+  captured revision and pending request survive same-tab native session expiry
+  and same-account password/MFA reauthentication. Offline editing is permitted;
+  no offline save or automatic reconnection/credential/write retry is claimed.
+- [x] Authorization/privacy: bootstrap returns an opaque account/password-hash/
+  admission-revision HMAC after current Complaint authorization. It is not an
+  access token. Other owners/security generations, explicit logout/discard and
+  confirmed saves clear the one-task tab memory and invalidate stale callbacks.
+  Values/files/credentials are never put in browser storage, URLs or history.
+  A successful response arriving during unmount is retained as a confirmation,
+  not converted into a new complaint on return.
+- [x] Retry/drafts/history: a lost response keeps the exact request key, values,
+  file objects and expected revision. Explicit retry confirms the canonical
+  result without a second case/comment. Draft save/discard reads the current
+  server revision before another write and does not overwrite a newer device's
+  draft. Back/Forward cancellation restores the actual same-document cursor;
+  history contains only that numeric cursor and existing safe route controls.
+- [x] UI: preserve the revised shell/dialogs/AG Grid. One persistent uncertain-
+  save message scrolls into view, has keyboard focus and explicit retry/leave
+  actions. Temporary read-only submitted fields are the documented exception;
+  ordinary editing is not locked. The leave confirmation explains that a save
+  may already have completed. ADS references are in browser/DESIGN.md.
+- [x] Affected workflows: closed native browser Complaints only. Shared
+  StaffAccess adds opt-in network-failure retention and logout cleanup; other
+  entries retain their existing defaults. Telegram endpoints/assets/grants and
+  the synthetic simulator remain unchanged. Shared process/DB outages still
+  affect both channels; this is not infrastructure fault isolation.
+- [x] Migrations/configuration/dependencies: none. No new model, package, grant,
+  production mount, enabled browser flag or external provider side effect.
+  Restart the foreground local-review helper to load the newly built assets;
+  a running review intentionally keeps its startup-pinned version.
+- [x] Executed focused checks: 20 native API/canonical tests and two actual
+  password/MFA React-to-Django journeys pass on isolated full-schema SQLite.
+  Production and development/StrictMode each produce 101 synthetic captures
+  (202 total). New offline/uncertain states cover 390/1366 in both themes;
+  existing scenes cover 320/360/390/768/1280/1366/1440/1920 where applicable,
+  including enlarged text. Representative final recovery screenshots were
+  visually inspected, not just checked for viewport fit.
+- [x] Tests exercise actual session ending/fresh MFA with retained text/file,
+  canceled/accepted History Back and Forward, a committed comment with its
+  response discarded, draft lost-response read reconciliation, and creation
+  returning 201 then 200 under the same request key. Database assertions prove
+  exactly one comment and one created complaint. Pure recovery tests also
+  cover different owners/tasks, explicit clear and stale callback denial.
+  A final two-build rerun advances the client clock through quiet session polls:
+  network failure keeps the current editor, whereas an injected HTTP 403 hides
+  customer content and requires a real native session recheck before recovery.
+- [x] Source/build checks: types, full ADS/style lint, production/development
+  builds and dependency/asset guards pass; 22 existing ratchet/dependency
+  tooling tests pass. UI/architecture ratchets, Python Ruff, navigation/calendar
+  and recovery checks are required with the final candidate hashes. CI now
+  builds/exercises the closed operations entry as well; remote CI was not run.
+- [x] Shared-entry regression: nine native auth/read transport tests pass,
+  including both build modes. Eleven existing complaint-timing tests pass alone
+  and in the final combined 33-test recovery/timing run. An earlier exploratory
+  combined invocation was red (four timing assertions and two setup errors);
+  do not count that attempt as passed. No reporting rule was changed to
+  accommodate it. The final focused/combined runs are the verification record.
+- [x] Monitor/rollback: inspect request outcome/retry and field retention on
+  reconnection; keep normal auth rate limits. Restore the prior browser asset
+  and operations adapter with browser still disabled. No schema/data rollback
+  is required; never reverse canonical records or rewrite their audit history.
+- [ ] Remaining gates: unsaved preferences, schedule editors and report-email
+  tasks are outside this recovery contract. Reload/tab closure loses unsaved
+  memory; use Save draft for server-retained text and reselect files. After an
+  uncertain save followed by reload, check the queue before submitting again.
+  PostgreSQL/shared workers, real providers/devices/assistive technology,
+  privacy/retention and human design acceptance, M1 and production integration
+  remain unverified. No merge/deployment or real staff admission was performed.
+
+Reproduction commands (Node 22, isolated test settings only):
+
+```powershell
+node scripts/test_workspace_navigation.js
+node scripts/test_workspace_recovery.js
+node browser/scripts/build.cjs --complaints-operations
+node browser/scripts/build.cjs --complaints-operations --development
+$env:RUN_STAFF_BROWSER_E2E = '1'
+python manage.py test core.tests_browser_complaint_operations staff_auth.tests_complaints_operations_transport --settings=staff_auth.transport_test_settings --noinput
+```
+
+Use the repository `.venv` and a synthetic test-only secret. Current loopback
+review credentials were verified through ordinary password/recovery-code MFA.
+Refresh `http://127.0.0.1:8769/_review/` for the running fixture and unused code;
+normal rate limiting may apply after failed attempts. Never weaken auth to
+make the review available. No credentials are recorded in this handoff.

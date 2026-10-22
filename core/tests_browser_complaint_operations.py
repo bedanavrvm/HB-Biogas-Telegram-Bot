@@ -53,6 +53,31 @@ class BrowserComplaintOperationsTests(TestCase):
         self.assertIn('history', response.json()['case'])
         self.assertNotIn('EXCLUDED_RAW_MESSAGE', response.content.decode())
 
+    def test_recovery_binding_survives_relogin_but_not_account_security_change(self):
+        self.login()
+        first = self.client.get(self.base + 'bootstrap/').json()['continuity_key']
+        self.assertRegex(first, r'^[a-f0-9]{64}$')
+        self.assertEqual(self.client.get(self.base + 'bootstrap/').json()['continuity_key'], first)
+        from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
+        from staff_auth.tests import PASSWORD
+        codes = RecoveryCodes.activate(self.user).get_unused_codes()
+        def sign_in(code):
+            self.post_auth('logout', {})
+            self.assertEqual(self.post_auth('login', {'username': self.user.username, 'password': PASSWORD}).status_code, 401)
+            self.assertEqual(self.post_auth('mfa', {'code': code}).status_code, 200)
+        sign_in(codes[0])
+        self.assertEqual(self.client.get(self.base + 'bootstrap/').json()['continuity_key'], first)
+        from staff_auth.models import StaffBrowserAdmission
+        from staff_auth.lifecycle import apply_change
+        from django.contrib.auth import get_user_model
+        row = StaffBrowserAdmission.objects.get(user=self.user)
+        apply_change(actor=get_user_model().objects.get(username='synthetic_admission_root'),
+            target_user_id=self.user.pk, action='revoke_sessions', expected_revision=row.revision,
+            request_key='synthetic-recovery-revoke', reason='Synthetic recovery boundary test')
+        self.assertEqual(self.client.get(self.base + 'bootstrap/').status_code, 401)
+        sign_in(codes[1])
+        self.assertNotEqual(self.client.get(self.base + 'bootstrap/').json()['continuity_key'], first)
+
     def test_foreign_group_and_telegram_credentials_fail_closed(self):
         self.login()
         response = self.client.get(self.base + f'cases/{self.other_case.pk}/')

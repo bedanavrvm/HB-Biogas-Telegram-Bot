@@ -14,6 +14,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, colorScheme: 'light', acceptDownloads: true });
   const page = await context.newPage(); page.setDefaultTimeout(20000);
+  await page.clock.install();
   page.on('dialog', dialog => dialog.accept());
   const errors = [], requests = [], layouts = []; let captures = 0;
   await context.route('**/*', route => {
@@ -34,6 +35,7 @@ async function main() {
       const detail = document.querySelector('[aria-label="Complaint detail"]');
       const content = document.querySelector('[data-testid="complaints-operations-content"]');
       return { width: innerWidth, page: document.documentElement.scrollWidth,
+        dialogFonts: Array.from(document.querySelectorAll('dialog, dialog label, dialog input')).slice(0, 5).map(element => ({tag:element.tagName, family:getComputedStyle(element).fontFamily})),
         main: main?.getBoundingClientRect().width, mainClient: main?.clientWidth,
         mainScroll: main?.scrollWidth, theme: document.documentElement.dataset.colorMode,
         detailRight: detail?.getBoundingClientRect().right, contentRight: content?.getBoundingClientRect().right };
@@ -44,9 +46,18 @@ async function main() {
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }); captures++;
   }
   async function select(label, option) {
-    const box = page.getByLabel(label, { exact: true }); await box.fill(option);
+    const scope = await page.getByRole('dialog').count() ? page.getByRole('dialog') : page;
+    const box = scope.getByLabel(label, { exact: true }); await box.fill(option);
     const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    await page.getByRole('option', { name: new RegExp('^' + escaped + '(?:$| - )') }).click();
+    await scope.getByRole('option', { name: new RegExp('^' + escaped + '(?:$| - )') }).click();
+  }
+  async function recoveryCaptures(name) {
+    const viewport=page.viewportSize();const theme=await page.evaluate(()=>document.documentElement.dataset.colorMode);
+    for(const scheme of ['light','dark']) {
+      await page.emulateMedia({colorScheme:scheme});await page.waitForFunction(value=>document.documentElement.dataset.colorMode===value,scheme);
+      for(const width of [390,1366]) {await page.setViewportSize({width,height:width<768?844:900});await capture(name+'-'+scheme+'-'+width);}
+    }
+    await page.setViewportSize(viewport);await page.emulateMedia({colorScheme:theme});
   }
   async function preferenceChecks() {
     await page.setViewportSize({ width: 1366, height: 900 }); await page.emulateMedia({ colorScheme: 'light' });
@@ -88,6 +99,55 @@ async function main() {
     await page.getByRole('button', { name: 'Verify', exact: true }).click();
     await heading('7 complaints');
     if (input.preferences_only) { await preferenceChecks(); process.stdout.write(JSON.stringify({ passed: true, captures })); return; }
+    // Unfinished work survives actual native logout/session expiry + fresh MFA.
+    await page.getByRole('button',{name:'Create complaint',exact:true}).click();
+    await page.getByLabel(/^Customer name/).fill('Synthetic recovery draft');
+    await page.getByLabel('Choose evidence files',{exact:true}).setInputFiles({name:'synthetic-retained.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4 synthetic only')});
+    await context.setOffline(true);
+    await page.getByLabel(/^Customer name/).fill('Synthetic recovery draft offline');
+    await page.getByRole('button',{name:'Save draft',exact:true}).click();
+    await page.getByText('You are offline. Reconnect before saving your draft.',{exact:true}).waitFor();
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
+    await page.clock.fastForward(30000);
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline','A quiet network failure must not remove the editing workspace');
+    await recoveryCaptures('recovery-offline');
+    await context.setOffline(false);
+    // A server rejection is not a connectivity error: hide and recheck access.
+    await page.route('**/api/staff/auth/v1/session/',route=>route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({state:'invalid_credentials',is_authenticated:false})}),{times:1});
+    await page.clock.fastForward(30000);
+    await heading('Check your session');
+    assert.equal(await page.getByRole('dialog').count(),0,'An explicit server rejection must hide customer content');
+    await page.getByRole('button',{name:'Check session',exact:true}).click();
+    await page.getByRole('dialog',{name:'Create complaint',exact:true}).waitFor();
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
+    // End the real server session, without clicking the explicit discard/sign-out action.
+    await page.evaluate(async()=>{const session=await(await fetch('/api/staff/auth/v1/session/')).json();await fetch('/api/staff/auth/v1/logout/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':session.csrf_token},body:'{}'});});
+    await page.getByRole('button',{name:'Save draft',exact:true}).click();
+    await page.getByRole('dialog').getByRole('button',{name:'Sign in again',exact:true}).click();
+    await heading('Sign in');
+    await page.getByLabel(/^Staff username/).fill(input.username);
+    await page.getByLabel(/^Password/).fill(input.password);
+    await page.getByRole('button',{name:'Sign in',exact:true}).click();
+    await heading('Check your authenticator');
+    await page.getByRole('button',{name:'Use a recovery code',exact:true}).click();
+    await heading('Use a recovery code');
+    await page.getByLabel(/^Recovery code/).fill(input.resume_code);
+    assert.equal((await page.getByLabel(/^Recovery code/).inputValue()).length,input.resume_code.length,'Entered code must survive the stage transition');
+    await page.getByRole('button',{name:'Verify',exact:true}).click();
+    await page.getByRole('dialog',{name:'Create complaint',exact:true}).waitFor();
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
+    await page.getByText('synthetic-retained.pdf',{exact:true}).waitFor();
+    await capture('recovery-after-signin');
+    // Dismissing browser Back restores the actual history entry, not a replacement URL.
+    const retainedUrl=page.url();
+    page.removeAllListeners('dialog');page.once('dialog',dialog=>dialog.dismiss());
+    await page.goBack();await page.waitForURL(retainedUrl);
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
+    page.on('dialog',dialog=>dialog.accept());
+    await page.goBack();await page.getByRole('dialog').waitFor({state:'detached'});
+    await page.goForward();await page.getByRole('dialog',{name:'Create complaint',exact:true}).waitFor();
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'','Discarded work must not resurrect on Forward');
+    await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
     const documentsBefore = requests.filter(row => row.resource === 'document').length;
     await page.getByRole('link', { name: /^Synthetic Customer 01/ }).click();
     await heading('Synthetic Customer 01');
@@ -112,8 +172,22 @@ async function main() {
     assert.equal(await page.locator('a[href^="tel:"]').count(), 1);
     await page.getByRole('button', {name:'Add resolution comment',exact:true}).click();
     await page.getByLabel(/^Resolution comment/).fill('Synthetic browser follow-up.');
+    const submissions=[];
+    await page.route('**/cases/*/comment/',async route=>{
+      submissions.push(route.request().postData());
+      const response=await route.fetch();assert.equal(response.status(),200);
+      await route.abort('failed'); // Canonical commit succeeds; only the response is lost.
+    },{times:1});
     await page.getByRole('dialog').getByRole('button', { name: 'Add resolution comment', exact: true }).click();
+    await page.getByRole('button',{name:'Retry previous save',exact:true}).waitFor();
+    assert.equal(await page.getByLabel(/^Resolution comment/).getAttribute('readonly'),'');
+    await recoveryCaptures('recovery-uncertain-save');
+    await page.route('**/cases/*/comment/',async route=>{submissions.push(route.request().postData());await route.continue();},{times:1});
+    await page.getByRole('button',{name:'Retry previous save',exact:true}).click();
+    await page.getByRole('dialog').waitFor({state:'detached'});
     await page.getByText('Synthetic browser follow-up.', { exact: true }).waitFor();
+    const key=body=>/name="client_request_id"\r?\n\r?\n([^\r\n]+)/.exec(body)?.[1];
+    assert.ok(key(submissions[0]));assert.equal(key(submissions[0]),key(submissions[1]),'Uncertain retry must retain the exact request key');
     await capture('desktop-comment-saved');
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme });
@@ -139,8 +213,19 @@ async function main() {
     await capture('create-field-errors');
     await page.setViewportSize({width:390,height:844}); await capture('create-errors-mobile');
     await page.setViewportSize({width:1366,height:900});
+    let draftWrites=0;
+    await page.route('**/draft/',async route=>{
+      if(route.request().method()!=='POST') return route.continue();
+      draftWrites++;const result=await route.fetch();assert.equal(result.status(),200);await route.abort('failed');
+    },{times:2});
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await heading('Action could not be completed');
+    await page.unroute('**/draft/');
+    await page.route('**/draft/',async route=>{if(route.request().method()==='POST')draftWrites++;await route.continue();});
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await page.getByText('Draft saved.', { exact: true }).waitFor();
+    assert.equal(draftWrites,1,'Lost draft response must be reconciled by reading, not a second write');
+    await page.unroute('**/draft/');
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Create complaint', exact: true }).click();
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
@@ -236,6 +321,32 @@ async function main() {
     assert.equal(new URL(page.url()).searchParams.get('report_page'),'2','Initial grid sort must not reset a restored page');
     await page.unroute('**/operations/v1/groups/*/reports/');
     await preferenceChecks();
+    await page.getByRole('button',{name:'Create complaint',exact:true}).click();
+    await page.getByLabel(/^Customer name/).fill('Synthetic confirmed creation');
+    await page.getByLabel(/^National ID/).fill('90000098');
+    await page.getByLabel(/^Primary phone number/).fill('0700000098');
+    await select('Branch','Synthetic Other Branch');await select('County','Synthetic County');
+    await select('Constituency','Synthetic Constituency');
+    await page.getByLabel(/^Village/).fill('Synthetic landmark');
+    await select('Complaint type','Synthetic service issue');
+    await page.getByLabel(/^Complaint description/).fill('Synthetic complaint created with a lost response.');
+    const createdKeys=[];
+    await page.route('**/cases/create/',async route=>{
+      createdKeys.push(key(route.request().postData()));const result=await route.fetch();assert.equal(result.status(),201);await route.abort('failed');
+    },{times:1});
+    await page.getByRole('button',{name:'Submit complaint',exact:true}).click();
+    await page.getByRole('button',{name:'Retry previous save',exact:true}).waitFor();
+    await recoveryCaptures('recovery-uncertain-creation');
+    await page.route('**/cases/create/',async route=>{createdKeys.push(key(route.request().postData()));await route.continue();},{times:1});
+    await page.getByRole('button',{name:'Retry previous save',exact:true}).click();
+    await page.getByRole('dialog').waitFor({state:'detached'});
+    await heading('Synthetic Confirmed Creation');
+    assert.equal(createdKeys.length,2);assert.equal(createdKeys[0],createdKeys[1]);
+    await capture('recovery-creation-confirmed');
+    // A confirmed save does not resurrect as another unfinished creation.
+    await page.getByRole('button',{name:'Create complaint',exact:true}).click();
+    assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'');
+    await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
     assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })), { local: 0, session: 0 });
     assert.deepEqual(errors, []);
     fs.writeFileSync(path.join(output, 'layout.json'), JSON.stringify(layouts, null, 2));

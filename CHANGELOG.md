@@ -1,5 +1,18 @@
 # Changelog
 
+## 22 October 2026 - Closed Complaints form recovery
+
+- Preserve unfinished complaint creation/case updates and selected files across
+  session rechecking and same-account native reauthentication in the same tab.
+  Explicit logout/discard, account/security changes and confirmed saves clear
+  retained work. No customer or credential browser storage is introduced.
+- Explain offline and uncertain saves; retry the exact original request only
+  on explicit action. Reconcile lost draft responses against server revisions.
+  Protect unsaved Back/Forward navigation without corrupting history entries.
+- Preserve the revised dialogs, AG Grid and UI proportions. Scope, evidence,
+  exceptions and remaining settings/email recovery are recorded in the browser
+  design/runbook. No schema, dependency, role, Telegram or production activation.
+
 ## 22 October 2026 - Closed browser Complaints UI correction
 
 - Separate Complaints, Reports and Settings; use real ADS tabs, contextual

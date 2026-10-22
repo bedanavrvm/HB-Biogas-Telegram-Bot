@@ -239,7 +239,7 @@ Both build modes must verify the actual main width after sign-in and reload.
 
 The current operations entry supersedes the earlier read-only candidate's layout
 described above. `ui.txt` is the review brief, not a production data source.
-The next continuity/recovery slice is paused while this correction is reviewed.
+The recovery slice below resumes the work paused for this correction.
 
 Applied official references, consulted 22 October 2026:
 
@@ -318,6 +318,50 @@ fabricated reporter, placeholder account/avatar, target colour or live-data
 claim is added. Fixture data and review credentials belong only to loopback.
 These are source-bound candidates, not human approval of a shared standard,
 Phase 6 permission, real-device certification or production activation.
+
+## Closed Complaints form recovery (22 October 2026)
+
+Current official [Form](https://atlassian.design/components/form/usage),
+[Section message](https://atlassian.design/components/section-message/usage) and
+[Button](https://atlassian.design/components/button/usage) guidance was consulted
+again on 22 October. Retain entered values and field errors; put an actionable,
+persistent connection/session/uncertain-save message inside the affected task.
+Do not turn normal editing into a warning wall or silently retry a write.
+The revised tabs, dialogs, AG Grid, typography and spacing are preserved.
+
+Creation and case-action forms resume only after current native sign-in and
+owning-workflow bootstrap. One bounded task (including at most 30 MB of chosen
+files) lives in tab memory outside the authentication component. An opaque
+server-owned account/security-generation binding gates reuse. Other accounts,
+security-generation changes, explicit sign-out, confirmed discard/navigation
+and successful canonical saves invalidate old callbacks and retained entries.
+Reload/tab closure loses unsaved memory; an explicitly saved server draft
+remains available. There is no customer/credential browser storage or URL state.
+This is not an approved offline-data retention/privacy policy for real staff.
+
+A timed-out/disconnected write keeps its exact request key, values, expected
+revision and File objects. Retry is explicit, not triggered by reconnect or MFA.
+Intentional, narrow ADS exception: submitted inputs are temporarily read-only
+while saving or confirming an uncertain result. The visible explanation and
+Retry previous save action explain why; ordinary editing is interactive. A
+confirmed Leave without checking escape explains that a save may already have
+completed, so access loss cannot trap the user inside a modal. No success is
+claimed until the server confirms it. Revision conflicts require reviewing the
+latest case, not silently upgrading the submitted revision.
+
+Offline editing is allowed. Quiet session-check network failure may retain
+the already-visible operations workspace, but an actual 401/revocation never
+does; hidden-page checks still remove sensitive content until reauthorized.
+The option defaults off for every other StaffAccess entry. Draft save/discard
+uses a bounded request and reads the current draft before another write, so a
+lost response is reconciled without overwriting a newer device's revision.
+Back/Forward cancellation restores the real same-document history position;
+history stores only a numeric cursor and existing safe route controls.
+
+Scope: complaint creation and case updates, not unsaved preferences, scheduled
+email editors or report-email tasks. Those and real-provider/network/device
+acceptance remain explicit release gates. Sources/screenshots are candidates,
+not human design approval, a Telegram migration or production activation.
 
 ## Persistent local Complaints demo (P2a.1 / ADR 0071)
 

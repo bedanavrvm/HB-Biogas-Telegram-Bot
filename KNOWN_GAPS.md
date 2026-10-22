@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Closed Complaints recovery scope - 22 October 2026
+
+The recovery slice resumes the work paused for `ui.txt`. Complaint creation
+and case updates retain one tab-local unfinished task across same-account
+native reauthentication, with explicit same-request confirmation after a lost
+response. They do not promise an offline server save. Reload/closing the tab
+loses unsaved text/files; use Save draft for server-retained text and select
+attachments again after a reload. Explicit logout/discard and account/security
+changes clear tab memory. See docs/runbooks/browser-channel-parity.md.
+
+Unsaved preferences, scheduled-email editors and report-email tasks are outside
+this slice's recovery contract. They must not be described as offline/session
+safe. Real devices, retention/privacy acceptance, PostgreSQL/multiworker and
+M1/production integration remain unverified; production stays off/unmounted.
+
+The existing loopback review credentials were checked through actual native
+password plus recovery-code MFA. Failed attempts can trigger normal rate limits;
+refresh http://127.0.0.1:8769/_review/ for the running fixture's credentials and
+an unused recovery code. Do not disable authentication checks. Restart the
+foreground review helper to load new assets or reset its synthetic fixture.
+
 ## Closed native operations candidate - 22 October 2026
 
 ADR 0073 adds a separate native browser candidate without expanding restricted
@@ -17,8 +38,9 @@ on 8767 is separate. Keep its foreground terminal open and wait for readiness.
 
 The `ui.txt` correction is applied only to the native operations entry. Restart
 the 8769 review host to see it; startup-pinned assets intentionally do not change
-mid-review. This UI work does not complete the paused offline/session-expiry/
-ambiguous-write recovery slice. Native modal dialog and AG Grid composition
+mid-review. The UI correction alone did not complete offline/session-expiry/
+ambiguous-write recovery; the bounded recovery slice is recorded above.
+Native modal dialog and AG Grid composition
 exceptions, dependency review and screenshot evidence are documented in
 browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. User approval,
 real devices/assistive technology and production acceptance remain unverified.

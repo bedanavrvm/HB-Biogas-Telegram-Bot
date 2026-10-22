@@ -226,6 +226,11 @@ jobs:
           node browser/scripts/build.cjs --complaints
           node browser/scripts/build.cjs --complaints --development
           python manage.py test core.tests_browser_complaints staff_auth.tests_complaints_transport --settings=staff_auth.transport_test_settings --noinput
+          node scripts/test_workspace_navigation.js
+          node scripts/test_workspace_recovery.js
+          node browser/scripts/build.cjs --complaints-operations
+          node browser/scripts/build.cjs --complaints-operations --development
+          python manage.py test core.tests_browser_complaint_operations staff_auth.tests_complaints_operations_transport --settings=staff_auth.transport_test_settings --noinput
       - name: Build and exercise the persistent synthetic Complaints demo
         run: |
           node browser/scripts/build.cjs --complaints-demo
@@ -245,6 +250,7 @@ jobs:
           path: |
             test-results/staff-browser-transport/
             test-results/complaints-browser-transport/
+            test-results/complaints-browser-operations/
             test-results/complaints-local-demo/production/
             test-results/complaints-local-demo/development/
           retention-days: 14

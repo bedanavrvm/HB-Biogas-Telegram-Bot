@@ -61,5 +61,12 @@ export function writeRoute(route: WorkspaceRoute, replace = false) {
     if (date(report.to)) params.set('to', report.to);
     params.set('report_page', String(pageNumber(String(report.page))));
   }
-  window.history[replace ? 'replaceState' : 'pushState'](null, '', path + '?' + params);
+  const position = historyPosition() + (replace ? 0 : 1);
+  window.history[replace ? 'replaceState' : 'pushState']({ complaints_position: position }, '', path + '?' + params);
+}
+
+/** A numeric same-document cursor only; never form/customer values. */
+export function historyPosition() {
+  const value = window.history.state?.complaints_position;
+  return Number.isSafeInteger(value) && value >= 0 ? value as number : 0;
 }

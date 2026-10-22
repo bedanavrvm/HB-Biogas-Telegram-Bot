@@ -54,7 +54,7 @@ function AccessField({ name, label, password = false, newPassword = false, code 
   </Field>;
 }
 
-export function StaffAccess({ invitation = null, renderAuthenticated }: { invitation?: Invitation | null; renderAuthenticated?: (actions: { signOut: () => void; recheck: () => void }) => React.ReactNode }) {
+export function StaffAccess({ invitation = null, renderAuthenticated, retainWorkspaceOnNetworkError = false, onLogout }: { invitation?: Invitation | null; retainWorkspaceOnNetworkError?: boolean; onLogout?: () => void; renderAuthenticated?: (actions: { signOut: () => void; recheck: () => void }) => React.ReactNode }) {
   const [state, setState] = useState<State>('checking');
   const invitationRef = useRef(invitation);
   const [details, setDetails] = useState<Pick<Result, 'enrollment' | 'codes' | 'setupId' | 'fieldErrors'>>({});
@@ -80,6 +80,7 @@ export function StaffAccess({ invitation = null, renderAuthenticated }: { invita
     const current = ++generation.current;
     pending.current = controller;
     pendingKind.current = action ? 'write' : 'read';
+    if (action === 'logout') onLogout?.();
     if (action === 'login') setUsername(values.username);
     if (action === 'setup/verify-email' && invitationRef.current) {
       invitationRef.current.confirmation_key = ''; invitationRef.current.setup_id = ''; invitationRef.current = null;
@@ -100,13 +101,14 @@ export function StaffAccess({ invitation = null, renderAuthenticated }: { invita
       if (result.state !== 'mfa_required') setRecovery(false);
     } catch (error) {
       if (current !== generation.current) return;
+      if (quiet && retainWorkspaceOnNetworkError && currentState.current === 'authenticated' && error instanceof TransportError && error.kind === 'network') return;
       setDetails({}); setState('uncertain');
       setFeedback({ title: error instanceof TransportError && error.kind === 'csrf' ? 'Your request could not be verified' : 'We could not confirm your session', message: 'Check your session before trying again. Your previous request will not be sent again automatically.' });
     } finally {
       clearTimeout(timeout);
       if (current === generation.current) { pending.current = null; pendingKind.current = null; setBusy(false); }
     }
-  }, []);
+  }, [retainWorkspaceOnNetworkError, onLogout]);
 
   useEffect(() => {
     void run();
