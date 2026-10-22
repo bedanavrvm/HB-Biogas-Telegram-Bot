@@ -45,6 +45,9 @@ SORT_FIELDS = {
 }
 
 REPORT_SORT_FIELDS = {
+    'complaint_id': 'complaint_control__reference_number',
+    'customer_name': 'customer_name',
+    'complaint_category': 'complaint_category',
     'date_reported': 'report_date',
     'status': 'complaint_status',
     'branch_region': 'branch_region',

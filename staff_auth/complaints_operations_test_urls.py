@@ -31,6 +31,6 @@ urlpatterns = [
     path('api/staff/complaints/v1/', include('core.api.browser_complaint_urls')),
     path('api/staff/complaints/operations/v1/groups/<int:group_key>/', include('core.api.browser_complaint_operations_urls')),
     path('', asset),
-    re_path(r'^staff/app/complaints/(?:new/|reports/|cases/[a-f0-9-]{36}/)?$', asset),
+    re_path(r'^staff/app/complaints/(?:new/|reports/|settings/|cases/[a-f0-9-]{36}/)?$', asset),
     re_path(r'^(?P<filename>[A-Za-z0-9][A-Za-z0-9._-]*\.(?:html|js|css|txt))$', asset),
 ]

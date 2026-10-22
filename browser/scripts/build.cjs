@@ -12,7 +12,9 @@ function packageOwner(filename, root) {
     const candidate = path.join(directory, 'package.json');
     if (fs.existsSync(candidate)) {
       const manifest = JSON.parse(fs.readFileSync(candidate, 'utf8'));
-      if (manifest.name && manifest.version) return { directory, manifest };
+      // Some packages repeat identity in export subdirectories. Notices belong
+      // to the installed archive root, not its nested ESM/package descriptor.
+      if (manifest.name && manifest.version && directory.endsWith(path.sep + path.join('node_modules', manifest.name))) return { directory, manifest };
     }
     if (directory === root) break;
     directory = path.dirname(directory);
@@ -33,7 +35,7 @@ function notices(owners, artifacts, root) {
     for (const item of evidence.inspection.license_files) {
       const relative = item.path.split('/').slice(1).join('/');
       const source = path.join(directory, relative);
-      if (!fs.existsSync(source)) throw new Error('An inspected licence file is missing from the installed package.');
+      if (!fs.existsSync(source)) throw new Error(`An inspected licence file is missing: ${manifest.name}/${relative}`);
       const raw = fs.readFileSync(source);
       if (crypto.createHash('sha256').update(raw).digest('hex') !== item.sha256) throw new Error('Installed licence text differs from reviewed artifact.');
       texts.push(`${relative}\n\n${raw.toString('utf8')}`);

@@ -302,3 +302,84 @@ Full commands, behavior and connection-refused recovery: browser/README.md.
 Rollback: keep browser disabled or restore the prior browser artifact/adapter.
 Preference rows already use the existing schema; no data/schema rollback is
 needed. Do not modify historical audit records or Telegram role grants.
+
+## UI correction before the next slice (22 October 2026)
+
+`ui.txt` supersedes the previous layout, not the channel/security contracts.
+The unfinished ambiguous-write/offline/session-recovery slice was parked before
+this work; none of it is represented as completed by a cleaner interface.
+
+Implemented review candidate:
+
+- Actual ADS underline tabs for mutually exclusive Complaints and Reports;
+  Settings is a separate reloadable destination. One primary Create opens a
+  modal. Settings and Refresh are subtle icons, not competing view buttons.
+- 1280px workspace; desktop queue about 384px, detail fills the remainder.
+  Narrow screens open detail with Back. Full-row selection, readable
+  Open/Reopened/Closed statuses, customer/complaint details, Description,
+  Activity, Attachments, then valid contextual actions replace the dropdown.
+- Account preferences are bounded to 480px with saved feedback. Pending
+  Sheet work is one compact summary outside Settings; failure details can
+  open the authorized complaint for its existing retry action.
+- Reports default to Last 30 days, disclose custom dates and extra facets,
+  simplify redundant/single-category charts, and show equal-period KPI
+  comparisons. Labels use human dates. Legends, headroom and chart help are
+  simplified without inventing targets or financial conclusions.
+- Actual AG Grid Community 36.1.0: seven sortable/resizable columns, full-query
+  canonical sort before paging, current-workspace row links and Enter opening.
+  A small result set has no external pager; mobile horizontal scroll stays
+  inside the grid. Chart selection still focuses that exact result cohort and
+  export. Scheduling moves to Settings; one Export dialog owns Excel/email.
+- The existing safe History routes remain instead of a second hash router.
+  Prior explicit visibility of authorized National IDs is preserved. No fake
+  app switcher, reporter, target colour or production capability is added.
+
+References and narrow native-dialog/SVG/AG Grid composition exceptions are in
+browser/DESIGN.md. Exact dependency/archive/licence records and the unchanged
+peer exception are in browser/DEPENDENCIES.md. No schema, grant, real provider,
+operational database or Telegram implementation is changed. Candidate source
+hashes change; approved baselines and Phase 6 remain on hold.
+
+Local human review: restart `scripts/start_complaints_local_review.ps1`, wait for
+readiness and open http://127.0.0.1:8769/_review/. Its fresh synthetic seed now
+varies branches, complaint types, dates and statuses. The foreground helper
+pins assets at startup; builds intentionally do not replace a running review.
+Use only the synthetic login on that private loopback instruction page.
+
+UI verification record:
+
+- Native production and development/StrictMode journeys each capture 87 scenes
+  (174 total): queue/detail, history failure/expiry/full paging, creation errors,
+  report views/charts/table, settings, both themes and 320/360/390/768/1280/
+  1366/1440/1920 widths where applicable. Enlarged text is checked at 200%.
+  Keyboard modal Escape restores the real opener. Table sorting and row Enter,
+  KPI filters, custom-date validation, report retry, safe URLs, preferences,
+  History Back/Forward and an Excel filename are exercised, not inferred.
+  A separately labelled synthetic paging-response check verifies that applying
+  AG Grid's initial sort does not reset a restored report page. It is not
+  claimed as a live 100-record dataset or a substitute for canonical paging tests.
+- 29 focused canonical browser/API tests plus the two native build-mode journeys
+  pass together on isolated full-schema SQLite. The previous foreign-group
+  denial remains 400; no authorization rule was relaxed to make a test pass.
+  Canonical table facts are compared without the newly added workspace link
+  metadata, whose group ownership is tested separately.
+- A separate temporary loopback host verified the varied 47-case seed through
+  actual native password/MFA and produced 19 additional synthetic captures at
+  390/768/1366 in both themes. Representative paired charts, table, modal,
+  settings and mobile/dark screens were visually inspected. Platform-font
+  diagnostics confirmed the actual system font rather than only CSS names.
+  That varied-data review preceded the final KPI-button/copy polish; the
+  production/development transport captures cover the final native sources.
+- TypeScript, full ADS/style lint, both builds and the 173-peer dependency guard
+  pass. Production/development outputs contain 82/83 noticed packages; nested
+  archive ownership and reviewed licence hashes are retained. No font/image
+  asset or Enterprise Grid is emitted. UI/architecture ratchets, changed-Python
+  Ruff, navigation/calendar-date tests and diff checks pass. The 22 existing
+  ratchet/dependency tooling tests pass with the documented long TEMP path.
+- Initial screenshot checks exposed unused detail width, enlarged-text overflow
+  and dialog typography inheritance; these were corrected and rechecked. No
+  approved screenshot baseline was changed to accommodate them.
+
+These are technical and synthetic visual checks, not user design acceptance,
+real-device/assistive-technology testing, PostgreSQL/multiworker validation or
+production sign-off. M1 and the previously listed release gates remain open.

@@ -15,6 +15,14 @@ The latest native synthetic review is started with
 `scripts/start_complaints_local_review.ps1` at loopback 8769; the older simulator
 on 8767 is separate. Keep its foreground terminal open and wait for readiness.
 
+The `ui.txt` correction is applied only to the native operations entry. Restart
+the 8769 review host to see it; startup-pinned assets intentionally do not change
+mid-review. This UI work does not complete the paused offline/session-expiry/
+ambiguous-write recovery slice. Native modal dialog and AG Grid composition
+exceptions, dependency review and screenshot evidence are documented in
+browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. User approval,
+real devices/assistive technology and production acceptance remain unverified.
+
 ## Local Complaints demo now accessible - 20 October 2026
 
 P2a.2 / ADR 0072 extends P2a.1's synthetic review workspace at

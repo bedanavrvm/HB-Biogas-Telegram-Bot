@@ -7,6 +7,21 @@ are exercised only by the isolated Django transport runner. Production stays
 off/unmounted. Setup, evidence, rollback and remaining parity/release gates:
 [`browser-channel-parity.md`](../docs/runbooks/browser-channel-parity.md).
 
+The 22 October UI correction is in this **native operations** entry, not the
+older 8767 simulator. From the repository root run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_complaints_local_review.ps1
+```
+
+Wait for readiness, then open **http://127.0.0.1:8769/_review/** and use only the
+synthetic sign-in shown there. Leave that terminal running. If an older review
+host is already running, stop it with Ctrl+C and restart the same command:
+each process pins its startup assets. Agent builds do not update that process.
+The fresh review seed now includes varied branches, types, dates and statuses.
+It does not use or change operational data. See DESIGN.md for the UI brief,
+intentional differences and current review boundaries.
+
 This workspace uses **React 18 and actual Atlassian Design System components**.
 The current entry is a local, deterministic access-flow demo: fixed read-only
 values, no API, credentials, mail, staff/customer records or workflow grants.

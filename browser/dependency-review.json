@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "scope": "Exact local-development React/ADS build; production release remains gated.",
-  "authorization": "User: fix the researched ADS issues; always refer to Atlassian docs (20 October 2026). ADR 0066 composition correction.",
+  "scope": "Exact local React/ADS and AG Grid Community browser build; production release remains gated.",
+  "authorization": "User: fix ui.txt before the next slice; use AG Grid tables. Local UI correction only.",
   "base_report": "codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json",
   "base_report_sha256": "0fd4c7b39f6f2d18dbb85ba960ac8eaef1b1adcab82b5b448b9743783f1572bb",
-  "lock_sha256": "b6fc978725ed5b9ed27294c7c5574523bec26f2a6010eac5cc3a52d7efa07952",
+  "lock_sha256": "1a4d67def48e94aa51bcfa81d35798b6b7e959d88c6a7481e9b472fadd9eaa8c",
   "summary": {
-    "lock_entries": 592,
-    "unique_artifacts": 554,
-    "reused_inspections": 504,
-    "new_inspections": 50
+    "lock_entries": 597,
+    "unique_artifacts": 583,
+    "reused_inspections": 529,
+    "new_inspections": 54
   },
   "new_artifacts": [
     {
@@ -2288,6 +2288,166 @@
         "engines": {
           "node": ">=10"
         }
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/tabs",
+      "name": "@atlaskit/tabs",
+      "version": "21.3.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/tabs/-/tabs-21.3.0.tgz",
+      "integrity": "sha512-ayBuxliWMcEVv9dwceznk3U1U08YmyW/RQT2gThEhjn9s0BjM9Jas7WRACMSouwft3tXGHMbGOf4pirire0yVw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "592dbd324b26853258a3df38eace132191cd5b7d01f6b6d4744057cd30fc1481",
+        "archive_bytes": 33355,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/tab-list/package.json",
+          "package/tab-panel/package.json",
+          "package/tab/package.json",
+          "package/tabs/package.json",
+          "package/types/package.json",
+          "package/use-tab-panel/package.json",
+          "package/use-tab/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-charts-types",
+      "name": "ag-charts-types",
+      "version": "14.1.0",
+      "resolved": "https://registry.npmjs.org/ag-charts-types/-/ag-charts-types-14.1.0.tgz",
+      "integrity": "sha512-mmzkng88c0l+Z9PvCMowMilhVeNgDU/iMuMemcOQD4BG/qO4vbkxWvyQO0iqju8Dx7YOY81PNzC/RmElQNiVkA==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b491df0fcbc059033f3f0a5e9197273c178cb873dc2372568d5341b547839b6b",
+        "archive_bytes": 99553,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-grid-community",
+      "name": "ag-grid-community",
+      "version": "36.1.0",
+      "resolved": "https://registry.npmjs.org/ag-grid-community/-/ag-grid-community-36.1.0.tgz",
+      "integrity": "sha512-WnvSQ4csRs8gv/b1B0lPHykQXvUJVgi2u5mpY0Aa6dv3pvhDVVqCT8dwUyOeCog4JNPptaXGrOrZ8qP2XoJzVA==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "a39fe805a8d6080c648f705110fa40e9acd3ab5c53aa10578fce65fa70e169cd",
+        "archive_bytes": 4667642,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/dist/package.json",
+          "package/dist/package/package.json",
+          "package/dist/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-stack",
+      "name": "ag-stack",
+      "version": "36.1.0",
+      "resolved": "https://registry.npmjs.org/ag-stack/-/ag-stack-36.1.0.tgz",
+      "integrity": "sha512-Kmkf5iRZmyduNx2KtW450j6GbCdJ4ejacSpb1AWl0yrdquRmScLRc1SlLolx6lyCbTBSJGo4tRraKbBzre+GlQ==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "e2290f1bdbc809bbdbbabe65415310d14808d4bf0503c2b3dc38332293e20d07",
+        "archive_bytes": 494926,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/dist/package.json",
+          "package/dist/package/package.json",
+          "package/dist/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
       }
     }
   ],

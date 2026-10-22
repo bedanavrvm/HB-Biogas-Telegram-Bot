@@ -235,6 +235,90 @@ class can inject that base rule after its desktop media rule in development,
 leaving four named areas with only one explicit column and narrowing Main.
 Both build modes must verify the actual main width after sign-in and reload.
 
+## Closed Complaints UI correction (22 October 2026)
+
+The current operations entry supersedes the earlier read-only candidate's layout
+described above. `ui.txt` is the review brief, not a production data source.
+The next continuity/recovery slice is paused while this correction is reviewed.
+
+Applied official references, consulted 22 October 2026:
+
+- [Tabs](https://atlassian.design/components/tabs/usage): mutually exclusive
+  Complaints/Reports destinations and report views, real tab/panel semantics.
+- [Form](https://atlassian.design/components/form/usage): visible labels,
+  bounded input widths, field errors and retained entries; account settings
+  have a 480px maximum, creation a 672px maximum.
+- [Button](https://atlassian.design/components/button/usage) and
+  [Lozenge](https://atlassian.design/components/lozenge/usage): one primary Create,
+  subtle Settings/Refresh icons, explicit context actions, readable Open,
+  Reopened and Closed states with more than colour alone.
+- [Pressable](https://atlassian.design/components/primitives/pressable/usage)
+  and [MetricText](https://atlassian.design/components/primitives/metric-text/usage):
+  the complete KPI card is one labelled, keyboard-operable filter action, not
+  three repeated View complaints buttons. Existing Button cannot express this
+  stacked statistic layout; Pressable provides the native button/focus contract.
+  Zero-count filters are disabled. MetricText uses the supplied metric token.
+- [Modal dialog](https://atlassian.design/components/modal-dialog/usage):
+  contextual creation/update/export tasks with focus containment, Escape,
+  heading, close action and return focus. The pinned Modal Dialog dependency
+  cannot satisfy the existing React peer contract, so it was not installed.
+  Intentional narrow exception: native `dialog.showModal()` supplies these
+  browser semantics around existing ADS Form/Button/Heading content. No peer
+  override, forced installation or replacement component library was added.
+- [Section message](https://atlassian.design/components/section-message/usage):
+  actionable read errors remain with their task; routine pending publication is
+  one compact summary, not eleven competing warning cards.
+- AG Grid official [installation](https://www.ag-grid.com/javascript-data-grid/installation/),
+  [theme](https://www.ag-grid.com/javascript-data-grid/theming/),
+  [grid interface](https://www.ag-grid.com/javascript-data-grid/grid-interface/)
+  and [accessibility](https://www.ag-grid.com/javascript-data-grid/accessibility/):
+  Community 36.1.0 matches the existing Mini App dependency. Current web docs
+  describe a later minor; the exact installed APIs/types were checked as well.
+
+The staff shell is bounded to 1280px, with a 384px queue and the remaining
+width for detail above 1024px. Below that, selection opens detail with Back to
+complaints. Desktop filters remain available while detail is open. ADS Tabs
+panels use flex layout: their immediate content explicitly fills available
+width, so an intrinsic-width Stack cannot leave half the page empty. Spacing
+uses ADS tokens rather than the Design Lab's unapproved candidate scale.
+Use the system typography without custom fonts or shrinking dense content.
+The action cluster wraps at enlarged text sizes. A scrollable wrapper preserves
+the unmodified ADS report tab labels at 200% text rather than truncating them;
+keyboard focus can scroll within it. Dialog launch controls stay mounted so
+Escape/Close can restore focus to the actual opener.
+
+Settings is its own route, not a card stacked over Reports. Creation and saved
+complaint actions are modal tasks. Description, activity and the single saved
+attachment list precede actions. A legacy complaint with no saved creation
+event may show its actual reported time; never invent its creator. Cameras
+appear in narrow-screen capture layouts; file selection remains available.
+This viewport rule is not a claim of physical-camera detection.
+
+Reports default to Last 30 days. Date/Group by/Count by are bounded controls;
+custom dates appear only when selected. Extra facets and help are disclosed.
+Human-readable dates are display values only; canonical requests use ISO dates.
+The three KPI comparisons use equal preceding calendar ranges, with no invented
+good/bad target. The redundant outcomes chart is removed; a single category is
+a text total. Temporal and categorical charts retain distinct chart choices,
+real time spacing, headroom, legends above and subdued non-zero labels.
+
+The table is actual AG Grid, not an HTML imitation. Its seven resizable columns
+sort the full canonical report query before paging. It uses ADS colour/font
+tokens, keyboard cell navigation and Enter/click opening. Narrow screens scroll
+inside the grid, not the workspace. A reference becomes a workspace link only
+when its complaint belongs to the currently authorized group; existing global
+report scope does not grant access to another group's detail. The native Grid
+adapter and SVG chart styling are documented application-specific exceptions.
+No Enterprise code, chart engine, remote font or new proprietary asset is used.
+
+Intentional differences from the brief: staff-authorized National IDs stay
+visible as previously requested; safe existing History URLs are retained
+instead of adding a competing hash router; no unavailable app switcher,
+fabricated reporter, placeholder account/avatar, target colour or live-data
+claim is added. Fixture data and review credentials belong only to loopback.
+These are source-bound candidates, not human approval of a shared standard,
+Phase 6 permission, real-device certification or production activation.
+
 ## Persistent local Complaints demo (P2a.1 / ADR 0071)
 
 The separate `complaints-demo.html` entry reuses that same workspace with an

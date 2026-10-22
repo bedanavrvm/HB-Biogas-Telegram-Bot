@@ -1,5 +1,15 @@
 # Component index and migration hold
 
+The 22 October `ui.txt` correction adds `browser/src/complaints-ui.tsx` (actual
+ADS Lozenge, human dates and the documented native-dialog composition) and
+`complaints-report-table.tsx` (actual AG Grid Community, token theme, full-query
+sorting and keyboard row opening). Operations tabs, master/detail, contextual
+actions, bounded preferences and compact reports reuse the native shell.
+Official references, intentional differences, source-bound review evidence and
+the paused reliability slice are recorded in browser/DESIGN.md and
+docs/runbooks/browser-channel-parity.md. This does not approve candidates,
+replace legacy baselines, migrate Telegram or enable production browser access.
+
 ADR 0073's navigation/preferences/activity slice adds
 `browser/src/complaints-operations-history.tsx` and extends the settings/report
 composition: labelled saved queue/branch defaults, safe URL state restoration,

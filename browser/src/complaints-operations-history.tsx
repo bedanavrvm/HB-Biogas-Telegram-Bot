@@ -14,7 +14,7 @@ const styles = cssMap({
   row: { borderBlockEndStyle: 'solid', borderBlockEndWidth: token('border.width'), borderBlockEndColor: token('color.border'), paddingBlock: token('space.100') },
   note: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
 });
-export function Activity({ group, caseKey, initial, next }: { group: string; caseKey: string; initial: HistoryItem[]; next: string }) {
+export function Activity({ group, caseKey, initial, next, reported }: { group: string; caseKey: string; initial: HistoryItem[]; next: string; reported: string }) {
   const [items, setItems] = useState(initial), [cursor, setCursor] = useState(next), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
   const request = useRef<AbortController>(), active = useRef(true), inFlight = useRef(false);
@@ -31,8 +31,8 @@ export function Activity({ group, caseKey, initial, next }: { group: string; cas
     finally { clearTimeout(timer); inFlight.current = false; if (active.current) setBusy(false); }
   };
   return <Stack space="space.150"><Heading as="h3" size="small">Activity</Heading>
-    {items.length === 0 && <Text size="small" color="color.text.subtle">No activity recorded.</Text>}
     {items.map(row => <Box key={row.id} xcss={styles.row}><Stack space="space.050"><Text weight="medium">{labels[row.action] || 'Complaint updated'}</Text><Text size="small" color="color.text.subtle">{[row.updated_by, row.actor_affiliation, row.created_at].filter(Boolean).join(' · ')}</Text>{row.note && <Box xcss={styles.note}><Text as="p">{row.note}</Text></Box>}</Stack></Box>)}
+    {!cursor && !expired && !items.some(row => row.action === 'created') && <Box xcss={styles.row}><Stack space="space.050"><Text weight="medium">Complaint recorded</Text><Text size="small" color="color.text.subtle">{reported}</Text></Stack></Box>}
     {error && <Box role="alert"><Text color="color.text.danger">{error}</Text></Box>}
     {(cursor || expired) && <Inline><Button isLoading={busy} onClick={() => { void older(); }}>{expired ? 'Refresh activity' : error ? 'Retry older activity' : 'Load older activity'}</Button></Inline>}
   </Stack>;

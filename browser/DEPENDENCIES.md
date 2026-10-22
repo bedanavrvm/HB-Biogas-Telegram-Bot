@@ -159,6 +159,33 @@ not evidence of outbound traffic. The local preview permits no connections and
 browser tests record/block unexpected network requests. Real staff data and
 operational analytics/provider configuration remain excluded from this phase.
 
+## Bounded Complaints UI additions (22 October 2026)
+
+The user's UI correction and explicit AG Grid requirement add exact direct pins:
+`@atlaskit/tabs@21.3.0`, `@atlaskit/icon@38.0.2`,
+`@atlaskit/lozenge@17.0.6` and `ag-grid-community@36.1.0`.
+Icon and Lozenge were already inspected transitive dependencies. The lock adds
+five entries: Tabs, its nested Compiled runtime, AG Grid Community, ag-stack and
+ag-charts-types. No existing dependency version is upgraded, and the root Mini
+App package/lock is unchanged. ag-charts-types is a type dependency, not an
+installed charts renderer. AG Grid and its dependencies declare MIT; Tabs and
+Compiled declare Apache-2.0. No new lifecycle script is accepted.
+
+`scripts/review_complaints_ui_dependencies.py` reuses the standard-library
+archive inspector, validates exact registry integrities and emits a review
+patch. Archives are inspected in a temporary directory, never executed.
+The resulting manifest binds this local build, not production distribution.
+Build notices attribute nested package roots rather than misleading nested
+export descriptors; exact inspected licence hashes remain checked.
+
+The original-peer check now checks 173 installed declarations, still exactly
+one previously documented context exception, 75 absent platform options and
+one React renderer. Modal Dialog was investigated but not installed: its
+transitive React-scrolllock peer does not support this React version. No
+force/legacy-peer installation or new exception is used. The native dialog
+composition exception is described in DESIGN.md. No fonts, logos or images
+are introduced. Human acceptance and operational release gates remain open.
+
 ## Maintenance and release boundary
 
 The repository maintainer owns this isolated workspace's pinned build and

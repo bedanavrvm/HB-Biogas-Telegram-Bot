@@ -13,11 +13,21 @@ const window = { location: { href: 'http://127.0.0.1/staff/app/complaints/report
 } };
 const sandbox = { window, URL, URLSearchParams, exports: {} };
 vm.runInNewContext(compiled, sandbox);
-const { readRoute, writeRoute, initialQueuePreferences, reportLocation } = sandbox.exports;
+const { readRoute, writeRoute, initialQueuePreferences, reportLocation, formDate } = sandbox.exports;
 const route = readRoute();
 assert.equal(route.view, 'reports'); assert.equal(route.report.view, 'follow-up');
 assert.equal(route.report.grouping, 'week'); assert.equal(route.report.from, '2024-02-29');
 assert.equal(route.report.page, 4);
+window.location.href = 'http://127.0.0.1/staff/app/complaints/settings/';
+assert.equal(readRoute().view, 'settings');
+assert.equal(reportLocation(new URL('http://localhost/?range=month')).from.slice(-2), '01');
+assert.equal(reportLocation(new URL('http://localhost/?range=year')).from.slice(-5), '01-01');
+assert.equal(reportLocation(new URL('http://localhost/?range=all')).from, '');
+assert.equal(formDate('22 Oct 2026'),'2026-10-22');
+assert.equal(formDate('22 Sept 2026'),'2026-09-22');
+assert.equal(formDate('22 Sep 2026'),'2026-09-22');
+assert.equal(formDate('2024-02-29'),'2024-02-29');
+for (const value of ['2026-02-31','31 Feb 2026','29 Feb 2026','2026-13-01','0000-01-01','12/01/2026']) assert.equal(formDate(value),'');
 writeRoute({ ...route, report: { ...route.report, branch: 'Synthetic private branch', category: 'Synthetic private category' } });
 assert.equal(writes[0][0], null); // No customer/history-state payload.
 assert.equal(writes[0][2].includes('Synthetic'), false);

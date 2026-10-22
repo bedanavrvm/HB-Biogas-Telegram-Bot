@@ -12,6 +12,10 @@ from django.conf import settings
 from django.test import override_settings
 
 from core.models import AccessGrant, BranchServiceArea, ComplaintCategory, OperationalLocation
+from core.tests_browser_complaints import synthetic_case
+from core.services.complaint_cases import ensure_case_control
+from django.utils import timezone
+from datetime import timedelta
 from . import local_complaints_review_urls as review_urls
 from . import tests_complaints_operations_transport as operations
 from .tests import PASSWORD
@@ -35,6 +39,19 @@ class ComplaintsLocalReview(operations.ComplaintsOperationsTransportTests):
         OperationalLocation.objects.create(location_type='sub_county', code='LOCAL-AREA', name='Sample Constituency', parent=county)
         BranchServiceArea.objects.create(branch=branch, area=county)
         ComplaintCategory.objects.create(key='local-review-service', label='Service issue')
+        # Varied review-only records expose density, sorting, filters and charts.
+        branches = [branch]
+        for index, label in enumerate(('Riverside', 'Hillview')):
+            branches.append(OperationalLocation.objects.create(location_type='branch', code=f'REVIEW-{index}', name=f'Sample {label}'))
+        categories = ['Service issue', 'Installation', 'Training', 'Maintenance']
+        for index in range(20, 56):
+            closed = index % 3 == 0
+            start = timezone.now() - timedelta(days=(index * 7) % 110, hours=index % 12)
+            case = synthetic_case(self.group, index, customer_name=f'Sample Applicant {index}',
+                branch_region=branches[index % 3].name, complaint_category=categories[index % 4], timestamp=start,
+                complaint_status='Closed' if closed else 'Reopened' if index % 7 == 0 else 'Open',
+                date_resolved=start + timedelta(days=2) if closed else None)
+            ensure_case_control(case)
         review_urls.review_user, review_urls.review_password = self.user, PASSWORD
         print(f'Local synthetic review ready: {self.live_server_url}/_review/', flush=True)
         # Independent process: the agent remains responsive and test runs use a

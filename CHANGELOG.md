@@ -1,5 +1,17 @@
 # Changelog
 
+## 22 October 2026 - Closed browser Complaints UI correction
+
+- Separate Complaints, Reports and Settings; use real ADS tabs, contextual
+  creation/action dialogs, readable statuses and bounded account preferences.
+- Use a compact master-detail queue, mobile Back navigation, context before
+  actions and one attachment list. Keep authorized IDs visible and phones callable.
+- Bound report controls, default to Last 30 days, simplify duplicate charts and
+  add equal-period KPI comparisons. Use the actual AG Grid Community table with
+  server-side sorting, keyboard row opening and internal mobile scrolling.
+- Expand only synthetic local review data. The reliability slice remains paused;
+  production browser access, Telegram UI and shared standard approval are unchanged.
+
 ## 22 October 2026 - Browser Complaints continuity and local review
 
 - Apply saved queue/branch preferences on entry; explicit queue links win.

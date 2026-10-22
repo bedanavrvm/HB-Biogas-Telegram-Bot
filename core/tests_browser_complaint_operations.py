@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import AccessGrant, CaseUpdate, ComplaintCaseControl, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea, UserMiniAppPreference
+from core.models import AccessGrant, CaseUpdate, ComplaintCaseControl, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea, UserMiniAppPreference, ParsedMessage
 from core import tests_browser_complaints as reads
 from staff_auth.tests import TEST_KEY
 
@@ -290,10 +290,36 @@ class BrowserComplaintOperationsTests(TestCase):
                 response = self.post('reports/', {**filters, 'selection': selection})
                 self.assertEqual(response.status_code, 200, response.content)
                 self.assertEqual(response.json()['summary'], summary)
-                self.assertEqual(response.json()['table'], complaint_report_page(filters={**filters, **selection}))
+                actual = response.json()['table']
+                for row in actual['results']:
+                    key = row.pop('key')
+                    if key:
+                        self.assertTrue(ParsedMessage.objects.filter(pk=key, group_id=self.group.group_id).exists())
+                self.assertEqual(actual, complaint_report_page(filters={**filters, **selection}))
         resolved = self.post('reports/', {**filters, 'date_basis': 'resolved'}).json()
         self.assertEqual(resolved['summary']['total'], 3)
         self.assertEqual(resolved['summary']['activity'], summary['activity'])
+
+    def test_report_sort_comparison_and_links_keep_canonical_scope(self):
+        from core.services.complaint_register import complaint_report_page, complaint_report_summary
+        self.login()
+        self.grant_role('IT')
+        filters = self.report_fixture()
+        data = self.post('reports/', {**filters, 'sort': 'customer_name'}).json()
+        canonical = complaint_report_page(filters=filters, sort='customer_name')
+        self.assertEqual([row['customer_name'] for row in data['table']['results']],
+                         [row['customer_name'] for row in canonical['results']])
+        start = timezone.datetime.fromisoformat(filters['date_from']).date()
+        end = timezone.datetime.fromisoformat(filters['date_to']).date()
+        previous = complaint_report_summary(filters={**filters,
+            'date_from': (start - (end - start + timedelta(days=1))).isoformat(),
+            'date_to': (start - timedelta(days=1)).isoformat()})
+        self.assertEqual(data['previous'], {key: previous[key] for key in ('total', 'pending', 'resolved')})
+        self.assertEqual(self.post('reports/', {'sort': 'raw_message'}).status_code, 400)
+        self.assertEqual(self.client.get(self.base + f'cases/{self.other_case.pk}/').status_code, 400)
+        ComplaintCaseControl.objects.create(parsed_message=self.other_case, reference_number='CMP-OTHER-GROUP-LINK')
+        foreign = self.post('reports/', {'branch': self.other_case.branch_region}).json()['table']['results']
+        self.assertEqual([row['key'] for row in foreign if row['complaint_id'] == 'CMP-OTHER-GROUP-LINK'], [''])
 
     def test_report_selection_validation_and_empty_timing(self):
         self.login()

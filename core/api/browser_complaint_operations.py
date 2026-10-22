@@ -359,19 +359,37 @@ def evidence(request, group, actor, evidence_key):
 
 @endpoint(['POST'], 'complaint.reports.view')
 def reports(request, group, actor):
-    from core.services.complaint_register import complaint_report_page, complaint_report_summary
+    from core.services.complaint_register import complaint_report_page, complaint_report_summary, REPORT_SORT_FIELDS
     params = payload(request)
     selection = params.get('selection', {})
-    if (set(params) - REPORT_FIELDS - {'granularity', 'page', 'selection'}
+    if (set(params) - REPORT_FIELDS - {'granularity', 'page', 'selection', 'sort'}
             or any(not isinstance(value, str) for key, value in params.items() if key not in {'page', 'selection'})
             or not isinstance(selection, dict) or set(selection) - REPORT_FIELDS
             or any(not isinstance(value, str) for value in selection.values())):
         raise cases.ComplaintCaseError('Review the report filters.')
     filters = {key: params[key] for key in REPORT_FIELDS if key in params}
+    sort = params.get('sort', '-date_reported')
+    if sort.lstrip('-') not in REPORT_SORT_FIELDS:
+        raise cases.ComplaintCaseError('Choose a supported table sort.')
     # A drill-down changes the table/export cohort, not the chart that supplied
     # it. Keep both populations behind the existing canonical filter rules.
+    table = complaint_report_page(filters={**filters, **selection}, page=params.get('page', 1), sort=sort)
+    # Links only for complaints in this request's currently authorized workspace.
+    keys = dict(ParsedMessage.objects.filter(group_id=group.group_id,
+        complaint_control__reference_number__in=[row['complaint_id'] for row in table['results']])
+        .values_list('complaint_control__reference_number', 'pk'))
+    for row in table['results']:
+        row['key'] = str(keys[row['complaint_id']]) if row['complaint_id'] in keys else ''
+    previous = None
+    from datetime import timedelta
+    from django.utils.dateparse import parse_date
+    start, end = parse_date(filters.get('date_from', '')), parse_date(filters.get('date_to', ''))
+    if start and end and start <= end:
+        span = end - start + timedelta(days=1)
+        previous = complaint_report_summary(filters={**filters, 'date_from': (start - span).isoformat(),
+            'date_to': (start - timedelta(days=1)).isoformat()}, granularity=params.get('granularity', 'month'))
     return JsonResponse({'summary': complaint_report_summary(filters=filters, granularity=params.get('granularity', 'month')),
-                         'table': complaint_report_page(filters={**filters, **selection}, page=params.get('page', 1))})
+                         'table': table, 'previous': {key: previous[key] for key in ('total', 'pending', 'resolved')} if previous else None})
 
 
 @endpoint(['POST'], 'complaint.reports.view')

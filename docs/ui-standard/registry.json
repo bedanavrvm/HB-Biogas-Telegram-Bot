@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "bf4619f1ec63158b98e7454ac167c3c3d0e1b66cf2322440d8113ab438c85e5e",
+      "sha256": "95e304ea85cc7e79ec4db2aa46d98b58b9d9a7db4a5618e6a5179cad980ecb07",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 next closed browser reporting candidate. Canonical outcome/timing views, responsive SVG with one documented interactive-mark lint exception and actual ADS selectors. Synthetic evidence only; no human baseline approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -629,9 +629,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "ff84e50d57044b3ecb7caef491399bf51abf72e7c88bd3a2371be4bae8140d29",
+      "sha256": "d3e604b3d3078d15647d15adcaa08b5d7dd2e388cfe0a971e14e836e7fda2bf7",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native activity candidate: existing ADS typography, token dividers, bounded older events with failure retry and expired-page refresh. Source-bound synthetic evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -647,15 +647,15 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "4ae0f8038ff676a5b57e3cfc463d61fe8bd533213a34b004bf2e7565b1fec352",
+      "sha256": "2355d44b1d4a8cf2f9edbd8d2e7b58ca17bec6661017a744d99e14717862ee3a",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "45ef43dbe77a4b3f0cde99881afe5f2e3525168cb76adae11d1a0875fc28239f",
+      "sha256": "cb6132e6fddc6ef2cad6cd76c2eb97cc51f38cb79e9412109dba19e7ff24848c",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "405f0d5154e6cb629209b477b38217cbaa5611d4f3cd93a282a492ca590423a2",
+      "sha256": "bc0b49ea20c5c21d03321f9a6d2282534dd17627837718a74facf1620720e3d7",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -677,9 +677,21 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "a0c877a90c8b207db745c1328bb407f847f48d2533b501f71d208b02bd936045",
+      "sha256": "6136055cc23c6f84c01f12b64430e9ee42d2b4eca0d56f9e51a483dc0221ca7e",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-report-table.tsx",
+      "sha256": "a6c170e3c971371efb9e097c128087614296f6f9741b3d078159f6bb38566802",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-ui.tsx",
+      "sha256": "b928f4cc1d33a7202a79458b18dbe0c6d63f90001e9edbcd04199d35a1f1745c",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
     }
   ],
   "source_roots": [
