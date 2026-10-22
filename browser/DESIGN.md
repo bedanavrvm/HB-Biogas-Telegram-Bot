@@ -1,5 +1,40 @@
 # Browser design references and application decisions
 
+## Queue preferences and long activity (ADR 0073)
+
+Official usage guidance consulted live on 22 October 2026:
+
+- https://atlassian.design/components/select/usage
+- https://atlassian.design/components/button/usage
+- https://atlassian.design/components/section-message/usage
+
+The installed Select/Label, Button, Heading, Box, Stack and Text contracts are
+reused, without another library or new typography. Settings expose two labelled
+single-choice defaults: queue and branch, one Save preferences primary action,
+and inline persistent failure with Retry settings. Defaults apply on entry;
+an explicit queue link wins. A selected branch remains visible even when the
+current result facets have no matching cases. Normal loading never claims there
+are no pending updates before the response is confirmed.
+
+Activity stays in the existing case-detail reading order with token dividers,
+plain action/author/time text and wrapped notes. Load older activity reveals 25
+older events per request; an expiring cursor has a working Refresh activity
+repair, distinct from retrying a temporary network failure. No timeline dots,
+new badge system, repeated timestamp rows or separate history destination.
+
+Report state lives above transient request/loading panels. Only enumerated
+view/group/date-basis/status, validated dates and bounded page numbers enter
+History URLs. Search text, branch/category names and answers remain in memory.
+Refresh/Back/Forward/reload preserve the safe report selection, not confidential
+free-text facets. Pending chart drill-down is intentionally transient.
+
+The `/_review/` host is an isolated fixture/instructions page, not a production
+screen or approved component. It uses native semantic HTML, explicitly outside
+the ADS business interface; credentials are synthetic, transient, loopback-only
+and excluded from captures/logging. Its assets are startup-pinned so subsequent
+builds do not disrupt a review in progress. Technical/visual evidence remains
+candidate evidence, never a standard approval or Telegram migration.
+
 ## Complaints reporting slice (ADR 0073)
 
 Consulted live on 22 October 2026:

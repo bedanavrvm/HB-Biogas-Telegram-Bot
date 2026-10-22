@@ -10,7 +10,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
-from core.models import AccessGrant, CaseUpdate
+from core.models import AccessGrant, CaseUpdate, OperationalLocation
 from core.services.complaint_cases import ensure_case_control
 from core.services.compliance_audit import record_event
 from core.tests_browser_complaints import synthetic_case
@@ -55,6 +55,11 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
         CaseUpdate.objects.filter(pk=event.pk).update(created_at=now - timedelta(days=1))
         self.cases[3].complaint_status = 'Reopened'
         self.cases[3].save(update_fields=['complaint_status'])
+        OperationalLocation.objects.create(location_type='branch', code='BROWSER-FIXTURE', name='Synthetic Other Branch')
+        for index in range(61):
+            CaseUpdate.objects.create(parsed_message=self.cases[1], group_id=self.group.group_id,
+                old_status='Open', new_status='Open', source='mini_app_comment', updated_by='Synthetic history author',
+                resolution_text=f'Synthetic older note {index:03d}')
 
     def test_native_authenticated_complaints_workspace(self):
         from .transport_test_urls import assets
@@ -66,13 +71,16 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
             input=json.dumps({'origin': self.live_server_url, 'username': self.user.username,
                 'password': PASSWORD,
                 'code': self.codes[0], 'group': str(self.group.pk), 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD,
+                'preferences_only': os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') == '1',
                 'month_start': timezone.localdate().replace(day=1).isoformat()}),
             cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=240)
         self.assertEqual(result.returncode, 0, result.stderr[-4000:])
         report = json.loads(result.stdout)
         self.assertTrue(report['passed'], report)
-        self.assertEqual(CaseUpdate.objects.filter(resolution_text='Synthetic browser follow-up.').count(), 1)
-        print(f"Closed operations: {report['captures']} captures, native comment/draft/export/history checks passed")
+        if os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') != '1':
+            self.assertEqual(CaseUpdate.objects.filter(resolution_text='Synthetic browser follow-up.').count(), 1)
+        checks = 'preferences checks' if os.environ.get('COMPLAINTS_BROWSER_PREFERENCES_ONLY') == '1' else 'comment/draft/export/history/preferences checks'
+        print(f"Closed operations: {report['captures']} captures, native {checks} passed")
 
 
 @override_settings(STAFF_BROWSER_TRANSPORT_BUILD='dist-complaints-operations-development')

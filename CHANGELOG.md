@@ -1,5 +1,17 @@
 # Changelog
 
+## 22 October 2026 - Browser Complaints continuity and local review
+
+- Apply saved queue/branch preferences on entry; explicit queue links win.
+  Preserve safe report view/grouping/date/page controls across soft navigation,
+  Refresh and reload without storing customer searches or answers in URLs.
+- Load older activity in bounded, case-bound pages. Reauthorize every request;
+  retain existing rows on failure and provide retry/expired-page refresh.
+  Telegram and restricted browser-v1 history defaults remain unchanged.
+- Add a foreground one-command local review host with fresh isolated test data,
+  native test sign-in and startup-pinned build assets. No production route,
+  account, schema, dependency, workflow-role or provider activation.
+
 ## 22 October 2026 - Closed browser Complaints timing/outcome reporting
 
 - Add overview/cohort, turnaround and open-case follow-up views using existing

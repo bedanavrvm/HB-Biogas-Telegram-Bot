@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+ADR 0073's navigation/preferences/activity slice adds
+`browser/src/complaints-operations-history.tsx` and extends the settings/report
+composition: labelled saved queue/branch defaults, safe URL state restoration,
+and bounded older-activity/retry/refresh over current owning-workflow access.
+It reuses ADS controls and tokens; the local review launcher is documented in
+`browser/README.md`. These are source-bound candidates, not approved baselines.
+
 ADR 0073's next reporting slice adds `browser/src/complaints-report-charts.tsx`
 and extends `complaints-operations-reports.tsx`: outcome/cohort, resolution,
 target, first-response, age and reopening views over canonical Complaint facts.

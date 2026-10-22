@@ -172,6 +172,42 @@ dependency, schema, policy matrix, Telegram, merge or deployment change applies.
 
 ## Closed Complaints integration
 
+### Latest native workspace: one-command local review
+
+From the repository root, keep this foreground PowerShell terminal open:
+
+```powershell
+.\scripts\start_complaints_local_review.ps1
+```
+
+If Node 22 is not found automatically, pass `-NodePath 'C:\path\to\node.exe'`.
+This uses the existing dependencies; it does not download/install a runtime or
+change production settings. It builds the latest operations entry, creates a
+fresh **dedicated synthetic SQLite test database**, applies the checked-in test
+schema, then prints `Local synthetic review ready`. Initial preparation takes
+longer than an ordinary server start. Open http://127.0.0.1:8769/_review/ on the
+same computer. That loopback-only page supplies the synthetic username/password
+and an unused recovery code. Follow the ordinary password/MFA sign-in, choosing
+**Use a recovery code**. Refresh the instructions for another unused code.
+No actual staff account is needed. Enter sample values/files only.
+
+The latest queue, reports, settings and activity use the real native adapter
+and owning Complaint authorization against test fixtures. Server connections
+outside loopback are blocked; email uses locmem. No actual Sheets, Drive, SMS or
+Telegram delivery occurs. This is not the older no-account simulator below.
+Changes last until restart/stop (Ctrl+C); the server also stops after 12 hours.
+Each start has its own database under `test-results/complaints-local-review/`,
+so stopping a previous test process cannot leave duplicate fixture users on
+restart or interfere with the automated tests' database. Files are ignored local
+test artifacts, not production backups; no automatic operational cleanup runs.
+Build assets are verified and pinned at startup. Further agent edits/builds
+cannot change the version currently being reviewed; restart to see new changes.
+
+If the browser reports connection refused, first check the terminal is still
+running and has printed the readiness message. A stopped/failed process is not
+an installed service. Rerun the command; do not enable production browser flags
+or use `runserver` against deployment settings as a substitute.
+
 For the persistent, no-account synthetic review demo, open
 http://127.0.0.1:8767/ on this computer. Restart it from the repository root:
 

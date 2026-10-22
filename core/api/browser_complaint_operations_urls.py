@@ -7,6 +7,7 @@ urlpatterns = [
     path('cases/', views.queue),
     path('cases/create/', views.create),
     path('cases/<uuid:case_key>/', views.detail),
+    path('cases/<uuid:case_key>/history/', views.history),
     path('cases/<uuid:case_key>/<slug:action>/', views.action),
     path('draft/', views.draft),
     path('locations/', views.locations),

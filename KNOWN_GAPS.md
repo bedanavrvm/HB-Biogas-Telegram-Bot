@@ -5,11 +5,15 @@
 ADR 0073 adds a separate native browser candidate without expanding restricted
 v1 or connecting the simulator to real services. Current scope/commands/evidence
 and remaining acceptance are in docs/runbooks/browser-channel-parity.md.
-The next slice adds canonical outcome/timing report views and exact chart-to-
-table/Excel selections. It is not full production parity: all offline/history/
-session-expiry draft paths, native preference application, real providers,
+The report slice adds canonical outcome/timing views and exact chart-to-table/
+Excel selections. The continuity slice adds saved queue defaults, safe report
+URL restoration and bounded activity pagination. It is not full production
+parity: exhaustive offline/history/session-expiry draft paths, real providers,
 PostgreSQL/multiworker operation, actual devices/privacy/design review and M1
 remain open. Production routes stay unmounted and all browser flags default off.
+The latest native synthetic review is started with
+`scripts/start_complaints_local_review.ps1` at loopback 8769; the older simulator
+on 8767 is separate. Keep its foreground terminal open and wait for readiness.
 
 ## Local Complaints demo now accessible - 20 October 2026
 

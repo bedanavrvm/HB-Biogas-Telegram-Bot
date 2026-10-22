@@ -107,9 +107,10 @@ def project(data):
 def project_detail(data, actor, group):
     result = project(data)
     result['history'] = [{key: row.get(key, '') for key in (
-        'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
+        'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
     )} for row in data['updates'][:100]]
-    result['history_truncated'] = len(data['updates']) > 100
+    result['history_truncated'] = bool(data.get('history_next_cursor')) or len(data['updates']) > 100
+    result['history_next_cursor'] = data.get('history_next_cursor', '')
     result['actions'] = [name for name, (capability, _) in ACTIONS.items()
                          if cases.actor_can(group, actor, capability)]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
@@ -122,7 +123,9 @@ def project_detail(data, actor, group):
 
 @endpoint(['GET'])
 def bootstrap(request, group, actor):
-    return JsonResponse(cases.bootstrap_data(group, actor))
+    from core.services.miniapp_settings import preference_payload
+    return JsonResponse({**cases.bootstrap_data(group, actor),
+                         'preferences': preference_payload(actor.user, 'complaint_cases')})
 
 
 @endpoint(['POST'])
@@ -144,8 +147,19 @@ def queue(request, group, actor):
 
 @endpoint(['GET'])
 def detail(request, group, actor, case_key):
-    data = cases.case_detail(group, source_case(group, case_key), actor)
+    data = cases.case_detail(group, source_case(group, case_key), actor, paged_history=True)
     return JsonResponse({'case': project_detail(data, actor, group)})
+
+
+@endpoint(['POST'])
+def history(request, group, actor, case_key):
+    body = payload(request)
+    if set(body) - {'cursor'}:
+        raise cases.ComplaintCaseError('Reload the complaint activity and try again.')
+    data = cases.case_history_page(group, source_case(group, case_key), actor, cursor=body.get('cursor', ''))
+    return JsonResponse({'items': [{key: row.get(key, '') for key in (
+        'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
+    )} for row in data['items']], 'next_cursor': data['next_cursor']})
 
 
 @endpoint(['POST'], 'complaint.case.create')
@@ -257,7 +271,15 @@ def preferences(request, group, actor):
     from core.services.miniapp_settings import preference_payload, update_preference
     try:
         if request.method == 'POST':
-            update_preference(actor.user, 'complaint_cases', payload(request).get('preferences', {}))
+            values = payload(request).get('preferences', {})
+            if not isinstance(values, dict):
+                raise ValueError
+            filters = values.get('default_filters', {})
+            if (not isinstance(filters, dict) or set(filters) - {'status', 'branch'}
+                    or filters.get('status', '') not in {'', 'pending', 'resolved', 'all'}
+                    or not isinstance(filters.get('branch', ''), str) or len(filters.get('branch', '')) > 150):
+                raise ValueError
+            update_preference(actor.user, 'complaint_cases', values)
         return JsonResponse(preference_payload(actor.user, 'complaint_cases'))
     except (ValidationError, ValueError, TypeError, AttributeError):
         raise cases.ComplaintCaseError('Review your preferences.') from None

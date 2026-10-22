@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import AccessGrant, CaseUpdate, ComplaintCaseControl, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea
+from core.models import AccessGrant, CaseUpdate, ComplaintCaseControl, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea, UserMiniAppPreference
 from core import tests_browser_complaints as reads
 from staff_auth.tests import TEST_KEY
 
@@ -153,6 +153,87 @@ class BrowserComplaintOperationsTests(TestCase):
             result = self.post('reports/export/', {'scope': 'filtered', 'filters': {}, 'client_request_id': 'synthetic-export-001'})
         self.assertEqual(result.status_code, 200, result.content)
         self.assertIn('filename=', result['Content-Disposition'])
+
+    def test_saved_preferences_are_in_bootstrap_and_workflow_isolated(self):
+        self.login()
+        before = UserMiniAppPreference.objects.count()
+        bootstrap = self.client.get(self.base + 'bootstrap/').json()
+        self.assertEqual(bootstrap['preferences']['default_filters'], {})
+        self.assertEqual(UserMiniAppPreference.objects.count(), before)
+        response = self.post('preferences/', {'preferences': {'default_filters': {'status': 'resolved', 'branch': 'Synthetic Other Branch'}}})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.client.get(self.base + 'bootstrap/').json()['preferences']['default_filters'],
+                         {'status': 'resolved', 'branch': 'Synthetic Other Branch'})
+        self.assertFalse(UserMiniAppPreference.objects.exclude(workflow='complaint_cases').exists())
+        for filters in ({'status': 'payments'}, {'branch': ['invalid']}, {'status': {'x': 'all'}}, {'search': 'not permitted'}):
+            self.assertEqual(self.post('preferences/', {'preferences': {'default_filters': filters}}).status_code, 400)
+
+    def test_keyset_history_does_not_duplicate_when_new_activity_arrives(self):
+        self.login()
+        case = self.cases[0]
+        for index in range(61):
+            CaseUpdate.objects.create(parsed_message=case, group_id=case.group_id, old_status='Open',
+                new_status='Open', source='mini_app_comment', updated_by='Synthetic history author',
+                resolution_text=f'Synthetic older note {index:03d}')
+        first = self.post(f'cases/{case.pk}/history/', {}).json()
+        self.assertEqual(len(first['items']), 25)
+        self.assertTrue(first['next_cursor'])
+        fresh = CaseUpdate.objects.create(parsed_message=case, group_id=case.group_id, old_status='Open',
+            new_status='Open', source='mini_app_comment', updated_by='Synthetic newer author', resolution_text='Synthetic new note')
+        rows = list(first['items'])
+        cursor = first['next_cursor']
+        while cursor:
+            result = self.post(f'cases/{case.pk}/history/', {'cursor': cursor})
+            self.assertEqual(result.status_code, 200, result.content)
+            data = result.json()
+            rows.extend(data['items'])
+            cursor = data['next_cursor']
+        self.assertEqual(len(rows), 62)  # Original fixture comment and the 61 older notes.
+        self.assertEqual(len({row['id'] for row in rows}), 62)
+        self.assertNotIn(str(fresh.pk), {row['id'] for row in rows})
+        self.assertNotIn('EXCLUDED_RAW_UPDATE', json.dumps(rows))
+        native = self.client.get(self.base + f'cases/{case.pk}/').json()['case']
+        self.assertEqual(len(native['history']), 25)
+        self.assertTrue(native['history_truncated'])
+        self.assertTrue(native['history_next_cursor'])
+
+    def test_history_cursor_is_case_bound_tamper_evident_and_reauthorizes(self):
+        self.login()
+        case = self.cases[0]
+        for _ in range(26):
+            CaseUpdate.objects.create(parsed_message=case, group_id=case.group_id,
+                                      old_status='Open', new_status='Open', source='mini_app_comment')
+        cursor = self.post(f'cases/{case.pk}/history/', {}).json()['next_cursor']
+        for value in (cursor + 'x', 13, ['invalid']):
+            self.assertEqual(self.post(f'cases/{case.pk}/history/', {'cursor': value}).status_code, 400)
+        self.assertEqual(self.post(f'cases/{self.cases[1].pk}/history/', {'cursor': cursor}).status_code, 400)
+        self.grant.delete()
+        self.assertEqual(self.post(f'cases/{case.pk}/history/', {'cursor': cursor}).status_code, 403)
+
+    def test_expired_history_can_be_refreshed_and_legacy_note_appears_only_once(self):
+        self.login()
+        case = self.cases[1]
+        case.resolution_details = 'Synthetic historical resolution'
+        case.save(update_fields=['resolution_details'])
+        for _ in range(51):
+            CaseUpdate.objects.create(parsed_message=case, group_id=case.group_id,
+                                      old_status='Open', new_status='Open', source='mini_app_comment')
+        # Equal timestamps still use a stable unique tie-breaker.
+        CaseUpdate.objects.filter(parsed_message=case).update(created_at=timezone.now())
+        first = self.post(f'cases/{case.pk}/history/', {}).json()
+        self.assertNotIn('Synthetic historical resolution', [row['note'] for row in first['items']])
+        with patch('django.core.signing.TimestampSigner.timestamp', return_value='1'):
+            expired = self.post(f'cases/{case.pk}/history/', {}).json()['next_cursor']
+        response = self.post(f'cases/{case.pk}/history/', {'cursor': expired})
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['field_errors']['history_cursor'], 'invalid')
+        data = self.post(f'cases/{case.pk}/history/', {}).json()
+        rows = list(data['items'])
+        while data['next_cursor']:
+            data = self.post(f'cases/{case.pk}/history/', {'cursor': data['next_cursor']}).json()
+            rows.extend(data['items'])
+        self.assertEqual(len({row['id'] for row in rows}), 52)
+        self.assertEqual(sum(row['note'] == 'Synthetic historical resolution' for row in rows), 1)
 
     def test_email_is_delegated_only_after_current_owning_authorization(self):
         from django.http import JsonResponse

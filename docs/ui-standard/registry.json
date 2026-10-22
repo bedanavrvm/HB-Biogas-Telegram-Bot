@@ -628,6 +628,12 @@
       "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
     },
     {
+      "path": "browser/src/complaints-operations-history.tsx",
+      "sha256": "ff84e50d57044b3ecb7caef491399bf51abf72e7c88bd3a2371be4bae8140d29",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 closed native activity candidate: existing ADS typography, token dividers, bounded older events with failure retry and expired-page refresh. Source-bound synthetic evidence only; not human approval, production activation or Telegram migration."
+    },
+    {
       "path": "browser/src/complaints-operations-index.tsx",
       "sha256": "a81594f698ebe703f32aee2b529f46bc8cdeec5389a54f7abfef58578bc0bfdb",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
@@ -641,25 +647,25 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "5a4c3d78b5a3f033bf7bc6e045802014d4524c19c07c35c8bb4c4b4a02977def",
+      "sha256": "4ae0f8038ff676a5b57e3cfc463d61fe8bd533213a34b004bf2e7565b1fec352",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "4de84c5a8a78c5c2c6adfda8e2a3eec710679d50cb0c0c722fee702e4cd991db",
+      "sha256": "45ef43dbe77a4b3f0cde99881afe5f2e3525168cb76adae11d1a0875fc28239f",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "fe3f872964cd5fa09ebec3da084df7b8362562764f53ded38d7cf9a37f22d589",
+      "sha256": "655078939848f2d165de80bdc9e2c7e2cc70cbdfcf9364ce0d184e31147f9687",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "3af8ff4f9a00c0d2e8cba7fa1877e8c158902dc8522aed9985301ddbc6d7dd4f",
+      "sha256": "405f0d5154e6cb629209b477b38217cbaa5611d4f3cd93a282a492ca590423a2",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     },
@@ -671,7 +677,7 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "48534bf86253bc061e93cf19795698cd0c70e904bbc7752db8a8bdbe1c05bbb7",
+      "sha256": "a0c877a90c8b207db745c1328bb407f847f48d2533b501f71d208b02bd936045",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     }

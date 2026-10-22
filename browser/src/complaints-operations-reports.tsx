@@ -14,6 +14,7 @@ import Textfield from '@atlaskit/textfield';
 import { token } from '@atlaskit/tokens';
 import { operation, OperationError, download } from './complaints-operations-transport';
 import { ReportCharts, ReportSummary, ReportSelection } from './complaints-report-charts';
+import { type ReportLocation } from './workspace-navigation';
 
 const styles = cssMap({
   columns: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' },
@@ -34,12 +35,16 @@ function DateInput({ id, label, value, change, type = 'date' }: { id: string; la
   return <Box><Label htmlFor={id}>{label}</Label><Textfield id={id} type={type} value={value} onChange={event => change(event.currentTarget.value)} /></Box>;
 }
 function endOfMonth(year: number, month: number) { return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10); }
-export function Reports({ group, refresh }: { group: string; refresh: number }) {
-  const [view, setView] = useState('overview'), [selection, setSelection] = useState<(ReportSelection & { source: string })>(), [options, setOptions] = useState<ReportSummary['filter_options']>();
+export function Reports({ group, refresh, location, change }: { group: string; refresh: number; location: ReportLocation; change: (location: ReportLocation) => void }) {
+  const { view, grouping: granularity, status, from: dateFrom, to: dateTo, category, branch, basis, page } = location;
+  const latest = useRef(location); latest.current = location;
+  const update = <K extends keyof ReportLocation>(key: K, value: ReportLocation[K]) => { const next = { ...latest.current, [key]: value }; latest.current = next; change(next); };
+  const setView = (value: string) => update('view', value), setGranularity = (value: string) => update('grouping', value), setStatus = (value: string) => update('status', value), setDateFrom = (value: string) => update('from', value), setDateTo = (value: string) => update('to', value), setCategory = (value: string) => update('category', value), setBranch = (value: string) => update('branch', value), setBasis = (value: string) => update('basis', value), setPage = (value: number) => update('page', value);
+  const [selection, setSelection] = useState<(ReportSelection & { source: string })>(), [options, setOptions] = useState<ReportSummary['filter_options']>();
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
   const resultSource = useRef('');
-  const [granularity, setGranularity] = useState('month'), [status, setStatus] = useState(''), [dateFrom, setDateFrom] = useState(''), [dateTo, setDateTo] = useState(''), [category, setCategory] = useState(''), [branch, setBranch] = useState(''), [basis, setBasis] = useState('reported'), [page, setPage] = useState(1), [scope, setScope] = useState(''), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [result, setResult] = useState<Result>(), [emailOpen, setEmailOpen] = useState(false), [address, setAddress] = useState(''), [delivery, setDelivery] = useState(''), [message, setMessage] = useState(''), [settingsOpen, setSettingsOpen] = useState(false);
+  const [scope, setScope] = useState(''), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [result, setResult] = useState<Result>(), [emailOpen, setEmailOpen] = useState(false), [address, setAddress] = useState(''), [delivery, setDelivery] = useState(''), [message, setMessage] = useState(''), [settingsOpen, setSettingsOpen] = useState(false);
   const table = useRef<HTMLDivElement>(null), focusTable = useRef(false), emailKey = useRef({ address: '', filters: '', key: '' });
   const baseFilters = { status, category, branch, date_from: dateFrom, date_to: dateTo, date_basis: basis };
   const source = JSON.stringify([group, baseFilters, granularity, view]);

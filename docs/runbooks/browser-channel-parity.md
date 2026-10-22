@@ -183,13 +183,10 @@ Based on `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.
   privacy/named readers, real providers/devices/accessibility/design acceptance,
   production origin/static/CSP and deployment. No merge/deployment performed.
 
-Remaining Complaints parity work includes long history, schedule send/status
-variants, stored preference application and exhaustive offline/session-expiry/
-history navigation protection for unsaved forms. No full parity claim yet.
-Full workspace Refresh/reload currently returns to the default report view;
-in-report Retry retains its report, grouping, filter and selection state. Saved
-report-view/filter restoration belongs to the remaining navigation/preferences
-acceptance, not a claim made by this slice.
+The subsequent continuity slice below handles long history, stored queue
+preferences and safe report URL restoration. Schedule send/status variants and
+exhaustive offline/session-expiry/history protection for unsaved forms remain
+open. No full parity claim is made.
 
 Main source pointers: `browser/src/complaints-report-charts.tsx` owns presentation
 over canonical summary values; `complaints-operations-reports.tsx` owns filters,
@@ -224,3 +221,84 @@ and built assets. The UI registry records candidate hashes, not approved baselin
 - The full repository suite, remote CI, PostgreSQL, real staff/devices/provider
   delivery and production deployment were not run. The previously documented
   Telegram permission-test failure is outside this reporting-only slice.
+
+## Next slice: continuity and review availability (22 October 2026)
+
+Saved Complaint queue status and branch preferences now arrive with bootstrap
+and apply before the first queue query. An explicit queue-status link overrides
+the saved default. Reads create no preference row; explicit saves reuse the
+existing audited, workflow-specific preference service. Invalid status/types
+and unsupported filter keys are rejected. A selected branch remains visible if
+the current facets contain no matching cases. Settings loading/failure has a
+bounded timeout and working retry rather than a false empty publication state.
+
+Report view, grouping, date basis, status, real calendar dates and bounded page
+numbers have allowlisted History URL state. Workspace Refresh no longer
+unmounts the report during bootstrap loading. Soft navigation/Back/Forward and
+reload restore these safe controls. Branch/category text and searches remain
+in memory, never URL/history-state or persistent browser storage; they reset on
+full reload or History reconstruction. A chart drill-down remains transient.
+No document reload occurs for ordinary navigation/filter actions.
+
+Native detail now loads 25 history events, followed by explicit older pages.
+Signed one-hour keyset cursors bind the exact case and timestamp/UUID, never
+grant authority, and recheck native/owning-group access on every POST. New
+comments cannot shift already traversed older pages. Notes/affiliations still
+use canonical history projection, not live role inference. Legacy resolution
+notes appear once on the final page. Telegram and restricted-v1 defaults are
+unchanged. Network failure retains loaded rows; invalid/expired cursors have
+Refresh activity, which restarts at the newest page. Nothing is silently
+written to Sheet or changes the case revision during browsing.
+
+### Foreground local review
+
+Run `scripts/start_complaints_local_review.ps1` from the repository root and
+wait for the readiness message, then open http://127.0.0.1:8769/_review/.
+The helper selects existing Node 22, builds the current native entry and runs
+the exact opt-in isolated Django test host. It never mounts a production route
+or alters production accounts. Native password/MFA sign-in uses only the
+synthetic values shown on that loopback-only, no-store instruction page.
+
+Each start gets a dedicated fresh SQLite test database, separate from automated
+transport tests. This fixes duplicate synthetic users after an interrupted
+previous run. Verified assets are pinned in memory so agent rebuilds do not
+change the current review. Restart to see new changes; Ctrl+C stops it, with a
+12-hour upper lifetime. The older no-account 8767 simulator is unchanged.
+Full commands, behavior and connection-refused recovery: browser/README.md.
+
+### Change-specific phase handoff checklist
+
+- [x] Scope/canonical boundary: native Complaints continuity and isolated local
+  review only. No new model, schema, dependency, money rule, policy or grant.
+- [x] Channel isolation: native operations adapter is still separate from
+  restricted-v1, simulator and Telegram. No operational URL/settings change.
+- [x] Privacy/access: current native/Complaint authority on every history page;
+  case-bound tamper/expiry checks; allowlisted safe URLs and no persistent
+  customer values. No raw message or private storage identifier exposed.
+- [x] Review availability: dedicated fixture DB and native sign-in smoke checked
+  on a separate loopback port, without interrupting a user's review process.
+  Startup instructions are private/no-store; fixture proof is not logged or
+  captured. No real external-service request is authorized.
+- [x] UI references: current official ADS Select/Button/SectionMessage usage,
+  installed controls and token composition documented in browser/DESIGN.md.
+  Candidate source hashes only; no approved baseline or Phase 6 migration.
+- [x] Verification: 77 focused native/backend/auth/audit/timing/history tests
+  passed, including both actual React build modes. Each mode captured 93 scenes
+  (186 total) at the existing light/dark viewport matrix, with settings and
+  history retry/expiry/61-event checks. Representative captures were visually
+  inspected, including settled theme transitions. Both browser modes were
+  rerun successfully after improving screenshot synchronization. No skip was
+  counted as a pass. The earlier ambiguous Select test was corrected to choose
+  the exact label, not by relaxing application behavior.
+- [x] Static/tooling: both builds, TypeScript, full source ESLint, changed-Python
+  Ruff/compilation, navigation allowlist tests, architecture/UI ratchets,
+  PowerShell parser and diff checks pass. 22 tooling tests pass with the existing
+  documented long-path TEMP/TMP workaround. Review-host HTTP/no-store and real
+  native password/MFA were separately smoke-tested against synthetic data.
+- [ ] Operational acceptance: M1/shared cache, PostgreSQL/multiworker, privacy/
+  named readers, real providers/devices/assistive and human design acceptance,
+  production origin/static/CSP and deployment remain gated.
+
+Rollback: keep browser disabled or restore the prior browser artifact/adapter.
+Preference rows already use the existing schema; no data/schema rollback is
+needed. Do not modify historical audit records or Telegram role grants.

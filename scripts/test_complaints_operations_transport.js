@@ -27,6 +27,8 @@ async function main() {
   async function capture(name, keepScroll = false) {
     if (!keepScroll) await page.getByRole('main').evaluate(element => element.scrollTo(0, 0));
     await page.evaluate(() => new Promise(requestAnimationFrame));
+    // Capture the settled control colours, not the middle of a theme transition.
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(animation => animation instanceof CSSTransition).map(animation => animation.finished.catch(() => {}))); });
     const metrics = await page.evaluate(() => {
       const main = document.querySelector('[role="main"]');
       return { width: innerWidth, page: document.documentElement.scrollWidth,
@@ -38,7 +40,34 @@ async function main() {
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }); captures++;
   }
   async function select(label, option) {
-    const box = page.getByLabel(label, { exact: true }); await box.fill(option); await box.press('Enter');
+    const box = page.getByLabel(label, { exact: true }); await box.fill(option);
+    const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    await page.getByRole('option', { name: new RegExp('^' + escaped + '(?:$| - )') }).click();
+  }
+  async function preferenceChecks() {
+    await page.setViewportSize({ width: 1366, height: 900 }); await page.emulateMedia({ colorScheme: 'light' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await select('Default queue', 'Resolved'); await select('Default branch', 'Synthetic Other Branch');
+    const saving = page.waitForResponse(response => response.url().endsWith('/preferences/') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+    assert.deepEqual((await (await saving).json()).default_filters, { status: 'resolved', branch: 'Synthetic Other Branch' });
+    await page.getByText('Preferences saved.', { exact: true }).waitFor(); await capture('settings-desktop');
+    await page.emulateMedia({ colorScheme: 'dark' }); await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => document.documentElement.dataset.colorMode === 'dark');
+    await capture('settings-dark-mobile');
+    const restored = page.waitForResponse(response => response.url().endsWith('/cases/') && response.request().method() === 'POST');
+    await page.goto(origin.origin + '/staff/app/complaints/');
+    const response = await restored;
+    assert.equal(response.request().postDataJSON().status, 'resolved', 'Restored request must use the saved status');
+    assert.equal((await response.json()).pagination.total, 4, 'Saved branch must include the synthetic cases');
+    await heading('4 cases');
+    await page.getByText('Synthetic Other Branch', { exact: true }).waitFor();
+    await page.goto(origin.origin + '/staff/app/complaints/?status=pending'); await heading('7 cases');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await select('Default queue', 'Not resolved'); await select('Default branch', 'All branches');
+    await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+    await page.getByText('Preferences saved.', { exact: true }).waitFor();
+    await page.goto(origin.origin + '/staff/app/complaints/'); await heading('7 cases');
   }
   try {
     await page.goto(origin.origin + '/staff/app/complaints/');
@@ -50,7 +79,25 @@ async function main() {
     await page.getByLabel(/^Recovery code/).fill(input.code);
     await page.getByRole('button', { name: 'Verify', exact: true }).click();
     await heading('7 cases');
+    if (input.preferences_only) { await preferenceChecks(); process.stdout.write(JSON.stringify({ passed: true, captures })); return; }
     const documentsBefore = requests.filter(row => row.resource === 'document').length;
+    await page.getByRole('button', { name: 'Synthetic Customer 01', exact: true }).click();
+    await heading('Synthetic Customer 01');
+    assert.equal(await page.getByText('Synthetic older note 000', { exact: true }).count(), 0);
+    await page.route('**/cases/*/history/', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Older activity could not be loaded. Try again.' }) }), { times: 1 });
+    await page.getByRole('button', { name: 'Load older activity', exact: true }).click();
+    await page.getByRole('button', { name: 'Retry older activity', exact: true }).waitFor();
+    await capture('history-retry');
+    await page.route('**/cases/*/history/', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Refresh the complaint activity and try again.', field_errors: { history_cursor: 'invalid' } }) }), { times: 1 });
+    await page.getByRole('button', { name: 'Retry older activity', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh activity', exact: true }).click();
+    await page.getByRole('button', { name: 'Load older activity', exact: true }).click();
+    await page.getByText('Synthetic older note 011', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Load older activity', exact: true }).click();
+    await page.getByText('Synthetic older note 000', { exact: true }).waitFor();
+    assert.equal(await page.getByText(/^Synthetic older note \d{3}$/).count(), 61);
+    assert.equal(await page.getByRole('button', { name: 'Load older activity', exact: true }).count(), 0);
+    await capture('history-all-loaded');
     await page.getByRole('button', { name: 'Synthetic Customer 00', exact: true }).click();
     await heading('Synthetic Customer 00');
     assert.match(page.url(), /staff\/app\/complaints\/cases\/[a-f\d-]+\//);
@@ -133,6 +180,7 @@ async function main() {
     const partialResponse = page.waitForResponse(response => response.url().endsWith('/reports/') && response.request().postDataJSON()?.selection?.metric === 'received');
     await page.locator('svg[aria-label^="Reported vs resolved."]').getByRole('button').first().press('Enter');
     const selectedPeriod = (await partialResponse).request().postDataJSON().selection;
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filtered report complaints');
     assert.equal(selectedPeriod.date_from, input.month_start);
     const firstWeekEnd = new Date(input.month_start + 'T00:00:00Z');
     firstWeekEnd.setUTCDate(firstWeekEnd.getUTCDate() + 6 - (firstWeekEnd.getUTCDay() + 6) % 7);
@@ -140,7 +188,7 @@ async function main() {
     const activity = page.getByRole('region', { name: 'Reported vs resolved chart', exact: true });
     await activity.getByLabel('Chart type', { exact: true }).fill('Line');
     await activity.getByLabel('Chart type', { exact: true }).press('Enter');
-    assert.equal(await activity.locator('polyline').count(), 2);
+    await page.waitForFunction(() => document.querySelectorAll('[aria-label="Reported vs resolved chart"] polyline').length === 2);
     await capture('reports-partial-week-line');
     await select('Period', 'All dates');
     await select('Report', 'Open-case follow-up'); await heading('Open-case age');
@@ -168,8 +216,14 @@ async function main() {
     await page.getByText('Month', { exact: true }).waitFor();
     assert.equal(requests.filter(row => row.resource === 'document').length, documentsBefore);
     await page.goBack(); await heading('7 cases');
-    await page.goForward(); await page.getByText('Reported vs resolved', { exact: true }).waitFor();
-    await page.reload(); await page.getByText('Reported vs resolved', { exact: true }).waitFor();
+    await page.goForward(); await heading('Open-case age');
+    assert.equal(new URL(page.url()).searchParams.get('report'), 'follow-up');
+    assert.equal(new URL(page.url()).searchParams.get('group_by'), 'month');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await heading('Open-case age');
+    await page.getByText('Month', { exact: true }).waitFor();
+    await page.reload(); await heading('Open-case age');
+    await page.getByText('Month', { exact: true }).waitFor();
+    await preferenceChecks();
     assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })), { local: 0, session: 0 });
     assert.deepEqual(errors, []);
     fs.writeFileSync(path.join(output, 'layout.json'), JSON.stringify(layouts, null, 2));

@@ -465,25 +465,73 @@ def list_cases(group_config, actor: ComplaintCaseActor | None = None, **filters)
     return list_cases_page(group_config, actor, **filters)['items']
 
 
-def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = None) -> dict[str, Any]:
-    case = _case_for_group(group_config.group_id, case_id, actor=actor)
+def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = None, *, paged_history=False) -> dict[str, Any]:
+    case = _case_for_group(group_config.group_id, case_id, actor=actor, prefetch_updates=not paged_history)
     payload = serialize_case(case)
     payload['sheet_projection_enabled'] = complaint_sheet_projection_enabled(group_config)
     if not payload['sheet_projection_enabled'] and payload['sync_status'] in {'pending', 'failed'}:
         payload['sync_status'] = 'suspended'
     payload['raw_message'] = case.raw_message
     payload['resolution_details'] = case.resolution_details
-    payload['resolution_comments'] = [serialize_update(update) for update in
-                                      case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
-    updates = list(case.case_updates.order_by('-created_at', '-pk'))
-    payload['updates'] = complaint_history(case, updates)
-    resolution = next((item for item in updates if item.new_status == 'Closed'), None)
-    reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source != 'mini_app_comment'), None)
+    if paged_history:
+        page = case_history_page(group_config, case_id, actor)
+        payload['resolution_comments'] = []
+        payload['updates'] = page['items']
+        payload['history_next_cursor'] = page['next_cursor']
+        resolution = case.case_updates.filter(new_status='Closed').order_by('-created_at', '-pk').first()
+        reopen = case.case_updates.filter(new_status='Reopened').exclude(source='mini_app_comment').order_by('-created_at', '-pk').first()
+    else:
+        payload['resolution_comments'] = [serialize_update(update) for update in
+                                          case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
+        updates = list(case.case_updates.order_by('-created_at', '-pk'))
+        payload['updates'] = complaint_history(case, updates)
+        resolution = next((item for item in updates if item.new_status == 'Closed'), None)
+        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source != 'mini_app_comment'), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
     payload['location'] = location_for_case(case)
     return payload
+
+
+def case_history_page(group_config, case_id: str, actor: ComplaintCaseActor, *, cursor=''):
+    """Authorized keyset history, with a bounded page and case-bound cursor.
+
+    New comments cannot shift older pages. Every page rechecks the current
+    owning workflow/group; a cursor itself never grants access.
+    """
+    from uuid import UUID
+    from django.core import signing
+    from django.utils.dateparse import parse_datetime
+
+    # Do not prefetch the entire history/evidence as ordinary detail does.
+    case = _case_queryset(group_config.group_id, actor=actor).filter(message_id=str(case_id)).first()
+    if case is None:
+        raise ComplaintCaseError('Complaint case was not found in this group.')
+    if not isinstance(cursor, str) or len(cursor) > 1500:
+        raise ComplaintCaseError('Refresh the complaint activity and try again.', field_errors={'history_cursor': 'invalid'})
+    updates = case.case_updates.order_by('-created_at', '-pk')
+    if cursor:
+        try:
+            value = signing.loads(cursor, salt='complaint-history-page-v1', max_age=3600)
+            if value['case'] != str(case.pk):
+                raise ValueError
+            stamp = parse_datetime(value['at'])
+            key = UUID(value['key'])
+            if stamp is None or timezone.is_naive(stamp):
+                raise ValueError
+        except (signing.BadSignature, ValueError, TypeError, KeyError, AttributeError):
+            raise ComplaintCaseError('Refresh the complaint activity and try again.', field_errors={'history_cursor': 'invalid'}) from None
+        updates = updates.filter(Q(created_at__lt=stamp) | Q(created_at=stamp, pk__lt=key))
+    page = list(updates[:26])
+    more = len(page) > 25
+    page = page[:25]
+    legacy = not more and bool(case.resolution_details) and not case.case_updates.filter(
+        new_status='Closed').exclude(source='mini_app_comment').exists()
+    rows = complaint_history(case, page, include_legacy_resolution=legacy)
+    next_cursor = signing.dumps({'case': str(case.pk), 'at': page[-1].created_at.isoformat(),
+                                 'key': str(page[-1].pk)}, salt='complaint-history-page-v1') if more else ''
+    return {'items': rows, 'next_cursor': next_cursor}
 
 
 def update_case(
@@ -2040,7 +2088,7 @@ def complaint_display_changes(changes, locations, categories):
     return result
 
 
-def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]:
+def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resolution=True) -> list[dict[str, Any]]:
     """One read-only history with immutable affiliation and legacy evidence."""
     from core.models import ComplianceAuditEvent
 
@@ -2080,7 +2128,7 @@ def complaint_history(case: ParsedMessage, updates=None) -> list[dict[str, Any]]
             affiliation = ''
         row['actor_affiliation'] = affiliation if affiliation in {'HB', 'JBL'} else ''
         rows.append(row)
-    if case.resolution_details and not any(update.new_status == 'Closed' and update.source != 'mini_app_comment' for update in updates):
+    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source != 'mini_app_comment' for update in updates):
         # Some imported complaints predate CaseUpdate; do not lose their note.
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',
@@ -2156,8 +2204,9 @@ def _case_queryset(group_id: str, actor: ComplaintCaseActor | None = None):
     return cases
 
 
-def _case_for_group(group_id: str, case_id: str, actor: ComplaintCaseActor | None = None) -> ParsedMessage:
-    case = _case_queryset(group_id, actor=actor).prefetch_related('case_updates', 'complaint_evidence').filter(message_id=str(case_id)).first()
+def _case_for_group(group_id: str, case_id: str, actor: ComplaintCaseActor | None = None, *, prefetch_updates=True) -> ParsedMessage:
+    related = ('case_updates', 'complaint_evidence') if prefetch_updates else ('complaint_evidence',)
+    case = _case_queryset(group_id, actor=actor).prefetch_related(*related).filter(message_id=str(case_id)).first()
     if not case:
         raise ComplaintCaseError('Complaint case was not found in this group.')
     return case
