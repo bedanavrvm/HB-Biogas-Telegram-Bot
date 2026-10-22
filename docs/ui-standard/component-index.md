@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+ADR 0073's next reporting slice adds `browser/src/complaints-report-charts.tsx`
+and extends `complaints-operations-reports.tsx`: outcome/cohort, resolution,
+target, first-response, age and reopening views over canonical Complaint facts.
+ADS selectors, adaptive charts and selection-to-table/Excel behavior are new
+source-bound candidates. Current evidence, exception and handoff are in
+`browser/DESIGN.md` and `docs/runbooks/browser-channel-parity.md`.
+
 ADR 0073 adds the source-bound native operations candidate in
 `browser/src/complaints-operations*` and `workspace-navigation.ts`: actual ADS
 shell/forms/selection/feedback, fluid queue/detail, private media and reporting.

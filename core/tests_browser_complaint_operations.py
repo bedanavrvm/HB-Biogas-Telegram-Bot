@@ -1,10 +1,12 @@
 """Real native-session operations; synthetic database, all external IO denied."""
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from core.models import AccessGrant, CaseUpdate, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea
+from core.models import AccessGrant, CaseUpdate, ComplaintCaseControl, ComplaintCaseEvent, ComplianceAuditEvent, OperationalLocation, BranchServiceArea
 from core import tests_browser_complaints as reads
 from staff_auth.tests import TEST_KEY
 
@@ -161,6 +163,85 @@ class BrowserComplaintOperationsTests(TestCase):
             self.grant_role('IT')
             self.assertEqual(self.post('reports/email/', {'email': 'synthetic@example.invalid'}).status_code, 200)
             self.assertEqual(dispatch.call_args.args[:2], (self.user, 'complaint_cases'))
+
+    def report_fixture(self):
+        """Different report/resolution cohorts; never touch an operational DB."""
+        now = timezone.now()
+        self.enterContext(patch('django.utils.timezone.now', return_value=now))
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        pairs = [(start - timedelta(days=6), start, 24),
+                 (start - timedelta(days=5), start + timedelta(hours=1), 24),
+                 (start, start + timedelta(hours=2), 24)]
+        for index, (case, (reported, resolved, target)) in enumerate(zip(self.cases, pairs)):
+            case.timestamp, case.date_resolved, case.complaint_status = reported, resolved, 'Closed'
+            case.save(update_fields=['timestamp', 'date_resolved', 'complaint_status'])
+            ComplaintCaseControl.objects.create(parsed_message=case,
+                reference_number=f'CMP-BROWSER-TIMING-{index}', sla_started_at=reported, sla_target_hours=target)
+        for index, case in enumerate(self.cases[3:], start=3):
+            case.timestamp = start + timedelta(hours=3)
+            case.save(update_fields=['timestamp'])
+            ComplaintCaseControl.objects.create(parsed_message=case,
+                reference_number=f'CMP-BROWSER-TIMING-{index}', sla_started_at=case.timestamp)
+        return {'date_from': start.date().isoformat(), 'date_to': now.date().isoformat(),
+                'date_basis': 'reported', 'branch': self.cases[0].branch_region}
+
+    def test_report_cohorts_and_all_timing_drills_use_canonical_facts(self):
+        from core.services.complaint_register import complaint_report_page, complaint_report_summary
+        from core.services.complaint_timing import AGE_BUCKETS
+        self.login()
+        self.grant_role('IT')
+        filters = self.report_fixture()
+        summary = self.post('reports/', {**filters, 'granularity': 'month'}).json()['summary']
+        self.assertEqual(summary, complaint_report_summary(filters=filters, granularity='month'))
+        self.assertEqual(sum(row['received'] for row in summary['activity']), 5)
+        self.assertEqual(sum(row['resolved'] for row in summary['activity']), 3)
+        self.assertEqual(summary['timing']['target_unavailable'], 0)
+        self.assertEqual(summary['timing']['resolution_count'], 3)
+        self.assertEqual(summary['timing']['median_resolution_hours'], 121)
+        metrics = [('received', 'reported', ''), ('closures', 'closures', ''),
+                   ('reported_closed', 'reported', ''), ('reported_open', 'reported', ''),
+                   ('resolution', 'resolved', ''), ('on_time', 'resolved', ''), ('late', 'resolved', ''),
+                   ('hb_response', 'response', ''), ('reopened', 'reopened', '')]
+        metrics += [('open_age', 'reported', row[0]) for row in AGE_BUCKETS]
+        for metric, basis, value in metrics:
+            selection = {'metric': metric, 'date_basis': basis, 'metric_value': value}
+            with self.subTest(metric=metric, value=value):
+                response = self.post('reports/', {**filters, 'selection': selection})
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()['summary'], summary)
+                self.assertEqual(response.json()['table'], complaint_report_page(filters={**filters, **selection}))
+        resolved = self.post('reports/', {**filters, 'date_basis': 'resolved'}).json()
+        self.assertEqual(resolved['summary']['total'], 3)
+        self.assertEqual(resolved['summary']['activity'], summary['activity'])
+
+    def test_report_selection_validation_and_empty_timing(self):
+        self.login()
+        self.grant_role('IT')
+        for selection in ([], {'metric': ['late']}, {'unexpected': 'value'},
+                          {'metric': 'late', 'date_basis': 'reported'},
+                          {'metric': 'open_age', 'metric_value': 'invalid'}):
+            with self.subTest(selection=selection):
+                self.assertEqual(self.post('reports/', {'selection': selection}).status_code, 400)
+        result = self.post('reports/', {'branch': 'No such synthetic branch'}).json()
+        self.assertEqual(result['table']['count'], 0)
+        self.assertIsNone(result['summary']['timing']['on_time_percent'])
+        self.assertIsNone(result['summary']['timing']['median_resolution_hours'])
+        self.assertEqual(result['summary']['resolution_trend'], [])
+
+    def test_filtered_export_retains_the_exact_chart_selection(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        self.login()
+        self.grant_role('IT')
+        filters = {**self.report_fixture(), 'date_basis': 'resolved', 'metric': 'late'}
+        expected = self.post('reports/', {'selection': filters}).json()['table']['results']
+        response = self.post('reports/export/', {'scope': 'filtered', 'filters': filters,
+                                               'client_request_id': 'browser-timing-excel-001'})
+        self.assertEqual(response.status_code, 200, response.content)
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.active.max_row, len(expected) + 1)
+        self.assertEqual({row[1].value for row in list(workbook.active.rows)[1:]},
+                         {row['complaint_id'] for row in expected})
 
     def test_voice_and_preferences_reject_invalid_values_without_provider_calls(self):
         self.login()

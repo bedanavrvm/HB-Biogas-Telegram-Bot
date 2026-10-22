@@ -24,11 +24,17 @@ async function main() {
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => requests.push({ url: request.url(), resource: request.resourceType() }));
   const heading = name => page.getByRole('heading', { name, exact: true }).waitFor();
-  async function capture(name) {
+  async function capture(name, keepScroll = false) {
+    if (!keepScroll) await page.getByRole('main').evaluate(element => element.scrollTo(0, 0));
     await page.evaluate(() => new Promise(requestAnimationFrame));
-    const metrics = await page.evaluate(() => ({ width: innerWidth, page: document.documentElement.scrollWidth,
-      main: document.querySelector('main')?.getBoundingClientRect().width, theme: document.documentElement.dataset.colorMode }));
+    const metrics = await page.evaluate(() => {
+      const main = document.querySelector('[role="main"]');
+      return { width: innerWidth, page: document.documentElement.scrollWidth,
+        main: main?.getBoundingClientRect().width, mainClient: main?.clientWidth,
+        mainScroll: main?.scrollWidth, theme: document.documentElement.dataset.colorMode };
+    });
     assert.ok(metrics.page <= metrics.width, name + ': horizontal clipping'); layouts.push({ name, ...metrics });
+    assert.ok(metrics.mainScroll <= metrics.mainClient + 1, name + ': workspace clipping');
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }); captures++;
   }
   async function select(label, option) {
@@ -79,27 +85,91 @@ async function main() {
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(), 'Synthetic retained draft');
     await page.getByRole('button', { name: 'Cases', exact: true }).click();
     await page.getByRole('button', { name: 'Reports', exact: true }).click();
-    await page.getByText('Reported over time', { exact: true }).waitFor(); await capture('reports-desktop');
+    await page.getByText('Reported vs resolved', { exact: true }).waitFor(); await capture('reports-desktop');
     const drill = page.locator('svg[aria-label^="Complaint types."]').locator('[role="button"]').first();
     await drill.press('Enter');
     await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filtered report complaints');
-    for (const theme of ['light', 'dark']) {
-      await page.emulateMedia({ colorScheme: theme });
-      await page.waitForFunction(value => document.documentElement.dataset.colorMode === value, theme);
-      for (const width of [320, 360, 390, 768, 1280, 1366, 1440, 1920]) {
-        await page.setViewportSize({ width, height: width < 768 ? 844 : 900 }); await capture(`reports-${theme}-${width}`);
+    async function reportCaptures(view) {
+      for (const theme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme: theme });
+        await page.waitForFunction(value => document.documentElement.dataset.colorMode === value, theme);
+        for (const width of [320, 360, 390, 768, 1280, 1366, 1440, 1920]) {
+          await page.setViewportSize({ width, height: width < 768 ? 844 : 900 }); await capture(`reports-${view}-${theme}-${width}`);
+        }
+      }
+      for (const width of [390, 1366]) {
+        await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+        for (const chart of await page.locator('svg[aria-label]').all()) {
+          const label = await chart.getAttribute('aria-label');
+          if (!label || !/\. (Hours|Complaints)\.$/.test(label)) continue;
+          await chart.scrollIntoViewIfNeeded(); await capture(`chart-${view}-${width}-${label.split('.')[0].replaceAll(' ', '-')}`, true);
+        }
       }
     }
+    await reportCaptures('overview');
+    await select('Report', 'Turnaround performance'); await heading('Resolution time');
+    await select('View by', 'Day'); await heading('Resolution time');
+    await page.locator('svg[aria-label^="Resolution time."]').getByRole('button', { name: /192 hours/ }).waitFor();
+    assert.equal(await page.locator('svg[aria-label^="Resolution time."]').count(), 1);
+    await page.getByText('4 of 4 timed resolutions had a target set.', { exact: true }).waitFor();
+    await page.locator('svg[aria-label^="Resolution time."]').getByRole('button', { name: /Median resolution: 0 hours/ }).waitFor();
+    await page.locator('svg[aria-label^="Home Based response time."]').getByRole('button', { name: /12 hours/ }).waitFor();
+    const selectedReport = page.waitForResponse(response => response.url().endsWith('/reports/') && response.request().postDataJSON()?.selection?.metric === 'late');
+    await page.locator('svg[aria-label^="Resolution targets."]').getByRole('button', { name: /^Late:/ }).press('Enter');
+    assert.equal((await (await selectedReport).json()).table.count, 1);
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filtered report complaints');
+    await reportCaptures('turnaround');
     await page.setViewportSize({ width: 1366, height: 900 });
     await page.getByRole('button', { name: 'Download Excel', exact: true }).click();
     const downloading = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download filtered results', exact: true }).click();
     const file = await downloading; assert.ok(file.suggestedFilename().endsWith('.xlsx'));
     assert.ok(file.suggestedFilename().length > 6);
+    await select('Report', 'Complaints overview'); await heading('Reported vs resolved');
+    await page.getByLabel('From', { exact: true }).fill(input.month_start);
+    const weeklyReport = page.waitForResponse(response => response.url().endsWith('/reports/') && response.request().postDataJSON()?.granularity === 'week' && !response.request().postDataJSON()?.selection?.metric);
+    await select('View by', 'Week'); await weeklyReport;
+    await page.locator('svg[aria-label^="Reported vs resolved."]').waitFor();
+    const partialResponse = page.waitForResponse(response => response.url().endsWith('/reports/') && response.request().postDataJSON()?.selection?.metric === 'received');
+    await page.locator('svg[aria-label^="Reported vs resolved."]').getByRole('button').first().press('Enter');
+    const selectedPeriod = (await partialResponse).request().postDataJSON().selection;
+    assert.equal(selectedPeriod.date_from, input.month_start);
+    const firstWeekEnd = new Date(input.month_start + 'T00:00:00Z');
+    firstWeekEnd.setUTCDate(firstWeekEnd.getUTCDate() + 6 - (firstWeekEnd.getUTCDay() + 6) % 7);
+    assert.equal(selectedPeriod.date_to, firstWeekEnd.toISOString().slice(0, 10));
+    const activity = page.getByRole('region', { name: 'Reported vs resolved chart', exact: true });
+    await activity.getByLabel('Chart type', { exact: true }).fill('Line');
+    await activity.getByLabel('Chart type', { exact: true }).press('Enter');
+    assert.equal(await activity.locator('polyline').count(), 2);
+    await capture('reports-partial-week-line');
+    await select('Period', 'All dates');
+    await select('Report', 'Open-case follow-up'); await heading('Open-case age');
+    await page.locator('svg[aria-label^="Open-case age."]').waitFor();
+    assert.equal(await page.locator('svg[aria-label^="Open-case age."]').count(), 1);
+    assert.equal(await page.locator('svg[aria-label^="Complaints reopened."]').getByRole('button').count(), 1);
+    const ageResponse = page.waitForResponse(response => response.url().endsWith('/reports/') && response.request().postDataJSON()?.selection?.metric_value === '3_7');
+    await select('Select cases in open-case age', '3-7 days');
+    assert.equal((await (await ageResponse).json()).table.count, 2);
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filtered report complaints');
+    await reportCaptures('follow-up');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    await capture('reports-large-text');
+    await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    await page.getByLabel('From', { exact: true }).fill('2099-01-01');
+    await page.getByText('No matching complaints.', { exact: true }).first().waitFor(); await capture('reports-empty');
+    await page.getByLabel('From', { exact: true }).fill(''); await heading('Open-case age');
+    await page.route('**/operations/v1/groups/*/reports/', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Synthetic unavailable report' }) }), { times: 1 });
+    await select('View by', 'Month');
+    await page.getByRole('heading', { name: 'Report action could not be completed', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('View by', { exact: true }).inputValue(), ''); // ADS selected value is not its search text.
+    await capture('reports-failure-retained-filters');
+    await page.getByRole('button', { name: 'Retry report', exact: true }).click(); await heading('Open-case age');
+    await page.getByText('Month', { exact: true }).waitFor();
     assert.equal(requests.filter(row => row.resource === 'document').length, documentsBefore);
     await page.goBack(); await heading('7 cases');
-    await page.goForward(); await page.getByText('Reported over time', { exact: true }).waitFor();
-    await page.reload(); await page.getByText('Reported over time', { exact: true }).waitFor();
+    await page.goForward(); await page.getByText('Reported vs resolved', { exact: true }).waitFor();
+    await page.reload(); await page.getByText('Reported vs resolved', { exact: true }).waitFor();
     assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })), { local: 0, session: 0 });
     assert.deepEqual(errors, []);
     fs.writeFileSync(path.join(output, 'layout.json'), JSON.stringify(layouts, null, 2));

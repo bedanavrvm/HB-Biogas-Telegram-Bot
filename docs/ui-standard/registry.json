@@ -418,6 +418,12 @@
   ],
   "changes": [
     {
+      "path": "browser/src/complaints-report-charts.tsx",
+      "sha256": "bf4619f1ec63158b98e7454ac167c3c3d0e1b66cf2322440d8113ab438c85e5e",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 next closed browser reporting candidate. Canonical outcome/timing views, responsive SVG with one documented interactive-mark lint exception and actual ADS selectors. Synthetic evidence only; no human baseline approval, production activation or Telegram migration."
+    },
+    {
       "path": "core/static/miniapp/portal.css",
       "sha256": "8bb62b32ed235c071d988cfe9f349df223d50a90eb45e14c0b26ad9a6a3eb6cc",
       "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
@@ -635,7 +641,7 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "d80b34d7381936cf94304c45238024b5bdddd713402ef893e181fbe7c170ed51",
+      "sha256": "5a4c3d78b5a3f033bf7bc6e045802014d4524c19c07c35c8bb4c4b4a02977def",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
     },

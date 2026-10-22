@@ -1,5 +1,18 @@
 # Changelog
 
+## 22 October 2026 - Closed browser Complaints timing/outcome reporting
+
+- Add overview/cohort, turnaround and open-case follow-up views using existing
+  Complaint timing facts, with explicit date bases, readable durations/units,
+  recorded target denominators and keyboard-operable charts.
+- Separate chart drill-down from report filters so the case list and filtered
+  Excel match without changing the originating chart; clip partial periods to
+  the chosen range and retain filter choices during loading/failure.
+- Add mixed-cohort/export/invalid-selection checks and real native-session
+  browser captures in both themes/builds. Evidence and remaining gates are in
+  docs/runbooks/browser-channel-parity.md. No migration/config/dependency,
+  Telegram change, provider side effect or production activation.
+
 ## 22 October 2026 - Independent channel foundation and closed Complaints operations
 
 - Add trusted request-channel/correlation context and new audit metadata without

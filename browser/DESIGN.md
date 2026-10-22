@@ -1,5 +1,38 @@
 # Browser design references and application decisions
 
+## Complaints reporting slice (ADR 0073)
+
+Consulted live on 22 October 2026:
+
+- https://atlassian.design/components/select/usage
+- https://atlassian.design/components/primitives/grid/code
+- https://atlassian.design/foundations/color/data-visualization-color
+
+The Grid overview returned no usable text; its code page and installed pinned
+GridProps were inspected. The older color-new URL failed; the current canonical
+data-visualization page above succeeded. No extra chart/control dependency.
+
+Three named report views limit dashboard clutter. Labelled ADS Selects own
+report, grouping and chart choices. Related charts pair on desktop and stack on
+phones; an unpaired chart spans the available width. Counts and elapsed hours
+have distinct axes; durations also have readable day equivalents. Sparse time
+series start as bars, longer series as lines. Missing timing is not zero.
+Chart coordinates use actual period spacing, not evenly spaced missing dates.
+
+Marks use chart brand/success/danger tokens; axes/text use border/text tokens.
+Separate series have gaps, direct accessible names and distinct line textures/
+point shapes. Every point is keyboard operable and has an equivalent searchable
+ADS selection with its full value, unit and case count. Resizing preserves text
+at real CSS size instead of shrinking a fixed desktop SVG on phones. The one
+scoped no-html-button exception describes interactive SVG marks only; there is
+no HTML-image exception and other recommended lint rules remain blocking.
+
+Chart selection changes the case list and filtered Excel, retaining the source
+chart population. Reporting-date cohorts, resolution events and current closed
+resolution medians are explicitly distinguished. Partial weeks are clipped to
+the requested date range on drill-down. This is a source-bound browser candidate,
+not human approval or permission to migrate the Telegram UI.
+
 ## Native Complaints operations candidate (ADR 0073)
 
 The separate entry composes actual ADS Root/TopNav/Main, token typography, Grid,

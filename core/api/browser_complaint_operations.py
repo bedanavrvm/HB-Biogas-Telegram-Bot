@@ -339,12 +339,17 @@ def evidence(request, group, actor, evidence_key):
 def reports(request, group, actor):
     from core.services.complaint_register import complaint_report_page, complaint_report_summary
     params = payload(request)
-    if (set(params) - REPORT_FIELDS - {'granularity', 'page'}
-            or any(not isinstance(value, str) for key, value in params.items() if key != 'page')):
+    selection = params.get('selection', {})
+    if (set(params) - REPORT_FIELDS - {'granularity', 'page', 'selection'}
+            or any(not isinstance(value, str) for key, value in params.items() if key not in {'page', 'selection'})
+            or not isinstance(selection, dict) or set(selection) - REPORT_FIELDS
+            or any(not isinstance(value, str) for value in selection.values())):
         raise cases.ComplaintCaseError('Review the report filters.')
     filters = {key: params[key] for key in REPORT_FIELDS if key in params}
+    # A drill-down changes the table/export cohort, not the chart that supplied
+    # it. Keep both populations behind the existing canonical filter rules.
     return JsonResponse({'summary': complaint_report_summary(filters=filters, granularity=params.get('granularity', 'month')),
-                         'table': complaint_report_page(filters=filters, page=params.get('page', 1))})
+                         'table': complaint_report_page(filters={**filters, **selection}, page=params.get('page', 1))})
 
 
 @endpoint(['POST'], 'complaint.reports.view')
