@@ -686,7 +686,9 @@
         "origination/tests_application_downloads.py",
         "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
+        "origination/tests_identity_copies.py",
         "origination/tests_laf_bootstrap.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
@@ -712,7 +714,9 @@
         "origination/tests_application_downloads.py",
         "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
+        "origination/tests_identity_copies.py",
         "origination/tests_laf_bootstrap.py",
+        "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
@@ -2306,6 +2310,7 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/migrations/0007_originationsigningparticipant_and_more.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/application_copies.py",
         "origination/services/loan_origination.py",
@@ -2328,6 +2333,7 @@
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_identity_copies.py",
+        "origination/tests_legacy_cleanup.py",
         "origination/tests_migrations.py",
         "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py",
@@ -2731,11 +2737,12 @@
       "application_area": "Origination",
       "children": [],
       "classification": "authoritative_record",
-      "column_count": 20,
+      "column_count": 19,
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "origination/services/origination_document_choices.py",
         "origination/services/origination_documents.py",
+        "origination/services/origination_god_mode.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
@@ -2748,8 +2755,7 @@
       "lifecycle": "active",
       "parents": [
         "origination.LoanOriginationApplication",
-        "origination.OriginationDocumentTemplate",
-        "origination.OriginationProductDocumentAssignment"
+        "origination.OriginationDocumentTemplate"
       ],
       "purpose": "Application-scoped snapshot and progress for one generated packet document.",
       "retention": "Retained with the owning business record according to its workflow policy.",
@@ -2761,6 +2767,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/origination_document_choices.py",
         "origination/services/origination_documents.py",
@@ -2882,6 +2889,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/origination_consent.py",
         "origination/services/origination_god_mode.py",
@@ -2967,7 +2975,6 @@
       "children": [
         "origination.OriginationDataField",
         "origination.OriginationDataFieldEvent",
-        "origination.OriginationFieldReviewIssue",
         "origination.OriginationReportingValue"
       ],
       "classification": "authoritative_record",
@@ -2997,13 +3004,13 @@
       "source_of_truth": true,
       "table": "core_originationdatafield",
       "used_by": [
-        "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
         "core/services/miniapp_deletion.py",
         "core/services/miniapp_deletion_registry.py",
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/generic_jawabu_laf_seed.py",
         "origination/services/invoice_finance_origination_seed.py",
@@ -3049,6 +3056,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/generic_jawabu_laf_seed.py",
         "origination/services/invoice_finance_origination_seed.py",
@@ -3100,6 +3108,7 @@
         "origination/catalogue.py",
         "origination/document_editor_admin.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/document_editor.py",
         "origination/services/origination_document_catalogue.py",
@@ -3107,6 +3116,7 @@
         "origination/services/origination_main_laf_seeds.py",
         "origination/services/origination_setup_documents.py",
         "origination/services/origination_templates.py",
+        "origination/tests.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_unsigned_applications.py"
       ]
@@ -3117,7 +3127,6 @@
         "origination.OriginationApplicationDocument",
         "origination.OriginationDocumentProductEligibility",
         "origination.OriginationDocumentTemplateEvent",
-        "origination.OriginationProductDocumentAssignment",
         "origination.OriginationTemplateConfigurationRevision"
       ],
       "classification": "configuration",
@@ -3126,7 +3135,6 @@
         "auth.User"
       ],
       "direct_orm_writers": [
-        "core/management/commands/seed_origination_packet_demo.py",
         "core/services/product_deletion.py",
         "core/services/product_permanent_deletion.py",
         "origination/services/document_editor.py",
@@ -3161,7 +3169,6 @@
       "source_of_truth": true,
       "table": "core_originationdocumenttemplate",
       "used_by": [
-        "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
         "core/services/miniapp_deletion.py",
         "core/services/miniapp_deletion_registry.py",
@@ -3171,6 +3178,7 @@
         "origination/catalogue.py",
         "origination/document_editor_admin.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/origination_setup_admin.py",
         "origination/origination_setup_forms.py",
@@ -3195,6 +3203,7 @@
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_laf_bootstrap.py",
+        "origination/tests_legacy_cleanup.py",
         "origination/tests_signing_plans.py",
         "origination/tests_support_laf_seeds.py",
         "origination/tests_unsigned_applications.py",
@@ -3237,6 +3246,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/document_editor.py",
         "origination/services/generic_jawabu_laf_seed.py",
@@ -3246,44 +3256,6 @@
         "origination/services/origination_main_laf_seeds.py",
         "origination/services/origination_setup_documents.py",
         "origination/services/origination_templates.py"
-      ]
-    },
-    {
-      "application_area": "Origination",
-      "children": [],
-      "classification": "authoritative_record",
-      "column_count": 15,
-      "cross_domain_parents": [
-        "auth.User"
-      ],
-      "direct_orm_writers": [
-        "origination/services/origination_fields.py",
-        "origination/services/origination_god_mode.py"
-      ],
-      "django_model": "origination.OriginationFieldReviewIssue",
-      "domain": "origination",
-      "explicit_indexes": [
-        "core_origin_status_85057f_idx"
-      ],
-      "lifecycle": "active",
-      "parents": [
-        "auth.User",
-        "origination.OriginationDataField",
-        "origination.OriginationProductDefinition"
-      ],
-      "purpose": "Tracked exit path for a legacy schema field without a safe catalogue binding.",
-      "retention": "Retained with the owning business record according to its workflow policy.",
-      "source_of_truth": true,
-      "table": "core_originationfieldreviewissue",
-      "used_by": [
-        "core/services/miniapp_deletion_registry.py",
-        "core/services/product_deletion.py",
-        "origination/admin.py",
-        "origination/catalogue.py",
-        "origination/migrations/0001_domain_ownership.py",
-        "origination/models.py",
-        "origination/services/origination_fields.py",
-        "origination/services/origination_god_mode.py"
       ]
     },
     {
@@ -3325,10 +3297,8 @@
       "children": [
         "origination.LoanOriginationApplication",
         "origination.OriginationDocumentTemplate",
-        "origination.OriginationFieldReviewIssue",
         "origination.OriginationProductDefinition",
-        "origination.OriginationProductDefinitionEvent",
-        "origination.OriginationProductDocumentAssignment"
+        "origination.OriginationProductDefinitionEvent"
       ],
       "classification": "configuration",
       "column_count": 22,
@@ -3337,7 +3307,6 @@
         "core.ProductVersion"
       ],
       "direct_orm_writers": [
-        "core/management/commands/seed_origination_packet_demo.py",
         "core/services/fresh_database_baseline.py",
         "origination/admin.py",
         "origination/origination_setup_admin.py",
@@ -3352,6 +3321,7 @@
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
+        "origination/tests_legacy_cleanup.py",
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
@@ -3373,7 +3343,6 @@
       "source_of_truth": true,
       "table": "core_originationproductdefinition",
       "used_by": [
-        "core/management/commands/seed_origination_packet_demo.py",
         "core/management/commands/upgrade_origination_commercial_contract.py",
         "core/services/fresh_database_baseline.py",
         "core/services/miniapp_deletion.py",
@@ -3384,6 +3353,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/origination_setup_admin.py",
         "origination/origination_setup_forms.py",
@@ -3403,6 +3373,7 @@
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
+        "origination/tests_legacy_cleanup.py",
         "origination/tests_migrations.py",
         "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py",
@@ -3451,6 +3422,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/origination_setup_admin.py",
         "origination/services/document_editor.py",
@@ -3459,49 +3431,6 @@
         "origination/services/origination_god_mode.py",
         "origination/services/origination_setup.py",
         "origination/services/origination_setup_documents.py",
-        "origination/services/origination_templates.py"
-      ]
-    },
-    {
-      "application_area": "Origination",
-      "children": [
-        "origination.OriginationApplicationDocument"
-      ],
-      "classification": "business_assignment",
-      "column_count": 13,
-      "cross_domain_parents": [
-        "auth.User"
-      ],
-      "direct_orm_writers": [
-        "core/management/commands/seed_origination_packet_demo.py",
-        "origination/services/origination_god_mode.py",
-        "origination/services/origination_templates.py"
-      ],
-      "django_model": "origination.OriginationProductDocumentAssignment",
-      "domain": "origination",
-      "explicit_indexes": [],
-      "lifecycle": "compatibility",
-      "parents": [
-        "auth.User",
-        "origination.OriginationDocumentTemplate",
-        "origination.OriginationProductDefinition"
-      ],
-      "purpose": "Version-policy assignment between a legacy product definition and document family.",
-      "retention": "Retained for historical product-definition and application compatibility.",
-      "source_of_truth": true,
-      "table": "core_originationproductdocumentassignment",
-      "used_by": [
-        "core/management/commands/seed_origination_packet_demo.py",
-        "core/services/database_catalog.py",
-        "core/services/miniapp_deletion_registry.py",
-        "core/services/product_deletion.py",
-        "core/services/product_permanent_deletion.py",
-        "origination/admin.py",
-        "origination/catalogue.py",
-        "origination/migrations/0001_domain_ownership.py",
-        "origination/models.py",
-        "origination/services/origination_documents.py",
-        "origination/services/origination_god_mode.py",
         "origination/services/origination_templates.py"
       ]
     },
@@ -3538,6 +3467,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/origination_fields.py",
         "origination/services/origination_god_mode.py"
@@ -3613,6 +3543,7 @@
         "origination/services/loan_origination.py",
         "origination/services/origination_dispatch.py",
         "origination/services/origination_god_mode.py",
+        "origination/tests.py",
         "origination/views.py"
       ]
     },
@@ -3798,6 +3729,7 @@
         "origination/services/recovery.py",
         "origination/tests_application_downloads.py",
         "origination/tests_approval.py",
+        "origination/tests_legacy_cleanup.py",
         "origination/tests_migrations.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
@@ -3915,6 +3847,7 @@
         "origination/admin.py",
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/document_editor.py",
         "origination/services/origination_god_mode.py",
@@ -4702,6 +4635,7 @@
         "core/services/product_catalog.py",
         "core/services/product_deletion.py",
         "origination/origination_setup_admin.py",
+        "origination/services/origination_god_mode.py",
         "origination/tests.py",
         "origination/tests_unsigned_applications.py"
       ],
@@ -4734,6 +4668,7 @@
         "core/services/tat_tracker.py",
         "origination/admin.py",
         "origination/migrations/0001_domain_ownership.py",
+        "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/origination_setup_admin.py",
         "origination/origination_setup_forms.py",
@@ -6225,6 +6160,7 @@
         "core/services/fresh_database_baseline.py",
         "hb_operations/tests.py",
         "hb_operations/tests_deposits.py",
+        "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_signing_presentation.py",
@@ -6252,6 +6188,7 @@
         "hb_operations/tests_deposits.py",
         "origination/migrations/0003_independent_capabilities.py",
         "origination/migrations/0011_phone_identity_pilot_capability.py",
+        "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_signing_presentation.py",
@@ -6941,6 +6878,7 @@
         "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
         "origination/models.py",
         "origination/services/phone_identity.py",
+        "origination/tests.py",
         "origination/tests_phone_identity.py"
       ]
     },
@@ -6965,6 +6903,7 @@
         "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
         "origination/models.py",
         "origination/services/phone_identity.py",
+        "origination/tests.py",
         "origination/tests_phone_identity.py"
       ]
     },
@@ -6990,7 +6929,8 @@
         "origination/catalogue.py",
         "origination/migrations/0010_originationphoneidentitydailyusage_and_more.py",
         "origination/models.py",
-        "origination/services/phone_identity.py"
+        "origination/services/phone_identity.py",
+        "origination/tests.py"
       ]
     },
     {
@@ -7005,6 +6945,7 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "origination/services/origination_god_mode.py",
         "origination/services/origination_signing_plans.py",
         "origination/tests_document_management.py"
       ],

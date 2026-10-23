@@ -23,7 +23,6 @@ from urllib.parse import urlencode
 from origination.models import (
     OriginationDataField,
     OriginationDataFieldEvent,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
     OriginationDocumentTemplate,
@@ -38,7 +37,6 @@ from origination.models import (
     OriginationCorrectionRequest,
     OriginationRequirementEvidence,
     OriginationApplicationDocument,
-    OriginationProductDocumentAssignment,
     OriginationConsentPolicyVersion,
     OriginationSigningParticipant,
     OriginationSigningPackage,
@@ -49,246 +47,14 @@ from origination.models import (
     OriginationSigningRequestEvent,
     OriginationStampAsset,
 )
-from core.models import Product, ProductVersion
+from core.models import Product
 
 from core.admin import (
     CompactModelAdmin,
     DocumentApplicabilityRuleFormMixin,
-    ProductSupportingDocumentSetupForm,
     _product_condition_fields,
     _simple_document_condition,
 )
-
-class OriginationProductDefinitionForm(forms.ModelForm):
-    LAF_SOURCE_LIBRARY = 'library'
-    LAF_SOURCE_UPLOAD = 'upload'
-    LAF_SOURCE_LATER = 'later'
-    LAF_SOURCE_CHOICES = (
-        (LAF_SOURCE_LIBRARY, 'Choose from reusable library'),
-        (LAF_SOURCE_UPLOAD, 'Upload a new PDF'),
-        (LAF_SOURCE_LATER, 'Configure later'),
-    )
-
-    product_version = forms.ModelChoiceField(
-        queryset=ProductVersion.objects.none(), required=False,
-        help_text='Global product terms version used by this form and LAF.',
-        widget=UnfoldAdminSelectWidget,
-    )
-    product_key = forms.SlugField(required=False, widget=forms.HiddenInput)
-    name = forms.CharField(required=False, widget=forms.HiddenInput)
-    form_schema = forms.JSONField(widget=forms.HiddenInput)
-    signer_rules = forms.JSONField(widget=forms.HiddenInput)
-    signing_policy = forms.ChoiceField(required=False, label='Signing requirements',
-        choices=OriginationProductDefinition._meta.get_field('signing_policy').choices,
-        widget=UnfoldAdminSelectWidget, initial='legacy')
-    approval_roles = forms.JSONField(required=False, label='Final approval',
-        widget=UnfoldAdminSelectWidget(choices=[('[]', 'Independent post-sign review'),
-            ('["branch_manager"]', 'BM approves and signs'),
-            ('["branch_manager", "management_approver"]', 'BM, then Management')]),
-        help_text='Applies only to applications created from this published version. Matching compliance-approved consent is required.')
-    main_laf_source = forms.ChoiceField(
-        choices=LAF_SOURCE_CHOICES, required=False, initial=LAF_SOURCE_LIBRARY,
-        label='Main LAF source', widget=forms.RadioSelect,
-        help_text='Reuse an approved LAF, upload a new one, or save an incomplete draft and finish the document packet later.',
-    )
-    reusable_primary_template = forms.ModelChoiceField(
-        queryset=OriginationDocumentTemplate.objects.none(), required=False,
-        empty_label='Choose a published reusable primary LAF',
-        label='Reusable primary LAF', widget=UnfoldAdminSelectWidget,
-        help_text='The selected version is pinned to this product version. A later LAF upgrade must be selected explicitly.',
-    )
-    laf_pdf = forms.FileField(
-        required=False,
-        label='LAF PDF template',
-        help_text=(
-            'Upload the blank LAF PDF. After saving, the visual alignment builder '
-            'opens so these form variables can be assigned and drawn on the document.'
-        ),
-        widget=UnfoldAdminFileFieldWidget(attrs={'accept': 'application/pdf'}),
-    )
-
-    class Meta:
-        model = OriginationProductDefinition
-        fields = (
-            'product_version', 'main_laf_source', 'reusable_primary_template',
-            'laf_pdf', 'product_key', 'name',
-            'form_schema', 'signer_rules',
-            'approval_roles', 'signing_policy',
-        )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['product_version'].queryset = ProductVersion.objects.filter(
-            status__in=[
-                ProductVersion.STATUS_DRAFT,
-                ProductVersion.STATUS_SCHEDULED,
-                ProductVersion.STATUS_PUBLISHED,
-            ],
-        ).select_related('product').order_by('product__name', '-version')
-        self.fields['reusable_primary_template'].queryset = (
-            OriginationDocumentTemplate.objects.filter(
-                product_definition__isnull=True,
-                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-                status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                published_configuration_revision__isnull=False,
-            )
-            .select_related('published_configuration_revision')
-            .order_by('name', '-version')
-        )
-        if self.instance.pk and not self.instance._state.adding:
-            # A version may change its presentation contract while it is a
-            # draft, but it must not move into another product's version line.
-            self.fields['product_key'].disabled = True
-            if self.instance.document_templates.filter(
-                status__in=[
-                    OriginationDocumentTemplate.STATUS_READY,
-                    OriginationDocumentTemplate.STATUS_ACTIVE,
-                ],
-            ).exists():
-                self.fields['laf_pdf'].help_text = (
-                    'Optional replacement PDF. The current draft template is retained '
-                    'as immutable history and the new PDF starts with a fresh alignment.'
-                )
-            assigned_primary = self.instance.document_assignments.filter(
-                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-            ).select_related('template').first()
-            owned_primary = self.instance.document_templates.filter(
-                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-                status__in=[
-                    OriginationDocumentTemplate.STATUS_READY,
-                    OriginationDocumentTemplate.STATUS_ACTIVE,
-                ],
-            ).exists()
-            if assigned_primary and not self.fields['reusable_primary_template'].queryset.filter(
-                pk=assigned_primary.template_id,
-            ).exists():
-                self.fields['reusable_primary_template'].queryset = (
-                    OriginationDocumentTemplate.objects.filter(
-                        models.Q(pk=assigned_primary.template_id)
-                        | models.Q(
-                            product_definition__isnull=True,
-                            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-                            status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                            published_configuration_revision__isnull=False,
-                        )
-                    ).order_by('name', '-version')
-                )
-            if not self.is_bound:
-                if assigned_primary:
-                    self.initial['main_laf_source'] = self.LAF_SOURCE_LIBRARY
-                    self.initial['reusable_primary_template'] = assigned_primary.template_id
-                elif owned_primary:
-                    self.initial['main_laf_source'] = self.LAF_SOURCE_UPLOAD
-                else:
-                    self.initial['main_laf_source'] = self.LAF_SOURCE_LATER
-
-    def clean(self):
-        cleaned = super().clean()
-        cleaned['signing_policy'] = cleaned.get('signing_policy') or self.instance.signing_policy or 'legacy'
-        schema = cleaned.get('form_schema')
-        signer_rules = cleaned.get('signer_rules')
-        product_version = cleaned.get('product_version')
-        laf_pdf = cleaned.get('laf_pdf')
-        laf_source = str(cleaned.get('main_laf_source') or '').strip()
-        reusable_primary = cleaned.get('reusable_primary_template')
-        if not laf_source:
-            # Cached Admin forms from before the library picker remain safe.
-            laf_source = self.LAF_SOURCE_UPLOAD if laf_pdf else self.LAF_SOURCE_LATER
-            cleaned['main_laf_source'] = laf_source
-        if product_version:
-            cleaned['product_key'] = product_version.product.code
-            cleaned['name'] = product_version.product.name
-            self.instance.product_key = product_version.product.code
-            self.instance.name = product_version.product.name
-            self.instance.document_type = product_version.product.code
-        product_key = str(cleaned.get('product_key') or self.instance.product_key or '').strip()
-        if (
-            self.instance._state.adding
-            and product_key
-            and OriginationProductDefinition.objects.filter(product_key=product_key).exists()
-        ):
-            self.add_error(
-                'product_version',
-                'This product already has an origination loan-form version. '
-                'Open it from Origination product definitions and use “Create editable next version” instead.',
-            )
-        if laf_pdf:
-            if not str(laf_pdf.name).lower().endswith('.pdf'):
-                self.add_error('laf_pdf', 'Upload a PDF file.')
-            else:
-                from origination.services.origination_templates import (
-                    OriginationTemplateError, validate_template_pdf,
-                )
-                pdf_data = laf_pdf.read()
-                laf_pdf.seek(0)
-                try:
-                    validate_template_pdf(pdf_data)
-                except OriginationTemplateError as exc:
-                    self.add_error('laf_pdf', str(exc))
-        existing_primary = None
-        owned_primary = False
-        if self.instance.pk:
-            existing_primary = self.instance.document_assignments.filter(
-                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-            ).select_related('template').first()
-            owned_primary = self.instance.document_templates.filter(
-                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-                status__in=[
-                    OriginationDocumentTemplate.STATUS_READY,
-                    OriginationDocumentTemplate.STATUS_ACTIVE,
-                ],
-            ).exists()
-        if laf_source == self.LAF_SOURCE_LIBRARY:
-            if not reusable_primary:
-                self.add_error('reusable_primary_template', 'Choose a published reusable primary LAF.')
-            elif owned_primary:
-                self.add_error(
-                    'reusable_primary_template',
-                    'Remove or retire the product-owned primary LAF before selecting a reusable one.',
-                )
-            elif existing_primary and existing_primary.template_id != reusable_primary.pk:
-                self.add_error(
-                    'reusable_primary_template',
-                    'Remove the primary LAF already attached to this product before selecting another.',
-                )
-            else:
-                from origination.services.origination_templates import (
-                    OriginationTemplateError, _merge_shared_primary_contract,
-                )
-                self.instance.form_schema = schema or {}
-                self.instance.signer_rules = signer_rules or []
-                try:
-                    schema, signer_rules = _merge_shared_primary_contract(
-                        product=self.instance, template=reusable_primary,
-                    )
-                except OriginationTemplateError as exc:
-                    self.add_error('reusable_primary_template', str(exc))
-                else:
-                    cleaned['form_schema'] = schema
-                    cleaned['signer_rules'] = signer_rules
-        elif laf_source == self.LAF_SOURCE_UPLOAD:
-            if existing_primary:
-                self.add_error(
-                    'laf_pdf',
-                    'Remove the reusable primary LAF from the document packet before uploading a product-owned replacement.',
-                )
-            elif not laf_pdf and not owned_primary:
-                self.add_error('laf_pdf', 'Choose a PDF or select Configure later.')
-        elif laf_source != self.LAF_SOURCE_LATER:
-            self.add_error('main_laf_source', 'Choose how this product will get its main LAF.')
-        if schema is None or signer_rules is None:
-            return cleaned
-        from origination.services.loan_origination import OriginationError, validate_product_form_contract
-        from origination.services.origination_approval import validate_approval_roles
-        cleaned['approval_roles'] = cleaned.get('approval_roles') or []
-        if cleaned.get('signing_policy') == 'all_required':
-            cleaned['approval_roles'] = []
-        try:
-            validate_product_form_contract(schema, signer_rules)
-            validate_approval_roles(cleaned['approval_roles'], signer_rules)
-        except OriginationError as exc:
-            raise forms.ValidationError(str(exc)) from exc
-        return cleaned
 
 
 class OriginationProductDefinitionChoiceField(forms.ModelChoiceField):
@@ -663,116 +429,6 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         return cleaned
 
 
-class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixin, forms.ModelForm):
-    """Derive each product assignment's identity from its shared template."""
-
-    condition_field = forms.ChoiceField(
-        required=False, label='Only include this document when',
-        help_text='Leave as Always include unless this form is needed only for a particular application answer.',
-        widget=UnfoldAdminSelectWidget,
-    )
-    condition_operator = forms.ChoiceField(
-        required=False, choices=DOCUMENT_CONDITION_OPERATORS,
-        label='Comparison', widget=UnfoldAdminSelectWidget,
-    )
-    condition_value = forms.CharField(
-        required=False, label='Answer',
-        help_text='Choose the answer that makes this document applicable.',
-    )
-
-    class Meta:
-        model = OriginationProductDocumentAssignment
-        fields = (
-            'product_definition', 'template', 'version_policy', 'inclusion_mode',
-            'display_order', 'officer_selectable', 'default_selected', 'applicability_rule',
-        )
-        widgets = {
-            'product_definition': UnfoldAdminSelectWidget,
-            'template': UnfoldAdminSelectWidget,
-            'version_policy': UnfoldAdminSelectWidget,
-            'inclusion_mode': UnfoldAdminSelectWidget,
-            'applicability_rule': forms.HiddenInput,
-        }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._configure_condition_editor()
-        if 'product_definition' in self.fields:
-            self.fields['product_definition'].help_text = (
-                'Choose an editable Draft product. Published products must first be opened as an '
-                'editable product version.'
-            )
-        if 'template' in self.fields:
-            self.fields['template'].help_text = (
-                'The document must already be published. Selecting a newer version of the same '
-                'Main LAF family upgrades the draft; a different Main LAF must first be removed '
-                'from the product Document packet.'
-            )
-
-    def clean(self):
-        cleaned = super().clean()
-        cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
-        template = cleaned.get('template')
-        product = cleaned.get('product_definition')
-        if template:
-            # A product assignment chooses a governed document family. It must
-            # not create another, typo-prone key and name for that same form.
-            self.instance.document_key = template.document_key
-            self.instance.name = template.name
-            if template.document_role == template.ROLE_PRIMARY:
-                cleaned.update({
-                    'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
-                    'inclusion_mode': template.INCLUDE_REQUIRED,
-                    'display_order': 0,
-                    'officer_selectable': False,
-                    'default_selected': False,
-                    'applicability_rule': {},
-                })
-                for key in (
-                    'version_policy', 'inclusion_mode', 'display_order', 'officer_selectable',
-                    'default_selected', 'applicability_rule',
-                ):
-                    setattr(self.instance, key, cleaned[key])
-                if product and self.instance._state.adding:
-                    owned_primary = product.document_templates.filter(
-                        document_role=template.ROLE_PRIMARY,
-                        status__in=[template.STATUS_READY, template.STATUS_ACTIVE],
-                    ).exists()
-                    assigned_primary = product.document_assignments.filter(
-                        template__document_role=template.ROLE_PRIMARY,
-                    ).select_related('template').first()
-                    if owned_primary:
-                        self.add_error(
-                            'template',
-                            'This draft already has a product-owned Main LAF. Remove or retire '
-                            'it from the product Document packet before selecting a reusable LAF.',
-                        )
-                    elif assigned_primary and assigned_primary.template_id != template.pk:
-                        baseline = assigned_primary.template
-                        if baseline.document_type != template.document_type:
-                            self.add_error(
-                                'template',
-                                f'This draft already uses {baseline.name} as its Main LAF. '
-                                'Remove it from the product Document packet before selecting a '
-                                'different LAF family.',
-                            )
-                        else:
-                            from origination.services.origination_templates import (
-                                assignment_template_compatibility_errors,
-                            )
-                            compatibility_errors = assignment_template_compatibility_errors(
-                                baseline, template,
-                            )
-                            if compatibility_errors:
-                                self.add_error(
-                                    'template',
-                                    'This version cannot upgrade the current Main LAF because '
-                                    + '; '.join(compatibility_errors)
-                                    + '.',
-                                )
-        return cleaned
-
-
 class OriginationGodModeAdminMixin:
     """Expose an explicit Superuser purge for Origination records only."""
 
@@ -1114,201 +770,9 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
         return False
 
 
-@admin.register(OriginationFieldReviewIssue)
-class OriginationFieldReviewIssueAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
-    list_display = (
-        'legacy_key', 'legacy_type', 'product_definition', 'reason', 'status',
-        'assigned_to', 'updated_at',
-    )
-    list_filter = ('status', 'reason', 'legacy_type')
-    search_fields = (
-        'legacy_key', 'legacy_label', 'product_definition__product_key',
-        'product_definition__name',
-    )
-    readonly_fields = (
-        'product_definition', 'legacy_key', 'legacy_type', 'legacy_label', 'reason',
-        'suggested_field', 'resolved_by', 'resolved_at', 'created_at', 'updated_at',
-    )
-    fields = (
-        'product_definition', ('legacy_key', 'legacy_type'), 'legacy_label', 'reason',
-        'suggested_field', 'assigned_to', 'status', 'resolution_field',
-        'resolution_notes', ('resolved_by', 'resolved_at'), ('created_at', 'updated_at'),
-    )
-
-    def save_model(self, request, obj, form, change):
-        if not change:
-            raise PermissionDenied
-        original = OriginationFieldReviewIssue.objects.get(pk=obj.pk)
-        if obj.status == OriginationFieldReviewIssue.STATUS_OPEN:
-            original.assigned_to = obj.assigned_to
-            original.save(update_fields=['assigned_to', 'updated_at'])
-            return
-        from origination.services.origination_fields import resolve_review_issue
-        resolve_review_issue(
-            issue=original, status=obj.status, resolution_field=obj.resolution_field,
-            notes=obj.resolution_notes, actor=request.user,
-        )
-
-    def has_module_permission(self, request):
-        return request.user.is_superuser
-
-    def has_view_permission(self, request, obj=None):
-        return request.user.is_superuser
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return request.user.is_superuser
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-@admin.register(OriginationProductDocumentAssignment)
-class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
-    form = OriginationProductDocumentAssignmentForm
-    change_form_template = 'admin/core/originationproductdocumentassignment/change_form.html'
-    list_display = (
-        'name', 'product_definition', 'document_key', 'version_policy',
-        'resolved_template_version', 'inclusion_mode', 'display_order',
-    )
-    list_filter = ('version_policy', 'inclusion_mode', 'product_definition__lifecycle_status')
-    search_fields = ('name', 'document_key', 'product_definition__name', 'template__name')
-    fields = (
-        'product_definition', ('template', 'version_policy'),
-        ('inclusion_mode', 'display_order'), ('officer_selectable', 'default_selected'),
-        ('condition_field', 'condition_operator'), 'condition_value',
-        'applicability_rule', 'created_by', 'created_at',
-    )
-    readonly_fields = ('created_by', 'created_at')
-
-    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
-        context = {
-            **(extra_context or {}),
-            'origination_condition_fields_by_product': {
-                str(item.pk): _product_condition_fields(item)
-                for item in OriginationProductDefinition.objects.filter(
-                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-                )
-            },
-        }
-        try:
-            return super().changeform_view(request, object_id, form_url, context)
-        except Exception as exc:
-            # Form.clean handles normal conflicts. This catches a packet change
-            # racing with the final save so a recoverable configuration issue
-            # is still shown as an Admin message rather than a server error.
-            from origination.services.origination_templates import OriginationTemplateError
-            if not isinstance(exc, (OriginationTemplateError, ValidationError)):
-                raise
-            logger.warning(
-                'Origination document assignment was rejected: %s', exc,
-                extra={'user_id': request.user.pk, 'object_id': object_id},
-            )
-            self.message_user(request, str(exc), level=messages.ERROR)
-            return HttpResponseRedirect(request.get_full_path())
-
-    @admin.display(description='Currently resolves to')
-    def resolved_template_version(self, obj):
-        from origination.services.origination_templates import resolve_assignment_template
-        resolved = resolve_assignment_template(obj)
-        if not resolved:
-            return 'Unavailable'
-        suffix = 'pinned' if obj.version_policy == obj.VERSION_PINNED else 'latest compatible'
-        return f'{resolved.name} v{resolved.version} ({suffix})'
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == 'product_definition':
-            kwargs['queryset'] = OriginationProductDefinition.objects.filter(
-                lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-            ).order_by('name', '-version')
-        elif db_field.name == 'template':
-            kwargs['queryset'] = OriginationDocumentTemplate.objects.filter(
-                product_definition__isnull=True,
-                status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                published_configuration_revision__isnull=False,
-            ).order_by('name', '-version')
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-    def save_model(self, request, obj, form, change):
-        if not obj.created_by_id:
-            obj.created_by = request.user
-        if not change:
-            from origination.services.origination_templates import attach_shared_document_template
-            assignment = attach_shared_document_template(
-                product_definition=obj.product_definition,
-                template=obj.template,
-                inclusion_mode=obj.inclusion_mode,
-                display_order=obj.display_order,
-                officer_selectable=obj.officer_selectable,
-                default_selected=obj.default_selected,
-                applicability_rule=obj.applicability_rule or {},
-                actor=request.user,
-                version_policy=obj.version_policy,
-            )
-            obj.pk = assignment.pk
-            obj._state.adding = False
-            return
-        obj.full_clean()
-        super().save_model(request, obj, form, change)
-        OriginationProductDefinitionEvent.objects.create(
-            product_definition=obj.product_definition,
-            action='shared_document_assignment_updated',
-            actor=request.user,
-            metadata={
-                'assignment_id': str(obj.pk), 'template_id': str(obj.template_id),
-                'document_key': obj.document_key, 'inclusion_mode': obj.inclusion_mode,
-                'version_policy': obj.version_policy,
-            },
-        )
-
-    def response_add(self, request, obj, post_url_continue=None):
-        if request.GET.get('template') and obj.product_definition_id:
-            self.message_user(
-                request,
-                'Document assignment saved. Review the product Document packet, then publish '
-                'the product when its readiness checks are clear.',
-                level=messages.SUCCESS,
-            )
-            return HttpResponseRedirect(reverse(
-                'admin:origination_originationproductdefinition_change',
-                args=[obj.product_definition_id],
-            ))
-        return super().response_add(request, obj, post_url_continue)
-
-    def delete_model(self, request, obj):
-        product = obj.product_definition
-        metadata = {'assignment_id': str(obj.pk), 'template_id': str(obj.template_id), 'document_key': obj.document_key}
-        super().delete_model(request, obj)
-        if obj.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
-            product.document_template_name = ''
-            product.document_template_sha256 = ''
-            product.document_template_version = product.version
-            product.save(update_fields=[
-                'document_template_name', 'document_template_sha256',
-                'document_template_version', 'updated_at',
-            ])
-        OriginationProductDefinitionEvent.objects.create(
-            product_definition=product, action='shared_document_assignment_removed',
-            actor=request.user, metadata=metadata,
-        )
-
-    def has_add_permission(self, request):
-        return request.user.is_superuser
-
-    def has_change_permission(self, request, obj=None):
-        return bool(request.user.is_superuser and (obj is None or obj.product_definition.lifecycle_status == obj.product_definition.STATUS_DRAFT))
-
-    def has_delete_permission(self, request, obj=None):
-        return bool(request.user.is_superuser and obj and obj.product_definition.lifecycle_status == obj.product_definition.STATUS_DRAFT)
-
-
 @admin.register(OriginationProductDefinition)
 class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
     full_reset_confirmation = 'RESET ALL ORIGINATION DATA'
-    form = OriginationProductDefinitionForm
-    change_form_template = 'admin/core/originationproductdefinition/change_form.html'
     change_list_template = 'admin/core/originationproductdefinition/change_list.html'
     list_display = (
         'product_key', 'name', 'version_state', 'template_readiness',
@@ -1322,19 +786,6 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         'document_template_sha256', 'lifecycle_status', 'is_active', 'supersedes',
         'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
     )
-
-    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
-        context = dict(extra_context or {})
-        obj = self.get_object(request, object_id) if object_id else None
-        if (
-            obj and request.user.is_active and request.user.is_superuser
-            and getattr(settings, 'ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED', False)
-        ):
-            context['origination_product_family_purge_url'] = reverse(
-                'admin:origination_originationproductdefinition_family_purge',
-                args=[obj.product_key],
-            )
-        return super().changeform_view(request, object_id, form_url, context)
 
 
     def get_urls(self):
@@ -1386,34 +837,9 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 name='origination_origination_full_reset',
             ),
             path(
-                '<path:object_id>/document-packet/add-shared/',
-                self.admin_site.admin_view(self.add_shared_document_to_packet_view),
-                name='origination_originationproductdefinition_packet_add_shared',
-            ),
-            path(
-                '<path:object_id>/publish-assigned-primary/',
-                self.admin_site.admin_view(self.publish_assigned_primary_view),
-                name='origination_originationproductdefinition_publish_assigned_primary',
-            ),
-            path(
                 '<path:object_id>/upgrade-commercial-terms/',
                 self.admin_site.admin_view(self.upgrade_commercial_terms_view),
                 name='origination_originationproductdefinition_upgrade_commercial_terms',
-            ),
-            path(
-                '<path:object_id>/document-packet/<path:assignment_id>/remove/',
-                self.admin_site.admin_view(self.remove_shared_document_from_packet_view),
-                name='origination_originationproductdefinition_packet_remove_shared',
-            ),
-            path(
-                '<path:object_id>/document-packet/<path:assignment_id>/upgrade-primary/',
-                self.admin_site.admin_view(self.upgrade_shared_primary_view),
-                name='origination_originationproductdefinition_packet_upgrade_primary',
-            ),
-            path(
-                '<path:object_id>/supporting-document/',
-                self.admin_site.admin_view(self.supporting_document_setup_view),
-                name='origination_originationproductdefinition_supporting_document_setup',
             ),
             path(
                 '<path:object_id>/create-next-version/',
@@ -1688,235 +1114,6 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             ),
         )
 
-    def get_readonly_fields(self, request, obj=None):
-        if obj is None:
-            # These values are all derived when the first form version is
-            # saved. Blank readonly rows make the builder look broken and,
-            # on a vertical Unfold row, previously amplified label spacing.
-            return ()
-        return super().get_readonly_fields(request, obj)
-
-    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
-        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
-        from origination.services.origination_fields import catalogue_for_product
-        product = self.get_object(request, object_id) if object_id else None
-        if (
-            product is not None
-            and product.lifecycle_status != product.STATUS_DRAFT
-            and request.method == 'POST'
-        ):
-            self.message_user(
-                request,
-                'Published product versions are read-only. Create or open the editable next version.',
-                level=messages.ERROR,
-            )
-            return HttpResponseRedirect(reverse(
-                'admin:origination_originationproductdefinition_change', args=[product.pk],
-            ))
-        template = None
-        failed_template = None
-        existing_successor = None
-        shared_assignments = []
-        shared_primary = None
-        packet_readiness = []
-        available_shared_documents = []
-        shared_document_empty_reason = ''
-        if product is not None:
-            templates = product.document_templates.order_by('-created_at')
-            template = templates.filter(status__in=[
-                OriginationDocumentTemplate.STATUS_READY,
-                OriginationDocumentTemplate.STATUS_ACTIVE,
-            ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).first()
-            failed_template = templates.filter(
-                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
-            ).first()
-            if product.lifecycle_status != product.STATUS_DRAFT:
-                existing_successor = OriginationProductDefinition.objects.filter(
-                    product_key=product.product_key,
-                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-                ).order_by('-version').first()
-            from origination.services.origination_templates import (
-                latest_compatible_assignment_template, resolve_assignment_template,
-            )
-            shared_assignments = [
-                {
-                    'assignment': assignment,
-                    'resolved_template': resolve_assignment_template(assignment),
-                    'upgrade_template': (
-                        latest_compatible_assignment_template(assignment)
-                        if assignment.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY
-                        and assignment.version_policy == assignment.VERSION_PINNED
-                        else None
-                    ),
-                }
-                for assignment in product.document_assignments.select_related(
-                    'template', 'template__published_configuration_revision',
-                ).order_by('display_order', 'document_key')
-            ]
-            shared_primary = next((
-                item['resolved_template'] for item in shared_assignments
-                if item['resolved_template']
-                and item['resolved_template'].document_role == OriginationDocumentTemplate.ROLE_PRIMARY
-            ), None)
-            if not template and shared_primary:
-                template = shared_primary
-            packet_readiness.append({
-                'label': 'Main LAF',
-                'ready': bool((template and template.drive_file_id) or shared_primary),
-                'detail': (
-                    f'Uses reusable {shared_primary.name} v{shared_primary.version}' if shared_primary
-                    else 'Ready to align' if template and template.drive_file_id
-                    else 'Upload or assign the primary LAF PDF'
-                ),
-            })
-            packet_readiness.extend({
-                'label': item['assignment'].name,
-                'ready': bool(item['resolved_template']),
-                'detail': (
-                    f"Uses shared template v{item['resolved_template'].version}"
-                    if item['resolved_template'] else 'No compatible published version is available'
-                ),
-            } for item in shared_assignments)
-            if product.lifecycle_status == product.STATUS_DRAFT:
-                attached_types = {
-                    item['assignment'].template.document_type for item in shared_assignments
-                }
-                available_shared_documents = list(
-                    OriginationDocumentTemplate.objects.filter(
-                        product_definition__isnull=True,
-                        status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                        published_configuration_revision__isnull=False,
-                    ).exclude(document_type__in=attached_types).order_by('name', '-version')
-                )
-                if not available_shared_documents:
-                    published_global = OriginationDocumentTemplate.objects.filter(
-                        product_definition__isnull=True,
-                        status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                        published_configuration_revision__isnull=False,
-                    )
-                    unpublished_global = OriginationDocumentTemplate.objects.filter(
-                        product_definition__isnull=True,
-                        status=OriginationDocumentTemplate.STATUS_READY,
-                    )
-                    if published_global.exists():
-                        shared_document_empty_reason = (
-                            'Every eligible reusable document is already attached to this product.'
-                        )
-                    elif unpublished_global.exists():
-                        shared_document_empty_reason = (
-                            'Reusable documents exist, but they must be calibrated and published before attachment.'
-                        )
-                    else:
-                        shared_document_empty_reason = (
-                            'No published reusable document is available yet. Create and publish one in the reusable library.'
-                        )
-            else:
-                shared_document_empty_reason = (
-                    'Published product versions are immutable. Create or open an editable next version to change this packet.'
-                )
-        commercial_contract_version = 0
-        if product and product.product_version_id:
-            from origination.services.origination_commercial_terms import (
-                commercial_contract_version as schema_commercial_contract_version,
-            )
-            commercial_contract_version = schema_commercial_contract_version(product.form_schema) or 1
-        context = {
-            **(extra_context or {}),
-            **({
-                'show_save': False,
-                'show_save_and_continue': False,
-                'show_save_and_add_another': False,
-                'show_delete': False,
-            } if product and product.lifecycle_status != product.STATUS_DRAFT else {}),
-            'origination_signer_roles': [
-                {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
-            ],
-            'origination_data_fields': catalogue_for_product(product),
-            'origination_data_field_add_url': reverse(
-                'admin:origination_originationdatafield_add',
-            ),
-            'origination_data_field_create_url': reverse(
-                'admin:origination_originationproductdefinition_create_canonical_field',
-            ),
-            'origination_document_template': template,
-            'origination_document_packet': list(
-                templates.filter(status__in=[
-                    OriginationDocumentTemplate.STATUS_READY,
-                    OriginationDocumentTemplate.STATUS_ACTIVE,
-                ]).order_by('display_order', 'document_key')
-            ) if product else [],
-            'origination_shared_document_assignments': shared_assignments,
-            'origination_available_shared_documents': available_shared_documents,
-            'origination_shared_document_empty_reason': shared_document_empty_reason,
-            'origination_packet_readiness': packet_readiness,
-            'origination_failed_template': failed_template,
-            'origination_existing_successor': existing_successor,
-            'origination_version_history_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_version_history',
-                    args=[product.pk],
-                ) if product else ''
-            ),
-            'origination_create_next_version_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_create_next_version',
-                    args=[product.pk],
-                ) if product and product.lifecycle_status == product.STATUS_PUBLISHED else ''
-            ),
-            'origination_calibration_url': (
-                reverse(
-                    'admin:origination_originationdocumenttemplate_calibrate',
-                    args=[template.pk],
-                )
-                if template and template.drive_file_id else ''
-            ),
-            'origination_template_change_url': (
-                reverse(
-                    'admin:origination_originationdocumenttemplate_change',
-                    args=[template.pk],
-                )
-                if template else ''
-            ),
-            'origination_document_add_url': (
-                reverse('admin:origination_originationdocumenttemplate_add')
-                + f'?product_definition={product.pk}' if product else ''
-            ),
-            'origination_supporting_document_setup_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_supporting_document_setup',
-                    args=[product.pk],
-                ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
-            ),
-            'origination_packet_add_shared_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_packet_add_shared',
-                    args=[product.pk],
-                ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
-            ),
-            'origination_publish_assigned_primary_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_publish_assigned_primary',
-                    args=[product.pk],
-                ) if product and product.lifecycle_status == product.STATUS_DRAFT and shared_primary else ''
-            ),
-            'origination_commercial_contract_version': commercial_contract_version,
-            'origination_upgrade_commercial_terms_url': (
-                reverse(
-                    'admin:origination_originationproductdefinition_upgrade_commercial_terms',
-                    args=[product.pk],
-                )
-                if product and product.product_version_id
-                and product.lifecycle_status == product.STATUS_DRAFT
-                and commercial_contract_version < 2
-                else ''
-            ),
-            'origination_assignment_add_url': (
-                reverse('admin:origination_originationproductdocumentassignment_add')
-                + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
-            ),
-            'origination_shared_library_url': reverse('admin:origination_originationdocumenttemplate_changelist') + '?product_definition__isnull=True',
-        }
-        return super().changeform_view(request, object_id, form_url, context)
 
     def upgrade_commercial_terms_view(self, request, object_id):
         if request.method != 'POST':
@@ -1986,401 +1183,27 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         logger.exception('Origination document-packet request failed.')
         return JsonResponse({'ok': False, 'error': 'The document-packet request could not be completed.'}, status=500)
 
-    def add_shared_document_to_packet_view(self, request, object_id):
-        if request.method != 'POST':
-            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        try:
-            product = self._draft_packet_product(request, object_id)
-            if not product:
-                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
-            template = OriginationDocumentTemplate.objects.filter(
-                pk=request.POST.get('template_id'), product_definition__isnull=True,
-                status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                published_configuration_revision__isnull=False,
-            ).first()
-            if not template:
-                raise ValidationError('Choose a published reusable document.')
-            next_order = (
-                product.document_assignments.aggregate(models.Max('display_order'))['display_order__max']
-                or 0
-            ) + 10
-            from origination.services.origination_templates import attach_shared_document_template
-            assignment = attach_shared_document_template(
-                product_definition=product, template=template,
-                inclusion_mode=template.inclusion_mode, display_order=next_order,
-                officer_selectable=template.officer_selectable,
-                default_selected=template.default_selected,
-                applicability_rule=template.applicability_rule or {}, actor=request.user,
-            )
-        except PermissionDenied:
-            raise
-        except Exception as exc:
-            return self._packet_error_response(exc)
-        return JsonResponse({'ok': True, 'assignment_id': str(assignment.pk), 'name': assignment.name})
 
-    def remove_shared_document_from_packet_view(self, request, object_id, assignment_id):
-        if request.method != 'POST':
-            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        try:
-            product = self._draft_packet_product(request, object_id)
-            if not product:
-                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
-            from origination.services.origination_templates import remove_shared_document_template
-            removed = remove_shared_document_template(
-                product_definition=product, assignment_id=assignment_id, actor=request.user,
-            )
-        except PermissionDenied:
-            raise
-        except Exception as exc:
-            return self._packet_error_response(exc)
-        return JsonResponse({'ok': True, 'removed': removed})
-
-    def upgrade_shared_primary_view(self, request, object_id, assignment_id):
-        if request.method != 'POST':
-            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        try:
-            product = self._draft_packet_product(request, object_id)
-            if not product:
-                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
-            from origination.services.origination_templates import upgrade_pinned_primary_assignment
-            assignment, upgraded = upgrade_pinned_primary_assignment(
-                product_definition=product, assignment_id=assignment_id, actor=request.user,
-            )
-        except PermissionDenied:
-            raise
-        except Exception as exc:
-            return self._packet_error_response(exc)
-        return JsonResponse({
-            'ok': True, 'upgraded': upgraded,
-            'assignment_id': str(assignment.pk),
-            'version': assignment.template.version,
-        })
-
-    def publish_assigned_primary_view(self, request, object_id):
-        if request.method != 'POST':
-            response = JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-            response['Allow'] = 'POST'
-            return response
-        product_url = reverse('admin:origination_originationproductdefinition_change', args=[object_id])
-        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
-        from origination.services.origination_templates import OriginationTemplateError
-        try:
-            product = self._draft_packet_product(request, object_id)
-            if not product:
-                return HttpResponse(status=404)
-            from origination.services.origination_templates import (
-                publish_product_template, resolve_assignment_template,
-            )
-            primary_assignments = list(product.document_assignments.select_related(
-                'template', 'template__published_configuration_revision',
-            ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY))
-            if len(primary_assignments) != 1:
-                raise ValidationError('Assign exactly one reusable primary LAF before publishing.')
-            primary = resolve_assignment_template(primary_assignments[0])
-            if not primary or not primary.published_configuration_revision_id:
-                raise ValidationError('The reusable primary LAF must be calibrated and published first.')
-            published_product, _template, _revision = publish_product_template(
-                template=primary,
-                revision=primary.published_configuration_revision.revision,
-                product_definition=product,
-                actor=request.user,
-                client_request_id=str(request.POST.get('request_id') or ''),
-            )
-            published_product.refresh_from_db()
-            if not (
-                published_product.is_active
-                and published_product.lifecycle_status == published_product.STATUS_PUBLISHED
-            ):
-                raise OriginationTemplateError(
-                    'Publication did not activate the product. No success was reported; retry or inspect the audit log.',
-                )
-        except PermissionDenied:
-            raise
-        except Exception as exc:
-            is_validation_error = isinstance(exc, (OriginationTemplateError, ValidationError))
-            if is_validation_error:
-                error = ' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
-            else:
-                logger.exception('Publishing product with assigned primary LAF failed.')
-                error = 'The product could not be published. No partial publication was committed.'
-            if is_ajax:
-                return JsonResponse(
-                    {'ok': False, 'error': error},
-                    status=400 if is_validation_error else 500,
-                )
-            self.message_user(request, error, level=messages.ERROR)
-            return HttpResponseRedirect(product_url)
-        success = (
-            f'{published_product.name} version {published_product.version} '
-            'is published and active for new applications.'
-        )
-        self.message_user(request, success, level=messages.SUCCESS)
-        if is_ajax:
-            return JsonResponse({
-                'ok': True,
-                'message': success,
-                'redirect_url': reverse('admin:origination_originationproductdefinition_changelist'),
-                'product_id': str(published_product.pk),
-                'is_active': bool(published_product.is_active),
-                'lifecycle_status': published_product.lifecycle_status,
-            })
-        return HttpResponseRedirect(product_url)
-
-    def supporting_document_setup_view(self, request, object_id):
-        """Single product-first entry point for shared packet documents."""
-        if not request.user.is_superuser:
+    def add_view(self, request, form_url='', extra_context=None):
+        if not self.has_add_permission(request):
             raise PermissionDenied
-        product = OriginationProductDefinition.objects.filter(pk=object_id).first()
-        if not product:
-            return HttpResponse(status=404)
-        product_url = reverse('admin:origination_originationproductdefinition_change', args=[product.pk])
-        setup_token = str(
-            request.POST.get('setup_return') or request.GET.get('setup_return') or ''
-        ).strip()
-        setup_return_url = ''
-        if setup_token:
-            try:
-                from origination.services.origination_setup import resolve_return_token
-                setup_target = resolve_return_token(setup_token)
-                if str(setup_target['definition_id']) != str(product.pk):
-                    raise ValidationError('The return target belongs to another product.')
-                setup_return_url = reverse(
-                    'admin:origination_origination_setup_step',
-                    args=[product.pk, setup_target['step_key']],
-                )
-            except (signing.BadSignature, ValidationError, ValueError):
-                setup_token = ''
-                self.message_user(
-                    request,
-                    'The setup return link expired. You can still configure the document safely.',
-                    level=messages.WARNING,
-                )
-        if product.lifecycle_status != product.STATUS_DRAFT:
-            self.message_user(
-                request, 'Published product versions are immutable. Create an editable next version first.',
-                level=messages.ERROR,
-            )
-            return HttpResponseRedirect(product_url)
-        form = ProductSupportingDocumentSetupForm(
-            request.POST or None, request.FILES or None, product=product,
-        )
-        if request.method == 'POST' and form.is_valid():
-            from origination.services.origination_templates import (
-                OriginationTemplateError, attach_shared_supporting_template,
-                create_shared_supporting_template,
-            )
-            options = {
-                'inclusion_mode': form.cleaned_data['inclusion_mode'],
-                'display_order': form.cleaned_data['display_order'],
-                'officer_selectable': form.cleaned_data['officer_selectable'],
-                'default_selected': form.cleaned_data['default_selected'],
-                'applicability_rule': form.cleaned_data['applicability_rule'],
-            }
-            try:
-                if form.cleaned_data['mode'] == form.MODE_EXISTING:
-                    assignment = attach_shared_supporting_template(
-                        product_definition=product, template=form.cleaned_data['template'],
-                        actor=request.user, **options,
-                    )
-                    self.message_user(
-                        request,
-                        f'{assignment.name} is now in this product document packet. '
-                        'New applications will resolve the latest compatible published version.',
-                        level=messages.SUCCESS,
-                    )
-                    return HttpResponseRedirect(setup_return_url or product_url)
-                template = create_shared_supporting_template(
-                    pdf_file=form.cleaned_data['pdf_file'], name=form.cleaned_data['name'],
-                    document_key=form.cleaned_data['document_key'],
-                    form_schema=form.cleaned_data['form_schema'] or {},
-                    signer_rules=form.cleaned_data['signer_rules'] or [], actor=request.user,
-                )
-            except OriginationTemplateError as exc:
-                form.add_error(None, str(exc))
-            else:
-                if template.status == template.STATUS_UPLOAD_FAILED or not template.drive_file_id:
-                    form.add_error(
-                        'pdf_file',
-                        template.upload_error or 'The PDF could not be stored. No document was attached.',
-                    )
-                else:
-                    pending = request.session.get('origination_supporting_document_attachments', {})
-                    pending[str(template.pk)] = {
-                        'product_id': str(product.pk), **options,
-                    }
-                    request.session['origination_supporting_document_attachments'] = pending
-                    request.session.modified = True
-                    self.message_user(
-                        request,
-                        'PDF uploaded. Draw its fields, then use Publish & attach to finish the packet.',
-                        level=messages.SUCCESS,
-                    )
-                    calibration_url = reverse(
-                        'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
-                    )
-                    if setup_token:
-                        calibration_url += '?' + urlencode({'setup_return': setup_token})
-                    return HttpResponseRedirect(calibration_url)
-        from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
-        from origination.services.origination_fields import catalogue_for_product
-        return TemplateResponse(request, 'admin/core/originationproductdefinition/supporting_document_setup.html', {
-            **self.admin_site.each_context(request),
-            'opts': self.model._meta,
-            'title': f'Add supporting document: {product}',
-            'product': product,
-            'product_url': product_url,
-            'setup_return_url': setup_return_url,
-            'setup_return_token': setup_token,
-            'form': form,
-            'origination_signer_roles': [
-                {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
-            ],
-            'origination_data_fields': catalogue_for_product(product),
-            'origination_data_field_add_url': reverse('admin:origination_originationdatafield_add'),
-            'origination_data_field_create_url': reverse(
-                'admin:origination_originationproductdefinition_create_canonical_field',
-            ),
-        })
+        return HttpResponseRedirect(reverse('admin:origination_origination_setup_dashboard'))
 
-    def get_form(self, request, obj=None, **kwargs):
-        if obj is not None and obj.lifecycle_status != obj.STATUS_DRAFT:
-            kwargs['form'] = forms.modelform_factory(OriginationProductDefinition, fields=())
-        return super().get_form(request, obj, **kwargs)
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        obj = self.get_object(request, object_id) if object_id else None
+        if not obj:
+            return HttpResponse(status=404)
+        return HttpResponseRedirect(reverse('admin:origination_origination_setup_workspace', args=[obj.pk]))
 
     @admin.display(description='Template')
     def template_readiness(self, obj):
-        template = obj.document_templates.filter(status__in=[
-            OriginationDocumentTemplate.STATUS_READY,
-            OriginationDocumentTemplate.STATUS_ACTIVE,
-        ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).order_by('-created_at').first()
-        if not template:
-            from origination.services.origination_templates import resolve_assignment_template
-            assignment = obj.document_assignments.select_related(
-                'template', 'template__published_configuration_revision',
-            ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY).first()
-            template = resolve_assignment_template(assignment) if assignment else None
-            if (
-                assignment
-                and assignment.version_policy == assignment.VERSION_LATEST_COMPATIBLE
-            ):
-                return 'Review main LAF version policy'
-        if not template:
-            failed = obj.document_templates.filter(
-                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
-            ).exists()
-            if failed:
-                return 'Upload failed'
-            return 'Main LAF missing'
-        if obj.is_active and template.status == template.STATUS_ACTIVE:
-            return 'Published'
-        if template.published_configuration_revision_id:
-            return 'Ready to publish'
-        if template.events.filter(action='version_inherited').exists():
-            return 'Alignment copied'
-        return 'Calibration required'
-
-    def save_model(self, request, obj, form, change):
-        if change and obj.lifecycle_status != obj.STATUS_DRAFT:
-            raise PermissionDenied
-        if not change:
-            if obj.product_version_id:
-                obj.product_key = obj.product_version.product.code
-                obj.name = obj.product_version.product.name
-            if OriginationProductDefinition.objects.filter(product_key=obj.product_key).exists():
-                raise ValidationError('This product key already exists. Create a new version from its existing record.')
-            obj.version = 1
-            obj.document_type = obj.product_key
-            obj.document_template_version = obj.version
-            obj.lifecycle_status = obj.STATUS_DRAFT
-            obj.is_active = False
-        if not obj.created_by_id:
-            obj.created_by = request.user
-        if obj.product_version_id:
-            from origination.services.origination_commercial_terms import (
-                ensure_commercial_catalogue, merge_commercial_contract,
-            )
-            commercial_fields = ensure_commercial_catalogue(actor=request.user)
-            obj.form_schema = merge_commercial_contract(
-                obj.form_schema, fields=commercial_fields,
-            )
-        from origination.services.loan_origination import validate_product_form_contract
-        validate_product_form_contract(obj.form_schema, obj.signer_rules)
-        from origination.services.origination_approval import validate_approval_roles
-        obj.approval_roles = obj.approval_roles or []
-        validate_approval_roles(obj.approval_roles, obj.signer_rules)
-        super().save_model(request, obj, form, change)
-        from origination.services.origination_fields import bind_compatible_schema_fields
-        bind_compatible_schema_fields(obj, create_issues=True)
-        OriginationProductDefinitionEvent.objects.create(
-            product_definition=obj, action='draft_updated' if change else 'created',
-            actor=request.user, metadata={'version': obj.version},
-        )
-        reusable_primary = form.cleaned_data.get('reusable_primary_template')
-        if (
-            form.cleaned_data.get('main_laf_source') == form.LAF_SOURCE_LIBRARY
-            and reusable_primary
-        ):
-            from origination.services.origination_templates import attach_shared_document_template
-            assignment = attach_shared_document_template(
-                product_definition=obj,
-                template=reusable_primary,
-                inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-                display_order=0,
-                officer_selectable=False,
-                default_selected=False,
-                applicability_rule={},
-                actor=request.user,
-                version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            )
-            messages.success(
-                request,
-                f'{assignment.name} v{assignment.template.version} is pinned as this product version\'s main LAF.',
-            )
-        laf_pdf = form.cleaned_data.get('laf_pdf')
-        if laf_pdf:
-            from origination.services.origination_templates import (
-                create_template, replace_draft_template,
-            )
-            current_template = obj.document_templates.filter(status__in=[
-                OriginationDocumentTemplate.STATUS_READY,
-                OriginationDocumentTemplate.STATUS_ACTIVE,
-            ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).order_by('-created_at').first()
-            creator = replace_draft_template if current_template else create_template
-            template = creator(
-                pdf_file=laf_pdf, product_definition=obj,
-                name=f'{obj.name} LAF v{obj.version}', actor=request.user,
-            )
-            obj._uploaded_laf_template_id = template.pk
-            if template.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
-                messages.error(request, template.upload_error)
-            else:
-                messages.success(
-                    request,
-                    'Replacement LAF uploaded; the previous PDF remains in version history.'
-                    if current_template else
-                    'LAF uploaded. Assign each form variable and signer slot on the PDF.',
-                )
-
-    def _uploaded_laf_response(self, obj):
-        template_id = getattr(obj, '_uploaded_laf_template_id', None)
-        if not template_id:
-            return None
-        template = OriginationDocumentTemplate.objects.get(pk=template_id)
-        if template.drive_file_id and template.status != template.STATUS_UPLOAD_FAILED:
-            return HttpResponseRedirect(reverse(
-                'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
-            ))
-        return HttpResponseRedirect(reverse(
-            'admin:origination_originationproductdefinition_change', args=[obj.pk],
-        ))
-
-    def response_add(self, request, obj, post_url_continue=None):
-        return self._uploaded_laf_response(obj) or super().response_add(
-            request, obj, post_url_continue,
-        )
-
-    def response_change(self, request, obj):
-        return self._uploaded_laf_response(obj) or super().response_change(request, obj)
+        from origination.services.origination_setup_documents import document_readiness
+        if not obj.product_version_id:
+            return 'Product terms required'
+        documents, errors = document_readiness(obj)
+        return errors[0] if errors else 'Published documents selected' if documents else 'Main LAF missing'
 
     @admin.action(description='Create editable next version')
     def create_new_version(self, request, queryset):
@@ -2698,8 +1521,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     })
                 )
                 context['origination_attach_to_product_url'] = (
-                    reverse('admin:origination_originationproductdocumentassignment_add')
-                    + '?' + urlencode({'template': original.pk})
+                    reverse('admin:origination_originationdocumenttemplate_calibrate', args=[original.pk])
                 )
         return super().changeform_view(request, object_id, form_url, context)
 
@@ -2857,38 +1679,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'Open visual calibration</a>', url,
         )
 
-    @staticmethod
-    def _pending_supporting_attachment(request, template):
-        """Read the short-lived product-wizard hand-off for this template only."""
-        raw = (request.session.get('origination_supporting_document_attachments') or {}).get(str(template.pk))
-        if not isinstance(raw, dict):
-            return None
-        product_id = raw.get('product_id')
-        product = OriginationProductDefinition.objects.filter(
-            pk=product_id, lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-        ).first()
-        if not product or template.product_definition_id or template.document_role != template.ROLE_SUPPORTING:
-            return None
-        return {'product': product, 'options': {
-            'inclusion_mode': raw.get('inclusion_mode', OriginationDocumentTemplate.INCLUDE_REQUIRED),
-            'display_order': raw.get('display_order', 10),
-            'officer_selectable': bool(raw.get('officer_selectable')),
-            'default_selected': bool(raw.get('default_selected')),
-            'applicability_rule': raw.get('applicability_rule') or {},
-        }}
-
-    @staticmethod
-    def _clear_pending_supporting_attachment(request, template):
-        pending = dict(request.session.get('origination_supporting_document_attachments') or {})
-        if str(template.pk) in pending:
-            pending.pop(str(template.pk), None)
-            request.session['origination_supporting_document_attachments'] = pending
-            request.session.modified = True
-
     def calibrate_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
-        pending_attachment = self._pending_supporting_attachment(request, obj)
-        product = pending_attachment['product'] if pending_attachment else None
+        product = obj.product_definition
         setup_return_url = ''
         setup_return_warning = ''
         setup_token = str(request.GET.get('setup_return') or '').strip()
@@ -2905,9 +1698,6 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                         obj.product_definition_id == setup_definition.pk
                         or obj.product_eligibilities.filter(product_id=setup_definition.product_version.product_id).exists()
                         or (product and product.pk == setup_definition.pk)
-                        or setup_definition.document_assignments.filter(
-                            template__document_type=obj.document_type,
-                        ).exists()
                     )
                 )
                 if not owns_template:
@@ -2938,8 +1728,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'calibration_setup_return_token': setup_token if setup_return_url and not setup_return_warning else '',
             'calibration_setup_return_warning': setup_return_warning,
             'calibration_attach_product_url': (
-                reverse('admin:origination_originationproductdocumentassignment_add')
-                + '?' + urlencode({'template': obj.pk})
+                reverse('admin:origination_originationdocumenttemplate_calibrate', args=[obj.pk])
                 if obj.product_definition_id is None else ''
             ),
         })
@@ -3214,54 +2003,15 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         obj = self._calibration_template(request, object_id)
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        if not self._pending_supporting_attachment(request, obj):
-            try:
-                from origination.services.document_editor import publish_document
-                body = self._json_body(request)
-                document = publish_document(document=obj, actor=request.user, revision=int(body.get('revision',0)),
-                    request_id=str(body.get('client_request_id') or ''), impact_token=body.get('impact_token',''))
-                return JsonResponse({'ok':True,'revision':document.published_configuration_revision.revision,
-                                     'template_name':document.name})
-            except Exception as exc:
-                return self._calibration_error_response(exc)
         try:
-            from origination.services.origination_templates import (
-                publish_and_attach_shared_supporting_template, publish_product_template,
-            )
+            from origination.services.document_editor import publish_document
             body = self._json_body(request)
-            request_id = str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '')
-            pending_attachment = self._pending_supporting_attachment(request, obj)
-            from origination.services.origination_setup_documents import shared_review
-            review = shared_review(obj)
-            if review['required'] and body.get('impact_token') != review['token']:
-                raise ValidationError('Linked products changed. Reload and review the shared upgrade before publishing.')
-            assignment = None
-            if pending_attachment:
-                _template, published, assignment = publish_and_attach_shared_supporting_template(
-                    product_definition=pending_attachment['product'], template=obj,
-                    revision=int(body.get('revision')), actor=request.user,
-                    client_request_id=request_id, assignment_options=pending_attachment['options'],
-                    expected_shared_impact=body.get('impact_token', ''),
-                )
-                product = pending_attachment['product']
-                self._clear_pending_supporting_attachment(request, obj)
-            else:
-                product, _template, published = publish_product_template(
-                    template=obj, revision=int(body.get('revision')), actor=request.user,
-                    client_request_id=request_id,
-                    expected_shared_impact=body.get('impact_token', ''),
-                )
+            document = publish_document(document=obj, actor=request.user, revision=int(body.get('revision', 0)),
+                request_id=str(body.get('client_request_id') or ''), impact_token=body.get('impact_token', ''))
+            return JsonResponse({'ok': True, 'revision': document.published_configuration_revision.revision,
+                                 'template_name': document.name})
         except Exception as exc:
             return self._calibration_error_response(exc)
-        return JsonResponse({
-            'ok': True,
-            'revision': published.revision,
-            'product_key': product.product_key if product else '',
-            'product_name': product.name if product else '',
-            'product_version': product.version if product else None,
-            'template_name': obj.name,
-            'assignment_name': assignment.name if assignment else '',
-        })
 
     @admin.display(description='Drive file')
     def drive_link(self, obj):

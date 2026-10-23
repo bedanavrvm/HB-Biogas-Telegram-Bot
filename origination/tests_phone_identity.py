@@ -14,7 +14,7 @@ from django.test import TestCase, SimpleTestCase, TransactionTestCase, override_
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, IntegrationOperation, IntegrationCircuitState
+from core.models import AccessGrant, ComplianceAuditChainState, IntegrationOperation, IntegrationCircuitState
 from origination.models import (
     LoanOriginationApplication, OriginationProductDefinition,
     OriginationPhoneIdentityCheck as Check, OriginationPhoneIdentityDailyUsage as Usage,
@@ -30,6 +30,7 @@ CONFIG = dict(ORIGINATION_PHONE_ID_CHECK_ENABLED=True, ORIGINATION_PHONE_ID_CHEC
 class Fixtures:
     def setup_data(self):
         cache.clear()
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         users = get_user_model()
         self.actor = users.objects.create_user(username='synthetic-phone-it', is_superuser=True)
         self.officer = users.objects.create_user(username='synthetic-phone-officer')
@@ -44,7 +45,11 @@ class Fixtures:
                     {'key':'applicant_phone', 'type':'phone', 'section_key':'applicant'},
                     {'key':'applicant_other_phone', 'type':'phone', 'section_key':'applicant'},
                     {'key':'next_of_kin_phone', 'type':'phone', 'section_key':'applicant'},
-                ]}, form_payload={'applicant_id_number':'00099001', 'applicant_phone':'0700000001',
+                ]}, template_configuration_snapshot={'field_overlay_manifest': {'fields': {
+                    key: {'context_key': key, 'page_number': 1,
+                          'box': {'x': 10, 'y': 10 + index * 20, 'width': 100, 'height': 18}}
+                    for index, key in enumerate(('applicant_id_number', 'applicant_phone', 'applicant_other_phone', 'next_of_kin_phone'))
+                }}}, form_payload={'applicant_id_number':'00099001', 'applicant_phone':'0700000001',
                                  'applicant_other_phone':'0100000001', 'next_of_kin_phone':'0700000002'})
 
     def body(self, app=None, target='primary'):
@@ -119,8 +124,6 @@ class PhoneIdentityTests(Fixtures, TestCase):
 
     @patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
     def test_match_replay_and_workflow_bytes_unchanged(self, validate):
-        self.app.template_configuration_snapshot = {'field_overlay_manifest':{}}
-        self.app.save(update_fields=['template_configuration_snapshot'])
         before = LoanOriginationApplication.objects.values().get(pk=self.app.pk)
         body = self.body()
         first, status = self.run_check(body=body)
@@ -131,6 +134,7 @@ class PhoneIdentityTests(Fixtures, TestCase):
         self.assertEqual(Usage.objects.get().dispatch_count, 1)
         self.assertEqual(LoanOriginationApplication.objects.values().get(pk=self.app.pk), before)
         self.assertFalse(self.app.events.filter(metadata__form_projection_version=1).exists())
+        self.assertFalse(self.app.events.filter(metadata__form_projection_version=2).exists())
         event = self.app.events.get()
         self.assertNotIn('00099001', json.dumps(event.metadata))
         self.assertNotIn('254700000001', json.dumps(event.metadata))

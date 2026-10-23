@@ -84,6 +84,34 @@ class DocumentEditorTests(TestCase):
                 self.assertEqual(published.signer_rules, [])
                 self.assertEqual(published.placement_config['signature_overlay_manifest']['slots'], {})
 
+    def test_signer_can_choose_existing_identity_fields_without_collecting_id(self):
+        document = self.save([{'role': 'borrower', 'required': True}])
+        rules = deepcopy(document.signer_rules)
+        phone_key = rules[0]['identity_fields']['phone']
+        rules[0]['identity_fields']['national_id'] = None
+        document = self.save(rules, key='identity-edit', schema=1, revision=1,
+                             configuration=document.configuration_revisions.latest('revision').configuration)
+        self.assertIsNone(document.signer_rules[0]['identity_fields']['national_id'])
+        self.assertEqual(document.signer_rules[0]['identity_fields']['phone'], phone_key)
+
+    def test_signer_phone_link_must_point_to_a_phone_field(self):
+        document = self.save([{'role': 'borrower', 'required': True}])
+        rules = deepcopy(document.signer_rules)
+        phone_key = rules[0]['identity_fields']['phone']
+        rules[0]['identity_fields']['phone'] = rules[0]['identity_fields']['national_id']
+        with self.assertRaisesRegex(ValidationError, 'phone field'):
+            self.save(rules, key='wrong-phone', schema=1, revision=1,
+                      configuration=document.configuration_revisions.latest('revision').configuration)
+        document.refresh_from_db()
+        self.assertEqual(document.signer_rules[0]['identity_fields']['phone'], phone_key)
+
+    def test_existing_text_phone_mapping_remains_editable(self):
+        self.document.form_schema = {'fields': [{'key': 'legacy_contact', 'type': 'text'}], 'sections': []}
+        self.document.save(update_fields=['form_schema'])
+        document = self.save([{'role': 'borrower', 'required': True,
+                              'identity_fields': {'phone': 'legacy_contact'}}])
+        self.assertEqual(document.signer_rules[0]['identity_fields']['phone'], 'legacy_contact')
+
     def test_editable_copy_can_remove_all_signers_without_changing_published_source(self):
         source = self.ready()
         published = publish_document(document=source, actor=self.actor, revision=2,

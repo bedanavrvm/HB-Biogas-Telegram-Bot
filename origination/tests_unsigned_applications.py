@@ -41,8 +41,9 @@ class UnsignedApplicationTests(TestCase):
             document_role=role, name='Training LAF' if role == 'primary' else 'Guarantee', version=version,
             status='active', page_count=1, source_byte_size=100, source_sha256='a' * 64, drive_file_id='synthetic-pdf',
             form_schema=self.schema, signer_rules=signers or [], created_by=self.actor)
+        from origination.tests_form_projection import layout
         config = OriginationTemplateConfigurationRevision.objects.create(template=document, revision=1,
-            configuration={}, is_published=True, published_at=timezone.now(), created_by=self.actor)
+            configuration=layout('applicant_full_name'), is_published=True, published_at=timezone.now(), created_by=self.actor)
         OriginationDocumentTemplate.objects.filter(pk=document.pk).update(published_configuration_revision=config)
         OriginationDocumentProductEligibility.objects.create(template=document, product=self.product)
         document.refresh_from_db()

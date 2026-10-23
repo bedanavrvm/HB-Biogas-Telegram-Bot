@@ -40,38 +40,41 @@ class FormProjectionTests(SimpleTestCase):
         self.assertEqual([item['key'] for item in result['sections']], ['applicant'])
         self.assertEqual(source, before)
 
+    def test_editable_application_without_any_placement_does_not_fall_back_to_full_schema(self):
+        source = schema(field('purpose'), field('guarantor_phone'))
+        self.assertEqual(application_input_schema(application(source, {}))['fields'], [])
+
     def test_invalid_and_duplicate_placements_do_not_create_inputs(self):
         config = layout('purpose', 'purpose', 'notes')
         config['field_overlay_manifest']['fields']['2']['box']['width'] = 0
         result = project_document_schema(schema(field('purpose'), field('notes')), config)
         self.assertEqual([item['key'] for item in result['fields']], ['purpose'])
 
-    def test_identity_and_signer_contact_are_explicit_exceptions(self):
+    def test_unplaced_identity_and_signer_contact_never_become_inputs(self):
         source = schema(field('applicant_full_name'), field('applicant_phone'),
                         field('guarantor_name'), field('guarantor_phone'), field('notes'))
         result = project_document_schema(source, layout(), signer_rules=[{
             'role': 'guarantor_1', 'identity_fields': {'name': 'guarantor_name', 'phone': 'guarantor_phone'},
         }])
-        self.assertEqual({item['key'] for item in result['fields']},
-                         {'applicant_full_name', 'applicant_phone', 'guarantor_name', 'guarantor_phone'})
-        self.assertEqual({item['label'] for item in result['sections']}, {'Applicant', 'Signing details'})
+        self.assertEqual(result['fields'], [])
+        self.assertEqual(result['sections'], [])
 
-    def test_only_active_calculation_dependencies_remain(self):
+    def test_calculations_do_not_make_unplaced_dependencies_visible(self):
         source = schema(field('business_sales_amount', type='money'), field('business_other_income_lines'),
                         field('business_rent_expense', type='money'), field('notes'),
                         field('business_total_income', source='calculated', binding='total.business_total_income'))
         result = project_document_schema(source, layout('business_total_income'))
         self.assertEqual({item['key'] for item in result['fields']},
-                         {'business_sales_amount', 'business_other_income_lines', 'business_total_income'})
+                         {'business_total_income'})
 
-    def test_lending_inputs_remain_and_generated_fields_are_not_inputs(self):
+    def test_unplaced_lending_inputs_and_generated_fields_are_not_inputs(self):
         source = schema(field('loan_amount', type='money'), field('repayment_tenor', type='number'), field('notes'),
                         field('total_interest_amount', source='calculated', binding='quote.total_interest_amount'))
         source['commercial_contract_version'] = 2
         app = application(source, layout('total_interest_amount'))
         result = application_input_schema(app)
-        self.assertEqual({item['key'] for item in result['fields']}, {'loan_amount', 'repayment_tenor'})
-        self.assertEqual(len(result['sections']), 1)
+        self.assertEqual(result['fields'], [])
+        self.assertEqual(result['sections'], [])
 
     def test_repeating_table_uses_placed_row_capacity_without_changing_original(self):
         rows = field('people', type='repeating_group')
@@ -82,16 +85,16 @@ class FormProjectionTests(SimpleTestCase):
         self.assertEqual(result['fields'][0]['structure']['max_items'], 2)
         self.assertEqual(rows['structure']['max_items'], 10)
 
-    def test_dependent_location_keeps_parent_and_editor_explains_identity_exception(self):
+    def test_unplaced_parent_and_identity_fields_have_no_visibility_exception(self):
         from origination.services.origination_value_contracts import annotate_form_fields
         county = field('county', type='county')
         location = field('sub_county', type='sub_county')
         location['validation'] = {'parent_field': 'county'}
         source = schema(county, location, field('notes'))
         result = project_document_schema(source, layout('sub_county'))
-        self.assertEqual({item['key'] for item in result['fields']}, {'county', 'sub_county'})
+        self.assertEqual({item['key'] for item in result['fields']}, {'sub_county'})
         annotated = annotate_form_fields([{'key': 'applicant_full_name'}, {'key': 'notes'}], schema(field('applicant_full_name'), field('notes')))
-        self.assertEqual(annotated[0]['form_essential_reason'], 'applicant')
+        self.assertEqual(annotated[0]['form_essential_reason'], '')
         self.assertEqual(annotated[1]['form_essential_reason'], '')
 
     def test_unfinished_repeating_placement_does_not_break_editor_metadata(self):
@@ -120,6 +123,16 @@ class FormProjectionTests(SimpleTestCase):
         app = application(source, layout('purpose'), status='partially_signed')
         self.assertEqual({item['key'] for item in application_input_schema(app)['fields']}, {'purpose', 'notes'})
         app.schema_snapshot = {**source, 'form_projection_version': 1}
+        del app._form_projection_version
+        self.assertEqual({item['key'] for item in application_input_schema(app)['fields']}, {'purpose'})
+
+    def test_submitted_version_one_keeps_signer_inputs_but_editable_forms_use_placement_only(self):
+        source = schema(field('purpose'), field('guarantor_phone'))
+        source['form_projection_version'] = 1
+        app = application(source, layout('purpose'), status='partially_signed')
+        app.signer_rules_snapshot = [{'role': 'guarantor_1', 'identity_fields': {'phone': 'guarantor_phone'}}]
+        self.assertEqual({item['key'] for item in application_input_schema(app)['fields']}, {'purpose', 'guarantor_phone'})
+        app.status = 'correction_required'
         self.assertEqual({item['key'] for item in application_input_schema(app)['fields']}, {'purpose'})
 
     def test_legacy_draft_uses_its_captured_layout_without_value_contract_conversion(self):
@@ -153,7 +166,7 @@ class FormProjectionSaveTests(TestCase):
         saved = self.save({'purpose': 'Updated'})
         self.assertEqual(saved.form_payload['unused'], 'Retain this answer')
         self.assertEqual(self.save({'purpose': 'Updated'}).revision, saved.revision)
-        self.assertTrue(saved.events.filter(metadata__form_projection_version=1).exists())
+        self.assertTrue(saved.events.filter(metadata__form_projection_version=2).exists())
 
     def test_prefetched_form_compilation_needs_no_per_field_database_queries(self):
         from origination.models import LoanOriginationApplication
@@ -181,7 +194,7 @@ class FormProjectionSaveTests(TestCase):
         self.document.save(update_fields=['schema_snapshot', 'template_snapshot', 'selected'])
         self.assertEqual(preview_context(self.application)['business_total_income'], '')
 
-    def test_existing_confirmed_person_link_keeps_its_source_details_available(self):
+    def test_existing_person_link_cannot_expose_unplaced_source_details(self):
         people = [field(role + suffix, subject=role) for role in ['spouse', 'guarantor_1']
                   for suffix in ['_name', '_national_id', '_phone']]
         self.application.schema_snapshot = schema(field('purpose'), *people)
@@ -190,8 +203,10 @@ class FormProjectionSaveTests(TestCase):
                                               _person_role_bindings={'guarantor_1': 'spouse'})
         self.application.save(update_fields=['schema_snapshot', 'template_configuration_snapshot', 'form_payload'])
         keys = {item['key'] for item in application_input_schema(self.application)['fields']}
-        self.assertTrue({'spouse_name', 'spouse_national_id', 'spouse_phone'} <= keys)
-        self.assertEqual(self.save({'purpose': 'Updated'}).form_payload['guarantor_1_name'], 'Synthetic spouse')
+        self.assertEqual(keys, {'purpose', 'guarantor_1_name'})
+        saved = self.save({'purpose': 'Updated', 'guarantor_1_name': 'Placed name'})
+        self.assertEqual(saved.form_payload['guarantor_1_name'], 'Placed name')
+        self.assertEqual(saved.form_payload['spouse_name'], 'Synthetic spouse')
 
     def test_inactive_existing_person_link_neither_blocks_saves_nor_creates_values(self):
         self.application.form_payload['_person_role_bindings'] = {'guarantor_1': 'spouse'}
@@ -229,6 +244,7 @@ class FormProjectionSaveTests(TestCase):
         from origination.services.loan_origination import serialize_application
         from origination.services.origination_documents import mark_document_previewed
         result = serialize_application(self.application, actor=self.officer)
+        self.assertEqual(result['form_projection_version'], 1)
         self.assertEqual(set(result['form_payload']), {'purpose'})
         support = next(row for row in result['document_packet']['documents'] if row['key'] == 'visit')
         self.assertEqual([item['key'] for item in support['schema']['fields']], ['visit_notes'])
@@ -275,7 +291,7 @@ class FormProjectionSaveTests(TestCase):
         submitted = submit_for_review(application_id=self.application.pk, actor=self.officer,
             expected_revision=self.application.revision, request_id='submit-visible')
         self.assertEqual(submitted.status, 'ready_for_review')
-        self.assertTrue(submitted.events.filter(action='submitted_for_review', metadata__form_projection_version=1).exists())
+        self.assertTrue(submitted.events.filter(action='submitted_for_review', metadata__form_projection_version=2).exists())
         self.assertEqual([item['key'] for item in application_input_schema(submitted)['fields']], ['purpose'])
 
     def test_submission_still_requires_visible_required_fields(self):

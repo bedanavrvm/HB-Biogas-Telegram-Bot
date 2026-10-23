@@ -121,8 +121,10 @@ class ApplicationDownloadTests(TestCase):
         self.assertFalse(self.app.signing_packages.exists())
 
     def test_individual_validation_does_not_require_other_documents(self):
+        from origination.tests_form_projection import layout
         self.app.packet_documents.filter(document_key='home_visit').update(
             schema_snapshot={'fields': [{'key': 'contact_phone', 'type': 'phone', 'required': True}]},
+            template_snapshot={'configuration': layout('contact_phone')},
             field_payload={'contact_phone': 'bad-phone'})
         with self.assertRaises(OriginationError):
             self.prepare()
@@ -132,30 +134,37 @@ class ApplicationDownloadTests(TestCase):
             self.prepare('home_visit', allow_incomplete=True)
 
     def test_supporting_copy_does_not_require_unrelated_main_input(self):
+        from origination.tests_form_projection import layout
         self.app.schema_snapshot = {'fields': [{'key': 'applicant_phone', 'type': 'phone', 'required': True}]}
         self.app.form_payload['applicant_phone'] = 'bad-phone'
-        self.app.save(update_fields=['schema_snapshot', 'form_payload'])
+        self.app.template_configuration_snapshot = layout('applicant_phone')
+        self.app.save(update_fields=['schema_snapshot', 'form_payload', 'template_configuration_snapshot'])
         self.prepare('guarantee')
         with self.assertRaises(OriginationError):
             self.prepare('primary')
 
     def test_shared_value_documents_keep_individual_validation_scoped(self):
         from origination.tests_value_contracts import field, schema
+        from origination.tests_form_projection import layout
         self.app.schema_snapshot = schema(field('applicant_full_name'))
-        self.app.save(update_fields=['schema_snapshot'])
+        self.app.template_configuration_snapshot = layout('applicant_full_name')
+        self.app.save(update_fields=['schema_snapshot', 'template_configuration_snapshot'])
         for document in self.app.packet_documents.all():
             document.schema_snapshot = (self.app.schema_snapshot if document.document_key == 'primary'
                 else schema(field('contact_phone', type='phone', scope='document')) if document.document_key == 'home_visit'
                 else schema())
             document.field_payload = {'contact_phone': 'bad-phone'} if document.document_key == 'home_visit' else {}
-            document.save(update_fields=['schema_snapshot', 'field_payload'])
+            document.template_snapshot = {'configuration': layout(*(field['key'] for field in document.schema_snapshot['fields']))}
+            document.save(update_fields=['schema_snapshot', 'field_payload', 'template_snapshot'])
         self.prepare('primary')
         self.prepare('guarantee', request_id='shared-guarantee')
         with self.assertRaises(OriginationError):
             self.prepare('home_visit', allow_incomplete=True)
 
     def test_incomplete_confirmation_is_specific_and_keeps_selection(self):
+        from origination.tests_form_projection import layout
         self.app.packet_documents.filter(document_key='guarantee').update(
+            template_snapshot={'configuration': layout('name')},
             schema_snapshot={'fields': [{'key': 'name', 'type': 'text', 'required': True}]})
         with self.assertRaises(IncompleteCopyConfirmation):
             self.prepare('guarantee')

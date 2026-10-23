@@ -13,7 +13,6 @@ from origination.models import (
     OriginationDataField,
     OriginationDataFieldEvent,
     OriginationDocumentTemplate,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationReportingValue,
     OriginationSigningPackage,
@@ -35,7 +34,6 @@ from origination.services.origination_fields import (
     create_data_field,
     masked_reporting_value,
     project_reporting_values,
-    resolve_review_issue,
     snapshot_form_schema,
 )
 from origination.services.origination_templates import clone_product_version
@@ -286,12 +284,14 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.assertEqual(frozen['help_text'], 'Original guidance')
 
     def test_catalogue_exposes_seeded_fields_not_only_four_system_placeholders(self):
+        from origination.services.generic_jawabu_laf_seed import ensure_catalogue
+        ensure_catalogue(actor=self.superuser)
         catalogue = catalogue_for_product(self.product)
 
         self.assertGreater(len(catalogue), 4)
         self.assertIn('applicant_id_number', {item['key'] for item in catalogue})
         self.assertIn('loan_amount', {item['key'] for item in catalogue})
-        self.assertIn('reference_number', {item['key'] for item in catalogue})
+        self.assertIn('installment_amount', {item['key'] for item in catalogue})
 
     def test_choice_codes_are_global_while_product_uses_subset_and_labels(self):
         field, _ = create_data_field(
@@ -334,8 +334,10 @@ class OriginationDataFieldCatalogueTests(TestCase):
         )
         self.assertEqual(invalid.errors['marital_status_test'], 'Choose an available option.')
 
+        from origination.tests_form_projection import layout
         application = LoanOriginationApplication.objects.create(
             reference_number='ORG-CATALOGUE-CHOICE', product_definition=product,
+            template_configuration_snapshot=layout('marital_status_test'),
             officer=self.officer, branch='Nairobi',
             form_payload={'marital_status_test': 'married'},
             schema_snapshot=snapshot_form_schema(product.form_schema),
@@ -365,7 +367,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.assertEqual(len(retried.form_schema['fields']), 1)
         self.assertEqual(field.events.filter(action='attached').count(), 1)
 
-    def test_successor_legacy_conflict_has_a_required_review_exit(self):
+    def test_successor_conflict_requires_explicit_canonical_correction(self):
         canonical, _ = create_data_field(
             payload={'label': 'Existing concept', 'key': 'legacy_collision_test', 'type': 'text'},
             actor=self.superuser,
@@ -379,19 +381,11 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.product.save(update_fields=['form_schema', 'lifecycle_status', 'is_active'])
 
         clone = clone_product_version(self.product, actor=self.superuser)
-        issue = clone.field_review_issues.get()
-        self.assertEqual(issue.reason, 'type_conflict')
-        self.assertEqual(issue.suggested_field, canonical)
-        self.assertEqual(issue.status, OriginationFieldReviewIssue.STATUS_OPEN)
-
-        resolve_review_issue(
-            issue=issue, status=OriginationFieldReviewIssue.STATUS_ACCEPTED,
-            resolution_field=None, notes='Historical vendor field awaiting a replacement LAF.',
-            actor=self.superuser,
-        )
-        issue.refresh_from_db()
-        self.assertEqual(issue.status, OriginationFieldReviewIssue.STATUS_ACCEPTED)
-        self.assertTrue(clone.events.filter(action='legacy_field_accepted').exists())
+        from origination.services.origination_fields import bind_compatible_schema_fields
+        with self.assertRaisesRegex(OriginationFieldError, 'compatible canonical field'):
+            bind_compatible_schema_fields(clone)
+        self.assertEqual(canonical.data_type, 'text')
+        self.assertEqual(clone.form_schema['fields'][0]['type'], 'money')
 
     def test_reporting_projection_is_typed_snapshot_driven_and_idempotent(self):
         amount, _ = create_data_field(

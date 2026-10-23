@@ -356,10 +356,10 @@ def select_documents(*, definition, templates, actor, request_id):
             if template.status == template.STATUS_ACTIVE:
                 try:
                     if template.document_role == template.ROLE_PRIMARY:
-                        _schema, reasons = main_laf_contract(definition, template)
+                        _schema, reasons = main_laf_contract(definition, template, require_complete=False)
                         if reasons:
                             raise ValueError(' '.join(reasons))
-                    validate_catalogue_publication(template)
+                    validate_catalogue_publication(template, require_complete=False)
                 except ValueError as exc:
                     reason = str(exc).replace('The Main LAF is missing the canonical commercial field ', 'Add the field ')
                     for field in definition.form_schema.get('fields', []):
@@ -501,22 +501,24 @@ def document_readiness(definition):
         if not isinstance(fields, dict) or not isinstance(slots, dict):
             errors.append(f'{template.name}: review its field and signature alignment.')
             continue
-        schema, _signers = template_form_contract(template)
-        mapped = {spec.get('context_key') for spec in fields.values() if isinstance(spec, dict)}
-        missing = [field.get('label') or field.get('key') for field in schema.get('fields', [])
-                   if field.get('required') and field.get('key') not in mapped]
-        if not fields or missing:
-            errors.append(f'{template.name}: align required fields' + (': ' + ', '.join(missing) if missing else '.'))
-        expected_slots = _expected_signature_slots(template.product_definition, template)
-        missing_slots = [spec.get('label') or key for key, spec in expected_slots.items()
-                         if spec.get('required') and key not in slots]
-        if missing_slots:
-            errors.append(f'{template.name}: align signing locations: ' + ', '.join(missing_slots))
+        if template.status != template.STATUS_ACTIVE:
+            schema, _signers = template_form_contract(template)
+            mapped = {spec.get('context_key') for spec in fields.values() if isinstance(spec, dict)}
+            missing = [field.get('label') or field.get('key') for field in schema.get('fields', [])
+                       if field.get('required') and field.get('key') not in mapped]
+            if not fields or missing:
+                errors.append(f'{template.name}: align required fields' + (': ' + ', '.join(missing) if missing else '.'))
+            expected_slots = _expected_signature_slots(template.product_definition, template)
+            missing_slots = [spec.get('label') or key for key, spec in expected_slots.items()
+                             if spec.get('required') and key not in slots]
+            if missing_slots:
+                errors.append(f'{template.name}: align signing locations: ' + ', '.join(missing_slots))
         if template in mains:
             # Draft alignment is deliberately not published until Enable.
             original_revision = template.published_configuration_revision_id
             template.published_configuration_revision_id = revision.pk
-            _schema, reasons = main_laf_contract(definition, template, require_active=False)
+            _schema, reasons = main_laf_contract(definition, template, require_active=False,
+                                               require_complete=template.status != template.STATUS_ACTIVE)
             template.published_configuration_revision_id = original_revision
             for reason in reasons:
                 reason = reason.replace('The Main LAF is missing the canonical commercial field ', 'Add the field ')
@@ -536,7 +538,7 @@ def document_readiness(definition):
                 template.published_configuration_revision_id = original_revision
     try:
         for main in mains:
-            validate_document_combination(main, [item for item in templates if item not in mains])
+            validate_document_combination(main, [item for item in templates if item not in mains], require_complete=False)
     except ValueError as exc:
         errors.append(str(exc))
     return templates, errors
@@ -555,8 +557,8 @@ def publish_setup_documents(*, definition, actor, request_id):
             reconcile_shared_eligibility(template)
         revision = (template.published_configuration_revision if template.status == template.STATUS_ACTIVE
                     else template.configuration_revisions.order_by('-revision').first())
-        validate_template_configuration(revision.configuration, template=template, require_complete=True)
         if template.status == template.STATUS_ACTIVE:
             continue
+        validate_template_configuration(revision.configuration, template=template, require_complete=True)
         publish_product_template(template=template, revision=revision.revision,
                                  actor=actor, client_request_id=f'{request_id}:{template.pk}')

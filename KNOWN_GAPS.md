@@ -1,5 +1,52 @@
 # Known Gaps and Verified Workarounds
 
+## Origination alignment and model cleanup - 23 October 2026
+
+Implemented: strict placed-only filling (including no-layout drafts), signature
+Edit/identity links, repeated slots with one capture, published-warning attachment
+for Main/supporting PDFs, refreshed testing-deletion confirmation, and retirement
+of two legacy authoring models. Full inventory and operator actions:
+`docs/origination-model-audit.md`; UI evidence:
+`docs/ui-standard/reviews/2026-10-23-origination-placement.md`.
+
+Executed with synthetic data, isolated loopback PostgreSQL and mocked providers:
+
+- Focused projection/editor/deletion/product-deletion suites: 160 passed.
+- Final catalogue/setup/value-contract/advisory-publication suite, including
+  unfinished Main OTP mappings and supporting meanings: 176 passed.
+- Existing-client wire compatibility and strict field projection: 30 passed.
+- Final signer-editor suite: 22 passed, including explicit omission of an ID
+  link and continued editing of existing text-based phone links.
+- Migration guard/upgrade/rollback: 2 passed; both nonempty legacy tables refuse
+  removal, and application payload/frozen bytes survive the empty upgrade.
+- Mini App placement browsers: 6 passed at 320/430/1280px in light/dark.
+  Native authenticated Admin separately verifies Edit, save/reload (including
+  quoted labels), duplicate signature/date slots, one participant and immutable publication, with
+  390/1366px light/dark evidence. These are overlapping suites, not unique totals.
+- The broader run executed 657 tests: 655 passed, 2 failed on existing validation
+  wording assertions. Both reproduce on unchanged commit `0e9e6bd6`:
+  `LoanOriginationServiceTests.test_saved_repeatable_security_repairs_blank_containers_and_grouped_amounts`
+  expects “Year of purchase” but receives “number”; and
+  `OriginationSafeWorkflowTests.test_invalid_draft_patch_identifies_field_without_logging_submitted_value`
+  expects “amount” but receives “number”. Historical ownership/signing migrations
+  were also exercised in the earlier 682-test run; that run was not fully green.
+
+Legacy UI/assignment assertions were retired with their interfaces. Remaining
+workflow fixtures now declare the PDF placements they intend to fill. Reused
+test databases can lose migration-seeded policy/audit rows after transactional
+flushes; validation restored only isolated test fixtures, never production grants.
+Evidence logs are under ignored `test-results/origination-*` paths.
+The API keeps its existing projection wire format, so already-open Mini App
+clients receive the strict field list without a client protocol upgrade.
+
+No deployment, production row-count audit, live OTP/SMS/Drive check or physical
+Telegram-device check was performed. No new setting/dependency is required.
+Standard release migration/static collection is still required. Migration 0012
+locks and checks both legacy tables before removing anything and stops if they
+contain records; reconcile/retain those records under the old release first.
+Rollback recreates empty legacy tables/FK at Origination 0011 and requires the
+corresponding code release. Signed bytes and external files are not rewritten.
+
 ## Specification 18 candidate - 23 October 2026
 
 The native browser Complaints UI, evidence gallery and reporting corrections

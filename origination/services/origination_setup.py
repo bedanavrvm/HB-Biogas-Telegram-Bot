@@ -129,10 +129,6 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
         }
         for item in definition.document_templates.order_by('display_order', 'document_key', 'pk')
     ]
-    assignments = [
-        _model_values(item, {'id', 'created_at'})
-        for item in definition.document_assignments.order_by('display_order', 'document_key', 'pk')
-    ]
     from origination.services.origination_setup_documents import selected_documents, maintenance_impact
     catalogue_documents = [
         {**_model_values(item, {'updated_at', 'drive_url', 'upload_error'}),
@@ -155,7 +151,7 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
             'schema': definition.form_schema,
             'signers': definition.signer_rules,
         },
-        'documents': {'owned': owned_documents, 'assignments': assignments, 'catalogue': catalogue_documents,
+        'documents': {'owned': owned_documents, 'catalogue': catalogue_documents,
                       'maintenance': maintenance_impact(definition)['token'] if version else ''},
         'calibration': {
             'owned': [
@@ -165,10 +161,6 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
                     'published_revision_id': item['published_configuration_revision_id'],
                 }
                 for item in owned_documents
-            ],
-            'assigned': [
-                {'template_id': item['template_id'], 'version_policy': item['version_policy']}
-                for item in assignments
             ],
         },
         'publication': {
@@ -299,88 +291,6 @@ def _valid_form(definition) -> tuple[bool, str]:
     except OriginationError as exc:
         return False, str(exc)
     return True, 'Form fields and signer roles are valid.'
-
-
-def _packet(definition):
-    from origination.services.origination_templates import resolve_assignment_template
-    owned = list(definition.document_templates.exclude(
-        status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
-    ))
-    assigned = [
-        (item, resolve_assignment_template(item))
-        for item in definition.document_assignments.select_related('template')
-    ]
-    primaries = [item for item in owned if item.document_role == item.ROLE_PRIMARY]
-    primaries += [
-        resolved for _item, resolved in assigned
-        if resolved and resolved.document_role == resolved.ROLE_PRIMARY
-    ]
-    unresolved = [item for item, resolved in assigned if not resolved]
-    valid = len(primaries) == 1 and not unresolved
-    detail = (
-        'Exactly one main LAF and every reusable document resolve successfully.'
-        if valid else
-        'Attach exactly one main LAF and resolve every reusable document.'
-    )
-    return valid, detail, owned, assigned
-
-
-def _valid_calibration(definition) -> tuple[bool, str]:
-    from origination.services.origination_templates import _expected_signature_slots
-    valid_packet, detail, owned, assigned = _packet(definition)
-    if not valid_packet:
-        return False, detail
-    for template in owned:
-        revision = template.configuration_revisions.order_by('-revision').first()
-        if not revision:
-            return False, f'{template.name} has no saved alignment.'
-        config = revision.configuration if isinstance(revision.configuration, dict) else {}
-        fields = (config.get('field_overlay_manifest') or {}).get('fields')
-        slots = (config.get('signature_overlay_manifest') or {}).get('slots')
-        if not isinstance(fields, dict) or not fields:
-            return False, f'{template.name} requires at least one aligned PDF field.'
-        schema = (
-            template.form_schema
-            if template.document_role == template.ROLE_SUPPORTING and template.form_schema
-            else definition.form_schema
-        )
-        required_fields = {
-            str(item.get('key')) for item in (schema or {}).get('fields', [])
-            if isinstance(item, dict) and item.get('required') and item.get('key')
-        }
-        mapped = {
-            str(item.get('context_key') or '') for item in fields.values()
-            if isinstance(item, dict)
-        }
-        missing_fields = sorted(required_fields - mapped)
-        if missing_fields:
-            return False, f'{template.name} is missing required fields: {", ".join(missing_fields)}.'
-        if not isinstance(slots, dict):
-            return False, f'{template.name} has an invalid signer-slot alignment.'
-        expected_slots = _expected_signature_slots(definition, template)
-        missing_slots = sorted(
-            key for key, spec in expected_slots.items()
-            if spec.get('required') and key not in slots
-        )
-        if missing_slots:
-            return False, f'{template.name} is missing required signer slots: {", ".join(missing_slots)}.'
-        for label, collection in (('field', fields), ('signer slot', slots)):
-            for key, spec in collection.items():
-                if not isinstance(spec, dict):
-                    return False, f'{template.name} {label} {key} is invalid.'
-                box = spec.get('allowed_area') or spec.get('box')
-                try:
-                    page = int(spec.get('page_number') or 0)
-                    width = float(box['width'])
-                    height = float(box['height'])
-                except (KeyError, TypeError, ValueError):
-                    return False, f'{template.name} {label} {key} has incomplete placement.'
-                if page < 1 or page > template.page_count or width <= 0 or height <= 0:
-                    return False, f'{template.name} {label} {key} has invalid placement.'
-    for assignment, resolved in assigned:
-        if not resolved or not resolved.published_configuration_revision_id:
-            return False, f'{assignment.name} is not calibrated and published.'
-    return True, 'Every selected document has a complete alignment.'
 
 
 def _last_completion(definition, step_key):

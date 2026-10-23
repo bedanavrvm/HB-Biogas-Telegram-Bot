@@ -21,10 +21,8 @@ from origination.models import (
     OriginationDocumentProductEligibility,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
-    OriginationProductDocumentAssignment,
     OriginationTemplateConfigurationRevision,
 )
 from core.models import (
@@ -69,11 +67,11 @@ REVIEWED_PRODUCT_VERSION_RELATION_ACCESSORS = frozenset({
     'origination_applications', 'origination_commercial_exceptions',
 })
 REVIEWED_ORIGINATION_DEFINITION_RELATION_ACCESSORS = frozenset({
-    'superseded_by_versions', 'events', 'field_review_issues',
-    'document_templates', 'document_assignments', 'applications',
+    'superseded_by_versions', 'events',
+    'document_templates', 'applications',
 })
 REVIEWED_ORIGINATION_TEMPLATE_RELATION_ACCESSORS = frozenset({
-    'product_assignments', 'events', 'configuration_revisions',
+    'events', 'configuration_revisions',
     'application_documents', 'product_eligibilities',
 })
 
@@ -111,13 +109,10 @@ def _shared_owned_templates(*, product: Product, definition_ids: list[object], t
     return OriginationDocumentTemplate.objects.filter(
         pk__in=template_ids,
     ).filter(
-        Q(product_assignments__isnull=False)
-        | Q(product_eligibilities__isnull=False)
+        Q(product_eligibilities__isnull=False)
         | Q(application_documents__isnull=False)
     ).filter(
-        Q(product_assignments__isnull=False)
-        & ~Q(product_assignments__product_definition_id__in=definition_ids)
-        | Q(product_eligibilities__isnull=False)
+        Q(product_eligibilities__isnull=False)
         & ~Q(product_eligibilities__product_id=product.pk)
         | Q(application_documents__isnull=False)
         & ~Q(application_documents__application__product_definition_id__in=definition_ids)
@@ -286,14 +281,6 @@ def _configuration_snapshot(
         )),
         'origination_definition_events': _rows(
             OriginationProductDefinitionEvent.objects.filter(
-                product_definition_id__in=definition_ids,
-            )
-        ),
-        'origination_field_review_issues': _rows(OriginationFieldReviewIssue.objects.filter(
-            product_definition_id__in=definition_ids,
-        )),
-        'origination_document_assignments': _rows(
-            OriginationProductDocumentAssignment.objects.filter(
                 product_definition_id__in=definition_ids,
             )
         ),

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import close_old_connections, connection
-from django.test import RequestFactory, TestCase, TransactionTestCase
+from django.test import RequestFactory, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -20,7 +20,7 @@ from origination.models import (
     OriginationProductDefinition,
     OriginationTemplateConfigurationRevision,
 )
-from core.models import OperationalLocation, Product, ProductAvailability, ProductVersion
+from core.models import ComplianceAuditChainState, OperationalLocation, Product, ProductAvailability, ProductVersion
 from origination.services.loan_origination import (
     OriginationConflict,
     OriginationError,
@@ -37,6 +37,7 @@ from origination.services.origination_documents import select_documents
 
 class OriginationDocumentCatalogueTests(TestCase):
     def setUp(self):
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.officer = get_user_model().objects.create_user(username='catalogue-officer')
         self.branch = OperationalLocation.objects.create(
             location_type='branch', name='Catalogue Branch', code='CATALOGUE-BRANCH',
@@ -176,6 +177,51 @@ class OriginationDocumentCatalogueTests(TestCase):
         other_actor = get_user_model().objects.create_superuser('other-admin', 'qa2@example.test', 'test-only')
         with self.assertRaises(ValidationError):
             attach(**{**arguments, 'actor': other_actor})
+
+    def test_published_supporting_document_with_signer_warnings_can_attach(self):
+        from origination.services.origination_setup_documents import select_documents as attach
+        schema = deepcopy(self.schema)
+        schema['required_signer_roles'] = ['borrower']
+        support = self._template(family='warning_support', name='Published warning support',
+                                 role='supporting', schema=schema, eligible=False)
+        actor = get_user_model().objects.create_superuser('warning-admin', 'qa@example.test', 'test-only')
+        selected = attach(definition=self.definition, templates=[support], actor=actor, request_id='warning-attach')
+        self.assertEqual([item.pk for item in selected], [support.pk])
+        self.assertTrue(support.product_eligibilities.filter(product=self.product_record).exists())
+
+    @override_settings(ORIGINATION_ESIGN_ENABLED=True)
+    def test_published_main_with_unfinished_otp_mapping_can_attach_but_is_not_application_ready(self):
+        from origination.services.origination_setup_documents import select_documents as attach, document_readiness
+        document = self._template(family='unfinished_main', name='Unfinished Main LAF', eligible=False)
+        document.signer_rules = [{'role': 'borrower', 'required': True,
+                                  'slots': [{'key': 'signature', 'type': 'signature'}]}]
+        document.save(update_fields=['signer_rules'])
+        actor = get_user_model().objects.create_superuser('unfinished-main-editor', password='test-only')
+        attach(definition=self.definition, templates=[document], actor=actor, request_id='unfinished-main')
+        self.assertEqual(document_readiness(self.definition)[1], [])
+        self.assertFalse(catalogue_for_product(self.definition)['ready'])
+
+    def test_published_support_with_unfinished_meaning_can_attach_without_hiding_known_type_conflicts(self):
+        from origination.services.origination_setup_documents import select_documents as attach, document_readiness
+        from origination.services.origination_value_contracts import upgrade_schema
+        main = self._template(family='meaning_main', name='Main', schema=upgrade_schema(self.schema))
+        support = self._template(family='unfinished_meaning', name='Supporting', role='supporting', eligible=False,
+            schema={'value_contract_version': 2, 'fields': [{'key': 'unfinished', 'type': 'text'}]})
+        actor = get_user_model().objects.create_superuser('unfinished-meaning-editor', password='test-only')
+        attach(definition=self.definition, templates=[main, support], actor=actor, request_id='unfinished-meaning')
+        self.assertEqual(document_readiness(self.definition)[1], [])
+        support.form_schema['fields'].append({'key': 'loan_amount', 'type': 'phone'})
+        support.save(update_fields=['form_schema'])
+        support.product_eligibilities.all().delete()
+        with self.assertRaisesRegex(ValidationError, 'conflicting canonical field types'):
+            attach(definition=self.definition, templates=[main, support], actor=actor, request_id='wrong-type')
+
+    def test_published_supporting_alignment_warnings_do_not_block_product_readiness(self):
+        from origination.services.origination_setup_documents import document_readiness
+        self._template(family='warning_main', name='Published main')
+        support = self._template(family='warning_extra', name='Published support', role='supporting')
+        _documents, errors = document_readiness(self.definition)
+        self.assertFalse([error for error in errors if error.startswith(support.name + ':')], errors)
 
     def test_incompatible_published_attachment_rolls_back_the_whole_selection(self):
         from origination.services.origination_setup_documents import select_documents as attach
@@ -367,7 +413,6 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertTrue(documents[str(main.pk)].selected)
         self.assertTrue(documents[str(selected.pk)].selected)
         self.assertFalse(documents[str(unselected.pk)].selected)
-        self.assertTrue(all(item.assignment_id is None for item in documents.values()))
 
     def test_creation_request_id_is_bound_to_document_digest(self):
         first = self._template(family='first_laf', name='First LAF')

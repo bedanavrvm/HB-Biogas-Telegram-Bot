@@ -10,7 +10,6 @@ from collections import Counter
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q
 
 from origination.models import (
     LoanOriginationApplication,
@@ -25,10 +24,8 @@ from origination.models import (
     OriginationDocumentTemplate,
     OriginationDocumentProductEligibility,
     OriginationDocumentTemplateEvent,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
-    OriginationProductDocumentAssignment,
     OriginationReportingValue,
     OriginationRequirementEvidence,
     OriginationReviewerNotice,
@@ -73,10 +70,8 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationProductDefinitionEvent,
         OriginationDocumentTemplate,
         OriginationDocumentProductEligibility,
-        OriginationProductDocumentAssignment,
         OriginationDocumentTemplateEvent,
         OriginationTemplateConfigurationRevision,
-        OriginationFieldReviewIssue,
         OriginationStampAsset,
         OriginationConsentPolicyVersion,
     )),
@@ -126,15 +121,12 @@ def preview_origination_purge(record: Any) -> list[dict[str, Any]]:
             ('Product definition', 1),
             ('Applications', record.applications.count()),
             ('PDF templates', record.document_templates.count()),
-            ('Document assignments', record.document_assignments.count()),
             ('Product audit events', record.events.count()),
-            ('Field review issues', record.field_review_issues.count()),
         ]
     elif isinstance(record, OriginationDocumentTemplate):
         rows = [
             ('PDF template', 1),
             ('Application document snapshots', record.application_documents.count()),
-            ('Product assignments', record.product_assignments.count()),
             ('Calibration revisions', record.configuration_revisions.count()),
             ('Template audit events', record.events.count()),
         ]
@@ -149,16 +141,11 @@ def preview_origination_purge(record: Any) -> list[dict[str, Any]]:
             ('Correction requests', record.correction_requests.count()),
             ('Reporting values', record.reporting_values.count()),
         ]
-    elif isinstance(record, OriginationProductDocumentAssignment):
-        rows = [('Document assignment', 1), ('Application document snapshots', record.application_documents.count())]
     elif isinstance(record, OriginationDataField):
         rows = [
             ('Canonical data field', 1),
             ('Field audit events', record.events.count()),
             ('Reporting values', record.reporting_values.count()),
-            ('Review issues', OriginationFieldReviewIssue.objects.filter(
-                Q(suggested_field=record) | Q(resolution_field=record),
-            ).count()),
         ]
     else:
         rows = [(str(record._meta.verbose_name).title(), 1)]
@@ -183,7 +170,6 @@ def preview_product_family_purge(product_key: str) -> list[dict[str, Any]]:
         ('Product versions', len(definition_ids)),
         ('Applications', application_ids.count()),
         ('Owned PDF templates', template_ids.count()),
-        ('Document assignments', OriginationProductDocumentAssignment.objects.filter(product_definition_id__in=definition_ids).count()),
         ('Product audit events', OriginationProductDefinitionEvent.objects.filter(product_definition_id__in=definition_ids).count()),
         ('Application events', OriginationApplicationEvent.objects.filter(application_id__in=application_ids).count()),
         ('Signing packages', OriginationSigningPackage.objects.filter(application_id__in=application_ids).count()),
@@ -237,23 +223,8 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
     _delete(LoanOriginationApplication.objects.filter(pk=application_id), counts)
 
 
-def _purge_assignment(assignment_id, counts: Counter[str]) -> None:
-    if OriginationApplicationDocument.objects.filter(assignment_id=assignment_id).exists():
-        raise OriginationGodModeError('This assignment is still used by an application outside the deletion scope.')
-    _delete(OriginationProductDocumentAssignment.objects.filter(pk=assignment_id), counts)
-
-
 def _purge_template(template_id, counts: Counter[str]) -> None:
-    assignment_ids = OriginationProductDocumentAssignment.objects.filter(
-        template_id=template_id,
-    ).values_list('pk', flat=True)
-    _delete(
-        OriginationApplicationDocument.objects.filter(
-            Q(template_id=template_id) | Q(assignment_id__in=assignment_ids),
-        ),
-        counts,
-    )
-    _delete(OriginationProductDocumentAssignment.objects.filter(pk__in=assignment_ids), counts)
+    _delete(OriginationApplicationDocument.objects.filter(template_id=template_id), counts)
     _delete(OriginationDocumentProductEligibility.objects.filter(template_id=template_id), counts)
     OriginationDocumentTemplate.objects.filter(
         published_configuration_revision__template_id=template_id,
@@ -279,18 +250,12 @@ def _purge_product_definition(product_id, counts: Counter[str]) -> None:
             global_product_id = ProductVersion.objects.filter(pk=product_version_id).values_list('product_id', flat=True).first()
         shared = (
             template.application_documents.exists()
-            or template.product_assignments.exclude(product_definition_id=product_id).exists()
             or template.product_eligibilities.exclude(product_id=global_product_id).exists()
         )
         if shared:
             OriginationDocumentTemplate.objects.filter(pk=template_id).update(product_definition=None)
         else:
             _purge_template(template_id, counts)
-    for assignment_id in OriginationProductDocumentAssignment.objects.filter(
-        product_definition_id=product_id,
-    ).values_list('pk', flat=True):
-        _purge_assignment(assignment_id, counts)
-    _delete(OriginationFieldReviewIssue.objects.filter(product_definition_id=product_id), counts)
     _delete(OriginationProductDefinitionEvent.objects.filter(product_definition_id=product_id), counts)
     # A later product version retains its own snapshots, so its history link
     # must not prevent a deliberate test cleanup of an earlier version.
@@ -300,12 +265,6 @@ def _purge_product_definition(product_id, counts: Counter[str]) -> None:
 
 def _purge_data_field(data_field_id, counts: Counter[str]) -> None:
     _delete(OriginationReportingValue.objects.filter(data_field_id=data_field_id), counts)
-    _delete(
-        OriginationFieldReviewIssue.objects.filter(
-            Q(suggested_field_id=data_field_id) | Q(resolution_field_id=data_field_id),
-        ),
-        counts,
-    )
     _delete(OriginationDataFieldEvent.objects.filter(data_field_id=data_field_id), counts)
     _delete(OriginationDataField.objects.filter(pk=data_field_id), counts)
 
@@ -393,13 +352,11 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(LoanOriginationApplication.objects.all(), deleted)
 
     # Product/template configuration uses protected links in both directions.
-    _delete(OriginationProductDocumentAssignment.objects.all(), deleted)
     _delete(OriginationDocumentProductEligibility.objects.all(), deleted)
     _delete(OriginationDocumentTemplateEvent.objects.all(), deleted)
     OriginationDocumentTemplate.objects.update(published_configuration_revision=None)
     _delete(OriginationTemplateConfigurationRevision.objects.all(), deleted)
     _delete(OriginationDocumentTemplate.objects.all(), deleted)
-    _delete(OriginationFieldReviewIssue.objects.all(), deleted)
     _delete(OriginationProductDefinitionEvent.objects.all(), deleted)
     OriginationProductDefinition.objects.update(supersedes=None)
     _delete(OriginationProductDefinition.objects.all(), deleted)
@@ -445,8 +402,6 @@ def purge_origination_record(*, record: Any, actor, reason: str) -> dict[str, in
         _purge_product_definition(record.pk, counts)
     elif isinstance(record, OriginationDocumentTemplate):
         _purge_template(record.pk, counts)
-    elif isinstance(record, OriginationProductDocumentAssignment):
-        _purge_assignment(record.pk, counts)
     elif isinstance(record, OriginationDataField):
         _purge_data_field(record.pk, counts)
     elif isinstance(record, LoanOriginationApplication):
@@ -488,8 +443,6 @@ def purge_origination_record(*, record: Any, actor, reason: str) -> dict[str, in
         _delete(OriginationProductDefinitionEvent.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationApplicationEvent):
         _delete(OriginationApplicationEvent.objects.filter(pk=record.pk), counts)
-    elif isinstance(record, OriginationFieldReviewIssue):
-        _delete(OriginationFieldReviewIssue.objects.filter(pk=record.pk), counts)
     else:
         raise OriginationGodModeError('God mode is not configured for this record type.')
     return dict(sorted(counts.items()))

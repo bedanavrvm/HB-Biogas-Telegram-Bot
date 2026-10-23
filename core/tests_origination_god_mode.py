@@ -15,10 +15,8 @@ from origination.models import (
     OriginationDataFieldEvent,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
-    OriginationProductDocumentAssignment,
     OriginationReportingValue,
     OriginationRequirementEvidence,
     OriginationReviewerNotice,
@@ -163,12 +161,6 @@ class OriginationGodModeTests(TestCase):
             mode=OriginationSigningAction.MODE_TEST, stamp_asset=self.stamp_asset,
             actor=self.superuser, request_id='god-mode-test-stamp',
         )
-        OriginationFieldReviewIssue.objects.create(
-            product_definition=self.product, legacy_key='legacy_customer_name',
-            legacy_type=OriginationDataField.TYPE_TEXT,
-            legacy_label='Legacy customer name', suggested_field=self.data_field,
-        )
-
         self.draft_product = OriginationProductDefinition.objects.create(
             product_key='god-mode-draft', name='God mode draft', version=1,
             form_schema={'fields': []}, signer_rules=[], document_type='god_mode_draft',
@@ -187,15 +179,9 @@ class OriginationGodModeTests(TestCase):
             drive_url='https://drive.example.test/drive-supporting-template-must-remain',
             created_by=self.superuser,
         )
-        self.assignment = OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.draft_product,
-            template=self.supporting_template,
-            document_key='guarantor_form', name='Synthetic guarantor form',
-            created_by=self.superuser,
-        )
         OriginationApplicationDocument.objects.create(
             application=self.application, template=self.supporting_template,
-            assignment=self.assignment, document_key='guarantor_form',
+            document_key='guarantor_form',
             name='Synthetic guarantor form', document_role='supporting',
             inclusion_mode='required', template_snapshot={},
         )
@@ -249,15 +235,19 @@ class OriginationGodModeTests(TestCase):
         with self.assertRaises(NoReverseMatch):
             reverse('admin:core_tattrackercase_god_mode_purge', args=['test-record'])
 
-    def test_full_reset_model_registry_covers_every_origination_model(self):
+    def test_full_reset_registry_covers_owned_models_and_preserves_phone_pilot_evidence(self):
         discovered = {
             model
             for model in apps.get_app_config('origination').get_models()
             if model.__name__.startswith('Origination')
             or model is LoanOriginationApplication
         }
-        self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered)
-        self.assertEqual(len(ORIGINATION_RESET_MODELS), 27)
+        preserved = {model for model in discovered if model.__name__.startswith('OriginationPhoneIdentity')}
+        self.assertEqual({model.__name__ for model in preserved}, {
+            'OriginationPhoneIdentitySubject', 'OriginationPhoneIdentityCheck', 'OriginationPhoneIdentityDailyUsage',
+        })
+        self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered - preserved)
+        self.assertEqual(len(ORIGINATION_RESET_MODELS), 26)
 
     def test_full_reset_service_rejects_non_superuser(self):
         before = preview_full_origination_reset()['counts']

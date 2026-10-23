@@ -305,8 +305,29 @@ class MiniAppDeletionTests(TestCase):
         payload = {'action': 'delete_testing_selection', ACTION_CHECKBOX_NAME: str(product.pk)}
         response = self.client.post(url, payload)
         payload.update(deletion_token=response.context['deletion_token'], deletion_mode='linked', confirm_deletion='1')
-        self.assertEqual(self.client.post(url, payload).status_code, 403)
+        response = self.client.post(url, payload)
+        self.assertEqual(response.status_code, 200)
         self.assertTrue(Product.objects.filter(pk=product.pk).exists())
+        self.assertEqual(response.context['plan']['mode'], 'linked')
+        payload['deletion_token'] = response.context['deletion_token']
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.assertFalse(Product.objects.filter(pk=product.pk).exists())
+
+    def test_origination_document_mode_change_reviews_before_deleting(self):
+        from origination.models import OriginationDocumentTemplate
+        document = OriginationDocumentTemplate.objects.create(
+            document_type='synthetic-delete', name='Synthetic test document', version=1,
+            source_byte_size=1, page_count=1, created_by=self.root)
+        url = reverse('admin:origination_originationdocumenttemplate_changelist')
+        payload = {'action': 'delete_testing_selection', ACTION_CHECKBOX_NAME: str(document.pk)}
+        response = self.client.post(url, payload)
+        payload.update(deletion_token=response.context['deletion_token'], deletion_mode='linked', confirm_deletion='1')
+        response = self.client.post(url, payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(OriginationDocumentTemplate.objects.filter(pk=document.pk).exists())
+        payload['deletion_token'] = response.context['deletion_token']
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.assertFalse(OriginationDocumentTemplate.objects.filter(pk=document.pk).exists())
 
 
 @override_settings(MINIAPP_TEST_DELETION_ENABLED=True)

@@ -5,6 +5,7 @@ from django.test import SimpleTestCase, TestCase, RequestFactory, override_setti
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
+from core.models import ComplianceAuditChainState
 from core.tests_jbl_visit_documents import photo, controlled_renderer
 from origination.models import OriginationProductDefinition, LoanOriginationApplication
 from origination.services.identity_copies import copy_options, prepare_identity_copy, collection_enabled
@@ -38,12 +39,18 @@ class IdentityCaptureTests(SimpleTestCase):
 
 class IdentityEvidenceTests(TestCase):
     def setUp(self):
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.actor = get_user_model().objects.create_user(username='synthetic-id-officer', is_superuser=True)
         self.other = get_user_model().objects.create_user(username='synthetic-id-other')
         self.definition = OriginationProductDefinition.objects.create(product_key='synthetic-id',name='Synthetic ID')
         self.app = LoanOriginationApplication.objects.create(product_definition=self.definition,officer=self.actor,
             reference_number='ORG-SYNTHETIC-ID', schema_snapshot={'fields':[
                 {'key':'applicant_id_number','type':'national_id'}, {'key':'guarantor_id','type':'national_id'}]},
+            template_configuration_snapshot={'field_overlay_manifest': {'fields': {
+                key: {'context_key': key, 'page_number': 1,
+                      'box': {'x': 10, 'y': 10 + index * 20, 'width': 100, 'height': 18}}
+                for index, key in enumerate(('applicant_id_number', 'guarantor_id'))
+            }}},
             signer_rules_snapshot=[{'role':'guarantor_1','identity_fields':{'national_id':'guarantor_id'}}],
             form_payload={'applicant_id_number':'99000001','guarantor_id':'99000002'},
             product_terms_snapshot={'requirements':[{'key':'guarantor_1_id_copy','type':'document',
@@ -72,6 +79,10 @@ class IdentityEvidenceTests(TestCase):
         self.app.refresh_from_db()
         with self.assertRaisesRegex(OriginationError,'earlier ID'):
             self.upload(key='synthetic-changed-id-copy')
+
+    def test_unplaced_identity_does_not_offer_an_id_copy(self):
+        self.app.template_configuration_snapshot = {}
+        self.assertEqual(copy_options(self.app), [])
 
     def test_wrong_actor_stale_revision_and_submitted_legacy_policy(self):
         with self.assertRaises(OriginationError): self.upload(actor=self.other)

@@ -915,11 +915,12 @@ def _record_event(
     after=None, metadata=None, adopt_form_projection: bool = True,
 ) -> None:
     metadata = dict(metadata or {})
-    if (adopt_form_projection and 'field_overlay_manifest' in (application.template_configuration_snapshot or {})
-            and (application.status == 'draft' or (before or {}).get('status') == 'draft')):
+    if (adopt_form_projection and (application.status in {'draft', 'correction_required'}
+                 or (before or {}).get('status') in {'draft', 'correction_required'})):
         # Retain adoption after an existing draft is submitted, without changing
         # its immutable schema/layout snapshots or older submitted applications.
-        metadata['form_projection_version'] = 1
+        metadata['form_projection_version'] = 2
+        application._form_projection_version = 2
     event = OriginationApplicationEvent.objects.create(
         application=application,
         action=action,
@@ -1364,8 +1365,7 @@ def create_application(
             else:
                 signer_rules_snapshot = definition.signer_rules
                 template_configuration_snapshot = _published_template_configuration(definition)
-            if 'field_overlay_manifest' in template_configuration_snapshot:
-                schema_snapshot['form_projection_version'] = 1
+            schema_snapshot['form_projection_version'] = 2
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
@@ -2858,6 +2858,7 @@ def serialize_application(
         payload['document_packet'] = serialize_packet(application)
         from origination.services.origination_value_contracts import form_projection_enabled, entered_payload, application_input_schema, PERSON_LINKS_KEY
         if form_projection_enabled(application):
+            # Keep the wire format compatible with already-open Mini App clients.
             payload['form_projection_version'] = 1
             payload['form_schema'] = application_input_schema(application)
             payload['form_payload'] = entered_payload(payload['form_payload'], schema=payload['form_schema'])

@@ -287,19 +287,25 @@ def schema_with_mapped_values(schema: dict, configuration: dict, *, captured_sys
     return result
 
 
-def form_projection_enabled(application: Any) -> bool:
-    """Adopt only editable PDF drafts; never reinterpret old submitted packets."""
-    if (application.schema_snapshot or {}).get('form_projection_version') == 1:
-        return True
-    if 'field_overlay_manifest' not in (application.template_configuration_snapshot or {}):
-        return False
-    if getattr(application, 'status', '') == 'draft':
-        return True
-    cached = getattr(application, '_form_projection_adopted', None)
+def form_projection_version(application: Any) -> int:
+    captured = (application.schema_snapshot or {}).get('form_projection_version', 0)
+    has_layout = 'field_overlay_manifest' in (application.template_configuration_snapshot or {})
+    if getattr(application, 'status', '') in {'draft', 'correction_required'}:
+        return 2
+    if captured == 2:
+        return 2
+    if not has_layout:
+        return captured
+    cached = getattr(application, '_form_projection_version', None)
     if cached is None:
-        cached = application.events.filter(metadata__form_projection_version=1).exists()
-        application._form_projection_adopted = cached
+        cached = (2 if application.events.filter(metadata__form_projection_version=2).exists() else
+                  1 if captured == 1 or application.events.filter(metadata__form_projection_version=1).exists() else 0)
+        application._form_projection_version = cached
     return cached
+
+
+def form_projection_enabled(application: Any) -> bool:
+    return bool(form_projection_version(application))
 
 
 def placed_field_keys(configuration: dict) -> set[str]:
@@ -318,41 +324,8 @@ def placed_field_keys(configuration: dict) -> set[str]:
     return keys
 
 
-def essential_field_reasons(schema: dict, signer_rules=(), *, primary=True, quote_keys=()) -> dict[str, str]:
-    from origination.services.loan_origination import _applicant_identity_field_keys
-    from origination.services.origination_commercial_terms import (
-        COMMERCIAL_KEYS, COMMERCIAL_INPUT_KEYS, commercial_contract_enabled, commercial_contract_version,
-    )
-    reasons = {}
-    if primary:
-        reasons.update({key: 'applicant' for keys in _applicant_identity_field_keys(schema, signer_rules).values() for key in keys})
-    for rule in signer_rules or []:
-        reasons.update({str(key): 'signing' for key in (rule.get('identity_fields') or {}).values() if key and key not in reasons})
-    if primary:
-        lending = (COMMERCIAL_KEYS if commercial_contract_version(schema) < 2 else COMMERCIAL_INPUT_KEYS) if commercial_contract_enabled(schema) else quote_keys
-        reasons.update({key: 'lending' for key in lending if key not in reasons})
-    return reasons
-
-
 def annotate_form_fields(catalogue: list, schema: dict, signer_rules=(), *, primary=True, configuration=None) -> list:
-    reasons = essential_field_reasons(schema, signer_rules, primary=primary)
-    if configuration is not None:
-        try:
-            reasons = {field['key']: field['form_visibility'] for field in project_document_schema(
-                schema, configuration, signer_rules=signer_rules, primary=primary)['fields']
-                if field['form_visibility'] != 'placed'}
-        except ValueContractError:
-            # Unfinished authoring stays repairable; readiness owns its warnings.
-            pass
-    return [{**item, 'form_essential_reason': reasons.get(item.get('key'), '')} for item in catalogue]
-
-
-def rule_field_keys(rule: Any) -> set[str]:
-    if not isinstance(rule, dict):
-        return set()
-    return ({str(rule['field'])} if rule.get('field') else set()) | {
-        key for group in ('all', 'any') for child in rule.get(group, []) for key in rule_field_keys(child)
-    }
+    return [{**item, 'form_essential_reason': ''} for item in catalogue]
 
 
 def project_document_schema(schema: dict, configuration: dict, *, signer_rules=(), primary=True,
@@ -360,61 +333,25 @@ def project_document_schema(schema: dict, configuration: dict, *, signer_rules=(
     """Pure active-field projection; stored contracts and answers are never edited."""
     result = schema_with_mapped_values(schema, configuration, captured_system=captured_system) if enabled(schema) else deepcopy(schema)
     placed = placed_field_keys(configuration)
-    reasons = essential_field_reasons(result, signer_rules, primary=primary, quote_keys=quote_keys)
-    reasons.update({key: 'dependency' for key in dependency_keys if key not in reasons})
     known = {item['key']: item for item in _fields(result)}
-    active = placed | set(reasons)
-    pending, visited = list(active), set()
-    while pending:
-        key = pending.pop()
-        if key in visited:
-            continue
-        visited.add(key)
-        binding = (known.get(key, {}).get('value_contract') or {}).get('binding', '')
-        if not binding and key in TOTAL_KEYS and known.get(key, {}).get('source_type') == 'system':
-            binding = 'total.' + key
-        if binding.startswith('total.'):
-            for dependency in TOTAL_INPUTS.get(binding[6:], ()):
-                reasons.setdefault(dependency, 'calculation')
-                active.add(dependency)
-                pending.append(dependency)
-        field = known.get(key, {})
-        for dependency in rule_field_keys((field.get('validation') or {}).get('required_when')):
-            reasons.setdefault(dependency, 'dependency')
-            active.add(dependency)
-            pending.append(dependency)
-        parent = (field.get('validation') or {}).get('parent_field')
-        if parent in known:
-            reasons.setdefault(parent, 'dependency')
-            active.add(parent)
-            pending.append(parent)
-    lending_section = result.get('commercial_section_key') or next((field.get('section_key') for key, field in known.items()
-        if reasons.get(key) == 'lending' and field.get('section_key')), 'commercial_terms')
-    groups = {'applicant': ('applicant', 'Applicant'), 'signing': ('signing_details', 'Signing details'),
-              'lending': (lending_section, 'Lending details')}
     sections = result.setdefault('sections', [])
     existing = {item['key']: item for item in sections}
     fields = []
     for key, field in known.items():
-        if key not in active:
+        if key not in placed:
             continue
-        field['form_visibility'] = 'placed' if key in placed else reasons[key]
+        field['form_visibility'] = 'placed'
         if field.get('source_type') == 'system' or (field.get('value_contract') or {}).get('source', 'entered') != 'entered':
             field['editable'] = False
-        if key not in placed and reasons[key] in groups:
-            section, label = groups[reasons[key]]
-            field['section_key'] = section
-            if section not in existing:
-                existing[section] = {'key': section, 'label': label}
-                sections.append(existing[section])
-        else:
-            section = field.get('section_key') or (sections[0]['key'] if sections else 'document_details')
-            field['section_key'] = section
-            if section not in existing:
-                existing[section] = {'key': section, 'label': 'Document details'}
-                sections.append(existing[section])
+        section = field.get('section_key') or (sections[0]['key'] if sections else 'document_details')
+        field['section_key'] = section
+        if section not in existing:
+            existing[section] = {'key': section, 'label': 'Document details'}
+            sections.append(existing[section])
         fields.append(field)
     result['fields'] = fields
+    if 'system_fields' in result:
+        result['system_fields'] = [item for item in result['system_fields'] if item.get('key') in placed]
     used = {field['section_key'] for field in fields if (field.get('value_contract') or {}).get('source', 'entered') == 'entered'
             and field.get('source_type') != 'system'}
     result['sections'] = [item for item in sections if item['key'] in used]
@@ -422,39 +359,14 @@ def project_document_schema(schema: dict, configuration: dict, *, signer_rules=(
 
 
 def application_document_schema(application: Any, document=None) -> dict:
-    primary = document is None or document.document_role == 'primary'
+    if form_projection_version(application) == 1:
+        from origination.services.origination_form_projection_v1 import application_document_schema as captured_schema
+        return captured_schema(application, document)
     schema = application.schema_snapshot if document is None else document.schema_snapshot
     configuration = application.template_configuration_snapshot if document is None else (document.template_snapshot or {}).get('configuration', {})
     if not form_projection_enabled(application):
         return deepcopy(schema or {})
-    terms = application.product_terms_snapshot or {}
-    dependencies = set()
-    if enabled(application.schema_snapshot) and getattr(application, 'form_payload', {}).get(PERSON_LINKS_KEY):
-        documents = [(application.schema_snapshot, application.template_configuration_snapshot, application.signer_rules_snapshot, True)]
-        documents += [(item.schema_snapshot, (item.template_snapshot or {}).get('configuration', {}), item.signer_rules_snapshot, False)
-                      for item in application.packet_documents.all() if item.selected and getattr(item, 'applicable', True) and item.document_role != 'primary']
-        shared = {field['key']: field for raw, _config, _rules, _primary in documents for field in _fields(raw)
-                  if (field.get('value_contract') or {}).get('scope') == 'application'
-                  and (field.get('value_contract') or {}).get('source') == 'entered'}
-        roles = person_fields({'fields': shared})
-        active = set().union(*(placed_field_keys(config) | set(essential_field_reasons(raw, rules, primary=is_primary))
-                               for raw, config, rules, is_primary in documents))
-        for target, source in application.form_payload[PERSON_LINKS_KEY].items():
-            if active.intersection(roles.get(target, {}).values()):
-                dependencies.update(roles.get(target, {}).values())
-                dependencies.update(roles.get(source, {}).values())
-    if primary:
-        for requirement in terms.get('requirements', []):
-            dependencies.update(rule_field_keys((requirement.get('validation') or {}).get('required_when')))
-        for item in application.packet_documents.all():
-            dependencies.update(rule_field_keys((item.template_snapshot or {}).get('applicability_rule')))
-    signers = getattr(application if document is None else document, 'signer_rules_snapshot', [])
-    if getattr(application, 'signing_policy_snapshot', '') == 'all_required' and getattr(application, 'signing_plan', {}).get('participants'):
-        keys = set(application.signing_participants.filter(pk__in=application.signing_plan['participants']).values_list('participant_key', flat=True))
-        signers = [rule for rule in signers if (rule.get('participant_key') or rule.get('role')) in keys]
     return project_document_schema(schema or {}, configuration or {},
-        signer_rules=signers, primary=primary, dependency_keys=dependencies,
-        quote_keys=[terms.get(key) for key in ('quote_amount_field_key', 'quote_tenor_field_key') if terms.get(key)],
         captured_system=(application.schema_snapshot or {}).get('system_fields', []))
 
 
@@ -551,10 +463,11 @@ def apply_person_links(contract: dict, values: dict, *, posted: dict, previous: 
     roles = person_fields(contract)
     result = deepcopy(values)
     for target, source in links.items():
-        if preserve_inactive_links and target not in roles and previous.get(PERSON_LINKS_KEY, {}).get(target) == source:
+        complete = all(set(roles.get(role, {})) == {'name', 'national_id', 'phone'} for role in (target, source))
+        if preserve_inactive_links and not complete and previous.get(PERSON_LINKS_KEY, {}).get(target) == source:
             # Preserve inactive recovery links, but never apply them to values.
             continue
-        if set(roles.get(target, {})) != {'name', 'national_id', 'phone'} or set(roles.get(source, {})) != {'name', 'national_id', 'phone'}:
+        if not complete:
             raise ValueContractError('This document needs name, ID and phone fields for both roles before linking them.')
         for kind, key in roles[target].items():
             if (previous.get(PERSON_LINKS_KEY, {}).get(target) == source and key in posted

@@ -122,7 +122,7 @@ class OriginationDataField(models.Model):
 
     class Meta:
         db_table = 'core_originationdatafield'
-        db_table_comment = 'Domain: origination. Purpose: Global semantic field used by product forms and legal PDF mappings. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User, origination.OriginationDataField. Children: origination.OriginationDataField, origination.OriginationDataFieldEvent, origination.OriginationFieldReviewIssue, origination.OriginationReportingValue. Code usage: owning Django model and workflow service.'
+        db_table_comment = 'Domain: origination. Purpose: Global semantic field used by product forms and legal PDF mappings. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User, origination.OriginationDataField. Children: origination.OriginationDataField, origination.OriginationDataFieldEvent, origination.OriginationReportingValue. Code usage: owning Django model and workflow service.'
         ordering = ['category', 'label', 'key']
         indexes = [models.Index(fields=['active', 'category', 'label'])]
         constraints = [
@@ -264,7 +264,6 @@ class OriginationDataField(models.Model):
         raise ValidationError('Canonical origination fields cannot be deleted; deactivate them instead.')
 
 
-
 class OriginationDataFieldEvent(models.Model):
     """Append-only, value-free audit trail for catalogue governance."""
 
@@ -292,7 +291,6 @@ class OriginationDataFieldEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination data-field events cannot be deleted.')
-
 
 
 class OriginationProductDefinition(models.Model):
@@ -353,7 +351,7 @@ class OriginationProductDefinition(models.Model):
 
     class Meta:
         db_table = 'core_originationproductdefinition'
-        db_table_comment = 'Domain: origination. Purpose: Versioned, inactive-by-default contract for one loan-origination form. Classification: configuration. Source of truth: yes. Lifecycle: active. Retention: Retain while referenced; retire or deactivate instead of deleting governed history. Parents: auth.User, origination.OriginationProductDefinition, core.ProductVersion. Children: origination.LoanOriginationApplication, origination.OriginationDocumentTemplate, origination.OriginationFieldReviewIssue, origination.OriginationProductDefinition, origination.OriginationProductDefinitionEvent, origination.OriginationProductDocumentAssignment. Code usage: owning Django model and workflow service.'
+        db_table_comment = 'Domain: origination. Purpose: Versioned, inactive-by-default contract for one loan-origination form. Classification: configuration. Source of truth: yes. Lifecycle: active. Retention: Retain while referenced; retire or deactivate instead of deleting governed history. Parents: auth.User, origination.OriginationProductDefinition, core.ProductVersion. Children: origination.LoanOriginationApplication, origination.OriginationDocumentTemplate, origination.OriginationProductDefinition, origination.OriginationProductDefinitionEvent. Code usage: owning Django model and workflow service.'
         ordering = ['product_key', '-version']
         constraints = [
             models.UniqueConstraint(
@@ -386,7 +384,6 @@ class OriginationProductDefinition(models.Model):
                 raise ValidationError(str(exc)) from exc
 
 
-
 class OriginationProductDefinitionEvent(models.Model):
     """Append-only lifecycle history for a versioned origination product."""
 
@@ -414,75 +411,6 @@ class OriginationProductDefinitionEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination product events cannot be deleted.')
-
-
-
-class OriginationFieldReviewIssue(models.Model):
-    """Tracked exit path for a legacy schema field without a safe catalogue binding."""
-
-    STATUS_OPEN = 'open'
-    STATUS_RESOLVED = 'resolved'
-    STATUS_ACCEPTED = 'accepted_legacy'
-    STATUS_CHOICES = [
-        (STATUS_OPEN, 'Needs review'), (STATUS_RESOLVED, 'Resolved'),
-        (STATUS_ACCEPTED, 'Accepted as legacy'),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
-    product_definition = models.ForeignKey(
-        OriginationProductDefinition, on_delete=models.PROTECT,
-        related_name='field_review_issues',
-    db_comment='Reference to core_originationproductdefinition; deletion behavior: PROTECT.')
-    legacy_key = models.CharField(max_length=120, db_comment='Legacy key (CharField).')
-    legacy_type = models.CharField(max_length=20, blank=True, default='text', db_comment='Legacy type (CharField).')
-    legacy_label = models.CharField(max_length=160, blank=True, default='', db_comment='Legacy label (CharField).')
-    reason = models.CharField(max_length=80, blank=True, default='missing_catalogue_field', db_comment='Reason (CharField).')
-    suggested_field = models.ForeignKey(
-        OriginationDataField, null=True, blank=True, on_delete=models.PROTECT,
-        related_name='suggested_legacy_reviews',
-    db_comment='Reference to core_originationdatafield; deletion behavior: PROTECT.')
-    resolution_field = models.ForeignKey(
-        OriginationDataField, null=True, blank=True, on_delete=models.PROTECT,
-        related_name='resolved_legacy_reviews',
-    db_comment='Reference to core_originationdatafield; deletion behavior: PROTECT.')
-    status = models.CharField(
-        max_length=24, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True,
-    db_comment='Status (CharField).')
-    assigned_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
-        related_name='assigned_origination_field_reviews',
-    db_comment='Reference to auth_user; deletion behavior: PROTECT.')
-    resolution_notes = models.TextField(blank=True, default='', db_comment='Resolution notes (TextField).')
-    resolved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
-        related_name='resolved_origination_field_reviews',
-    db_comment='Reference to auth_user; deletion behavior: PROTECT.')
-    resolved_at = models.DateTimeField(null=True, blank=True, db_comment='Resolved at (DateTimeField).')
-    created_at = models.DateTimeField(auto_now_add=True, db_comment='Created at (DateTimeField).')
-    updated_at = models.DateTimeField(auto_now=True, db_comment='Updated at (DateTimeField).')
-
-    class Meta:
-        db_table = 'core_originationfieldreviewissue'
-        db_table_comment = 'Domain: origination. Purpose: Tracked exit path for a legacy schema field without a safe catalogue binding. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: auth.User, origination.OriginationDataField, origination.OriginationProductDefinition. Children: none. Code usage: owning Django model and workflow service.'
-        ordering = ['status', '-created_at']
-        constraints = [models.UniqueConstraint(
-            fields=['product_definition', 'legacy_key'],
-            name='unique_origination_field_review_key',
-        )]
-        indexes = [models.Index(fields=['status', 'updated_at'])]
-
-    def __str__(self):
-        return f'{self.product_definition}: {self.legacy_key}'
-
-    def clean(self):
-        super().clean()
-        if self.status == self.STATUS_RESOLVED and not self.resolution_field_id:
-            raise ValidationError({'resolution_field': 'Choose the canonical resolution field.'})
-        if self.status == self.STATUS_ACCEPTED and not self.resolution_notes.strip():
-            raise ValidationError({'resolution_notes': 'Explain why this field remains legacy.'})
-        if self.resolution_field_id and self.resolution_field.data_type != self.legacy_type:
-            raise ValidationError({'resolution_field': 'The canonical field must use the same data type.'})
-
 
 
 class OriginationDocumentTemplate(models.Model):
@@ -581,7 +509,7 @@ class OriginationDocumentTemplate(models.Model):
 
     class Meta:
         db_table = 'core_originationdocumenttemplate'
-        db_table_comment = 'Domain: origination. Purpose: Immutable Drive-backed PDF/config pair approved for origination rendering. Classification: configuration. Source of truth: yes. Lifecycle: active. Retention: Retain while referenced; retire or deactivate instead of deleting governed history. Parents: auth.User, origination.OriginationConsentPolicyVersion, origination.OriginationProductDefinition, origination.OriginationTemplateConfigurationRevision. Children: origination.OriginationApplicationDocument, origination.OriginationDocumentProductEligibility, origination.OriginationDocumentTemplateEvent, origination.OriginationProductDocumentAssignment, origination.OriginationTemplateConfigurationRevision. Code usage: owning Django model and workflow service.'
+        db_table_comment = 'Domain: origination. Purpose: Immutable Drive-backed PDF/config pair approved for origination rendering. Classification: configuration. Source of truth: yes. Lifecycle: active. Retention: Retain while referenced; retire or deactivate instead of deleting governed history. Parents: auth.User, origination.OriginationConsentPolicyVersion, origination.OriginationProductDefinition, origination.OriginationTemplateConfigurationRevision. Children: origination.OriginationApplicationDocument, origination.OriginationDocumentProductEligibility, origination.OriginationDocumentTemplateEvent, origination.OriginationTemplateConfigurationRevision. Code usage: owning Django model and workflow service.'
         ordering = ['product_definition', 'display_order', 'document_key', '-version']
         constraints = [
             models.UniqueConstraint(
@@ -618,7 +546,6 @@ class OriginationDocumentTemplate(models.Model):
             raise ValidationError(errors)
 
 
-
 class OriginationDocumentProductEligibility(models.Model):
     """Explicit product allowlist for one immutable catalogue document version."""
 
@@ -650,121 +577,6 @@ class OriginationDocumentProductEligibility(models.Model):
         return f'{self.template} â†’ {self.product}'
 
 
-
-class OriginationProductDocumentAssignment(models.Model):
-    """Immutable product-version assignment of an approved shared document family."""
-
-    VERSION_LATEST_COMPATIBLE = 'latest_compatible'
-    VERSION_PINNED = 'pinned'
-    VERSION_POLICY_CHOICES = [
-        (VERSION_LATEST_COMPATIBLE, 'Latest published compatible version'),
-        (VERSION_PINNED, 'Pin exact template version'),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
-    product_definition = models.ForeignKey(
-        OriginationProductDefinition, on_delete=models.PROTECT,
-        related_name='document_assignments',
-    db_comment='Reference to core_originationproductdefinition; deletion behavior: PROTECT.')
-    template = models.ForeignKey(
-        OriginationDocumentTemplate, on_delete=models.PROTECT,
-        related_name='product_assignments',
-        help_text='Compatibility baseline and family identity for this assignment.',
-    db_comment='Compatibility baseline and family identity for this assignment.')
-    version_policy = models.CharField(
-        max_length=24, choices=VERSION_POLICY_CHOICES,
-        default=VERSION_LATEST_COMPATIBLE,
-        help_text='Latest-compatible affects new applications only; every application snapshots its resolved version.',
-    db_comment='Latest-compatible affects new applications only; every application snapshots its resolved version.')
-    document_key = models.SlugField(max_length=80, db_comment='Document key (SlugField).')
-    name = models.CharField(max_length=180, db_comment='Name (CharField).')
-    display_order = models.PositiveSmallIntegerField(default=10, db_comment='Display order (PositiveSmallIntegerField).')
-    inclusion_mode = models.CharField(
-        max_length=24, choices=OriginationDocumentTemplate.INCLUDE_CHOICES,
-        default=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-    db_comment='Inclusion mode (CharField).')
-    officer_selectable = models.BooleanField(default=False, db_comment='Officer selectable (BooleanField).')
-    default_selected = models.BooleanField(default=False, db_comment='Default selected (BooleanField).')
-    applicability_rule = models.JSONField(default=dict, blank=True, db_comment='Applicability rule (JSONField).')
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name='created_origination_document_assignments',
-    db_comment='Reference to auth_user; deletion behavior: PROTECT.')
-    created_at = models.DateTimeField(auto_now_add=True, db_comment='Created at (DateTimeField).')
-
-    class Meta:
-        db_table = 'core_originationproductdocumentassignment'
-        db_table_comment = 'Domain: origination. Purpose: Version-policy assignment between a legacy product definition and document family. Classification: business_assignment. Source of truth: yes. Lifecycle: compatibility. Retention: Retained for historical product-definition and application compatibility. Parents: auth.User, origination.OriginationDocumentTemplate, origination.OriginationProductDefinition. Children: origination.OriginationApplicationDocument. Code usage: owning Django model and workflow service.'
-        ordering = ['product_definition', 'display_order', 'document_key']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['product_definition', 'document_key'],
-                name='unique_origination_product_document_key',
-            ),
-            models.UniqueConstraint(
-                fields=['product_definition', 'template'],
-                name='unique_origination_product_template_assignment',
-            ),
-        ]
-
-    def __str__(self):
-        return f'{self.product_definition}: {self.name}'
-
-    def clean(self):
-        super().clean()
-        errors = {}
-        if self.template_id:
-            if (
-                self.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY
-                and self.template.product_definition_id is not None
-            ):
-                errors['template'] = 'A reusable primary LAF must be a global template.'
-            if (
-                self.template.product_definition_id not in (None, self.product_definition_id)
-                and self.template.status not in {
-                    OriginationDocumentTemplate.STATUS_ACTIVE,
-                    OriginationDocumentTemplate.STATUS_RETIRED,
-                }
-            ):
-                errors['template'] = 'Only an immutable published legacy template can be shared from another product version.'
-            if (
-                self.version_policy == self.VERSION_LATEST_COMPATIBLE
-                and self.template.product_definition_id is not None
-            ):
-                errors['version_policy'] = 'Latest-compatible requires a global shared-template family.'
-            if self.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
-                if self.document_key != 'primary':
-                    errors['document_key'] = 'A reusable primary LAF must use the key "primary".'
-                if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_REQUIRED:
-                    errors['inclusion_mode'] = 'The primary LAF is always required.'
-                if self.officer_selectable:
-                    errors['officer_selectable'] = 'The primary LAF cannot be officer selectable.'
-                if self.default_selected:
-                    errors['default_selected'] = 'The primary LAF is selected automatically.'
-                if self.applicability_rule:
-                    errors['applicability_rule'] = 'The primary LAF cannot have an applicability rule.'
-            elif self.document_key == 'primary':
-                errors['document_key'] = 'Supporting documents require their own stable key.'
-        if self.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL and not self.officer_selectable:
-            errors['officer_selectable'] = 'Optional documents must be officer selectable.'
-        if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_OPTIONAL and self.default_selected:
-            errors['default_selected'] = 'Only optional documents can be selected by default.'
-        if errors:
-            raise ValidationError(errors)
-
-    def save(self, *args, **kwargs):
-        if self.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
-            raise ValidationError('Document assignments are immutable; create the next product version.')
-        self.full_clean()
-        return super().save(*args, **kwargs)
-
-    def delete(self, *args, **kwargs):
-        if self.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
-            raise ValidationError('Published document assignments cannot be deleted; replace them in the next product version.')
-        return super().delete(*args, **kwargs)
-
-
-
 class OriginationDocumentTemplateEvent(models.Model):
     """Append-only audit trail for legal template lifecycle changes."""
 
@@ -789,7 +601,6 @@ class OriginationDocumentTemplateEvent(models.Model):
         if self.pk and type(self).objects.filter(pk=self.pk).exists():
             raise ValidationError('Origination document template events are append-only.')
         return super().save(*args, **kwargs)
-
 
 
 class OriginationTemplateConfigurationRevision(models.Model):
@@ -823,7 +634,6 @@ class OriginationTemplateConfigurationRevision(models.Model):
         if self.pk and type(self).objects.filter(pk=self.pk).exists():
             raise ValidationError('Origination template configuration revisions are append-only.')
         return super().save(*args, **kwargs)
-
 
 
 class LoanOriginationApplication(models.Model):
@@ -967,7 +777,6 @@ class LoanOriginationApplication(models.Model):
         return self.reference_number
 
 
-
 class OriginationCommercialException(models.Model):
     """Immutable Superuser approval for exact policy mismatches on one revision."""
 
@@ -1046,7 +855,6 @@ class OriginationCommercialException(models.Model):
 
     def __str__(self):
         return f'{self.application.reference_number} r{self.application_revision}'
-
 
 
 class OriginationReportingValue(models.Model):
@@ -1137,7 +945,6 @@ class OriginationReportingValue(models.Model):
         return f'{self.application.reference_number}: {self.field_key}'
 
 
-
 class OriginationApplicationEvent(models.Model):
     """Append-only operational history for an origination application."""
 
@@ -1178,7 +985,6 @@ class OriginationApplicationEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination application events cannot be deleted.')
-
 
 
 class OriginationReviewerNotice(models.Model):
@@ -1224,7 +1030,6 @@ class OriginationReviewerNotice(models.Model):
 
     def __str__(self):
         return f'{self.application.reference_number}: {self.get_notice_type_display()}'
-
 
 
 class OriginationCorrectionRequest(models.Model):
@@ -1280,7 +1085,6 @@ class OriginationCorrectionRequest(models.Model):
         raise ValidationError('Origination correction requests cannot be deleted.')
 
 
-
 class OriginationCorrectionItem(models.Model):
     """Immutable field or requirement target within a correction request."""
 
@@ -1321,7 +1125,6 @@ class OriginationCorrectionItem(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination correction items cannot be deleted.')
-
 
 
 class OriginationRequirementEvidence(models.Model):
@@ -1393,7 +1196,6 @@ class OriginationRequirementEvidence(models.Model):
         raise ValidationError('Origination evidence cannot be deleted; remove it logically.')
 
 
-
 class OriginationApplicationDocument(models.Model):
     """Application-scoped snapshot and progress for one generated packet document."""
 
@@ -1416,10 +1218,6 @@ class OriginationApplicationDocument(models.Model):
         OriginationDocumentTemplate, null=True, blank=True, on_delete=models.PROTECT,
         related_name='application_documents',
     db_comment='Reference to core_originationdocumenttemplate; deletion behavior: PROTECT.')
-    assignment = models.ForeignKey(
-        OriginationProductDocumentAssignment, null=True, blank=True,
-        on_delete=models.PROTECT, related_name='application_documents',
-    db_comment='Reference to core_originationproductdocumentassignment; deletion behavior: PROTECT.')
     document_key = models.SlugField(max_length=80, db_comment='Document key (SlugField).')
     name = models.CharField(max_length=180, db_comment='Name (CharField).')
     document_role = models.CharField(max_length=16, choices=OriginationDocumentTemplate.ROLE_CHOICES, db_comment='Document role (CharField).')
@@ -1439,7 +1237,7 @@ class OriginationApplicationDocument(models.Model):
 
     class Meta:
         db_table = 'core_originationapplicationdocument'
-        db_table_comment = 'Domain: origination. Purpose: Application-scoped snapshot and progress for one generated packet document. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: origination.LoanOriginationApplication, origination.OriginationDocumentTemplate, origination.OriginationProductDocumentAssignment. Children: none. Code usage: owning Django model and workflow service.'
+        db_table_comment = 'Domain: origination. Purpose: Application-scoped snapshot and progress for one generated packet document. Classification: authoritative_record. Source of truth: yes. Lifecycle: active. Retention: Retained with the owning business record according to its workflow policy. Parents: origination.LoanOriginationApplication, origination.OriginationDocumentTemplate. Children: none. Code usage: owning Django model and workflow service.'
         ordering = ['display_order', 'document_key']
         constraints = [models.UniqueConstraint(
             fields=['application', 'document_key'], name='unique_origination_application_document',
@@ -1447,7 +1245,6 @@ class OriginationApplicationDocument(models.Model):
 
     def __str__(self):
         return f'{self.application.reference_number}: {self.name}'
-
 
 
 class OriginationSigningParticipant(models.Model):
@@ -1581,7 +1378,6 @@ class OriginationConsentPolicyVersion(models.Model):
         return f'{self.version} ({self.status})'
 
 
-
 class OriginationSigningPackage(models.Model):
     """Stable cross-system link from one frozen revision to e-signatures."""
 
@@ -1689,7 +1485,6 @@ class OriginationSigningPackage(models.Model):
         return self.external_reference
 
 
-
 class OriginationStampAsset(models.Model):
     """Versioned, controlled PNG used only in calibrated stamp slots."""
 
@@ -1740,7 +1535,6 @@ class OriginationStampAsset(models.Model):
     def __str__(self):
         scope = self.branch.name if self.branch_id else 'Organization'
         return f'{self.name} v{self.version} ({scope}, {self.environment})'
-
 
 
 class OriginationSignerSession(models.Model):
@@ -1846,7 +1640,6 @@ class OriginationSignerSession(models.Model):
         return f'{self.package.external_reference}: {self.signer_role}'
 
 
-
 class OriginationOtpChallenge(models.Model):
     """Hashed, bounded OTP challenge; provider delivery never proves signing."""
 
@@ -1901,7 +1694,6 @@ class OriginationOtpChallenge(models.Model):
         return f'{self.session} OTP {self.send_sequence}'
 
 
-
 class OriginationSigningRequestEvent(models.Model):
     """Minimal append-only database throttle evidence for public signing writes."""
 
@@ -1938,7 +1730,6 @@ class OriginationSigningRequestEvent(models.Model):
             fields=['session', 'action', 'request_id'], condition=~models.Q(request_id=''),
             name='unique_origination_signing_request_event',
         )]
-
 
 
 class OriginationSigningAction(models.Model):
@@ -2005,7 +1796,6 @@ class OriginationSigningAction(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination signing actions cannot be deleted.')
-
 
 
 class OriginationSigningActionInvalidation(models.Model):

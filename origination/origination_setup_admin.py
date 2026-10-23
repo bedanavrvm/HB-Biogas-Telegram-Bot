@@ -167,7 +167,6 @@ def detail_view(model_admin, request, object_id):
     product = selected.product_version.product
     from origination.services.origination_document_catalogue import catalogue_for_product
     document_catalogue = catalogue_for_product(selected)
-    from origination.services.origination_templates import resolve_assignment_template
     from core.services.product_availability import (
         CANONICAL_PRODUCT_CHANNEL, PRODUCT_WORKFLOW_CHOICES,
     )
@@ -187,7 +186,6 @@ def detail_view(model_admin, request, object_id):
     ).prefetch_related(
         'product_version__fees', 'product_version__requirements',
         'product_version__custom_attributes', 'document_templates',
-        'document_assignments__template__published_configuration_revision',
     ).order_by('-version'))
     rows = []
     for definition in versions:
@@ -224,10 +222,12 @@ def detail_view(model_admin, request, object_id):
                 ],
             })
         documents = []
-        for template in definition.document_templates.all():
+        from origination.services.origination_setup_documents import selected_documents
+        catalogue_templates = selected_documents(definition) if definition.product_version_id else []
+        for template in [*definition.document_templates.all(), *catalogue_templates]:
             documents.append({
                 'name': template.name,
-                'source': 'Product-owned',
+                'source': 'Product-owned' if template.product_definition_id else 'Document catalogue',
                 'role': template.get_document_role_display(),
                 'inclusion': template.get_inclusion_mode_display(),
                 'version_policy': f'Pinned to v{template.version}',
@@ -239,27 +239,6 @@ def detail_view(model_admin, request, object_id):
                 'calibration_url': reverse(
                     'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
                 ) if template.drive_file_id else '',
-            })
-        for assignment in definition.document_assignments.all():
-            resolved = resolve_assignment_template(assignment)
-            documents.append({
-                'name': assignment.name,
-                'source': 'Reusable library',
-                'role': assignment.template.get_document_role_display(),
-                'inclusion': assignment.get_inclusion_mode_display(),
-                'version_policy': assignment.get_version_policy_display(),
-                'resolved': resolved,
-                'calibrated': bool(
-                    resolved and resolved.published_configuration_revision_id
-                ),
-                'detail_url': reverse(
-                    'admin:origination_originationdocumenttemplate_change',
-                    args=[resolved.pk if resolved else assignment.template_id],
-                ),
-                'calibration_url': reverse(
-                    'admin:origination_originationdocumenttemplate_calibrate',
-                    args=[resolved.pk],
-                ) if resolved and resolved.drive_file_id else '',
             })
         rows.append({
             'definition': definition,
@@ -741,8 +720,6 @@ def _step_terms(model_admin, request, definition, context):
     if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
         messages.success(request, 'Commercial terms saved as a draft.')
     return HttpResponseRedirect(_workspace_url(definition, 'terms' if request.POST.get('intent') == 'stay' else 'documents'))
-
-
 
 
 def _step_documents(model_admin, request, definition, context):

@@ -191,6 +191,20 @@ class ValueResolutionTests(SimpleTestCase):
             render_template(synthetic_pdf(), config, {'name': 'Synthetic long applicant name', '_value_contract_version': 2})
 
 
+def place_fixture_fields(application, document):
+    """Declare the PDF fields this value-contract fixture intends to fill."""
+    def layout(contract):
+        return {'field_overlay_manifest': {'fields': {
+            field['key']: {'context_key': field['key'], 'page_number': 1,
+                           'box': {'x': 10, 'y': 10 + index * 20, 'width': 100, 'height': 18}}
+            for index, field in enumerate(contract.get('fields', []))
+        }}}
+    application.template_configuration_snapshot = layout(application.schema_snapshot)
+    application.save(update_fields=['template_configuration_snapshot'])
+    document.template_snapshot = {'configuration': layout(document.schema_snapshot)}
+    document.save(update_fields=['template_snapshot'])
+
+
 class PacketValueSaveTests(TestCase):
     def setUp(self):
         self.officer = get_user_model().objects.create_user('synthetic-contract-officer')
@@ -204,6 +218,7 @@ class PacketValueSaveTests(TestCase):
             document_role='supporting', name='Synthetic visit', selected=True, applicable=True,
             schema_snapshot=schema(field('applicant_name'), field('extra_shared'), field('visit_notes', scope='document'),
                                    field('visited', source='workflow', binding='workflow.visit_date')))
+        place_fixture_fields(self.application, self.document)
         audit = patch('core.services.compliance_audit.record_event')
         audit.start(); self.addCleanup(audit.stop)
         locations = patch('core.services.location_catalog.validate_location_selection', return_value=(None, None, None))
@@ -274,6 +289,7 @@ class PacketValueSaveTests(TestCase):
         assets['structure'] = {'min_items': 0, 'max_items': 1, 'columns': [{'key': 'description', 'type': 'text'}]}
         self.document.schema_snapshot = schema(assets)
         self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application, self.document)
         with self.assertRaises(OriginationError):
             self.save({'assets': [{'description': 'One'}, {'description': 'Two'}]})
         self.application.refresh_from_db()
@@ -282,6 +298,7 @@ class PacketValueSaveTests(TestCase):
     def test_invalid_local_value_rolls_back_shared_change_and_audit(self):
         self.document.schema_snapshot = schema(field('applicant_name'), field('visit_amount', type='money', scope='document'))
         self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application, self.document)
         with self.assertRaises(OriginationError):
             self.save({'applicant_name': 'Must roll back', 'visit_amount': 'not money'})
         self.application.refresh_from_db()
@@ -298,6 +315,7 @@ class PacketValueSaveTests(TestCase):
         self.application.save(update_fields=['schema_snapshot', 'form_payload'])
         self.document.schema_snapshot = schema()
         self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application, self.document)
         linked = save_application_fields(application_id=self.application.pk, actor=self.officer,
             payload={'_person_role_bindings': {'guarantor_1': 'spouse'}}, expected_revision=self.application.revision, request_id='link')
         updated = save_application_fields(application_id=self.application.pk, actor=self.officer,
@@ -310,10 +328,12 @@ class PacketValueSaveTests(TestCase):
         self.document.field_payload = {'witness_name': 'Synthetic One'}
         self.document.signer_rules_snapshot = [{'role': 'witness', 'identity_fields': {'name': 'witness_name'}}]
         self.document.save(update_fields=['schema_snapshot', 'field_payload', 'signer_rules_snapshot'])
+        place_fixture_fields(self.application, self.document)
         self.assertEqual(packet_signers(self.application)[0]['identity']['name'], 'Synthetic One')
         OriginationApplicationDocument.objects.create(application=self.application, document_key='another',
             document_role='supporting', name='Another synthetic document', selected=True,
-            schema_snapshot=self.document.schema_snapshot, field_payload={'witness_name': 'Synthetic Two'},
+            schema_snapshot=self.document.schema_snapshot, template_snapshot=self.document.template_snapshot,
+            field_payload={'witness_name': 'Synthetic Two'},
             signer_rules_snapshot=self.document.signer_rules_snapshot)
         with self.assertRaisesRegex(OriginationError, 'different people'):
             packet_signers(self.application)
@@ -367,6 +387,7 @@ class PacketValueSaveTests(TestCase):
         self.document.schema_snapshot = schema(field('business_other_income_lines', type='repeating_group'))
         self.document.inclusion_mode = 'optional'
         self.document.save(update_fields=['schema_snapshot', 'inclusion_mode'])
+        place_fixture_fields(self.application, self.document)
         self.assertEqual(preview_context(self.application)['income'], '120')
         deselected = select_documents(application_id=self.application.pk, actor=self.officer,
             selected_keys=[], expected_revision=self.application.revision, request_id='remove-financial-inputs')
@@ -385,6 +406,7 @@ class PacketValueSaveTests(TestCase):
             field('guarantor_1' + suffix, subject='guarantor_1') for suffix in ['_name', '_id_number', '_phone']])
         self.document.inclusion_mode = 'optional'
         self.document.save(update_fields=['schema_snapshot', 'inclusion_mode'])
+        place_fixture_fields(self.application, self.document)
         linked = save_application_fields(application_id=self.application.pk, actor=self.officer,
             payload={'_person_role_bindings': {'guarantor_1': 'spouse'}}, expected_revision=self.application.revision, request_id='link-before-deselect')
         deselected = select_documents(application_id=self.application.pk, actor=self.officer,

@@ -40,21 +40,24 @@ class TestingDeletionMixin:
                 bound = signing.loads(request.POST.get('deletion_token', ''), salt=SALT, max_age=3600)
             except signing.BadSignature as exc:
                 raise PermissionDenied('The confirmation expired. Select the records again.') from exc
-            if bound['actor'] != request.user.pk or bound['model'] != label or bound['ids'] != ids or bound['mode'] != mode:
+            if bound['actor'] != request.user.pk or bound['model'] != label or bound['ids'] != ids:
                 raise PermissionDenied('The confirmation does not match this selection.')
-            try:
-                result = delete_selection(model_label=label, ids=ids, actor=request.user, mode=mode,
-                                          fingerprint=bound['fingerprint'], request_id=bound['request_id'])
-            except DeletionError as exc:
-                error = str(exc)
-            except Exception:
-                logger.exception('Testing deletion rolled back: model=%s actor_id=%s', label, request.user.pk)
-                error = 'Nothing was deleted. The records could not be safely removed.'
+            if bound['mode'] != mode:
+                error = 'The deletion option changed. Review the updated impact and confirm again.'
             else:
-                self.message_user(request,
-                    f"Deleted {result['deleted']} record(s); kept {result['retained']} linked record(s). "
-                    f"Sheet cleanup: {len(result['sheet_operations'])} queued update(s). Drive files kept.", messages.SUCCESS)
-                return None
+                try:
+                    result = delete_selection(model_label=label, ids=ids, actor=request.user, mode=mode,
+                                              fingerprint=bound['fingerprint'], request_id=bound['request_id'])
+                except DeletionError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception('Testing deletion rolled back: model=%s actor_id=%s', label, request.user.pk)
+                    error = 'Nothing was deleted. The records could not be safely removed.'
+                else:
+                    self.message_user(request,
+                        f"Deleted {result['deleted']} record(s); kept {result['retained']} linked record(s). "
+                        f"Sheet cleanup: {len(result['sheet_operations'])} queued update(s). Drive files kept.", messages.SUCCESS)
+                    return None
         try:
             plan = preview_selection(model_label=label, ids=ids, actor=request.user, mode=mode)
         except DeletionError as exc:

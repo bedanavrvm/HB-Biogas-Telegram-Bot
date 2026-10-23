@@ -17,7 +17,6 @@ from origination.models import (
     OriginationApplicationDocument,
     OriginationDocumentTemplate,
     OriginationProductDefinition,
-    OriginationProductDocumentAssignment,
 )
 
 
@@ -149,7 +148,6 @@ def initialize_document_packet(
     catalogue_revision: str = '',
 ) -> None:
     from origination.services.loan_origination import OriginationError
-    from origination.services.origination_templates import resolve_assignment_template
 
     if primary_template is not None:
         from origination.services.origination_fields import template_form_contract
@@ -166,15 +164,14 @@ def initialize_document_packet(
         ).select_related('published_configuration_revision').distinct().order_by(
             'display_order', 'document_key', 'name',
         ))
-        templates = [(primary_template, None), *((item, None) for item in candidates)]
-        for template, _assignment in templates:
+        templates = [primary_template, *candidates]
+        for template in templates:
             document_schema, document_signers = template_form_contract(template)
             is_primary = template.pk == primary_template.pk
             selected = is_primary or str(template.pk) in selected_ids
             OriginationApplicationDocument.objects.create(
                 application=application,
                 template=template,
-                assignment=None,
                 document_key='primary' if is_primary else template.document_key,
                 name=template.name,
                 document_role=(
@@ -209,27 +206,16 @@ def initialize_document_packet(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
         document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
     ).order_by('display_order', 'document_key'))
-    assignments = list(application.product_definition.document_assignments.select_related(
-        'template', 'template__published_configuration_revision',
-    ).order_by('display_order', 'document_key'))
-    assigned_keys = {item.document_key for item in assignments}
-    legacy_supporting = list(application.product_definition.document_templates.filter(
+    supporting_templates = list(application.product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
         document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
-    ).exclude(document_key__in=assigned_keys).order_by('display_order', 'document_key'))
-    templates = [(item, None) for item in primary_templates + legacy_supporting]
-    for assignment in assignments:
-        resolved = resolve_assignment_template(assignment)
-        if not resolved:
-            raise OriginationError(
-                f'No published compatible version is available for {assignment.name}.',
-            )
-        templates.append((resolved, assignment))
+    ).order_by('display_order', 'document_key'))
+    templates = primary_templates + supporting_templates
     if not templates:
         return
-    for template, assignment in templates:
-        inclusion_mode = assignment.inclusion_mode if assignment else template.inclusion_mode
-        applicability_rule = assignment.applicability_rule if assignment else template.applicability_rule
+    for template in templates:
+        inclusion_mode = template.inclusion_mode
+        applicability_rule = template.applicability_rule
         applicable = rule_matches(applicability_rule, application.form_payload)
         if template.document_role == template.ROLE_PRIMARY:
             selected, source = True, OriginationApplicationDocument.SOURCE_REQUIRED
@@ -238,25 +224,21 @@ def initialize_document_packet(
         elif inclusion_mode == template.INCLUDE_CONDITIONAL:
             selected, source = applicable, OriginationApplicationDocument.SOURCE_RULE
         else:
-            selected = applicable and (assignment.default_selected if assignment else template.default_selected)
+            selected = applicable and template.default_selected
             source = OriginationApplicationDocument.SOURCE_DEFAULT
         OriginationApplicationDocument.objects.create(
             application=application,
             template=template,
-            assignment=assignment,
-            document_key=assignment.document_key if assignment else template.document_key,
-            name=assignment.name if assignment else template.name,
+            document_key=template.document_key,
+            name=template.name,
             document_role=template.document_role,
-            display_order=assignment.display_order if assignment else template.display_order,
+            display_order=template.display_order,
             inclusion_mode=inclusion_mode,
             selection_source=source,
             applicable=applicable,
             selected=selected,
             template_snapshot={
                 **_template_snapshot(template),
-                'assignment_id': str(assignment.pk) if assignment else '',
-                'assignment_version_policy': assignment.version_policy if assignment else '',
-                'assignment_baseline_template_id': str(assignment.template_id) if assignment else '',
                 'resolved_template_id': str(template.pk),
                 'applicability_rule': applicability_rule or {},
             },
@@ -273,17 +255,10 @@ def resolved_document_requirements(
     product_definition: OriginationProductDefinition,
 ) -> list[dict[str, Any]]:
     """Return document-owned evidence requirements for a new application snapshot."""
-    from origination.services.origination_templates import resolve_assignment_template
 
     templates = list(product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
     ))
-    for assignment in product_definition.document_assignments.select_related(
-        'template', 'template__published_configuration_revision',
-    ):
-        resolved = resolve_assignment_template(assignment)
-        if resolved:
-            templates.append(resolved)
     requirements: list[dict[str, Any]] = []
     seen: set[str] = set()
     for template in templates:

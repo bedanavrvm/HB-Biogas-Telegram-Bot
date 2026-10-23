@@ -308,14 +308,6 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'lifecycle': 'active',
         'retention': 'Retained while the catalogue document or product history requires it.',
     },
-    'origination.OriginationProductDocumentAssignment': {
-        'domain': 'origination',
-        'purpose': 'Version-policy assignment between a legacy product definition and document family.',
-        'classification': 'business_assignment',
-        'source_of_truth': True,
-        'lifecycle': 'compatibility',
-        'retention': 'Retained for historical product-definition and application compatibility.',
-    },
 }
 
 

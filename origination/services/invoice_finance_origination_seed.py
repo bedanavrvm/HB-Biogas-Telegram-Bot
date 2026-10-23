@@ -338,10 +338,8 @@ def _replace_draft(*, plan: dict[str, Any], actor, schema: dict[str, Any]) -> Or
             document_type=plan['product'].code, document_template_version=next_version,
             lifecycle_status=OriginationProductDefinition.STATUS_DRAFT, created_by=actor,
         )
-    removed_assignments = draft.document_assignments.count()
-    draft.document_assignments.all().delete()
     desired_signers = json.loads(json.dumps(SIGNER_RULES))
-    changed = removed_assignments or any((
+    changed = any((
         draft.product_version_id != plan['product_version'].pk,
         draft.product_key != plan['product'].code,
         draft.name != plan['product'].name,
@@ -364,7 +362,6 @@ def _replace_draft(*, plan: dict[str, Any], actor, schema: dict[str, Any]) -> Or
             product_definition=draft, action='invoice_finance_contract_replaced', actor=actor,
             metadata={
                 'field_count': len(schema['fields']), 'signer_count': len(SIGNER_RULES),
-                'removed_supporting_assignment_count': removed_assignments,
                 'attach_section_ignored': True,
             },
         )

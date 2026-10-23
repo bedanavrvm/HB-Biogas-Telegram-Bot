@@ -19,7 +19,6 @@ from origination.models import (
     OriginationApplicationDocument,
     OriginationDataField,
     OriginationDataFieldEvent,
-    OriginationFieldReviewIssue,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationProductDefinition,
@@ -828,10 +827,11 @@ def edit_template_field(*, template, key, action, presentation, actor, expected_
     return template
 
 
+@transaction.atomic
 def bind_compatible_schema_fields(
-    product: OriginationProductDefinition, *, create_issues: bool = True,
+    product: OriginationProductDefinition,
 ) -> bool:
-    """Bind safe draft legacy fields and make every ambiguous field visible in Admin."""
+    """Bind compatible draft fields; require explicit correction for ambiguous types."""
     if product.lifecycle_status != product.STATUS_DRAFT:
         return False
     schema = json.loads(json.dumps(product.form_schema or {}))
@@ -908,45 +908,13 @@ def bind_compatible_schema_fields(
             item.update(snapshot)
             changed = True
             continue
-        if create_issues:
-            OriginationFieldReviewIssue.objects.get_or_create(
-                product_definition=product, legacy_key=key,
-                defaults={
-                    'legacy_type': field_type,
-                    'legacy_label': str(item.get('label') or key.replace('_', ' ').title()),
-                    'reason': 'type_conflict' if conflicting else 'missing_catalogue_field',
-                    'suggested_field': conflicting,
-                },
-            )
+        raise OriginationFieldError(f'Choose a compatible canonical field for {key} before publishing.')
     if changed:
         schema['fields'] = fields
         schema['_revision'] = product_schema_revision(product) + 1
         product.form_schema = schema
         product.save(update_fields=['form_schema', 'updated_at'])
     return changed
-
-
-def create_conflict_review_issues(product: OriginationProductDefinition) -> int:
-    """Expose known key/type collisions without rewriting a freshly cloned schema."""
-    created = 0
-    for item in (product.form_schema or {}).get('fields', []) or []:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get('key') or '').strip()
-        field_type = str(item.get('type') or 'text').strip()
-        conflict = OriginationDataField.objects.filter(key=key).exclude(data_type=field_type).first()
-        if not conflict:
-            continue
-        _issue, was_created = OriginationFieldReviewIssue.objects.get_or_create(
-            product_definition=product, legacy_key=key,
-            defaults={
-                'legacy_type': field_type,
-                'legacy_label': str(item.get('label') or key.replace('_', ' ').title()),
-                'reason': 'type_conflict', 'suggested_field': conflict,
-            },
-        )
-        created += int(was_created)
-    return created
 
 
 def snapshot_form_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -996,85 +964,6 @@ def snapshot_form_schema(schema: dict[str, Any]) -> dict[str, Any]:
                 field.update(deepcopy(declared_system.pop(field['key'])))
         snapshot['system_fields'].extend(deepcopy(list(declared_system.values())))
     return snapshot
-
-
-def unresolved_review_keys(product: OriginationProductDefinition) -> list[str]:
-    return list(product.field_review_issues.filter(
-        status=OriginationFieldReviewIssue.STATUS_OPEN,
-    ).order_by('legacy_key').values_list('legacy_key', flat=True))
-
-
-@transaction.atomic
-def resolve_review_issue(
-    *, issue: OriginationFieldReviewIssue, status: str,
-    resolution_field: OriginationDataField | None, notes: str, actor,
-) -> OriginationFieldReviewIssue:
-    if not getattr(actor, 'is_superuser', False):
-        raise OriginationFieldError('Only a Django Superuser may resolve legacy fields.')
-    # resolution_field is nullable. Joining it into a FOR UPDATE query makes
-    # PostgreSQL reject the lock as targeting the nullable side of an outer
-    # join. Lock only the issue row and join the required product relation.
-    issue = OriginationFieldReviewIssue.objects.select_for_update(
-        of=('self',),
-    ).select_related('product_definition').get(pk=issue.pk)
-    if status not in {issue.STATUS_RESOLVED, issue.STATUS_ACCEPTED}:
-        raise OriginationFieldError('Choose resolved or accepted as legacy.')
-    if status == issue.STATUS_RESOLVED:
-        if not resolution_field or resolution_field.data_type != issue.legacy_type:
-            raise OriginationFieldError('Choose a canonical field with the same data type.')
-        product = OriginationProductDefinition.objects.select_for_update().get(
-            pk=issue.product_definition_id,
-        )
-        if product.lifecycle_status != product.STATUS_DRAFT:
-            raise OriginationFieldError('Resolve this binding on an editable successor version.')
-        schema = json.loads(json.dumps(product.form_schema or {}))
-        target = next(
-            (item for item in (schema.get('fields') or []) if item.get('key') == issue.legacy_key),
-            None,
-        )
-        if not target:
-            raise OriginationFieldError('The legacy field is no longer present in this schema.')
-        if any(
-            item.get('key') == resolution_field.key and item is not target
-            for item in (schema.get('fields') or [])
-        ):
-            raise OriginationFieldError('That canonical field is already attached to the product.')
-        presentation = dict(target)
-        target.clear()
-        target.update(_field_schema_item(resolution_field, presentation))
-        schema['_revision'] = product_schema_revision(product) + 1
-        product.form_schema = schema
-        product.save(update_fields=['form_schema', 'updated_at'])
-    elif not str(notes or '').strip():
-        raise OriginationFieldError('Explain why this field remains legacy.')
-    issue.status = status
-    issue.resolution_field = resolution_field if status == issue.STATUS_RESOLVED else None
-    issue.resolution_notes = str(notes or '').strip()
-    issue.resolved_by = actor
-    issue.resolved_at = timezone.now()
-    issue.full_clean()
-    issue.save(update_fields=[
-        'status', 'resolution_field', 'resolution_notes', 'resolved_by',
-        'resolved_at', 'updated_at',
-    ])
-    OriginationProductDefinitionEvent.objects.create(
-        product_definition=issue.product_definition,
-        action='legacy_field_resolved' if status == issue.STATUS_RESOLVED else 'legacy_field_accepted',
-        actor=actor,
-        metadata={
-            'legacy_key': issue.legacy_key,
-            'resolution_field_id': str(resolution_field.pk) if resolution_field else '',
-        },
-    )
-    if resolution_field:
-        OriginationDataFieldEvent.objects.create(
-            data_field=resolution_field, action='legacy_bound', actor=actor,
-            metadata={
-                'product_definition_id': str(issue.product_definition_id),
-                'legacy_key': issue.legacy_key,
-            },
-        )
-    return issue
 
 
 def _projection_kwargs(field_type: str, value: Any) -> dict[str, Any]:

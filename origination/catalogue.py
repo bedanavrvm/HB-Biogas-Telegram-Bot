@@ -140,18 +140,6 @@ MODEL_METADATA = {'origination.LoanOriginationApplication': {'domain': 'originat
                                                   'retention': 'Retained with the permanent workflow or compliance audit record.',
                                                   'legacy_db_table': 'core_originationdocumenttemplateevent',
                                                   'index_justifications': {}},
- 'origination.OriginationFieldReviewIssue': {'domain': 'origination',
-                                             'purpose': 'Tracked exit path for a legacy schema field without a safe catalogue binding.',
-                                             'classification': 'authoritative_record',
-                                             'source_of_truth': True,
-                                             'lifecycle': 'active',
-                                             'retention': 'Retained with the owning business record according to its workflow policy.',
-                                             'legacy_db_table': 'core_originationfieldreviewissue',
-                                             'index_justifications': {'core_origin_status_85057f_idx': 'Preserved existing '
-                                                                                                       'OriginationFieldReviewIssue index for scoped '
-                                                                                                       'operational lookup by status, updated_at; '
-                                                                                                       'avoids changing live query performance '
-                                                                                                       'during ownership transfer.'}},
  'origination.OriginationOtpChallenge': {'domain': 'origination',
                                          'purpose': 'Hashed, bounded OTP challenge; provider delivery never proves signing.',
                                          'classification': 'processing_record',
@@ -180,14 +168,6 @@ MODEL_METADATA = {'origination.LoanOriginationApplication': {'domain': 'originat
                                                    'retention': 'Retained with the permanent workflow or compliance audit record.',
                                                    'legacy_db_table': 'core_originationproductdefinitionevent',
                                                    'index_justifications': {}},
- 'origination.OriginationProductDocumentAssignment': {'domain': 'origination',
-                                                      'purpose': 'Version-policy assignment between a legacy product definition and document family.',
-                                                      'classification': 'business_assignment',
-                                                      'source_of_truth': True,
-                                                      'lifecycle': 'compatibility',
-                                                      'retention': 'Retained for historical product-definition and application compatibility.',
-                                                      'legacy_db_table': 'core_originationproductdocumentassignment',
-                                                      'index_justifications': {}},
  'origination.OriginationReportingValue': {'domain': 'origination',
                                            'purpose': 'Rebuildable typed projection of explicitly reportable application values.',
                                            'classification': 'authoritative_record',

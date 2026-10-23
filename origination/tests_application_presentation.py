@@ -181,7 +181,9 @@ class ApplicationPresentationTests(TestCase):
         from origination.views import portal_origination_prepare_download, portal_origination_download
         from core.services.telegram_identity import user_access
         self.application.schema_snapshot = {'fields': [{'key': 'applicant_full_name', 'type': 'text', 'required': True}]}
-        self.application.save(update_fields=['schema_snapshot'])
+        from origination.tests_form_projection import layout
+        self.application.template_configuration_snapshot = layout('applicant_full_name')
+        self.application.save(update_fields=['schema_snapshot', 'template_configuration_snapshot'])
         def prepare(confirmed):
             request = RequestFactory().post('/download/', {'revision': self.application.revision,
                 'client_request_id': 'incomplete-copy', 'allow_incomplete': confirmed}, content_type='application/json')

@@ -1,5 +1,25 @@
 # Changelog
 
+## 23 October 2026 - Origination placement, signatures and model cleanup
+
+- Add Edit beside signatures and signer identity-field controls, including an
+  optional ID link. Duplicate a signature into another slot for the same person
+  and reuse one verified capture across that person's slots.
+- Enforce placed PDF fields as the only filling inputs for editable drafts and
+  corrections, including applications without a captured layout. Capture/audit
+  projection version 2; retain submitted version-1 interpretation and signed bytes.
+- Allow published documents with alignment warnings to attach to products; retain
+  source/geometry/compatibility checks and package-level signing requirements.
+- Refresh the deletion impact when a confirmation's mode changes, while keeping
+  actor/selection/fingerprint checks and requiring another confirmation.
+- Retire the legacy assignment and field-review models, their old editor/routes
+  and demo seed. Migration 0012 locks/checks both tables and stops if nonempty;
+  no legacy configuration or audit rows are silently discarded.
+- Audit all 31 original models, retaining 29 current models with live workflow
+  uses. See `docs/origination-model-audit.md` for warning/OTP ownership, conditional
+  records, rollout/rollback and verification limits. No production changes or
+  external writes were performed.
+
 ## 23 October 2026 - Specification 18: browser Complaints UI
 
 - Complete the compact queue/detail composition, truthful activity, page-aware

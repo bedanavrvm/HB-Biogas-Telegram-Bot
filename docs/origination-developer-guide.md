@@ -1,5 +1,28 @@
 # Loan Origination Mini App: Developer Guide
 
+## Strict form projection and legacy authoring removal - 23 October 2026
+
+Read [the model audit](origination-model-audit.md) and amended ADR 0047. New
+applications capture `form_projection_version=2`; editable drafts and corrections
+adopt it on existing audit events. Placed context keys alone define active
+inputs, required validation and calculation inputs. Retained hidden answers are
+recovery data. The isolated `origination_form_projection_v1` service reconstructs
+already-submitted version-1 contracts; it never governs current editable filling.
+The API retains projection wire format 1 so already-open Mini App clients keep
+filtering inactive recovery answers; the stored/audited policy version is 2.
+
+`document_editor.save_signers` owns role/participant/identity-field/slot changes
+with revision and request-key checks. Explicit null `identity_fields.national_id`
+means no signer ID link; omitted mappings still receive initial defaults. Repeat
+signature/date slots belong to one participant and use one OTP capture.
+
+`0012_remove_legacy_authoring_models` removes the old assignment/review tables
+only when both are empty. It does not convert or erase existing rows. The old
+packet routes, technical product editor and demo command are retired; use the
+current guided workspace and `OriginationDocumentProductEligibility`. Historical
+migrations and frozen application schemas/packets remain intact. This section
+supersedes older assignment/version-policy authoring instructions below.
+
 ## Typed images and optional identity copies - 14 October 2026
 
 Read ADR 0049. `signature_appearance` pins four upstream fonts with their licences
@@ -716,16 +739,8 @@ Use the repository virtual environment on Windows PowerShell:
 .\.venv\Scripts\python.exe manage.py runserver
 ```
 
-Use only synthetic data. To exercise a fully published main/supporting packet,
-first dry-run and then explicitly apply the seed:
-
-```powershell
-.\.venv\Scripts\python.exe manage.py seed_origination_packet_demo --actor <active-superuser>
-.\.venv\Scripts\python.exe manage.py seed_origination_packet_demo --actor <active-superuser> --apply
-```
-
-`--apply` requires a configured restricted Drive folder and creates synthetic
-PDFs there. It does not create a customer application.
+Use synthetic data and the current document editor/catalogue. The legacy
+`seed_origination_packet_demo` command has been removed.
 
 The reviewed Invoice Finance contract has its own idempotent, dry-run-first
 seed. Its source PDF remains ignored under `LAFS/` and coordinates are never

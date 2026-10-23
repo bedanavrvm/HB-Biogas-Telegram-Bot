@@ -72,7 +72,7 @@ django.setup()
 from origination.tests_form_projection import application, layout, N
 from origination.tests_value_contracts import field, schema
 from origination.services.origination_value_contracts import application_input_schema, application_document_schema
-main=schema(field('applicant_full_name', required=True), field('applicant_phone', type='phone', required=True), field('purpose'), field('unused', required=True))
+main=schema(field('applicant_full_name', required=True), field('applicant_phone', type='phone', required=True), field('purpose'), field('unused', required=True), field('guarantor_1_id_number', type='national_id', required=True))
 main['fields'][2].update(section_key='request',label='Loan purpose')
 main['sections'] += [{'key':'request','label':'Request'}, {'key':'unused_section','label':'Unused section'}]
 support=N(document_key='support',selected=True,applicable=True,document_role='supporting',signer_rules_snapshot=[],
@@ -87,7 +87,8 @@ if ${supportingDetails ? 'True' : 'False'}:
     support.schema_snapshot=schema(*details)
     support.schema_snapshot['sections']=[{'key':'visit_details','label':'Visit details'}, {'key':'visit_contact','label':'Visit contact'}]
     support.template_snapshot={'configuration':layout('private_note','visit_phone','visit_outcome','visit_location')}
-app=application(main, layout('purpose'),support)
+app=application(main, layout('applicant_full_name','applicant_phone','purpose'),support)
+app.signer_rules_snapshot=[{'role':'guarantor_1','identity_fields':{'national_id':'guarantor_1_id_number'}}]
 print(json.dumps({'form_schema':application_input_schema(app),'document_schema':application_document_schema(app,support)}))
 `;
   return JSON.parse(execFileSync(path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'), ['-c',script], {
@@ -286,6 +287,8 @@ for(const width of [320,430,1280]) for(const dark of [false,true]) {
     });
     await page.locator('.application-card').click();
     await expect(page.locator('[data-field=unused]')).toHaveCount(0);
+    await expect(page.locator('[data-field=guarantor_1_id_number]')).toHaveCount(0);
+    await expect(page.getByText('Signing details',{exact:true})).toHaveCount(0);
     await expect(page.getByText('Unused section',{exact:true})).toHaveCount(0);
     await expect(page.locator('[data-field=applicant_full_name]')).toHaveCount(1);
     await expect(page.locator('[data-field=applicant_phone]')).toHaveCount(1);
