@@ -180,7 +180,11 @@
         "report_delivery/tests_complaint_reports.py",
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
-        "requisitions/tests_operations_api.py"
+        "requisitions/tests_operations_api.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py",
+        "staff_auth/tests_complaints_tasks_transport.py",
+        "staff_auth/tests_complaints_transport.py"
       ],
       "django_model": "core.AccessGrant",
       "domain": "access",
@@ -245,8 +249,13 @@
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
         "requisitions/tests_operations_api.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py",
+        "staff_auth/tests_complaints_tasks_transport.py",
+        "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_initial_setup.py",
-        "staff_auth/tests_lifecycle.py"
+        "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_transport.py"
       ]
     },
     {
@@ -257,7 +266,10 @@
       "cross_domain_parents": [
         "auth.User"
       ],
-      "direct_orm_writers": [],
+      "direct_orm_writers": [
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
+      ],
       "django_model": "core.BranchServiceArea",
       "domain": "catalog",
       "explicit_indexes": [],
@@ -272,7 +284,9 @@
       "table": "core_branchservicearea",
       "used_by": [
         "core/services/database_catalog.py",
-        "core/services/location_catalog.py"
+        "core/services/location_catalog.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ]
     },
     {
@@ -339,7 +353,9 @@
       "direct_orm_writers": [
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
-        "core/services/group_reset.py"
+        "core/services/group_reset.py",
+        "staff_auth/tests_complaints_operations_transport.py",
+        "staff_auth/tests_complaints_transport.py"
       ],
       "django_model": "core.CaseUpdate",
       "domain": "complaints",
@@ -365,7 +381,9 @@
         "core/services/database_catalog.py",
         "core/services/group_reset.py",
         "core/services/miniapp_deletion_registry.py",
-        "core/services/reporting_relationships.py"
+        "core/services/reporting_relationships.py",
+        "staff_auth/tests_complaints_operations_transport.py",
+        "staff_auth/tests_complaints_transport.py"
       ]
     },
     {
@@ -459,7 +477,8 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/complaint_cases.py",
-        "core/services/group_reset.py"
+        "core/services/group_reset.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ],
       "django_model": "core.ComplaintCaseEvidence",
       "domain": "complaints",
@@ -480,7 +499,8 @@
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "core/services/miniapp_deletion_registry.py",
-        "core/services/reporting_relationships.py"
+        "core/services/reporting_relationships.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ]
     },
     {
@@ -582,7 +602,10 @@
       "cross_domain_parents": [
         "auth.User"
       ],
-      "direct_orm_writers": [],
+      "direct_orm_writers": [
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
+      ],
       "django_model": "core.ComplaintCategory",
       "domain": "complaints",
       "explicit_indexes": [],
@@ -599,7 +622,9 @@
         "core/services/complaint_register.py",
         "core/services/database_catalog.py",
         "core/services/fresh_database_baseline.py",
-        "core/services/miniapp_deletion_registry.py"
+        "core/services/miniapp_deletion_registry.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ]
     },
     {
@@ -665,9 +690,13 @@
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
+        "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
-        "staff_auth/tests_lifecycle.py"
+        "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_security_cache.py",
+        "staff_auth/tests_transport.py",
+        "staff_auth/transport_test_runner.py"
       ],
       "django_model": "core.ComplianceAuditChainState",
       "domain": "audit",
@@ -687,9 +716,13 @@
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "report_delivery/tests_one_off.py",
+        "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
-        "staff_auth/tests_lifecycle.py"
+        "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_security_cache.py",
+        "staff_auth/tests_transport.py",
+        "staff_auth/transport_test_runner.py"
       ]
     },
     {
@@ -725,7 +758,8 @@
       ],
       "direct_orm_writers": [
         "core/services/compliance_audit.py",
-        "core/services/portal_maintenance.py"
+        "core/services/portal_maintenance.py",
+        "staff_auth/transport_test_runner.py"
       ],
       "django_model": "core.ComplianceAuditEvent",
       "domain": "audit",
@@ -767,11 +801,14 @@
         "staff_auth/initial_setup.py",
         "staff_auth/lifecycle.py",
         "staff_auth/setup_api.py",
+        "staff_auth/tests_abuse.py",
         "staff_auth/tests_browser_api.py",
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
-        "staff_auth/tests_replay.py"
+        "staff_auth/tests_replay.py",
+        "staff_auth/tests_transport.py",
+        "staff_auth/transport_test_runner.py"
       ]
     },
     {
@@ -1063,7 +1100,9 @@
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
         "requisitions/tests.py",
-        "requisitions/tests_operations_api.py"
+        "requisitions/tests_operations_api.py",
+        "staff_auth/tests_complaints_transport.py",
+        "staff_auth/tests_transport.py"
       ],
       "django_model": "core.GroupSheetConfiguration",
       "domain": "platform",
@@ -1075,6 +1114,8 @@
       "source_of_truth": true,
       "table": "core_groupsheetconfiguration",
       "used_by": [
+        "core/api/browser_complaint_operations.py",
+        "core/api/browser_complaint_views.py",
         "core/api/complaint_case_views.py",
         "core/api/portal_views.py",
         "core/management/commands/audit_named_sheet_columns.py",
@@ -1150,7 +1191,10 @@
         "requisitions/management/commands/audit_finance_order_links.py",
         "requisitions/models.py",
         "requisitions/tests.py",
-        "requisitions/tests_operations_api.py"
+        "requisitions/tests_operations_api.py",
+        "staff_auth/tests_complaints_transport.py",
+        "staff_auth/tests_transport.py",
+        "staff_auth/transport_test_urls.py"
       ]
     },
     {
@@ -2512,6 +2556,7 @@
       "column_count": 9,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "core/api/browser_complaint_operations.py",
         "core/services/miniapp_drafts.py"
       ],
       "django_model": "core.MiniAppDraft",
@@ -2529,6 +2574,7 @@
       "source_of_truth": true,
       "table": "core_miniappdraft",
       "used_by": [
+        "core/api/browser_complaint_operations.py",
         "core/services/miniapp_drafts.py",
         "core/services/user_hard_delete.py"
       ]
@@ -2578,7 +2624,9 @@
         "core/services/fresh_database_baseline.py",
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
-        "origination/tests_unsigned_applications.py"
+        "origination/tests_unsigned_applications.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ],
       "django_model": "core.OperationalLocation",
       "domain": "catalog",
@@ -2610,7 +2658,9 @@
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_unsigned_applications.py",
-        "origination/views.py"
+        "origination/views.py",
+        "staff_auth/local_complaints_review.py",
+        "staff_auth/tests_complaints_operations_transport.py"
       ]
     },
     {
@@ -3992,6 +4042,8 @@
       "source_of_truth": true,
       "table": "core_parsedmessage",
       "used_by": [
+        "core/api/browser_complaint_operations.py",
+        "core/api/browser_complaint_views.py",
         "core/api/views.py",
         "core/services/case_updates.py",
         "core/services/commands.py",
@@ -4014,7 +4066,9 @@
         "core/services/workflow_links.py",
         "origination/tests.py",
         "report_delivery/tests_complaint_reports.py",
-        "report_delivery/tests_settings.py"
+        "report_delivery/tests_settings.py",
+        "staff_auth/tests_complaints_operations_transport.py",
+        "staff_auth/tests_complaints_transport.py"
       ]
     },
     {
@@ -4267,6 +4321,7 @@
       "source_of_truth": true,
       "table": "core_portalvoicetranscriptionattempt",
       "used_by": [
+        "core/api/browser_complaint_operations.py",
         "core/api/complaint_case_views.py",
         "core/api/portal_views.py",
         "core/services/complaint_cases.py",
@@ -4745,7 +4800,8 @@
       "source_of_truth": true,
       "table": "core_publicendpointthrottlebucket",
       "used_by": [
-        "core/services/request_throttling.py"
+        "core/services/request_throttling.py",
+        "staff_auth/tests_abuse.py"
       ]
     },
     {
@@ -7830,6 +7886,7 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py"
       ],
@@ -7845,6 +7902,7 @@
       "source_of_truth": true,
       "table": "staff_auth_browser_admission",
       "used_by": [
+        "core/api/browser_complaint_operations.py",
         "staff_auth/admin.py",
         "staff_auth/assurance.py",
         "staff_auth/browser_api.py",
@@ -7857,8 +7915,39 @@
         "staff_auth/session_protection.py",
         "staff_auth/setup_api.py",
         "staff_auth/tests.py",
+        "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_initial_setup.py",
-        "staff_auth/tests_lifecycle.py"
+        "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_transport.py"
+      ]
+    },
+    {
+      "application_area": "Staff Auth",
+      "children": [],
+      "classification": "security_state",
+      "column_count": 3,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "staff_auth/management/commands/purge_staff_browser_security.py"
+      ],
+      "django_model": "staff_auth.StaffBrowserSecurityState",
+      "domain": "staff_auth",
+      "explicit_indexes": [
+        "staff_security_expiry_idx"
+      ],
+      "lifecycle": "temporary",
+      "parents": [],
+      "purpose": "Shared PostgreSQL native authentication histories, owner-bound lock leases and used-code markers; no identity assurance or workflow grant.",
+      "retention": "Retain every live row until database-clock expiry. Bounded preview-first purge_staff_browser_security removes expired rows only; no eviction, global clear or deletion of audit evidence.",
+      "source_of_truth": true,
+      "table": "staff_auth_browser_security_state",
+      "used_by": [
+        "staff_auth/catalogue.py",
+        "staff_auth/management/commands/purge_staff_browser_security.py",
+        "staff_auth/migrations/0004_staffbrowsersecuritystate.py",
+        "staff_auth/models.py",
+        "staff_auth/security_cache.py",
+        "staff_auth/tests_security_cache.py"
       ]
     },
     {
@@ -7893,7 +7982,8 @@
         "staff_auth/migrations/0003_staffbrowsersetupgrant.py",
         "staff_auth/models.py",
         "staff_auth/setup_api.py",
-        "staff_auth/tests_initial_setup.py"
+        "staff_auth/tests_initial_setup.py",
+        "staff_auth/tests_transport.py"
       ]
     },
     {

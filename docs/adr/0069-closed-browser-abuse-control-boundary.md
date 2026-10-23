@@ -1,5 +1,9 @@
 # ADR 0069: closed browser abuse-control boundary
 
+23 October amendment: ADR 0074 supersedes the Redis/Memcached-only backend
+requirement below with the explicitly approved PostgreSQL native-state adapter.
+All other authentication, privacy, failure and activation boundaries remain.
+
 ## Context
 
 The user authorized continuing the platform-independence plan after the guided

@@ -1,5 +1,11 @@
 # JBL standalone browser client
 
+Latest recovery/acceptance work (23 October): settings, schedule editors and
+report-email requests use the same owner-bound, memory-only task recovery as
+complaint forms. ADR 0074 selects PostgreSQL-only native authentication state;
+no Redis service/client is needed. Browser release gates remain closed. See
+the final acceptance record in `docs/runbooks/browser-channel-parity.md`.
+
 The ADR 0073 operations candidate is a **separate native build**, not the local
 demo: `npm run build -- --complaints-operations` (optionally `--development`).
 Its company-authenticated Complaint actions, safe soft navigation and reporting

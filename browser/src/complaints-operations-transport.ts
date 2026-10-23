@@ -6,14 +6,16 @@ export type Complaint = {
   key: string; reference: string; customer_name: string; customer_phone: string; secondary_phone: string;
   customer_id: string; county: string; constituency: string; village: string; branch: string;
   category: string; description: string; status: string; needs_details: boolean; reported_at: string;
-  age_label: string; revision: number; sync_status: string;
+  age_label: string; days_open?: number; recorded_at?: string; revision: number; sync_status: string;
 };
 export type HistoryItem = { id: string; action: string; note: string; updated_by: string; actor_affiliation: string; created_at: string };
-export type Detail = Complaint & { actions: string[]; evidence: { id: string; name: string; mime_type: string; status: string }[];
+export type Evidence = { id: string; name: string; mime_type: string; status: string; size?:number; uploaded_by?:string; created_at_iso?:string; created_at?:string };
+export type Detail = Complaint & { actions: string[]; evidence: Evidence[];
   history: HistoryItem[]; history_truncated: boolean; history_next_cursor: string };
 export type Locations = Record<'branches' | 'counties' | 'sub_counties', { code: string; name: string; parent_code: string }[]>;
 export type Bootstrap = { continuity_key: string; actor: { capabilities: string[] }; location_options: Locations; categories: string[]; counts: Record<string, number>; voice_input: { enabled: boolean; max_seconds: number; fields: string[] }; preferences?: { default_filters: Record<string, string> } };
-export type Queue = { items: Complaint[]; pagination: { page: number; pages: number; total: number }; filter_options: Record<'branches' | 'categories', { label: string; count: number }[]> };
+export type QueueNeighbour = {key:string;page:number};
+export type Queue = { items: Complaint[]; pagination: { page: number; pages: number; total: number; page_size?:number }; filter_options: Record<'branches' | 'categories', { label: string; count: number }[]>; navigation?:{position:number;total:number;previous:QueueNeighbour|null;next:QueueNeighbour|null}|null };
 export class OperationError extends Error {
   constructor(public status: number, message: string, public fields: Record<string, string> = {}, public currentRevision?: number) { super(message); }
 }

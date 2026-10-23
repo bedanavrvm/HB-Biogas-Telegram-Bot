@@ -8,6 +8,7 @@ import WarningIcon from '@atlaskit/icon/core/status-warning';
 import ErrorIcon from '@atlaskit/icon/core/status-error';
 import EditIcon from '@atlaskit/icon/core/edit';
 import RefreshIcon from '@atlaskit/icon/core/refresh';
+import ChevronDownIcon from '@atlaskit/icon/core/chevron-down';
 import Select, { type SelectProps } from '@atlaskit/select';
 import { cssMap, cx } from '@atlaskit/css';
 import Lozenge from '@atlaskit/lozenge';
@@ -28,7 +29,7 @@ export function displayDate(value: string, month = false) {
   if (!value) return 'Not recorded';
   const stamp = /^\d{4}(?:-\d{2})?$/.test(value) ? value.length === 4 ? value + '-01-01' : value + '-01' : value;
   const parsed = /^\d{4}-\d{2}-\d{2}/.test(stamp) ? new Date(stamp.slice(0, 10) + 'T12:00:00Z') : new Date(stamp);
-  return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat('en-GB', { ...(month ? {} : { day: 'numeric' }), month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(parsed);
+  return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat('en-GB', { ...(month ? {} : { day: 'numeric' }), month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(parsed).replace(/Sept\b/, 'Sep');
 }
 const styles = cssMap({
   dialog: { font: token('font.body'), width: '94vw', maxWidth: '60rem', maxHeight: '94vh', boxSizing: 'border-box', padding: 0, borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.large'), backgroundColor: token('elevation.surface.overlay'), color: token('color.text'), boxShadow: token('elevation.shadow.overlay'), overflow: 'visible' },
@@ -49,9 +50,14 @@ const styles = cssMap({
   compact: { maxWidth: '32rem' },
   medium: { maxWidth: '45rem' },
   wide: { width: '98vw', maxWidth: '90rem' },
+  menuAnchor: { display: 'inline-flex', minWidth: 0 },
+  controls: { display: 'flex', flexWrap:'wrap', alignItems: 'center', gap: token('space.100') },
+  gutter: { width: 0, flexShrink: 0 },
+  menu: { position: 'fixed', margin: 0, padding: token('space.100'), minWidth: '12rem', maxWidth: '90vw', maxHeight: '60vh', overflowY: 'auto', borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.medium'), backgroundColor: token('elevation.surface.overlay'), color: token('color.text'), boxShadow: token('elevation.shadow.overlay') },
 });
 type DialogSlots = { root: HTMLDialogElement | null; status: HTMLDivElement | null; footer: HTMLDivElement | null };
 const DialogContext = createContext<DialogSlots>({root:null,status:null,footer:null});
+let bodyLocks=0, previousOverflow='';
 export function DialogStatus({children}:{children:React.ReactNode}) { const {status}=useContext(DialogContext);return status?createPortal(children,status):null; }
 export function DialogFooter({children}:{children:React.ReactNode}) {
   const {footer}=useContext(DialogContext),root=useRef<HTMLDivElement>(null);
@@ -79,9 +85,68 @@ export function AdaptiveSelect<Option extends {label:string;value:string|number}
 /** Native modal focus/inert/Escape semantics with the existing ADS content. */
 export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean }) {
   const ref = useRef<HTMLDialogElement|null>(null), heading = useId();
+  const scrimDown = useRef(false);
   const [root,setRoot]=useState<HTMLDialogElement|null>(null),[status,setStatus]=useState<HTMLDivElement|null>(null),[footer,setFooter]=useState<HTMLDivElement|null>(null);
   const bind=useCallback((node:HTMLDialogElement|null)=>{ref.current=node;setRoot(node);},[]);
   const closeRef = useRef(close); closeRef.current = close;
-  useEffect(() => { const dialog = ref.current!; const opener = document.activeElement as HTMLElement | null; dialog.showModal(); const cancel = (event: Event) => { event.preventDefault(); closeRef.current(); }; dialog.addEventListener('cancel', cancel); return () => { dialog.removeEventListener('cancel', cancel); dialog.close(); opener?.focus(); }; }, []);
-  return <Box as="dialog" ref={bind} aria-labelledby={heading} xcss={cx(styles.dialog,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
+  useEffect(() => {
+    const dialog=ref.current!,opener=document.activeElement as HTMLElement|null;
+    if(bodyLocks++===0){previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';}
+    dialog.showModal();
+    const cancel=(event:Event)=>{event.preventDefault();closeRef.current();};dialog.addEventListener('cancel',cancel);
+    return()=>{dialog.removeEventListener('cancel',cancel);dialog.close();if(--bodyLocks===0)document.body.style.overflow=previousOverflow;if(opener?.isConnected)opener.focus();};
+  },[]);
+  useLayoutEffect(()=>{
+    const dialog=root;if(!dialog)return;
+    const size=()=>{const mobile=innerWidth<64*parseFloat(getComputedStyle(document.documentElement).fontSize);dialog.querySelectorAll('input').forEach(input=>{if(mobile)input.style.font=token('font.body.large');else input.style.removeProperty('font');});};
+    const observer=new MutationObserver(size);observer.observe(dialog,{childList:true,subtree:true});window.addEventListener('resize',size);size();return()=>{observer.disconnect();window.removeEventListener('resize',size);};
+  },[root]);
+  const outside = (event: React.PointerEvent<HTMLDialogElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.target === event.currentTarget && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+  };
+  return <Box as="dialog" ref={bind} aria-labelledby={heading} onPointerDown={event=>{scrimDown.current=outside(event);}} onPointerUp={event=>{const dismiss=scrimDown.current&&outside(event);scrimDown.current=false;if(dismiss)closeRef.current();}} onPointerCancel={()=>{scrimDown.current=false;}} xcss={cx(styles.dialog,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
+}
+
+type Confirmation = { message: string; title: string; accept: string; cancel: string; resolve: (value: boolean) => void };
+const confirmationEvent = 'jbl-browser-confirmation';
+/** One transient confirmation; no window.confirm, customer storage or implicit save. */
+export function confirmAction(message: string, options: Partial<Pick<Confirmation, 'title'|'accept'|'cancel'>> = {}) {
+  return new Promise<boolean>(resolve=>window.dispatchEvent(new CustomEvent<Confirmation>(confirmationEvent,{detail:{message,title:'Discard changes?',accept:'Discard changes',cancel:'Keep editing',...options,resolve}})));
+}
+export function ConfirmationHost() {
+  const [requests,setRequests]=useState<Confirmation[]>([]), pending=useRef<Confirmation[]>([]);
+  const answer=(value:boolean)=>{const [request,...remaining]=pending.current;pending.current=remaining;setRequests(remaining);request?.resolve(value);};
+  useEffect(()=>{const receive=(event:Event)=>{pending.current=[...pending.current,(event as CustomEvent<Confirmation>).detail];setRequests(pending.current);};window.addEventListener(confirmationEvent,receive);return()=>{window.removeEventListener(confirmationEvent,receive);pending.current.forEach(request=>request.resolve(false));pending.current=[];};},[]);
+  const current=requests[0];
+  return current?<TaskDialog title={current.title} compact close={()=>answer(false)}><Text>{current.message}</Text><DialogFooter><Button onClick={()=>answer(false)} autoFocus>{current.cancel}</Button><ActionButton tone="destructive" onClick={()=>answer(true)}>{current.accept}</ActionButton></DialogFooter></TaskDialog>:null;
+}
+
+type MenuItem = { label: string; run: ()=>void|Promise<void>; disabled?: boolean; selected?: boolean };
+export function ActionMenu({label,icon,items}:{label:string;icon?:React.ComponentProps<typeof IconButton>['icon'];items:MenuItem[]}) {
+  const [open,setOpen]=useState(false),anchor=useRef<HTMLDivElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
+  useEffect(()=>{
+    if(!open)return;const node=panel.current!;node.setAttribute('popover','auto');
+    const place=()=>{const bounds=anchor.current!.getBoundingClientRect(),height=window.visualViewport?.height||innerHeight;node.style.insetInlineStart=`${Math.max(8,Math.min(bounds.left,innerWidth-node.offsetWidth-8))}px`;node.style.top=`${Math.max(8,Math.min(bounds.bottom+4,height-node.offsetHeight-8))}px`;};
+    const toggle=(event:Event)=>{if((event as ToggleEvent).newState==='closed')setOpen(false);};
+    node.addEventListener('toggle',toggle);node.showPopover();place();node.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    window.addEventListener('resize',place);
+    return()=>{node.removeEventListener('toggle',toggle);window.removeEventListener('resize',place);if(node.matches(':popover-open'))node.hidePopover();};
+  },[open]);
+  const close=()=>{setOpen(false);anchor.current?.querySelector<HTMLButtonElement>('button')?.focus();};
+  const keyboard=(event:React.KeyboardEvent<HTMLDivElement>)=>{const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));const index=buttons.indexOf(document.activeElement as HTMLButtonElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}else if(event.key==='Escape'){event.preventDefault();close();}};
+  return <Box ref={anchor} xcss={styles.menuAnchor}>{icon?<IconButton appearance="subtle" label={label} icon={icon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}/>:<Button iconAfter={ChevronDownIcon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{label}</Button>}{open&&<Box ref={panel} id={id} role="menu" aria-label={label} xcss={styles.menu} onKeyDown={keyboard}><Stack space="space.050">{items.map(item=><Button key={item.label} appearance="subtle" shouldFitContainer role={item.selected===undefined?'menuitem':'menuitemradio'} aria-checked={item.selected} isDisabled={item.disabled} isSelected={item.selected} onClick={()=>{close();void item.run();}}>{item.label}</Button>)}</Stack></Box>}</Box>;
+}
+
+/** Match actual control boxes; does not restyle ADS labels, colours or focus. */
+export function ControlRow({children}:{children:React.ReactNode}) {
+  const root=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{const measure=()=>{const node=root.current;if(!node)return;const height=innerWidth>=1024?40:44;node.querySelectorAll('button').forEach(button=>{button.style.minHeight=`${height}px`;});node.querySelectorAll('input').forEach(input=>{const container=input.parentElement;if(container)container.style.minHeight=`${height}px`;input.style.font=innerWidth<1024?token('font.body.large'):token('font.body');});};measure();window.addEventListener('resize',measure);return()=>window.removeEventListener('resize',measure);},[]);
+  return <Box ref={root} xcss={styles.controls}>{children}</Box>;
+}
+
+export function HeaderGutter({side}:{side:'start'|'end'}) {
+  const ref=useRef<HTMLDivElement>(null);
+  useLayoutEffect(()=>{const page=document.querySelector<HTMLElement>('[data-testid="complaints-operations-content"]');const node=ref.current;if(!page||!node)return;const measure=()=>{const bounds=page.getBoundingClientRect(),box=node.getBoundingClientRect(),style=getComputedStyle(page);node.style.width=`${Math.max(0,side==='start'?bounds.left+parseFloat(style.paddingLeft)-box.left:box.right-bounds.right+parseFloat(style.paddingRight))}px`;};const observer=new ResizeObserver(measure);observer.observe(page);window.addEventListener('resize',measure);measure();return()=>{observer.disconnect();window.removeEventListener('resize',measure);};},[side]);
+  return <Box ref={ref} xcss={styles.gutter}/>;
 }

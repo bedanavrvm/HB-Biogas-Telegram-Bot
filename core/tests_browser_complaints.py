@@ -88,8 +88,11 @@ class BrowserComplaintReadTests(TestCase):
 
     def login(self):
         self.assertEqual(self.post_auth('login', {'username': self.user.username, 'password': PASSWORD}).status_code, 401)
-        code = format_hotp_value(hotp_value(self.secret, int(time.time()) // 30))
-        response = self.post_auth('mfa', {'code': code})
+        at = time.time()
+        code = format_hotp_value(hotp_value(self.secret, int(at) // 30))
+        from types import SimpleNamespace
+        with patch('allauth.mfa.totp.internal.auth.time', SimpleNamespace(time=lambda: at)):
+            response = self.post_auth('mfa', {'code': code})
         self.assertEqual(response.status_code, 200, response.content)
 
     def queue(self, **params):

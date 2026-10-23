@@ -5,8 +5,11 @@ import { Box } from '@atlaskit/primitives/compiled/box';
 import { Inline } from '@atlaskit/primitives/compiled/inline';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { Text } from '@atlaskit/primitives/compiled/text';
-import { operation, operationPath, OperationError, download } from './complaints-operations-transport';
-import { TaskDialog } from './complaints-ui';
+import { operation, OperationError, download, type Evidence } from './complaints-operations-transport';
+import { TaskDialog, displayDate } from './complaints-ui';
+import { Grid } from '@atlaskit/primitives/compiled/grid';
+import { token } from '@atlaskit/tokens';
+import AttachmentIcon from '@atlaskit/icon/core/attachment';
 import { notify } from './browser-interactions';
 import { IconButton } from '@atlaskit/button/new';
 import PreviousIcon from '@atlaskit/icon/core/chevron-left';
@@ -16,36 +19,52 @@ import MinusIcon from '@atlaskit/icon/core/minus';
 import RefreshIcon from '@atlaskit/icon/core/refresh';
 import DownloadIcon from '@atlaskit/icon/core/download';
 
-const styles = cssMap({ viewport: { width: '100%', height: '65vh', overflow: 'auto', overscrollBehavior: 'contain' }, image: { display: 'block', height: 'auto', marginInline: 'auto' } });
+const styles = cssMap({
+  viewport: { width: '100%', height: '60vh', overflow: 'auto', overscrollBehavior: 'contain' },
+  image: { display: 'block', height: 'auto', marginInline: 'auto' },
+  tiles: { gridTemplateColumns:'minmax(0,1fr)', '@media (min-width: 48rem)': {gridTemplateColumns:'repeat(2,minmax(0,1fr))'} },
+  tile: { minWidth:0, padding:token('space.150'), border:`${token('border.width')} solid ${token('color.border')}`, borderRadius:token('radius.medium'), overflowWrap:'anywhere' },
+  thumbnail: { width:'100%', height:'8rem', objectFit:'contain', backgroundColor:token('color.background.neutral.subtle') },
+});
 function message(error: unknown) { return error instanceof OperationError ? error.message : 'This action could not be confirmed. You can continue with typed text or try again.'; }
 
-export function EvidencePreview({ group, id, name, type, showName=true }: { group: string; id: string; name: string; type: string; showName?:boolean }) {
-  const [url, setURL] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [opened, setOpened] = useState(false), [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(100);
+const previewable = (item:Evidence) => ['image/jpeg','image/png','image/webp','application/pdf'].includes(item.mime_type);
+function fileState(item:Evidence) { return item.status==='pending'?'Upload pending':item.status==='failed'?'Upload failed. Ask your administrator to check this attachment.':!previewable(item)?'Preview unsupported. Download the original.':''; }
+function Metadata({item}:{item:Evidence}) {
+  const facts=[item.mime_type,item.size?`${Number((item.size/1024).toFixed(1))} KB`:'',item.uploaded_by,item.created_at_iso?displayDate(item.created_at_iso):item.created_at].filter(Boolean);
+  return facts.length?<Text size="small" color="color.text.subtle">{facts.join(' · ')}</Text>:null;
+}
+function original(group:string,item:Evidence) { void download(group,`evidence/${item.id}/?download=1`).then(()=>notify('File ready. Your browser handles the download.','information',{dedupeKey:'evidence-download:'+item.id})).catch(issue=>notify(message(issue),'error',{dedupeKey:'evidence-download-error:'+item.id})); }
+function EvidenceTile({group,item,open}:{group:string;item:Evidence;open:()=>void}) {
+  const root=useRef<HTMLDivElement>(null),[visible,setVisible]=useState(false),[url,setURL]=useState(''),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+  const state=fileState(item);
+  useEffect(()=>{const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setVisible(true);observer.disconnect();}},{rootMargin:'100px'});if(root.current)observer.observe(root.current);return()=>observer.disconnect();},[]);
+  useEffect(()=>{if(!visible||state)return;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);let active=true;setError('');setURL('');void operation<{image:string}>(group,`evidence/${item.id}/preview/`,controller.signal,{page:1,thumbnail:true}).then(data=>{if(active)setURL(data.image);}).catch(()=>{if(active)setError('Preview unavailable');}).finally(()=>clearTimeout(timer));return()=>{active=false;controller.abort();clearTimeout(timer);};},[group,item.id,visible,state,retry]);
+  return <Box ref={root} xcss={styles.tile}><Stack space="space.100"><Text weight="semibold">{item.name}</Text><Metadata item={item}/>{url?<Box as="img" xcss={styles.thumbnail} loading="lazy" src={url} alt={'Thumbnail of '+item.name} onError={()=>{setURL('');setError('Preview unavailable');}}/>:<Box role={error?'status':undefined}><AttachmentIcon label=""/><Text size="small">{state||error||'Loading preview…'}</Text></Box>}<Inline shouldWrap space="space.100">{!state&&<Button aria-label={'Preview '+item.name} onClick={open}>Preview</Button>}{error&&<Button onClick={()=>setRetry(value=>value+1)}>Retry thumbnail</Button>}{item.status!=='pending'&&item.status!=='failed'&&<Button aria-label={'Download '+item.name} onClick={()=>original(group,item)}>Download</Button>}</Inline></Stack></Box>;
+}
+export function EvidenceGallery({group,items}:{group:string;items:Evidence[]}) {
+  const [index,setIndex]=useState(-1),opener=useRef<HTMLElement|null>(null);
+  const close=()=>{setIndex(-1);requestAnimationFrame(()=>{if(opener.current?.isConnected)opener.current.focus();});};
+  return <Box as="section" aria-label="Complaint attachments"><Grid xcss={styles.tiles} gap="space.150">{items.map((item,i)=><EvidenceTile key={item.id} group={group} item={item} open={()=>{opener.current=document.activeElement as HTMLElement;setIndex(i);}}/>)}</Grid>{items[index]&&<EvidenceViewer key={items[index].id} group={group} item={items[index]} index={index} total={items.length} navigate={setIndex} close={close}/>}</Box>;
+}
+function EvidenceViewer({group,item,index,total,navigate,close}:{group:string;item:Evidence;index:number;total:number;navigate:(index:number)=>void;close:()=>void}) {
+  const {id,name}=item;
+  const [url, setURL] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(100);
   const controller = useRef<AbortController | null>(null);
   const image = useRef<HTMLImageElement>(null), viewport = useRef<HTMLDivElement>(null), generation = useRef(0);
   const drag = useRef<{x:number;y:number;scrollX:number;scrollY:number}>();
-  useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  useEffect(() => {if(!fileState(item))void open(1);return()=>{generation.current++;controller.current?.abort();};},[]);
   useEffect(() => { if(image.current) image.current.style.width = `${zoom}%`; }, [zoom, url]);
   const open = async (selectedPage = page) => {
     controller.current?.abort(); const started = ++generation.current;
-    setOpened(true); setBusy(true); setError(''); setURL(''); const request = new AbortController(); controller.current = request;
+    setBusy(true); setError(''); setURL(''); const request = new AbortController(); controller.current = request;
     const timer = setTimeout(() => request.abort(), 30000);
     try {
-      if(type === 'application/pdf') {
-        const data = await operation<{image:string;page:number;page_count:number}>(group, `evidence/${id}/preview/`, request.signal, {page:selectedPage});
-        if(started === generation.current) {setURL(data.image);setPage(data.page);setPages(data.page_count);setZoom(100);}
-        return;
-      }
-      const response = await fetch(operationPath(group, `evidence/${id}/`), { credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: request.signal });
-      if (!response.ok) throw new OperationError(response.status, 'The document could not be loaded. Refresh and try again.');
-      const blob = await response.blob();
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new OperationError(0, 'This file cannot be previewed. Use Download instead.');
-      if (!request.signal.aborted) setURL(URL.createObjectURL(blob));
+      const data = await operation<{image:string;page:number;page_count:number}>(group, `evidence/${id}/preview/`, request.signal, {page:selectedPage});
+      if(started === generation.current) {setURL(data.image);setPage(data.page);setPages(data.page_count);setZoom(100);}
     } catch (issue) { if (started === generation.current) { const detail = request.signal.aborted ? 'Preview took too long. Try again or download the file.' : message(issue); setError(detail); notify(detail, 'error'); } } finally { clearTimeout(timer); if(started === generation.current)setBusy(false); }
   };
-  const close = () => {generation.current++;controller.current?.abort();setOpened(false);setURL('');setBusy(false);};
-  return <Stack space="space.100"><Inline shouldWrap space="space.100" alignBlock="center">{showName&&<Text>{name}</Text>}<Button onClick={() => {void open();}}>Preview</Button></Inline>{opened && <TaskDialog title={name} close={close} wide><Inline spread="space-between" alignBlock="center" space="space.050"><IconButton label="Previous page" appearance="subtle" icon={PreviousIcon} isDisabled={busy || page <= 1} onClick={() => {void open(page - 1);}}/><Inline shouldWrap alignBlock="center" space="space.050"><IconButton label="Zoom out" appearance="subtle" icon={MinusIcon} isDisabled={zoom <= 50} onClick={() => setZoom(value => Math.max(50,value-25))}/><Button appearance="subtle" onClick={() => setZoom(100)}>{zoom}%</Button><IconButton label="Zoom in" appearance="subtle" icon={AddIcon} isDisabled={zoom >= 400} onClick={() => setZoom(value => Math.min(400,value+25))}/><IconButton label="Fit to width" appearance="subtle" icon={RefreshIcon} onClick={() => {setZoom(100);viewport.current?.scrollTo(0,0);}}/><IconButton label="Download original" appearance="subtle" icon={DownloadIcon} onClick={() => {void download(group,`evidence/${id}/?download=1`).then(()=>notify('File ready. Your browser handles the download.','information')).catch(issue=>notify(message(issue),'error'));}}/></Inline><IconButton label="Next page" appearance="subtle" icon={NextIcon} isDisabled={busy || page >= pages} onClick={() => {void open(page + 1);}}/></Inline><Text size="small">Page {page} of {pages}</Text>{busy && <Box role="status"><Text>Loading preview…</Text></Box>}{error && <Box role="alert"><Text color="color.text.danger">{error}</Text><Button onClick={() => {void open();}}>Retry preview</Button></Box>}<Box as="div" ref={viewport} xcss={styles.viewport} tabIndex={0} aria-label="Scrollable document preview" onPointerDown={(event: React.PointerEvent<HTMLDivElement>) => {if(zoom<=100)return;drag.current={x:event.clientX,y:event.clientY,scrollX:event.currentTarget.scrollLeft,scrollY:event.currentTarget.scrollTop};event.currentTarget.setPointerCapture(event.pointerId);}} onPointerMove={(event: React.PointerEvent<HTMLDivElement>) => {const start=drag.current;if(start){event.currentTarget.scrollLeft=start.scrollX+start.x-event.clientX;event.currentTarget.scrollTop=start.scrollY+start.y-event.clientY;}}} onPointerUp={() => {drag.current=undefined;}} onPointerCancel={() => {drag.current=undefined;}}>{url && <Box as="img" ref={image} xcss={styles.image} src={url} alt={name} draggable={false} onError={() => {setError('This image could not be displayed. Download the original instead.');notify('The image could not be displayed. Download the original instead.','error');}}/>}</Box></TaskDialog>}</Stack>;
+  return <TaskDialog title={name} close={close} wide><Metadata item={item}/><Inline spread="space-between" alignBlock="center"><IconButton label="Previous attachment" icon={PreviousIcon} isDisabled={index===0} onClick={()=>navigate(index-1)}/><Text size="small">Attachment {index+1} of {total}</Text><IconButton label="Next attachment" icon={NextIcon} isDisabled={index===total-1} onClick={()=>navigate(index+1)}/></Inline><Inline spread="space-between" alignBlock="center" space="space.050"><IconButton label="Previous page" appearance="subtle" icon={PreviousIcon} isDisabled={busy || page <= 1} onClick={() => {void open(page - 1);}}/><Inline shouldWrap alignBlock="center" space="space.050"><IconButton label="Zoom out" appearance="subtle" icon={MinusIcon} isDisabled={zoom <= 50} onClick={() => setZoom(value => Math.max(50,value-25))}/><Button appearance="subtle" onClick={() => setZoom(100)}>{zoom}%</Button><IconButton label="Zoom in" appearance="subtle" icon={AddIcon} isDisabled={zoom >= 400} onClick={() => setZoom(value => Math.min(400,value+25))}/><IconButton label="Fit to width" appearance="subtle" icon={RefreshIcon} onClick={() => {setZoom(100);viewport.current?.scrollTo(0,0);}}/><IconButton label="Download original" appearance="subtle" icon={DownloadIcon} isDisabled={item.status==='pending'||item.status==='failed'} onClick={()=>original(group,item)}/></Inline><IconButton label="Next page" appearance="subtle" icon={NextIcon} isDisabled={busy || page >= pages} onClick={() => {void open(page + 1);}}/></Inline><Text size="small">Page {page} of {pages}</Text>{fileState(item)&&<Text>{fileState(item)}</Text>}{busy && <Box role="status"><Text>Loading preview…</Text></Box>}{error && <Box role="alert"><Text color="color.text.danger">{error}</Text><Button onClick={() => {void open();}}>Retry preview</Button></Box>}<Box as="div" ref={viewport} xcss={styles.viewport} tabIndex={0} aria-label="Scrollable document preview" onPointerDown={(event: React.PointerEvent<HTMLDivElement>) => {if(zoom<=100)return;drag.current={x:event.clientX,y:event.clientY,scrollX:event.currentTarget.scrollLeft,scrollY:event.currentTarget.scrollTop};event.currentTarget.setPointerCapture(event.pointerId);}} onPointerMove={(event: React.PointerEvent<HTMLDivElement>) => {const start=drag.current;if(start){event.currentTarget.scrollLeft=start.scrollX+start.x-event.clientX;event.currentTarget.scrollTop=start.scrollY+start.y-event.clientY;}}} onPointerUp={() => {drag.current=undefined;}} onPointerCancel={() => {drag.current=undefined;}}>{url && <Box as="img" ref={image} xcss={styles.image} src={url} alt={name} draggable={false} onError={() => {setError('This image could not be displayed. Download the original instead.');}}/>}</Box></TaskDialog>;
 }
 
 export function VoiceInput({ group, field, caseKey, accept, maxSeconds = 30 }: { group: string; field: string; caseKey?: string; accept: (text: string, id: string) => void; maxSeconds?: number }) {

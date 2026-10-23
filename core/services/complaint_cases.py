@@ -20,6 +20,7 @@ from core.services.workflow_links import include_record_reference
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Count
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
@@ -359,7 +360,7 @@ def list_cases_page(
     group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'pending',
     branch: str = '', priority: str = '', assignment: str = '', sla: str = '', cursor: str = '', limit: int = 40,
     page: int | str | None = None, page_size: int = 10, category: str = '',
-    search_mode: str = 'default',
+    search_mode: str = 'default', order: str = '', focus_key: str = '',
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
@@ -408,6 +409,12 @@ def list_cases_page(
         cases = cases.filter(complaint_status='Closed').order_by('-date_resolved', '-timestamp', '-pk')
     else:
         cases = cases.order_by('-timestamp', '-pk')
+    if order:
+        if order not in {'oldest', 'newest'} or page in (None, ''):
+            raise ComplaintCaseError('The requested queue order is invalid.')
+        cases = cases.annotate(queue_reported_at=Coalesce('timestamp', 'created_at'))
+        cases = cases.order_by(*(('queue_reported_at', 'pk') if order == 'oldest'
+                                  else ('-queue_reported_at', '-pk')))
     if page not in (None, ''):
         try:
             requested_page = max(1, int(page))
@@ -419,8 +426,25 @@ def list_cases_page(
         current_page = min(requested_page, pages)
         offset = (current_page - 1) * bounded_page_size
         rows = list(cases[offset:offset + bounded_page_size])
+        navigation = None
+        if order and focus_key:
+            focus = cases.filter(pk=focus_key).values('queue_reported_at', 'pk').first()
+            if focus:
+                before_operator, after_operator = ('lt', 'gt') if order == 'oldest' else ('gt', 'lt')
+                def neighbours(operator):
+                    return cases.filter(Q(**{'queue_reported_at__' + operator: focus['queue_reported_at']}) |
+                        (Q(queue_reported_at=focus['queue_reported_at']) & Q(**{'pk__' + operator: focus['pk']})))
+                before, after = neighbours(before_operator), neighbours(after_operator)
+                position = before.count() + 1
+                previous = before.order_by(*(('queue_reported_at', 'pk') if order == 'newest'
+                                             else ('-queue_reported_at', '-pk'))).values_list('pk', flat=True).first()
+                following = after.values_list('pk', flat=True).first()
+                navigation = {'position': position, 'total': total,
+                    'previous': {'key': str(previous), 'page': (position - 2) // bounded_page_size + 1} if previous else None,
+                    'next': {'key': str(following), 'page': position // bounded_page_size + 1} if following else None}
         return {
             'items': [serialize_case(case) for case in rows],
+            **({'navigation': navigation} if order else {}),
             'filter_options': filter_options,
             'next_cursor': '',
             'start_index': offset + 1 if rows else 0,
@@ -1693,20 +1717,24 @@ def finish_created_case(
     return case_detail(group_config, case_id, actor)
 
 
-def evidence_for_preview(group_config, actor: ComplaintCaseActor, evidence_id: str) -> ComplaintCaseEvidence:
-    evidence = ComplaintCaseEvidence.objects.select_related('parsed_message').filter(pk=evidence_id).first()
+def evidence_for_preview(group_config, actor: ComplaintCaseActor, evidence_id: str, *, original_download=False) -> ComplaintCaseEvidence:
+    evidence = ComplaintCaseEvidence.objects.select_related('parsed_message').filter(
+        pk=evidence_id, parsed_message__group_id=group_config.group_id,
+    ).first()
     if not evidence or evidence.upload_status != 'success' or not evidence.drive_file_id:
         raise ComplaintCaseError('Evidence is unavailable.')
     case = _case_for_group(group_config.group_id, evidence.parsed_message.message_id, actor=actor)
     if not actor_can(group_config, actor, 'complaint.case.evidence.view', case):
         raise ComplaintCaseError('Your role cannot view evidence for this case.')
-    if evidence.mime_type not in {'image/jpeg', 'image/png', 'image/webp', 'application/pdf'}:
+    if not original_download and evidence.mime_type not in {'image/jpeg', 'image/png', 'image/webp', 'application/pdf'}:
         raise ComplaintCaseError('This older evidence type cannot be previewed inside the Mini App.')
     return evidence
 
 
 def record_evidence_preview(group_config, actor: ComplaintCaseActor, evidence: ComplaintCaseEvidence) -> None:
     case = _case_for_group(group_config.group_id, evidence.parsed_message.message_id, actor=actor)
+    if case.pk != evidence.parsed_message_id:
+        raise ComplaintCaseError('Evidence is unavailable.')
     control = ensure_case_control(case, group_config)
     ComplaintCaseEvent.objects.create(
         case=control, revision=control.revision, action='evidence_opened', actor=actor.user,
@@ -2022,6 +2050,8 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'needs_details': case.complaint_status == 'Review Needed',
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
+        'reported_at_iso': timezone.localtime(reported_at).isoformat(),
+        'recorded_at_iso': timezone.localtime(case.created_at).isoformat(),
         'days_open': age_days,
         'age_label': age_label,
         'source_attribution': source,
@@ -2161,6 +2191,9 @@ def serialize_evidence(evidence: ComplaintCaseEvidence) -> dict[str, Any]:
         'previewable': previewable,
         'status': evidence.upload_status,
         'created_at': format_datetime(evidence.created_at),
+        'created_at_iso': evidence.created_at.isoformat(),
+        'uploaded_by': evidence.uploaded_by,
+        'size': evidence.size,
     }
 
 

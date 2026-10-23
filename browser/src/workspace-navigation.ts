@@ -1,6 +1,6 @@
 /** Address-bar state is allowlisted; customer searches and form answers stay in memory. */
 export type ReportLocation = { view: string; grouping: string; status: string; from: string; to: string; basis: string; page: number; branch: string; category: string; range: string };
-export type WorkspaceRoute = { view: 'queue' | 'new' | 'reports' | 'settings'; group: string; selected: string; status: string; page: number; report: ReportLocation };
+export type WorkspaceRoute = { view: 'queue' | 'new' | 'reports' | 'settings'; group: string; selected: string; status: string; page: number; order?:string; report: ReportLocation };
 export type QueuePreferences = { default_filters: Record<string, string> };
 const choose = (value: string | null, allowed: string[], fallback: string) => value && allowed.includes(value) ? value : fallback;
 const pageNumber = (value: string | null) => /^\d{1,6}$/.test(value || '') ? Math.max(1, Math.min(100000, Number(value))) : 1;
@@ -41,7 +41,7 @@ export function readRoute(): WorkspaceRoute {
   return { view: path === '/staff/app/complaints/new/' ? 'new' : path === '/staff/app/complaints/settings/' ? 'settings' : path === '/staff/app/complaints/reports/' ? 'reports' : 'queue',
     group: /^\d+$/.test(url.searchParams.get('workspace') || '') ? url.searchParams.get('workspace')! : '', selected,
     status: ['pending', 'resolved', 'all'].includes(url.searchParams.get('status') || '') ? url.searchParams.get('status')! : 'pending',
-    page: pageNumber(url.searchParams.get('page')), report: reportLocation(url) };
+    page: pageNumber(url.searchParams.get('page')), order:choose(url.searchParams.get('order'),['oldest','newest'],''), report: reportLocation(url) };
 }
 export function initialQueuePreferences(route: WorkspaceRoute, preferences: QueuePreferences, entryUrl: string) {
   const explicit = new URL(entryUrl).searchParams.has('status');
@@ -50,6 +50,7 @@ export function initialQueuePreferences(route: WorkspaceRoute, preferences: Queu
 export function writeRoute(route: WorkspaceRoute, replace = false) {
   const path = '/staff/app/complaints/' + (route.view === 'queue' ? (route.selected ? 'cases/' + route.selected + '/' : '') : route.view + '/');
   const params = new URLSearchParams({ workspace: route.group, status: route.status, page: String(route.page) });
+  if(route.order==='oldest'||route.order==='newest')params.set('order',route.order);
   if (route.view === 'reports') {
     const report = route.report;
     params.set('report', choose(report.view, ['overview', 'turnaround', 'follow-up'], 'overview'));

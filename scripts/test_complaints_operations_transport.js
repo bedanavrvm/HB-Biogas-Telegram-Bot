@@ -24,7 +24,7 @@ async function main() {
   });
   page.on('pageerror', error => {errors.push(error.message);console.error('Browser runtime:',error.message);});
   page.on('request', request => requests.push({ url: request.url(), resource: request.resourceType() }));
-  const heading = name => page.getByRole('heading', { name, exact: true }).waitFor();
+  const heading = name => page.getByRole('heading', { name, exact: true }).or(page.getByRole('tab', {name:new RegExp('^Queue.*'+name.split(' ')[0]+'$')})).first().waitFor();
   async function capture(name, keepScroll = false) {
     if (!keepScroll) await page.getByRole('main').evaluate(element => element.scrollTo(0, 0));
     await page.evaluate(() => new Promise(requestAnimationFrame));
@@ -50,7 +50,7 @@ async function main() {
     const dismiss=page.getByRole('button',{name:'Dismiss notification',exact:true});if(await dismiss.count())await dismiss.click();
   }
   async function select(label, option) {
-    if (!(await page.getByLabel(label, {exact:true}).isVisible()) && await page.getByRole('button',{name:/^Filters/}).count()) await page.getByRole('button',{name:/^Filters/}).click();
+    if (!(await page.getByLabel(label, {exact:true}).isVisible()) && await page.getByRole('button',{name:/^(More filters|Filters)/}).count()) await page.getByRole('button',{name:/^(More filters|Filters)/}).click();
     const scope = await page.getByRole('dialog').count() ? page.getByRole('dialog') : page;
     const box = scope.getByLabel(label, { exact: true }); await box.fill(option);
     const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -132,8 +132,9 @@ async function main() {
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
     // End the real server session, without clicking the explicit discard/sign-out action.
     await page.evaluate(async()=>{const session=await(await fetch('/api/staff/auth/v1/session/')).json();await fetch('/api/staff/auth/v1/logout/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':session.csrf_token},body:'{}'});});
-    await saveAutomaticDraft();
-    await page.getByRole('dialog').getByRole('button',{name:'Sign in again',exact:true}).click();
+    // Trigger the regular session read deterministically. Native PostgreSQL
+    // requests may finish after a background poll already hid the editor.
+    await page.clock.fastForward(30000);
     await heading('Sign in');
     await page.getByLabel(/^Staff username/).fill(input.username);
     await page.getByLabel(/^Password/).fill(input.password);
@@ -150,11 +151,9 @@ async function main() {
     await capture('recovery-after-signin');
     // Dismissing browser Back restores the actual history entry, not a replacement URL.
     const retainedUrl=page.url();
-    page.removeAllListeners('dialog');page.once('dialog',dialog=>dialog.dismiss());
-    await page.goBack();await page.waitForURL(retainedUrl);
+    await page.goBack();await page.getByRole('button',{name:'Keep editing',exact:true}).click();await page.waitForURL(retainedUrl);
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
-    page.on('dialog',dialog=>dialog.accept());
-    await page.goBack();await page.getByRole('dialog').waitFor({state:'detached'});
+    await page.goBack();await page.getByRole('button',{name:'Discard changes',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});
     await page.goForward();await page.getByRole('dialog',{name:'Create complaint',exact:true}).waitFor();
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'','Discarded work must not resurrect on Forward');
     await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
@@ -180,7 +179,7 @@ async function main() {
     await heading('Synthetic Customer 00');
     assert.match(page.url(), /staff\/app\/complaints\/cases\/[a-f\d-]+\//);
     assert.equal(await page.locator('a[href^="tel:"]').count(), 1);
-    await page.getByRole('button', {name:'Add resolution comment',exact:true}).click();
+    await page.getByRole('button', {name:'Add note',exact:true}).click();
     await page.getByLabel(/^Resolution comment/).fill('Synthetic browser follow-up.');
     const submissions=[];
     await page.route('**/cases/*/comment/',async route=>{
@@ -188,7 +187,7 @@ async function main() {
       const response=await route.fetch();assert.equal(response.status(),200);
       await route.abort('failed'); // Canonical commit succeeds; only the response is lost.
     },{times:1});
-    await page.getByRole('dialog').getByRole('button', { name: 'Add resolution comment', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Add note', exact: true }).click();
     await page.getByRole('button',{name:'Retry previous save',exact:true}).waitFor();
     assert.equal(await page.getByLabel(/^Resolution comment/).getAttribute('readonly'),'');
     await recoveryCaptures('recovery-uncertain-save');
@@ -207,7 +206,7 @@ async function main() {
       }
     }
     await page.setViewportSize({ width: 1366, height: 900 }); await page.emulateMedia({ colorScheme: 'light' });
-    await page.getByRole('tab', {name:'Complaints',exact:true}).click();
+    await page.getByRole('tab', {name:/^Queue/}).click();
     await page.getByLabel('Search name, ID, phone or branch').fill('999999999999');
     await page.waitForTimeout(450); await heading('7 complaints');
     assert.ok(!page.url().includes('999999999999'));
@@ -246,8 +245,8 @@ async function main() {
 
     await page.getByRole('tab', {name:'Reports',exact:true}).click();
     await page.getByRole('grid', {name:'Complaint results'}).waitFor();
-    await page.waitForFunction(()=>document.querySelectorAll('[role="columnheader"]').length===10);
-    assert.equal(await page.getByRole('columnheader').count(),10);
+    await page.waitForFunction(()=>document.querySelectorAll('[role="columnheader"]').length===9);
+    assert.equal(await page.getByRole('columnheader').count(),9);
     assert.equal(await page.getByLabel('From',{exact:true}).count(),0);
     await select('Date range','All dates'); await heading('11 complaints');
     const metricFont=await page.getByRole('button',{name:'View closed complaints',exact:true}).getByText('4',{exact:true}).evaluate(element=>Number.parseFloat(getComputedStyle(element).fontSize));
@@ -257,12 +256,12 @@ async function main() {
     assert.equal((await(await closedRows).json()).table.count,4);
     await page.getByRole('button',{name:'Clear chart selection',exact:true}).click();await heading('11 complaints');
     await select('Count by','Resolved date');await heading('4 complaints');
-    assert.equal(await page.getByRole('button',{name:'View still open complaints',exact:true}).isDisabled(),true);
+    assert.equal(await page.getByRole('button',{name:'View still open complaints',exact:true}).getByText('0',{exact:true}).count(),1);
     await select('Count by','Reported date');await heading('11 complaints');
     await select('Date range','Custom dates');
-    if(!(await page.getByRole('dialog',{name:'Filter reports',exact:true}).count())) await page.getByRole('button',{name:/^Filters/}).click();
+    if(!(await page.getByRole('dialog',{name:'Filter reports',exact:true}).count())) await page.getByRole('button',{name:/^(More filters|Filters)/}).click();
     await page.getByLabel('From',{exact:true}).fill('2026-12-31');
-    await page.getByLabel('To',{exact:true}).fill(input.month_start);
+    await page.getByLabel('To',{exact:true}).fill(input.month_start);await page.getByLabel('To',{exact:true}).press('Tab');
     await page.getByText('End date must be on or after the start date.',{exact:true}).waitFor();
     const customRows=page.waitForResponse(response=>response.url().endsWith('/reports/')&&response.request().postDataJSON()?.date_from===input.month_start);
     await page.getByLabel('From',{exact:true}).fill(input.month_start);await page.getByLabel('From',{exact:true}).press('Tab');await customRows;
@@ -295,20 +294,18 @@ async function main() {
     await page.getByRole('region',{name:'Complaint detail'}).waitFor();
     await page.getByRole('tab',{name:'Reports',exact:true}).click(); await page.getByRole('grid').waitFor();
     assert.equal(await page.locator('svg[aria-label^="Complaint types."]').count(), 0, 'Do not draw a single-category chart');
-    await page.locator('svg[aria-label^="Reported vs resolved."]').getByRole('button').first().press('Enter');
+    await select('Group by','Day');await page.locator('svg[aria-label^="Reported vs resolved."]').getByRole('button').first().press('Enter');
     await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Filtered report complaints');
     await page.getByRole('button',{name:'Clear chart selection',exact:true}).click();
-    await page.getByRole('tab',{name:'Turnaround',exact:true}).click(); await heading('Resolution time');
+    await page.getByRole('tab',{name:'Turnaround',exact:true}).click(); await heading('How long do resolutions take?');
     await select('Group by','Day');
-    await page.locator('svg[aria-label^="Resolution time."]').getByRole('button',{name:/192 hours/}).waitFor();
-    assert.equal(await page.locator('svg[aria-label^="Resolution time."]').count(),1);
-    await page.locator('svg[aria-label^="Resolution time."]').getByRole('button',{name:/Median resolution: 0 hours/}).waitFor();
-    const late=page.waitForResponse(response=>response.url().endsWith('/reports/')&&response.request().postDataJSON()?.selection?.metric==='late');
-    await page.locator('svg[aria-label^="Resolution targets."]').getByRole('button',{name:/^Late:/}).press('Enter');
-    assert.equal((await(await late).json()).table.count,1); await reportCaptures('turnaround');
-    await page.getByRole('button',{name:'Export report',exact:true}).click();
+    await page.locator('svg[aria-label^="How long do resolutions take?."]').getByRole('button',{name:/8 days/}).waitFor();
+    assert.equal(await page.locator('svg[aria-label^="How long do resolutions take?."]').count(),1);
+    await page.locator('svg[aria-label^="How long do resolutions take?."]').getByRole('button',{name:/Median resolution: 0 days/}).waitFor();
+    await page.getByRole('grid').getByText('Late',{exact:true}).waitFor();await reportCaptures('turnaround');
+    await page.getByRole('button',{name:'Export',exact:true}).click();
     const downloading=page.waitForEvent('download');
-    await page.getByRole('button',{name:'Download filtered Excel',exact:true}).click();
+    await page.getByRole('menuitem',{name:'Download filtered Excel',exact:true}).click();
     const file=await downloading;assert.match(file.suggestedFilename(),/^.{2,}\.xlsx$/);
     await page.getByRole('tab',{name:'Open follow-up',exact:true}).click();await heading('Open-case age');
     assert.equal(await page.locator('svg[aria-label^="Open-case age."]').count(),1);
@@ -330,7 +327,7 @@ async function main() {
       await route.fulfill({response,json:body});
     });
     await page.goto(origin.origin+'/staff/app/complaints/reports/?range=all&report_page=2');
-    await page.getByText('Page 2 of 2',{exact:true}).waitFor();
+    await page.getByText('Page 2 of 4',{exact:true}).waitFor();
     await page.waitForTimeout(250);
     assert.equal(new URL(page.url()).searchParams.get('report_page'),'2','Initial grid sort must not reset a restored page');
     await page.unroute('**/operations/v1/groups/*/reports/');

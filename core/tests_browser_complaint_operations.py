@@ -40,6 +40,22 @@ class BrowserComplaintOperationsTests(TestCase):
             # Restricted v1 remains unaffected by the operations kill switch.
             self.assertEqual(self.client.get(f'/api/staff/complaints/v1/groups/{self.group.pk}/cases/').status_code, 200)
 
+    def test_preferences_confirm_exact_retry_and_reject_stale_overwrite(self):
+        self.login()
+        original=self.client.get(self.base+'preferences/').json()
+        desired={**original,'default_filters':{'status':'resolved', 'branch':''}}
+        body={'preferences':desired,'expected':original}
+        saved=self.post('preferences/',body)
+        self.assertEqual(saved.status_code,200,saved.content)
+        audits = ComplianceAuditEvent.objects.filter(action='miniapp.preference.updated').count()
+        retry = self.post('preferences/',body)
+        self.assertEqual(retry.status_code, 200, retry.content)
+        self.assertEqual(retry.json(),saved.json())
+        self.assertEqual(ComplianceAuditEvent.objects.filter(action='miniapp.preference.updated').count(), audits)
+        rejected=self.post('preferences/',{'preferences':{**desired,'default_filters':{'status':'pending'}},'expected':original})
+        self.assertEqual(rejected.status_code,409)
+        self.assertEqual(self.client.get(self.base+'preferences/').json(),saved.json())
+
     def test_full_search_projection_and_detail_are_explicit(self):
         self.login()
         data = self.post('cases/', {'q': '999999999999'}).json()
@@ -52,6 +68,27 @@ class BrowserComplaintOperationsTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertIn('history', response.json()['case'])
         self.assertNotIn('EXCLUDED_RAW_MESSAGE', response.content.decode())
+
+    def test_queue_order_and_navigation_span_pages_without_crossing_scope(self):
+        from core.services.complaint_cases import ensure_case_control
+        self.login()
+        started = timezone.now() - timedelta(days=100)
+        for index in range(24):
+            case = reads.synthetic_case(self.group, 2000 + index, timestamp=started + timedelta(days=index))
+            ensure_case_control(case)
+        oldest = self.post('cases/', {'order': 'oldest', 'page': 1}).json()
+        selected = oldest['items'][-1]['key']
+        response = self.post('cases/', {'order': 'oldest', 'selected': selected})
+        self.assertEqual(response.status_code, 200, response.content)
+        navigation = response.json()['navigation']
+        self.assertEqual(navigation['position'], 10)
+        self.assertEqual(navigation['next']['page'], 2)
+        self.assertEqual(navigation['previous']['page'], 1)
+        newest = self.post('cases/', {'order': 'newest'}).json()
+        self.assertNotEqual(oldest['items'][0]['key'], newest['items'][0]['key'])
+        foreign = self.post('cases/', {'order': 'oldest', 'selected': str(self.other_case.pk)}).json()
+        self.assertIsNone(foreign['navigation'])
+        self.assertEqual(self.post('cases/', {'order': 'unsafe-column'}).status_code, 400)
 
     def test_recovery_totals_are_exact_beyond_the_visible_list_and_group_scoped(self):
         from core.services.complaint_cases import ensure_case_control
@@ -251,6 +288,62 @@ class BrowserComplaintOperationsTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn('download the original', response.json()['error'])
 
+    def test_evidence_projection_and_bounded_image_thumbnail_are_private(self):
+        from io import BytesIO
+        from PIL import Image
+        self.login()
+        self.grant_role('IT')
+        item = self.pdf_evidence()
+        item.mime_type = 'image/png'
+        item.size = 1234
+        item.uploaded_by = 'Synthetic uploader'
+        item.save(update_fields=['mime_type', 'size', 'uploaded_by'])
+        result = self.client.get(self.base + f'cases/{self.cases[0].pk}/').json()['case']['evidence'][0]
+        self.assertEqual(result['size'], 1234)
+        self.assertEqual(result['uploaded_by'], 'Synthetic uploader')
+        self.assertNotIn('drive_file_id', result)
+        source = BytesIO()
+        Image.new('RGB', (1800, 1200), 'navy').save(source, 'PNG')
+        with self.settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-private-folder'), patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=source.getvalue()):
+            response = self.post(f'evidence/{item.pk}/preview/', {'thumbnail': True})
+        self.assertEqual(response.status_code, 200, response.content)
+        import base64
+        preview = Image.open(BytesIO(base64.b64decode(response.json()['image'].split(',')[1])))
+        self.assertLessEqual(max(preview.size), 320)
+        self.assertEqual(response.json()['page_count'], 1)
+        self.assertNotIn('synthetic-private-file', response.content.decode())
+
+    def test_unsupported_legacy_evidence_is_download_only_and_still_scoped(self):
+        self.login()
+        self.grant_role('IT')
+        item = self.pdf_evidence()
+        item.mime_type = 'text/csv'
+        item.original_filename = 'synthetic-legacy.csv'
+        item.save(update_fields=['mime_type', 'original_filename'])
+        with self.settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-private-folder'), patch(
+            'core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'synthetic,value\n'
+        ) as source:
+            self.assertEqual(self.post(f'evidence/{item.pk}/preview/', {}).status_code, 400)
+            source.assert_not_called()
+            response = self.client.get(self.base+f'evidence/{item.pk}/?download=1')
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response['Content-Type'], 'application/octet-stream')
+            self.assertIn('attachment;', response['Content-Disposition'])
+            self.assertIn('synthetic-legacy.csv', response['Content-Disposition'])
+            other = self.pdf_evidence(self.other_case)
+            self.other_case.message_id = self.cases[0].message_id
+            self.other_case.save(update_fields=['message_id'])
+            source.reset_mock()
+            self.assertEqual(self.client.get(self.base+f'evidence/{other.pk}/?download=1').status_code, 400)
+            self.assertEqual(self.post(f'evidence/{other.pk}/preview/', {}).status_code, 400)
+            source.assert_not_called()
+            from core.services import complaint_cases
+            actor = complaint_cases.staff_actor_for_user(self.group, self.user)
+            before = ComplaintCaseEvent.objects.count()
+            with self.assertRaises(complaint_cases.ComplaintCaseError):
+                complaint_cases.record_evidence_preview(self.group, actor, other)
+            self.assertEqual(ComplaintCaseEvent.objects.count(), before)
+
     def test_saved_preferences_are_in_bootstrap_and_workflow_isolated(self):
         self.login()
         before = UserMiniAppPreference.objects.count()
@@ -354,12 +447,12 @@ class BrowserComplaintOperationsTests(TestCase):
             case.timestamp, case.date_resolved, case.complaint_status = reported, resolved, 'Closed'
             case.save(update_fields=['timestamp', 'date_resolved', 'complaint_status'])
             ComplaintCaseControl.objects.create(parsed_message=case,
-                reference_number=f'CMP-BROWSER-TIMING-{index}', sla_started_at=reported, sla_target_hours=target)
+                reference_number=f'CMP-TIMING-{index}', sla_started_at=reported, sla_target_hours=target)
         for index, case in enumerate(self.cases[3:], start=3):
             case.timestamp = start + timedelta(hours=3)
             case.save(update_fields=['timestamp'])
             ComplaintCaseControl.objects.create(parsed_message=case,
-                reference_number=f'CMP-BROWSER-TIMING-{index}', sla_started_at=case.timestamp)
+                reference_number=f'CMP-TIMING-{index}', sla_started_at=case.timestamp)
         return {'date_from': start.date().isoformat(), 'date_to': now.date().isoformat(),
                 'date_basis': 'reported', 'branch': self.cases[0].branch_region}
 
@@ -392,7 +485,7 @@ class BrowserComplaintOperationsTests(TestCase):
                     key = row.pop('key')
                     if key:
                         self.assertTrue(ParsedMessage.objects.filter(pk=key, group_id=self.group.group_id).exists())
-                self.assertEqual(actual, complaint_report_page(filters={**filters, **selection}))
+                self.assertEqual(actual, complaint_report_page(filters={**filters, **selection}, page_size=25))
         resolved = self.post('reports/', {**filters, 'date_basis': 'resolved'}).json()
         self.assertEqual(resolved['summary']['total'], 3)
         self.assertEqual(resolved['summary']['activity'], summary['activity'])
@@ -411,12 +504,40 @@ class BrowserComplaintOperationsTests(TestCase):
         previous = complaint_report_summary(filters={**filters,
             'date_from': (start - (end - start + timedelta(days=1))).isoformat(),
             'date_to': (start - timedelta(days=1)).isoformat()})
-        self.assertEqual(data['previous'], {key: previous[key] for key in ('total', 'pending', 'resolved')})
+        self.assertEqual(data['previous'], {key: previous[key] for key in
+            ('total', 'pending', 'resolved', 'card_timing', 'card_coverage')})
         self.assertEqual(self.post('reports/', {'sort': 'raw_message'}).status_code, 400)
         self.assertEqual(self.client.get(self.base + f'cases/{self.other_case.pk}/').status_code, 400)
-        ComplaintCaseControl.objects.create(parsed_message=self.other_case, reference_number='CMP-OTHER-GROUP-LINK')
+        ComplaintCaseControl.objects.create(parsed_message=self.other_case, reference_number='CMP-FOREIGN-LINK')
         foreign = self.post('reports/', {'branch': self.other_case.branch_region}).json()['table']['results']
-        self.assertEqual([row['key'] for row in foreign if row['complaint_id'] == 'CMP-OTHER-GROUP-LINK'], [''])
+        self.assertEqual([row['key'] for row in foreign if row['complaint_id'] == 'CMP-FOREIGN-LINK'], [''])
+
+    def test_report_table_search_does_not_change_summary_or_comparison(self):
+        self.login()
+        self.grant_role('IT')
+        filters = self.report_fixture()
+        baseline = self.post('reports/', filters).json()
+        wanted = baseline['table']['results'][0]['complaint_id']
+        response = self.post('reports/', {**filters, 'table_search': wanted})
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual(data['summary'], baseline['summary'])
+        self.assertEqual(data['previous'], baseline['previous'])
+        self.assertEqual([row['complaint_id'] for row in data['table']['results']], [wanted])
+        self.assertEqual(data['table']['page_size'], 25)
+
+    def test_report_metrics_expose_cohort_coverage_and_comparable_previous_timings(self):
+        self.login()
+        self.grant_role('IT')
+        data = self.post('reports/', self.report_fixture()).json()
+        coverage = data['summary']['card_coverage']
+        self.assertEqual(coverage['first_response']['eligible'], data['summary']['total'])
+        self.assertEqual(coverage['resolution']['eligible'], data['summary']['resolved'])
+        self.assertEqual(coverage['resolution']['contributing'], data['summary']['card_timing']['resolution_count'])
+        self.assertIn('card_timing', data['previous'])
+        self.assertIn('card_coverage', data['previous'])
+        self.assertTrue(all(row['target_outcome'] in {'on_time', 'late', 'no_target', 'not_resolved', 'not_recorded'}
+                            for row in data['table']['results']))
 
     def test_report_selection_validation_and_empty_timing(self):
         self.login()

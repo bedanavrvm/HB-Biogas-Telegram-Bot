@@ -1,5 +1,20 @@
 # Browser design references and application decisions
 
+## Settings, schedules and email recovery (23 October 2026)
+
+The existing task-local recovery contract now covers preferences, schedule
+editors and report-email requests, with no new page design or type scale.
+Current official Form, SectionMessage and Button usage was rechecked:
+https://atlassian.design/components/form/usage ;
+https://atlassian.design/components/section-message/usage ;
+https://atlassian.design/components/button/usage .
+Persistent errors retain an explicit repair next to the task; toasts communicate
+outcomes. Reauthentication never retries a write. Ambiguous responses freeze
+the captured request for explicit exact-request retry. Reload saved preferences
+retains edits for review; loading a saved schedule explicitly discards edits.
+Closing an uncertain email explains that a report may already be queued.
+The existing guarded native confirmation is reused; no new dependency or theme.
+
 ## Complaints composition correction (23 October 2026)
 
 The user explicitly approved this correction across the browser Complaints
@@ -478,6 +493,70 @@ Scope: complaint creation and case updates, not unsaved preferences, scheduled
 email editors or report-email tasks. Those and real-provider/network/device
 acceptance remain explicit release gates. Sources/screenshots are candidates,
 not human design approval, a Telegram migration or production activation.
+
+## Specification 18: closed Complaints composition (23 October 2026)
+
+The current native operations candidate implements
+[Specification 18](https://github.com/bedanavrvm/HB-Biogas-Telegram-Bot/issues/18).
+It supersedes the earlier three-card/report-grid and confirmation descriptions
+above. The existing reviewed package graph is retained; no dependency was added.
+
+Official usage/design guidance rechecked on 23 October:
+
+- [Elevation](https://atlassian.design/foundations/elevation/) and
+  [typography](https://atlassian.design/foundations/typography/): distinct canvas,
+  ordinary panels and overlays; token typography, readable metadata, and one
+  six-card metric composition. No proprietary fonts or brand assets are added.
+- [Modal dialog](https://atlassian.design/components/modal-dialog/usage/): named
+  immediate tasks, consistent header/body/footer, inert background, body scroll
+  locking, Escape/scrim dismissal and focus return. Dirty/uncertain forms retain
+  their existing protection. A scrim dismissal requires both pointer endpoints
+  outside; text selection ending outside does not close the task.
+- [Icon button](https://atlassian.design/components/button/icon-button/usage/)
+  and [tooltip](https://atlassian.design/components/tooltip/usage/): direct theme
+  switching uses the installed IconButton's actual tooltip API. Recognizable
+  icons retain meaningful labels; account actions use the existing action menu.
+- [Select](https://atlassian.design/components/select/usage/): searchable choices
+  stay in the active modal layer with bounded internal menu scrolling.
+- [Flag](https://atlassian.design/components/flag/usage/): concise semantic icon,
+  title and message, useful recovery and bottom-left placement. The user's
+  explicit contract differs from ADS bold-flag dismissal: warnings/errors remain
+  dismissible and persistent; success/information expire after five seconds,
+  paused on hover/focus. At most three appear, with FIFO queuing and deduplication.
+- [AG Grid layout](https://www.ag-grid.com/javascript-data-grid/grid-size/):
+  auto-height rows within one report scroll, with 25 server rows per page.
+  Whole-query sorting remains server-owned; unsupported timing/target sorts
+  are not advertised. The moving row index is optional; Reference is primary.
+
+Intentional bounded compositions: the existing native `dialog` wraps pinned
+ADS Form/Button/Heading content instead of adding the incompatible modal
+package. It retains the existing h2 task heading and explicit aria-labelledby.
+The calendar composes existing ADS buttons/textfields/selects; the notification
+host composes existing primitives/icons; native popovers supply top-layer menus.
+No native alert/confirm/prompt or browser date picker supplies an application
+decision. OS file/camera pickers and beforeunload remain necessary exceptions.
+Live geometry adjusts mobile input size, available pane height, text enlargement,
+six/three/two/one metric columns and the AG Grid header's scroll position.
+These adjustments use the installed controls and tokens, not a second palette.
+Charts retain first-party SVG geometry with keyboard marks and visible textual
+details; chart choices and help use product controls.
+
+Protected, lazy image/PDF thumbnails use the owning evidence endpoint. Upload
+state, unsupported/unavailable previews, saved uploader/size/date, attachment
+navigation, PDF pages and original download remain separate concerns. Data URLs
+are transient and requests abort on unmount; originals are downloaded only on
+explicit request. Uploads still belong only to Create and Resolve.
+
+Full authorized IDs stay visible/copyable. Queue ordering/navigation is stable
+across server pages and a successful resolve rechecks the next item's current
+membership. Report-only search combines with selection for Excel/email without
+changing KPI/chart populations. Timing comparisons and coverage come from the
+canonical cohort projection; incomplete response coverage is explained inline.
+
+Builds, screenshots and code reviews are candidates, not approved baselines.
+The current runbook records executed checks, limitations and rollback. No
+Telegram restyling, workflow grant, production mount or human/device/privacy
+acceptance follows from this change.
 
 ## Persistent local Complaints demo (P2a.1 / ADR 0071)
 

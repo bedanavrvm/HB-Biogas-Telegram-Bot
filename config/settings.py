@@ -84,9 +84,11 @@ STAFF_MFA_ENCRYPTION_KEYS = [
 STAFF_BROWSER_SESSION_AGE_SECONDS = config('STAFF_BROWSER_SESSION_AGE_SECONDS', default=28800, cast=int)
 # Preserve the existing local backend and ordinary workflow keys. Native
 # allauth keys contain identifiers/codes: digest them before backend validation.
-# This remains local-only and is deliberately rejected for browser activation.
+# Browser-on routes only pinned native security keys to PostgreSQL. Ordinary
+# workflow keys retain local behaviour; no Redis service is required (ADR 0074).
 CACHES = {'default': {
-    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    'BACKEND': ('staff_auth.security_cache.PostgresSecurityCache' if STAFF_BROWSER_AUTH_ENABLED
+                else 'django.core.cache.backends.locmem.LocMemCache'),
     'KEY_FUNCTION': 'staff_auth.cache_keys.native_cache_key',
 }}
 ACCOUNT_ADAPTER = 'staff_auth.adapters.StaffAccountAdapter'

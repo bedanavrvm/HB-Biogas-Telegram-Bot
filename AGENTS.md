@@ -26,6 +26,11 @@ Changes can affect operational data, customer records, approvals, financial valu
 
 ## Quick reference (read this first)
 
+For browser authentication cache, concurrency or release-readiness work, read
+ADR 0074 and `docs/runbooks/browser-channel-parity.md`: the approved route is
+PostgreSQL-only native security state. Keep production browser access disabled;
+verify the checked-in migration and independent-worker tests before acceptance.
+
 If you read nothing else, follow these:
 
 1. **Never commit secrets or customer data** — tokens, service-account JSON, phone numbers, IDs, photos, spreadsheets. See [Security and privacy rules](#security-and-privacy-rules).
@@ -155,6 +160,25 @@ When instructions conflict, follow this order:
 6. Historical documentation
 
 Many root-level Markdown documents describe earlier versions of the project. They are useful context, not necessarily current truth. Prefer executable code, migrations, tests, current settings, and current URL routing over claims such as "complete," "production ready," "MVP," or old file counts.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues: read `docs/agents/issue-tracker.md` before publishing specs,
+creating tickets, triaging work, or managing issue dependencies.
+
+### Triage labels
+
+Use the five canonical triage roles in `docs/agents/triage-labels.md` before
+applying or creating triage labels.
+
+### Domain docs
+
+Single shared documentation layout: read `docs/agents/domain.md` before domain
+exploration, terminology changes, or architecture decisions.
 
 ---
 

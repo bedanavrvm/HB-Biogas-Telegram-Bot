@@ -148,8 +148,12 @@ def _normalise_boolean(value: Any, *, field: str) -> bool:
     raise ValueError(f'{field} must be true or false.')
 
 
+class PreferenceConflict(ValueError):
+    """A conditional preference save no longer matches the saved snapshot."""
+
+
 @transaction.atomic
-def update_preference(user, workflow: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_preference(user, workflow: str, payload: dict[str, Any], *, expected=None) -> dict[str, Any]:
     if workflow not in WORKFLOW_SCREENS:
         raise ValueError('Unknown Mini App preference scope.')
     default_screen = str(payload.get('default_screen') or '').strip()
@@ -177,6 +181,14 @@ def update_preference(user, workflow: str, payload: dict[str, Any]) -> dict[str,
             field='Show business-hours time',
         )
     preference.alert_mode = alert_mode
+    after = {key: getattr(preference, key) for key in before if key != 'workflow'}
+    after['workflow'] = workflow
+    # Compare normalized values under the row lock shared by every channel.
+    if expected is not None:
+        if after == before:
+            return before
+        if expected != before:
+            raise PreferenceConflict('Preferences changed elsewhere. Your edits are retained. Reload saved preferences before saving.')
     preference.save(update_fields=[
         'default_screen', 'default_filters', 'compact_cards',
         'show_business_hours_time', 'alert_mode', 'updated_at',

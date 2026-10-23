@@ -4,10 +4,16 @@
 
 ## Release boundary
 
+23 October update: ADR 0074 selects PostgreSQL-only native authentication state;
+Redis/Memcached is not a prerequisite for that route. The settings/schedule/email
+recovery extension and current acceptance evidence are recorded at the end of
+this runbook. Historical slice exclusions below describe their original scope.
+
 Production remains **disabled and unmounted**. `config/urls.py` has no browser
-auth or operations mount. M1, E006, shared-cache, named-reader and privacy gates
-remain. No production migration, grant, provider configuration, deployment or
-real delivery was performed. Shared Django/database outages still affect both
+auth or operations mount. M1, E006, deployed shared-state, named-reader and privacy
+gates remain. No production migration, grant, provider configuration or deployment
+was performed. One authorized synthetic provider check is recorded below; it is
+not an operational browser rollout. Shared Django/database outages still affect both
 channels; separate adapters/artifacts are not infrastructure fault isolation.
 
 The native operations interface is
@@ -642,3 +648,140 @@ Restart the existing local-review command to load this build. A running host
 keeps startup-pinned assets. Real devices, assistive technology, PostgreSQL,
 shared-worker/provider operation and human design/release acceptance remain
 separate gates; no remote CI, deployment or real external IO is claimed.
+
+## PostgreSQL-only security state and remaining task recovery (23 October 2026)
+
+User scope: finish settings, schedule and report-email recovery; exercise real
+PostgreSQL/concurrency and native worker authentication; prepare delivery,
+support, privacy and device acceptance. The user explicitly chose PostgreSQL
+instead of a new paid cache. ADR 0074 supersedes ADR 0069's cache-only choice.
+
+### Delivered scope and handoff
+
+- Preferences, schedule drafts/recipients and report-email address/filter scope/request/status
+  survive same-owner native password/MFA reauthentication in this tab. Recovery
+  remains bound to the existing account/security-generation receipt. Navigation
+  guards, explicit discard/logout and account changes invalidate retained tasks.
+- `workspace-task.tsx` captures one exact JSON request before dispatch. A lost
+  response retains it for explicit retry; sign-in/reconnect never resubmits.
+  Schedule IDs/revisions and report-delivery request IDs are retained, preventing
+  duplicate schedules or emails. An uncertain email can be explicitly closed
+  with a warning to check the inbox before sending another.
+- Stale preference snapshots return 409 rather than overwriting another save.
+  An exact lost-response retry returns the current values without another audit
+  write. Reload saved preferences retains local edits for deliberate review;
+  loading a saved schedule explicitly discards its local draft.
+- PostgreSQL conditional upserts implement native atomic add, database-clock
+  expiry and owner-bound lock release. A stale lease cannot overwrite a successor's
+  history. Only the pinned allauth rate-limit and used-TOTP namespaces are routed
+  to this state; ordinary workflow keys keep their previous local-cache behaviour.
+  No vendor monkeypatch, Redis package/service or new external dependency.
+- Raw native keys are HMAC-digested before persistence. Values are bounded JSON
+  timestamp histories/opaque markers, not pickle, credentials or customer values.
+  Live rows cannot be cleared/culled. The existing factor-seed TOTP replay table
+  remains defence in depth. Native store failure fails closed, never to local state.
+- Normal deployment must apply `staff_auth.0004_staffbrowsersecuritystate`.
+  There is no data backfill, workflow grant or production migration performed here.
+  Browser-on selects the adapter automatically; browser-off configuration and
+  Telegram remain unchanged. E006 and production URL closure remain deliberate.
+- Maintenance: `purge_staff_browser_security` previews by default; `--apply`
+  removes one expiry-rechecked batch, maximum 10,000. Run it only against the
+  intended environment. No live security-state reset is a supported repair.
+- Rollback: disable browser access and drain browser workers first. Restore the
+  previous artifact/configuration; only then, if needed, reverse the temporary
+  table with `python manage.py migrate staff_auth 0003_staffbrowsersetupgrant`.
+  Preserve accounts, admissions, durable replay claims, sessions and audit evidence.
+
+### Executed evidence
+
+- All 118 focused tests passed, with no skips, on the final source-bound
+  PostgreSQL run (`test-results/browser-acceptance-current.log`). Coverage includes
+  the security-state adapter, durable replay claims, native password/MFA/CSRF,
+  owning Complaint access and operations, channel context and report-delivery
+  reservations. Five independent processes share native rate limits and atomic
+  used-code state; two native password/MFA processes accept the same OTP once.
+- The six browser journeys passed in production and development/StrictMode:
+  task recovery, complete operations and responsive controls. Tests exercise
+  offline/session loss, same-owner native reauthentication, lost committed
+  responses and exact retries. Email scope survives reauthentication; schedule
+  and email retries do not create another job. Full operations captured 101
+  synthetic screenshots per build; responsive checks cover 320/360/390/768/1366/
+  1920 px, light/dark, enlarged text, modal controls, media and Excel downloads.
+- The separate browser-off/native abuse regression passed all 19 tests on
+  isolated SQLite (`test-results/browser-abuse-current.log`). This complements,
+  and does not substitute for, the actual PostgreSQL concurrency results.
+- Both operations artifacts built successfully. TypeScript, recommended ADS/UI
+  lint, changed-Python Ruff, architecture/UI-source ratchets, all 28 tooling unit
+  tests, navigation/recovery scripts, whitespace and the 216-table catalogue
+  check passed. `makemigrations --check --dry-run` reports no missing migration.
+- Migration 0004 was successfully unapplied and reapplied on the exact empty
+  isolated PostgreSQL test table after test completion. The rollback plan touched
+  no other model; PostgreSQL table comments were verified. No production schema
+  was changed. The temporary cluster was stopped after verification, not deleted.
+
+The red/green loops caught lost email-filter scope and a Playwright autosave
+route released before it arrived. The fixes retain the original scope and await
+the actual intercepted request; no forced click, weakened assertion, credential
+bypass or production activation was used. Fresh recovery screenshots were
+inspected to confirm that a stale session-error toast does not survive sign-in.
+
+All database evidence uses a separate PostgreSQL 18 loopback cluster and explicit
+`staff_auth.acceptance_test_settings`, never the installed operational database.
+Independent subprocesses use the same ephemeral test encryption key through
+stdin, not separately generated keys or logged credentials. Native wrong-key
+configuration was observed to fail closed during diagnosis.
+
+Live provider smoke check, 23 October 2026 at 10:11 EAT: the existing Resend
+adapter accepted exactly one synthetic report to the privately authorized Gmail
+destination (provider ID `01a1679a-254a-7161-9be4-b2cd7f377971`). Its real generated
+`complaints-report-2026-10-23.xlsx` attachment was 4,935 bytes, SHA-256
+`aac2837d2faf56e069a716fd6f7ccacae1489510e9d49bf0ad7b1591ca729cd9`.
+No customer data or database reads/writes were used. The delivery flag was
+overridden only inside that one process; the configured deployment flag remains
+off. Evidence is in ignored `test-results/synthetic-provider-acceptance.log`.
+The mailbox owner confirmed receipt and successful Excel opening in this session.
+This completes the bounded synthetic provider/recipient check, not the complete
+browser-to-live-provider workflow, onboarding delivery or support drill.
+
+Builds and captures remain candidates, not approved baselines. Recovery screenshots
+are under `test-results/complaints-task-recovery/<build>/`; full workflows retain
+their existing source-bound screenshot directories. Keyboard checks distinguish
+browser chrome (no DOM focus) from forbidden focus in the inert page background.
+
+Reproduce with the repository environment and Node 22 after building both native
+operations artifacts:
+
+```powershell
+$env:RUN_STAFF_BROWSER_E2E='1'
+# Set TEST_DATABASE_URL to a separately authorized local PostgreSQL test DB.
+# Never substitute DATABASE_URL from deployment or use customer records.
+.venv/Scripts/python.exe manage.py test staff_auth.tests_security_cache core.tests_browser_complaint_operations staff_auth.tests_complaints_tasks_transport --settings=staff_auth.acceptance_test_settings --keepdb --noinput
+```
+
+### Operational acceptance still requiring external evidence
+
+| Check | Required evidence / operator action |
+|---|---|
+| Render topology | Staging with intended PostgreSQL version, real workers, origin/cookie/CSRF/CSP/static configuration and agreed proxy/IP policy. Local worker tests are not a deployed-staging sign-off. |
+| Gmail delivery | The single authorized synthetic submission was provider-accepted, and the mailbox owner confirmed receipt and a readable Excel attachment. The complete browser-to-live-provider/support drill and email-client display review remain outstanding. Keep credentials and the recipient address outside Git/chat. Queued/mock/locmem/provider-accepted status alone is not inbox delivery. |
+| Account onboarding/support | Real invitation delivery and a supervised existing-staff enrollment/recovery drill, named primary/backup support owner and escalation procedure. The closed setup preparation is not a commissioned mail-dispatch product. |
+| Privacy/access | Named reviewer acceptance of identifiers, evidence, location, report/export/recipient scope and retention; no automatic legal or organizational approval from code/tests. Existing Complaint role/group rules and IT report authority are unchanged. |
+| Real devices/accessibility | Named physical phone/browser and desktop assistive technology: keyboard/large text, camera permission/cancel, file/PDF download, dialer, offline/reauth and return focus. Playwright viewport emulation is supporting evidence, not a physical-device or screen-reader pass. |
+
+Privacy engineering scope reviewed: identity/search values stay out of URLs,
+history state, persistent browser storage and channel logs. Native endpoints
+require current browser admission/MFA plus owning Complaint capabilities; raw
+source messages, private Drive identifiers and unreviewed fields are excluded.
+Evidence access is rechecked per request. Reports retain their canonical IT-only
+authority; this change does not silently make global report data group-local.
+Named disclosure/retention approval is still required.
+
+Support handoff: a current active Superuser uses the existing audited admission
+actions for authorize/suspend/revoke-sessions/reset-MFA. First verify the exact
+existing staff identity and scope; never disable MFA or clear live security state
+to resolve a login problem. On an uncertain write, confirm/retry the captured
+request; never create a replacement email merely because its response was lost.
+The complete live browser/delivery workflow, named owners, physical devices and
+production release remain unaccepted until their evidence above exists. The
+bounded synthetic Gmail check is confirmed; it does not close those gates.
+Nothing here authorizes deployment.

@@ -6,10 +6,10 @@ import RefreshIcon from '@atlaskit/icon/core/refresh';
 import Tabs, { Tab, TabList, TabPanel } from '@atlaskit/tabs';
 import { Anchor } from '@atlaskit/primitives/compiled/anchor';
 import { Reports } from './complaints-operations-reports';
-import { EvidencePreview, VoiceInput } from './complaints-operations-media';
+import { EvidenceGallery, VoiceInput } from './complaints-operations-media';
 import { WorkspaceSettings } from './complaints-operations-settings';
 import { Activity } from './complaints-operations-history';
-import { cssMap } from '@atlaskit/css';
+import { cssMap, cx } from '@atlaskit/css';
 import Form, { ErrorMessage, Field, Label, MessageWrapper } from '@atlaskit/form';
 import Heading from '@atlaskit/heading';
 import { Root } from '@atlaskit/navigation-system/layout/root';
@@ -30,43 +30,55 @@ import CloudIcon from '@atlaskit/icon/core/cloud-arrow-up';
 import CopyIcon from '@atlaskit/icon/core/copy';
 import NextIcon from '@atlaskit/icon/core/arrow-right';
 import AddIcon from '@atlaskit/icon/core/add';
+import PersonIcon from '@atlaskit/icon/core/person-avatar';
+import SearchIcon from '@atlaskit/icon/core/search';
+import PreviousIcon from '@atlaskit/icon/core/arrow-left';
 import Textfield from '@atlaskit/textfield';
 import { token } from '@atlaskit/tokens';
-import { groups as loadGroups, operation, OperationError, download, type Bootstrap, type Complaint, type Detail, type Group, type Locations, type Queue } from './complaints-operations-transport';
+import { groups as loadGroups, operation, OperationError, type Bootstrap, type Complaint, type Detail, type Group, type Locations, type Queue } from './complaints-operations-transport';
 import { readRoute, writeRoute, initialQueuePreferences, historyPosition, type WorkspaceRoute } from './workspace-navigation';
-import { TaskDialog, ComplaintStatus, displayDate, complaintCount } from './complaints-ui';
+import { TaskDialog, ComplaintStatus, displayDate, complaintCount, confirmAction, ActionMenu, ControlRow, HeaderGutter } from './complaints-ui';
+import { TaskSession } from './workspace-task';
 import { WorkspaceRecovery, useRetainedValue, type RecoverySlot, type Submission } from './workspace-recovery';
-const SessionRecheck = React.createContext<() => void>(() => {});
+const SessionRecheck = TaskSession;
 const LockedForm = React.createContext(false);
 const styles = cssMap({
     full: { width: '100%', minWidth: 0 },
+    canvas: { minHeight: '100%', backgroundColor: token('elevation.surface.sunken') },
+
     page: { width: '100%', maxWidth: '80rem', marginInline: 'auto', boxSizing: 'border-box', padding: token('space.200'), '@media (min-width: 64rem)': { padding: token('space.300') } },
     columns: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', alignItems: 'start', '@media (min-width: 64rem)': { gridTemplateColumns: 'minmax(20rem, 24rem) minmax(0, 1fr)' } },
-    queue: { minHeight: 0, display: 'flex', flexDirection: 'column', gap: token('space.100') },
+    queue: { minHeight: 0, display: 'flex', flexDirection: 'column', gap: token('space.100'), padding: token('space.150'), backgroundColor: token('elevation.surface'), borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.medium'), boxSizing: 'border-box' },
     list: { overflowY: 'auto', minHeight: 0, flexGrow: 1, overscrollBehavior: 'contain' },
     detailScroll: { overflowY: 'auto', minHeight: 0, overscrollBehavior: 'contain' },
-    search: { minWidth: 0, flexGrow: 1 },
-    selectedRow: { backgroundColor: token('color.background.selected'), borderRadius: token('radius.medium') },
+    search: { minWidth: 0, flexGrow: 1, maxWidth: '23rem' },
+    selectedRow: { position: 'relative', backgroundColor: token('color.background.selected'), borderRadius: token('radius.small') },
+    selectionMarker: { position: 'absolute', insetInlineStart: 0, insetBlock: 0, width: '3px', pointerEvents: 'none', backgroundColor: token('color.background.selected.bold') },
+    age: { whiteSpace: 'nowrap', color: token('color.text.subtle') },
+    ageWarning: { color: token('color.text.warning') },
+    ageDanger: { color: token('color.text.danger') },
+    detailColumns: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: token('space.300'), alignItems: 'start', '@media (min-width: 64rem)': { gridTemplateColumns: 'minmax(0,1fr) minmax(12rem,17.5rem)' } },
+    rowMetadata: { display:'grid', gridTemplateColumns:'minmax(0,1fr) auto', alignItems:'center', gap:token('space.050') },
+    facts: { padding: token('space.150'), backgroundColor: token('color.background.neutral.subtle'), borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.small') },
+    sort: { width: '9rem', maxWidth:'100%' },
     mobileList: { display: 'none', '@media (min-width: 64rem)': { display: 'block' } },
     mobileOnly: { '@media (min-width: 64rem)': { display: 'none' } },
     itemLink: { display: 'block', padding: token('space.150'), color: token('color.text'), textDecoration: 'none', borderRadius: token('radius.medium'), '&:hover': { backgroundColor: token('color.background.neutral.subtle.hovered'), textDecoration: 'none' } },
-    panel: { minWidth: 0, padding: token('space.200'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere' },
+    panel: { minWidth: 0, padding: token('space.200'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere', backgroundColor: token('elevation.surface') },
     row: { minWidth: 0, paddingBlock: token('space.100'), borderBlockEndWidth: token('border.width'), borderBlockEndStyle: 'solid', borderBlockEndColor: token('color.border'), overflowWrap: 'anywhere' },
     fields: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', alignItems: 'start' },
     prewrap: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
-    textarea: { width: '100%', boxSizing: 'border-box', padding: token('space.100'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border.input'), borderRadius: token('radius.small'), backgroundColor: token('color.background.input'), color: token('color.text'), font: token('font.body'), resize: 'vertical' },
+    textarea: { width: '100%', boxSizing: 'border-box', padding: token('space.100'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border.input'), borderRadius: token('radius.small'), backgroundColor: token('color.background.input'), color: token('color.text'), font: token('font.body.large'), resize: 'vertical' },
     form: { width: '100%', maxWidth: '42rem', marginInline: 'auto' },
     attachmentActions: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', '@media (min-width: 64rem)': { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))' } },
     attachmentRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: token('space.100'), paddingBlock: token('space.100'), borderBlockEnd: `${token('border.width')} solid ${token('color.border')}` },
     filename: { minWidth: 0, overflowWrap: 'anywhere' },
     tabsBar: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: token('space.100') },
     tabs: { flexGrow: 1, flexBasis: '8rem', minWidth: 0 },
-    syncControl: { position: 'relative', width: '2.75rem', display: 'flex', justifyContent: 'center' },
-    badge: { position: 'absolute', insetBlockStart: 0, insetInlineEnd: 0, borderRadius: token('radius.full'), backgroundColor: token('color.background.information'), paddingInline: token('space.050'), pointerEvents: 'none' },
     camera: { '@media (min-width: 64rem)': { display: 'none' } },
 });
 const statuses = [{ value: 'pending', label: 'Open + Reopened' }, { value: 'resolved', label: 'Closed' }, { value: 'all', label: 'All complaints' }];
-const actionLabels: Record<string, string> = { resolve: 'Resolve complaint', comment: 'Add resolution comment', reopen: 'Reopen complaint', 'complete-details': 'Complete missing details', 'retry-publication': 'Retry publication' };
+const actionLabels: Record<string, string> = { resolve: 'Resolve complaint', comment: 'Add note', reopen: 'Reopen complaint', 'complete-details': 'Complete missing details', 'retry-publication': 'Retry Sheet sync' };
 /** Align real wrapped ADS labels per row without shrinking type or reserving blank rows. */
 function AlignedFields({children}:{children:React.ReactNode}) {
     const ref=useRef<HTMLDivElement>(null);
@@ -115,8 +127,8 @@ function useRead<T>(group: string, path: string, refresh: number, body?: Record<
 function Feedback({ error }: {
     error?: unknown;
 }) {
-    const recheck = React.useContext(SessionRecheck);
-    useEffect(() => { if (error) {const id=notify(failure(error), 'error');return()=>dismissNotice(id);} }, [error]);
+    const recheck = React.useContext(SessionRecheck), noticeOwner=useId();
+    useEffect(() => { if (error) {const id=notify(failure(error), 'error', {dedupeKey:noticeOwner});return()=>dismissNotice(id);} }, [error]);
     return error ? <Box role="alert"><SectionMessage appearance="error" title="Action could not be completed" headingLevel="h2"><Text as="p">{failure(error)}</Text>{error instanceof OperationError && error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}</SectionMessage></Box> : null;
 }
 function Choice({ id, label, value, options, onChange, error }: {
@@ -233,12 +245,12 @@ function useSave(group: string, onSaved: (item: Complaint) => void, slot: Recove
 function PreviousSave({ state, leave }: { state: ReturnType<typeof useSave>; leave: () => void }) {
     const recheck = React.useContext(SessionRecheck), message = useRef<HTMLDivElement>(null);
     useEffect(() => { if (state.uncertain) { message.current?.scrollIntoView({ block: 'nearest' }); message.current?.focus({ preventScroll: true }); } }, [state.uncertain]);
-    return state.uncertain ? <Box ref={message} role="alert" tabIndex={-1}><SectionMessage appearance="warning" title="Check the previous save" headingLevel="h3"><Text as="p">It may already be saved. Retry the same update to confirm before making changes.</Text><Inline shouldWrap space="space.100">{state.error instanceof OperationError && state.error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}<Button isLoading={state.busy} onClick={() => { void state.retry(); }}>Retry previous save</Button><Button isDisabled={state.busy} appearance="subtle" onClick={() => { if (window.confirm('The previous save may already have completed. Leave this form and check the complaint list before submitting again?')) { state.abandon(); leave(); } }}>Leave without checking</Button></Inline></SectionMessage></Box> : null;
+    return state.uncertain ? <Box ref={message} role="alert" tabIndex={-1}><SectionMessage appearance="warning" title="Check the previous save" headingLevel="h3"><Text as="p">It may already be saved. Retry the same update to confirm before making changes.</Text><Inline shouldWrap space="space.100">{state.error instanceof OperationError && state.error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}<Button isLoading={state.busy} onClick={async () => { void state.retry(); }}>Retry previous save</Button><Button isDisabled={state.busy} appearance="subtle" onClick={async () => { if (await confirmAction('The previous save may already have completed. Leave this form and check the complaint list before submitting again?')) { state.abandon(); leave(); } }}>Leave without checking</Button></Inline></SectionMessage></Box> : null;
 }
 function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot }: {
     group: string;
     item: Detail;
-    saved: (item: Complaint) => void;
+    saved: (item: Complaint, next?:boolean) => void;
     voiceEnabled: boolean;
     markDirty: (value: boolean, pending?: boolean) => void;
     slot: RecoverySlot;
@@ -246,12 +258,15 @@ function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot }: {
     const formId=useId();
     const [action, setAction] = useRetainedValue(slot, 'action', ''), [values, setValues] = useRetainedValue<Record<string, string>>(slot, 'values', {}), [files, setFiles] = useRetainedValue<File[]>(slot, 'files', []);
     const [revision, setRevision] = useRetainedValue(slot, 'revision', item.revision), [latest, setLatest] = useState<Detail>();
-    const state = useSave(group, saved, slot);
+    const [openNext,setOpenNext]=useRetainedValue(slot,'openNext',false);
+    const state = useSave(group, value=>{const next=action==='resolve'&&openNext;setAction('');setValues({});setFiles([]);markDirty(false);saved(value,next);}, slot);
     useEffect(() => { markDirty(Boolean(Object.keys(values).length || files.length || state.busy || state.uncertain), state.busy || state.uncertain); return () => markDirty(false); }, [values, files, state.busy, state.uncertain, markDirty]);
     const available = item.actions.filter(name => name in actionLabels && (name === 'retry-publication' ? ['failed', 'pending'].includes(item.sync_status) : name === 'complete-details' ? item.needs_details : name === 'reopen' ? item.status === 'CLOSED' : item.status !== 'CLOSED' && !item.needs_details));
+    const closeAction=async()=>{if(state.busy||state.uncertain)return;if((Object.keys(values).length||files.length)&&!await confirmAction('Discard this unfinished update?'))return;setAction('');setValues({});setFiles([]);};
     return <Stack space="space.150">
-    <Section title="Actions"><Inline shouldWrap space="space.100">{available.map(name => <ActionButton tone={name==='resolve'||name==='complete-details'?'positive':'neutral'} key={name} isDisabled={state.busy || state.uncertain} onClick={() => { setRevision(item.revision); setAction(name); setValues({}); setFiles([]); state.setErrors({}); }}>{actionLabels[name]}</ActionButton>)}</Inline></Section>
-    {action && <TaskDialog title={actionLabels[action]} compact close={() => { if (!state.busy && !state.uncertain && (!(Object.keys(values).length || files.length) || window.confirm('Discard this unfinished update?'))) { setAction(''); setValues({}); setFiles([]); } }}>
+    <Inline shouldWrap space="space.100" aria-label="Complaint actions">{available.map(name => <ActionButton tone={name==='resolve'||name==='complete-details'?'positive':'neutral'} key={name} isDisabled={state.busy || state.uncertain} onClick={() => { setRevision(item.revision); setAction(name); setValues({}); setFiles([]);setOpenNext(false); state.setErrors({}); }}>{actionLabels[name]}</ActionButton>)}</Inline>
+    {action && <TaskDialog title={actionLabels[action]} compact hasStatus close={closeAction}>
+    <DialogStatus><DraftStatus state={state.busy?'saving':state.error?'error':!navigator.onLine?'offline':'draft'}/></DialogStatus>
     {action && <LockedForm.Provider value={state.busy || state.uncertain}><Form<Record<string, string>> key={action} onSubmit={() => {
                 const required = action === 'complete-details' ? ['customer_phone', 'customer_id'] : action === 'retry-publication' ? [] : [action === 'comment' ? 'comment_text' : action === 'reopen' ? 'reason' : 'resolution_text'];
                 const missing = Object.fromEntries(required.filter(name => !(values[name] || (name === 'customer_phone' ? item.customer_phone : name === 'customer_id' ? item.customer_id : '')).trim()).map(name => [name, 'Complete this field.']));
@@ -267,7 +282,8 @@ function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot }: {
       {action === 'complete-details' ? <Grid xcss={styles.fields} gap="space.150">{[['customer_phone', 'Primary phone number'], ['customer_id', 'National ID']].map(([name, label]) => <Input key={name} name={name} label={label} values={{ customer_phone: item.customer_phone || '', customer_id: item.customer_id || '', ...values }} errors={state.errors} change={(key, value) => setValues(previous => ({ ...previous, [key]: value }))} required/>)}</Grid> : action !== 'retry-publication' && <Input name={action === 'comment' ? 'comment_text' : action === 'reopen' ? 'reason' : 'resolution_text'} label={action === 'comment' ? 'Resolution comment' : action === 'reopen' ? 'Reason for reopening' : 'Resolution note'} values={values} errors={state.errors} change={(key, value) => { setValues(previous => ({ ...previous, [key]: value })); state.setErrors({}); }} required/>}
       {!state.busy && !state.uncertain && voiceEnabled && ['resolve', 'comment', 'reopen'].includes(action) && <VoiceInput group={group} caseKey={item.key} field={action === 'comment' ? 'complaint_resolution_comment' : action === 'reopen' ? 'complaint_reopen_reason' : 'complaint_resolution_note'} accept={(text, id) => setValues(previous => ({ ...previous, [action === 'comment' ? 'comment_text' : action === 'reopen' ? 'reason' : 'resolution_text']: text, voice_transcription_id: id }))} />}
       {action === 'resolve' && <Files files={files} setFiles={setFiles}/>}
-      <DialogFooter><Button shouldFitContainer isDisabled={state.busy || state.uncertain} onClick={() => { setAction(''); setValues({}); setFiles([]); }}>Cancel</Button><ActionButton tone={action==='resolve'||action==='complete-details'?'positive':'neutral'} shouldFitContainer type="submit" form={formId} isLoading={state.busy} isDisabled={state.uncertain}>{actionLabels[action]}</ActionButton></DialogFooter>
+      {action==='resolve'&&<Button role="checkbox" aria-checked={openNext} isSelected={openNext} isDisabled={state.busy||state.uncertain} onClick={()=>setOpenNext(value=>!value)}>Open next complaint after resolving</Button>}
+      <DialogFooter><Button shouldFitContainer isDisabled={state.busy || state.uncertain} onClick={closeAction}>Cancel</Button><ActionButton tone={action==='resolve'||action==='complete-details'?'positive':'neutral'} shouldFitContainer type="submit" form={formId} isLoading={state.busy} isDisabled={state.uncertain}>{action==='resolve'&&openNext?'Resolve and open next':actionLabels[action]}</ActionButton></DialogFooter>
     </Stack></Box>}</Form></LockedForm.Provider>}</TaskDialog>}
   </Stack>;
 }
@@ -367,7 +383,7 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
     }, [values, savedDraftValues, draftReady, draft, draftPaused, draftBusy, locked]);
     const draftStatus=!navigator.onLine&&Object.keys(values).length?'offline':draftError||draftPaused?'error':draftBusy?'saving':JSON.stringify(values)===savedDraftValues&&Object.keys(values).length?'saved':'draft';
     return <LockedForm.Provider value={locked}><Box xcss={styles.form}><Stack space="space.200"><DialogStatus><DraftStatus state={draftStatus}/></DialogStatus>
-    {draft && <Inline shouldWrap space="space.100" alignBlock="center"><Text>You have a saved draft.</Text><ActionButton isDisabled={locked || draftBusy} onClick={() => { if (Object.keys(values).length && !window.confirm('Replace the current entries with your saved draft?')) return; setValues(draft.fields); setSavedDraftValues(JSON.stringify(draft.fields)); setDraft(null); setDraftPaused(false); setDraftMessage('Draft restored.'); notify('Draft restored. Reselect files if needed.', 'information'); }}>Restore</ActionButton><Button appearance="danger" isDisabled={locked || draftBusy} onClick={() => { if (window.confirm('Discard the saved draft?')) void runDraft(true); }}>Discard</Button></Inline>}
+    {draft && <Inline shouldWrap space="space.100" alignBlock="center"><Text>You have a saved draft.</Text><ActionButton isDisabled={locked || draftBusy} onClick={async () => { if (Object.keys(values).length && !await confirmAction('Replace the current entries with your saved draft?')) return; setValues(draft.fields); setSavedDraftValues(JSON.stringify(draft.fields)); setDraft(null); setDraftPaused(false); setDraftMessage('Draft restored.'); notify('Draft restored. Reselect files if needed.', 'information'); }}>Restore</ActionButton><Button appearance="danger" isDisabled={locked || draftBusy} onClick={async () => { if (await confirmAction('Discard the saved draft?')) void runDraft(true); }}>Discard</Button></Inline>}
     {draftPaused && draftMessage && <Box role="status"><Text color="color.text.subtle">{draftMessage}</Text></Box>}
     {draftPaused && !draft && <Button onClick={() => {setDraftPaused(false);setDraftReady(true);void runDraft();}}>Retry draft</Button>}
     <Feedback error={state.uncertain ? undefined : state.error || draftError}/><PreviousSave state={state} leave={() => { markDirty(false); cancel(); }}/>
@@ -410,17 +426,30 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
   const routeRef = useRef(route); routeRef.current = route;
   const markDirty = React.useCallback((value: boolean, pending = false) => { dirty.current = value; pendingSave.current = pending; }, []);
   useEffect(() => { const update = () => setOnline(navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
-  const allowLeave = React.useCallback(() => { if (pendingSave.current) { window.alert('Check the previous save before leaving this form.'); return false; } return !dirty.current || window.confirm('Leave this form? Unsaved entries will be lost.'); }, []);
+  const navigationGeneration = useRef(0);
+  const leaveDecision = useRef<Promise<boolean> | null>(null);
+  const allowLeave = React.useCallback(async () => {
+    if (pendingSave.current) { notify('Check the previous save before leaving this form.', 'warning'); return false; }
+    if (!dirty.current) return true;
+    if (!leaveDecision.current) leaveDecision.current=confirmAction('Your unfinished entries will be discarded.').finally(()=>{leaveDecision.current=null;});
+    return leaveDecision.current;
+  }, []);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (dirty.current) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, []);
-  const navigate = (next: WorkspaceRoute, replace = false) => { if (!allowLeave()) return; dirty.current = false; recovery.clear(); writeRoute(next, replace); acceptedPosition.current = historyPosition(); setRoute(next); };
+  const navigate = async (next: WorkspaceRoute, replace = false) => { const generation=++navigationGeneration.current;if (!await allowLeave() || generation!==navigationGeneration.current) return; dirty.current = false; recovery.clear(); writeRoute(next, replace); acceptedPosition.current = historyPosition(); setRoute(next); };
   useEffect(() => {
-    const listener = () => {
+    const listener = async () => {
       if (undoPop.current) { undoPop.current = false; return; }
       const position = historyPosition();
-      if (!allowLeave()) {
+      if (dirty.current || pendingSave.current) {
+        const target=readRoute(), generation=++navigationGeneration.current;
         const delta = acceptedPosition.current - position;
         if (delta) { undoPop.current = true; window.history.go(delta); }
         else writeRoute(routeRef.current, true);
+        if (await allowLeave() && generation===navigationGeneration.current) {
+          dirty.current=false; recovery.clear();
+          if (delta) window.history.go(-delta);
+          else {writeRoute(target,true);setRoute(target);}
+        }
         return;
       }
       acceptedPosition.current = position; dirty.current = false; recovery.clear(); setRoute(readRoute());
@@ -430,55 +459,78 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
   useEffect(() => { document.title = 'Complaints - JBL staff workspace'; setGroupError(undefined); const controller = new AbortController(); void loadGroups(controller.signal).then(result => { setGroups(result.groups); setRoute(previous => { const group = result.groups.some(item => item.key === previous.group) ? previous.group : result.groups[0]?.key || ''; const next = { ...previous, group }; if (appliedPreferences.current) writeRoute(next, true); return next; }); }).catch(error => { if (!controller.signal.aborted) setGroupError(error); }); return () => controller.abort(); }, [refresh]);
   const bootstrap = useRead<Bootstrap>(route.group, 'bootstrap/', refresh);
   useEffect(() => { if (bootstrap.data) { recovery.bind(bootstrap.data.continuity_key); setOwnerReady(bootstrap.data.continuity_key); } }, [bootstrap.data, recovery]);
-  const slot = recovery.slot(`${route.group}:${route.view === 'new' ? 'new' : route.selected}`);
+  const slot = recovery.slot(`${route.group}:${route.view === 'queue' ? route.selected : route.view}`);
   useEffect(() => { if (!bootstrap.data || appliedPreferences.current) return; appliedPreferences.current = true; const preferences = bootstrap.data.preferences || { default_filters: {} }; const next = initialQueuePreferences(routeRef.current, preferences, entryUrl.current); setBranch(preferences.default_filters.branch || ''); writeRoute(next, true); setRoute(next); setPreferencesReady(true); }, [bootstrap.data]);
   useEffect(() => { if (typedQuery.trim() === query) return; const timer = setTimeout(() => { setQuery(typedQuery.trim()); const next = { ...routeRef.current, page: 1, selected: '' }; writeRoute(next, true); setRoute(next); }, 350); return () => clearTimeout(timer); }, [typedQuery, query]);
-  const queue = useRead<Queue>(preferencesReady && ['queue', 'new'].includes(route.view) ? route.group : '', 'cases/', refresh, { q: query, status: route.status, branch, category, page: route.page });
+  const order=route.order||(route.status==='pending'?'oldest':'newest');
+  const queue = useRead<Queue>(preferencesReady && ['queue', 'new'].includes(route.view) ? route.group : '', 'cases/', refresh, { q: query, status: route.status, branch, category, page: route.page, order, selected:route.selected });
   const detail = useRead<{case: Detail}>(route.view === 'queue' && route.selected ? route.group : '', `cases/${route.selected}/`, refresh);
   const sync = useRead<{counts:{total:number;pending:number;failed:number;suspended:number};issues: {key: string; reference: string; status: string; can_retry: boolean}[]}>(route.group, 'recovery/', refresh);
+  const [updatedAt,setUpdatedAt]=useState(0),[clock,setClock]=useState(Date.now());
+  useEffect(()=>{if(queue.data)setUpdatedAt(Date.now());},[queue.data]);
+  useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),30000);return()=>clearInterval(timer);},[]);
+  const refreshedMinutes=Math.max(0,Math.floor((clock-updatedAt)/60000));
   const error = groupError || bootstrap.error || queue.error || detail.error;
   useEffect(() => { if (error instanceof OperationError && error.status === 401) recheck(); else if (error instanceof OperationError && error.status === 403) recovery.clear(); }, [error, recheck]);
-  const saved = (item: Complaint) => { dirty.current = false; pendingSave.current = false; recovery.clear(); setNotice(`${item.reference}: changes saved.`); navigate({ ...route, view: 'queue', selected: item.key }); setRefresh(value => value + 1); };
+  const saved = async (item: Complaint, openNext = false) => {
+    const following=openNext?queue.data?.navigation?.next:null, context=routeRef.current;
+    dirty.current=false;pendingSave.current=false;recovery.clear();setNotice(`${item.reference}: changes saved.`);
+    let target:WorkspaceRoute={...context,view:'queue',selected:item.key};
+    if(following){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+      try {
+        const current=await operation<Queue>(context.group,'cases/',controller.signal,{q:query,status:context.status,branch,category,page:1,order,selected:following.key});
+        if(current.navigation)target={...target,selected:following.key,page:Math.floor((current.navigation.position-1)/(current.pagination.page_size||10))+1};
+        else notify('Changes saved. The next complaint is no longer in this queue.','information');
+      }catch{notify('Changes saved. Refresh the queue before opening the next complaint.','warning');}
+      finally{clearTimeout(timer);}
+    }
+    if(routeRef.current===context)void navigate(target);
+    setRefresh(value=>value+1);
+  };
   const capabilities = bootstrap.data?.actor.capabilities || [];
   const open = (key: string) => navigate({ ...route, view: 'queue', selected: key });
   const facet = (items: {label: string}[] | undefined, value: string) => [{value: '', label: 'All'}, ...Array.from(new Set([...(items || []).map(item => item.label), value].filter(Boolean))).map(label => ({value: label, label}))];
   useEffect(() => { if (notice) { notify(notice); setNotice(''); } }, [notice]);
   const activeFilters = [route.status !== 'pending' ? statuses.find(item => item.value === route.status)?.label : '', branch, category].filter(Boolean);
   const queueView = <Stack xcss={styles.full} space="space.150">
-    <Box xcss={route.selected ? styles.mobileList : undefined}><Inline alignBlock="end" space="space.100"><Box xcss={styles.search}><Label htmlFor="search">Search name, ID, phone or branch</Label><Textfield id="search" type="search" value={typedQuery} onChange={event => setTypedQuery(event.currentTarget.value)}/></Box><Button onClick={() => setFiltersOpen(true)}>Filters{activeFilters.length ? ` (${activeFilters.length})` : ''}</Button></Inline>
+    <Box xcss={route.selected ? styles.mobileList : undefined}><ControlRow><Box xcss={styles.search}><Textfield id="search" aria-label="Search name, ID, phone or branch" placeholder="Search name, ID, phone or branch" elemBeforeInput={<SearchIcon label=""/>} type="search" value={typedQuery} onChange={event => setTypedQuery(event.currentTarget.value)}/></Box><Button onClick={() => setFiltersOpen(true)}>Filters{activeFilters.length ? ` · ${activeFilters.length}` : ""}</Button></ControlRow>
     {activeFilters.length > 0 && <Inline shouldWrap space="space.050">{route.status !== 'pending' && <Button appearance="subtle" onClick={() => navigate({...route,status:'pending',page:1,selected:''})}>{statuses.find(item => item.value === route.status)?.label} ×</Button>}{branch && <Button appearance="subtle" onClick={() => {setBranch('');navigate({...route,page:1,selected:''});}}>Branch: {branch} ×</Button>}{category && <Button appearance="subtle" onClick={() => {setCategory('');navigate({...route,page:1,selected:''});}}>Type: {category} ×</Button>}</Inline>}</Box>
     {filtersOpen && <TaskDialog title="Filter complaints" size="medium" close={() => setFiltersOpen(false)}><Grid xcss={styles.fields} gap="space.150"><Choice id="status" label="Status" value={route.status} options={statuses} onChange={status => navigate({ ...route, status, page: 1, selected: '' })}/><Choice id="branch" label="Branch" value={branch} options={facet(queue.data?.filter_options.branches, branch)} onChange={value => { setBranch(value); navigate({ ...route, page: 1, selected: '' }); }}/><Choice id="category" label="Complaint type" value={category} options={facet(queue.data?.filter_options.categories, category)} onChange={value => { setCategory(value); navigate({ ...route, page: 1, selected: '' }); }}/></Grid><DialogFooter><Button shouldFitContainer onClick={() => {setBranch('');setCategory('');navigate({...route,status:'pending',page:1,selected:''});}}>Reset filters</Button><Button shouldFitContainer appearance="primary" onClick={() => setFiltersOpen(false)}>Done</Button></DialogFooter></TaskDialog>}
     <Grid xcss={styles.columns} gap="space.250">
       <Box xcss={route.selected ? styles.mobileList : undefined}><Box as="section" aria-label="Complaint queue" ref={queuePane} xcss={styles.queue}>
-        <Inline spread="space-between" alignBlock="center"><Heading as="h2" size="small">{queue.data ? complaintCount(queue.data.pagination.total) : 'Complaints'}</Heading><Text size="small" color="color.text.subtle">{route.status === 'resolved' ? 'Recently closed' : 'Oldest first'}</Text></Inline>
-        <Box as="div" xcss={styles.list} aria-label="Scrollable complaints" ref={(element: HTMLDivElement | null) => { queueList.current=element;if (element) element.scrollTop = queuePosition.current; }} onScroll={(event: React.UIEvent<HTMLDivElement>) => {queuePosition.current = event.currentTarget.scrollTop;}}>{queue.data?.items.map(item => <Box key={item.key} xcss={route.selected === item.key ? styles.selectedRow : styles.row}><Anchor xcss={styles.itemLink} href={`/staff/app/complaints/cases/${item.key}/?workspace=${route.group}&status=${route.status}&page=${route.page}`} aria-current={route.selected === item.key ? 'true' : undefined} onClick={event => { event.preventDefault(); open(item.key); }}><Stack space="space.100"><Inline spread="space-between" space="space.100" alignBlock="center"><Text weight="semibold">{item.customer_name || item.reference}</Text><ComplaintStatus status={item.status} needs={item.needs_details}/></Inline><Text size="small" color="color.text.subtle">{item.reference} · {item.branch || 'Branch not recorded'}</Text><Inline shouldWrap spread="space-between" space="space.100"><Text size="small">{item.category}</Text><Text size="small" weight="medium">{item.age_label}</Text></Inline></Stack></Anchor></Box>)}</Box>
+        <Inline shouldWrap spread="space-between" alignBlock="center"><Text size="small" color="color.text.subtle">{route.status==="pending"?"Open complaints":route.status==="resolved"?"Closed complaints":"All statuses"}</Text><Box xcss={styles.sort}><Select inputId="queue-order" aria-label="Queue order" options={[{value:"oldest",label:"Oldest first"},{value:"newest",label:"Newest first"}]} value={{value:order,label:order==="oldest"?"Oldest first":"Newest first"}} onChange={value=>navigate({...route,order:value?.value||"oldest",page:1,selected:""})}/></Box></Inline>
+        <Box as="div" xcss={styles.list} aria-label="Scrollable complaints" ref={(element: HTMLDivElement | null) => { queueList.current=element;if (element) element.scrollTop = queuePosition.current; }} onScroll={(event: React.UIEvent<HTMLDivElement>) => {queuePosition.current = event.currentTarget.scrollTop;}}>{queue.data?.items.map(item => <Box key={item.key} xcss={route.selected === item.key ? styles.selectedRow : styles.row}>{route.selected===item.key&&<Box xcss={styles.selectionMarker}/>}<Anchor xcss={styles.itemLink} href={`/staff/app/complaints/cases/${item.key}/?workspace=${route.group}&status=${route.status}&page=${route.page}&order=${order}`} aria-current={route.selected === item.key ? "true" : undefined} onClick={event => { event.preventDefault(); open(item.key); }}><Stack space="space.050"><Inline spread="space-between" space="space.100" alignBlock="start"><Text weight="semibold" maxLines={1}>{item.customer_name || item.reference}</Text><Box xcss={cx(styles.age,item.status!=="CLOSED"&&(item.days_open||0)>=60?styles.ageDanger:item.status!=="CLOSED"&&(item.days_open||0)>=30?styles.ageWarning:undefined)}><Text size="small" weight="semibold" color="inherit">{item.days_open===undefined?item.age_label:item.days_open===0?"Today":`${item.days_open} ${item.days_open===1?"day":"days"}`}</Text></Box></Inline><Box xcss={styles.rowMetadata}><Text size="small" color="color.text.subtle" maxLines={1}>{item.reference} · {item.category||"Type not recorded"} · {item.branch||"Branch not recorded"}</Text>{(route.status!=="pending"||item.status==="REOPENED"||item.needs_details)&&<ComplaintStatus status={item.status} needs={item.needs_details}/>}</Box></Stack></Anchor></Box>)}</Box>
         {queue.data?.items.length === 0 && <Text>No complaints match these filters.</Text>}{!queue.data && !queue.error && <Box role="status"><Text>Loading complaints…</Text></Box>}
         {queue.data && queue.data.pagination.pages > 1 && <Inline spread="space-between" alignBlock="center" space="space.100"><Text size="small">Page {queue.data.pagination.page} of {queue.data.pagination.pages}</Text><Inline space="space.100"><Button isDisabled={route.page <= 1} onClick={() => navigate({...route, page: route.page - 1, selected: ''})}>Previous</Button><Button isDisabled={route.page >= queue.data.pagination.pages} onClick={() => navigate({...route, page: route.page + 1, selected: ''})}>Next</Button></Inline></Inline>}
       </Box></Box>
       <Box xcss={route.selected ? undefined : styles.mobileList}><Box ref={detailPane} xcss={styles.detailScroll}><Box as="section" aria-label="Complaint detail" xcss={styles.panel} ref={detailPanel} tabIndex={-1}>{detail.data ? <Stack space="space.250">
         <Box xcss={styles.mobileOnly}><Button appearance="subtle" onClick={() => navigate({...route, selected: ''})}>← Back to complaints</Button></Box>
-        <Inline shouldWrap spread="space-between" alignBlock="center" space="space.100"><Stack space="space.050"><Heading as="h2" size="medium">{detail.data.case.customer_name || detail.data.case.reference}</Heading><Text color="color.text.subtle">{detail.data.case.reference}</Text></Stack><ComplaintStatus status={detail.data.case.status} needs={detail.data.case.needs_details}/></Inline>
-        <Inline shouldWrap space="space.100"><Button iconBefore={CopyIcon} onClick={() => { void navigator.clipboard.writeText(window.location.href).then(() => setNotice('Complaint link copied.')).catch(() => setNotice('Copy the link from your address bar.')); }}>Copy link</Button>{queue.data?.items.some(item => item.key !== route.selected) && <Button iconBefore={NextIcon} onClick={() => { const items = queue.data!.items; open(items[(items.findIndex(item => item.key === route.selected) + 1) % items.length].key); }}>Next complaint</Button>}</Inline>
-        <Grid xcss={styles.fields} gap="space.250"><Stack space="space.150"><Heading as="h3" size="small">Customer</Heading><Stack space="space.050"><Text size="small" color="color.text.subtle">National ID</Text><Text>{detail.data.case.customer_id || 'Not provided'}</Text></Stack><Stack space="space.050"><Text size="small" color="color.text.subtle">Phone</Text>{detail.data.case.customer_phone ? <Anchor href={`tel:${detail.data.case.customer_phone}`}>{detail.data.case.customer_phone}</Anchor> : <Text>Not provided</Text>}</Stack></Stack><Stack space="space.150"><Heading as="h3" size="small">Complaint</Heading><Text>{detail.data.case.branch || 'Branch not recorded'}</Text><Text>{detail.data.case.category || 'Type not recorded'}</Text><Text size="small" color="color.text.subtle">Reported {displayDate(detail.data.case.reported_at)}</Text><Text size="small">{detail.data.case.age_label}</Text></Stack></Grid>
-        <Section title="Description"><Box xcss={styles.prewrap}><Text as="p">{detail.data.case.description}</Text></Box></Section>
-        <Activity key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} caseKey={detail.data.case.key} initial={detail.data.case.history} next={detail.data.case.history_next_cursor} reported={detail.data.case.reported_at}/>
-        <Section title="Attachments">{detail.data.case.evidence.length === 0 ? <Text size="small" color="color.text.subtle">No attachments.</Text> : detail.data.case.evidence.map(item => <Box key={item.id} xcss={styles.attachmentRow}><Box xcss={styles.filename}><Inline alignBlock="center" space="space.100"><AttachmentIcon label=""/><Text>{item.name}</Text></Inline></Box><Inline space="space.100"><EvidencePreview group={route.group} id={item.id} name={item.name} type={item.mime_type} showName={false}/><Button onClick={() => { void download(route.group, `evidence/${item.id}/?download=1`).then(()=>notify('File ready. Your browser handles the download.','information')).catch(error => notify(failure(error),'error')); }}>Download</Button></Inline></Box>)}</Section>
+        <Stack space="space.050"><Inline shouldWrap alignBlock="center" space="space.100"><Heading as="h2" size="medium">{detail.data.case.customer_name || detail.data.case.reference}</Heading><ComplaintStatus status={detail.data.case.status} needs={detail.data.case.needs_details}/></Inline><Text size="small" color="color.text.subtle">{detail.data.case.reference}</Text></Stack>
+        <Inline shouldWrap spread="space-between" alignBlock="center" space="space.100"><Button iconBefore={CopyIcon} appearance="subtle" onClick={() => { const link=new URL(`/staff/app/complaints/cases/${detail.data!.case.key}/`,window.location.origin);link.searchParams.set("workspace",route.group);void navigator.clipboard.writeText(link.href).then(() => notify("Complaint link copied.","success",{dedupeKey:"copy-link:"+detail.data!.case.key})).catch(() => notify("Copy the link from your address bar.","warning")); }}>Copy link</Button>{queue.data?.navigation&&<Inline alignBlock="center" space="space.050"><IconButton appearance="subtle" label="Previous complaint" icon={PreviousIcon} isDisabled={!queue.data.navigation.previous} onClick={()=>{const item=queue.data!.navigation!.previous;if(item)navigate({...route,selected:item.key,page:item.page});}}/><Text size="small">{queue.data.navigation.position} of {queue.data.navigation.total}</Text><IconButton appearance="subtle" label="Next complaint" icon={NextIcon} isDisabled={!queue.data.navigation.next} onClick={()=>{const item=queue.data!.navigation!.next;if(item)navigate({...route,selected:item.key,page:item.page});}}/></Inline>}</Inline>
         {route.view !== 'new' && ownerReady && recovery.bound(bootstrap.data?.continuity_key || '') && <CaseActions slot={slot} key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} item={detail.data.case} saved={saved} voiceEnabled={Boolean(bootstrap.data?.voice_input?.enabled)} markDirty={markDirty}/>}
+        <Grid xcss={styles.detailColumns}><Stack xcss={styles.full} space="space.250">
+        <Section title="Description"><Box xcss={styles.prewrap}><Text as="p">{detail.data.case.description}</Text></Box></Section>
+        <Section title="Attachments">{detail.data.case.evidence.length === 0 ? <Text size="small" color="color.text.subtle">No attachments. Files can be added when creating or resolving a complaint.</Text> : <EvidenceGallery key={detail.data.case.key} group={route.group} items={detail.data.case.evidence}/>}</Section>
+        <Activity key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} caseKey={detail.data.case.key} initial={detail.data.case.history} next={detail.data.case.history_next_cursor} reported={detail.data.case.recorded_at||''}/>
+        </Stack>
+        <Box xcss={styles.facts}><Stack space="space.250"><Stack space="space.100"><Text size="small" weight="semibold" color="color.text.subtle">CUSTOMER</Text><Stack space="space.050"><Text size="small" color="color.text.subtle">National ID</Text>{detail.data.case.customer_id?<Button appearance="subtle" aria-label="Copy National ID" iconBefore={CopyIcon} onClick={()=>{void navigator.clipboard.writeText(detail.data!.case.customer_id).then(()=>notify("National ID copied.","success",{dedupeKey:"copy-national-id:"+detail.data!.case.key})).catch(()=>notify("Copy is unavailable. Select the value and copy it.","warning"));}}>{detail.data.case.customer_id}</Button>:<Text>Not provided</Text>}</Stack><Stack space="space.050"><Text size="small" color="color.text.subtle">Primary phone</Text>{detail.data.case.customer_phone?<Anchor href={`tel:${detail.data.case.customer_phone}`}>{detail.data.case.customer_phone}</Anchor>:<Text>Not provided</Text>}</Stack></Stack><Stack space="space.100"><Text size="small" weight="semibold" color="color.text.subtle">COMPLAINT</Text>{[["Branch",detail.data.case.branch],["Complaint type",detail.data.case.category],["Reported",displayDate(detail.data.case.reported_at)],["Age",detail.data.case.age_label]].map(([label,value])=><Stack key={label} space="space.050"><Text size="small" weight="semibold" color="color.text.subtle">{label}</Text><Text>{value||"Not recorded"}</Text></Stack>)}</Stack></Stack></Box>
+        </Grid>
       </Stack> : <Text>{route.selected ? 'Loading complaint…' : 'Select a complaint to read its details and activity.'}</Text>}</Box></Box></Box>
     </Grid>
   </Stack>;
-  return <SessionRecheck.Provider value={recheck}><Root><TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold" maxLines={1}>JBL workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle><BrowserActions><Button appearance="subtle" onClick={() => { if (!dirty.current || window.confirm('Sign out? Unsaved entries will be lost.')) signOut(); }}>Sign out</Button></BrowserActions></TopNav>
-    <Main><Box xcss={styles.page} testId="complaints-operations-content"><Stack space="space.200">
-      <Inline alignBlock="center" spread="space-between" shouldWrap space="space.150"><Stack space="space.050"><Heading as="h1" size="large">{route.view === 'settings' ? 'Complaint settings' : 'Complaints'}</Heading><Text size="small" color="color.text.subtle">{groups?.find(item => item.key === route.group)?.label || 'Manage complaints and follow up'}</Text></Stack>{capabilities.includes('complaint.case.create') && route.view !== 'settings' && <ActionButton iconBefore={AddIcon} onClick={() => navigate({...route, view: 'new'})}>Create complaint</ActionButton>}</Inline>
+  return <SessionRecheck.Provider value={recheck}><Root><TopNav><TopNavStart sideNavToggleButton={null}><HeaderGutter side="start"/><Text weight="bold" maxLines={1}>JBL workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle><BrowserActions aligned><ActionMenu label="Account" icon={PersonIcon} items={[{label:"Sign out",run:async()=>{if(await allowLeave())signOut();}}]}/></BrowserActions></TopNav>
+    <Main><Box xcss={styles.canvas}><Box xcss={styles.page} testId="complaints-operations-content"><Stack space="space.200">
+      <Inline alignBlock="center" spread="space-between" shouldWrap space="space.150"><Stack space="space.050"><Heading as="h1" size="large">{route.view === 'settings' ? 'Complaint settings' : 'Complaints'}</Heading></Stack><Inline shouldWrap alignBlock="center" space="space.100">{capabilities.includes('complaint.case.create') && route.view !== 'settings' && <ActionButton iconBefore={AddIcon} onClick={() => navigate({...route, view: 'new'})}>Create complaint</ActionButton>}{route.view!=="settings"&&<IconButton appearance="subtle" label="Settings" icon={SettingsIcon} onClick={()=>navigate({...route,view:"settings"})}/>}</Inline></Inline>
       {groups && groups.length > 1 && <Choice id="workspace" label="Workspace" value={route.group} options={groups.map(item => ({value: item.key, label: item.label}))} onChange={group => navigate({...route, group, selected: '', page: 1})}/>}
       {!online && <Box role="status"><SectionMessage title="You are offline" headingLevel="h2"><Text as="p">You can keep editing. Reconnect before saving; nothing will be submitted automatically.</Text></SectionMessage></Box>}
       {notice && <Box role="status"><Inline spread="space-between" alignBlock="center" space="space.150"><Text weight="medium">{notice}</Text><Button appearance="subtle" onClick={() => setNotice('')}>Dismiss</Button></Inline></Box>}<Feedback error={error}/>
       {!bootstrap.data && !error && <Box role="status"><Text>Loading workspace…</Text></Box>}
       {groups?.length === 0 && <SectionMessage title="No Complaints access" headingLevel="h2"><Text>Contact your administrator if you need access.</Text></SectionMessage>}
-      {bootstrap.data && preferencesReady && (route.view === 'settings' ? <Stack space="space.250"><Inline><Button appearance="subtle" onClick={() => navigate({...route, view: 'queue'})}>← Back to complaints</Button></Inline><WorkspaceSettings group={route.group} branches={bootstrap.data.location_options.branches.map(row => row.name)} reports={capabilities.includes('complaint.reports.view')}/></Stack> :
-        <Tabs id="complaints-destinations" selected={route.view === 'reports' ? 1 : 0} onChange={index => navigate({...route, view: index ? 'reports' : 'queue'})}><Box xcss={styles.tabsBar}><Box xcss={styles.tabs}><TabList><Tab>Complaints</Tab>{capabilities.includes('complaint.reports.view') && <Tab>Reports</Tab>}</TabList></Box><Inline alignBlock="center" space="space.050"><IconButton label="Settings" icon={SettingsIcon} onClick={() => navigate({...route, view: 'settings'})}/><IconButton label="Refresh workspace" icon={RefreshIcon} onClick={() => {if(!pendingSave.current)setRefresh(value=>value+1);}}/><Box xcss={styles.syncControl}><IconButton label="Sync details" title={sync.error?'Sheet sync unavailable':sync.data?`${sync.data.counts.total} complaints awaiting Sheet sync`:'Checking Sheet sync'} icon={CloudIcon} onClick={()=>setSyncOpen(true)}/>{Boolean(sync.data?.counts.total)&&<Box xcss={styles.badge}><Text size="small" color={sync.data!.counts.failed?'color.text.danger':'color.text.information'}>{sync.data!.counts.total}</Text></Box>}</Box></Inline></Box><TabPanel>{route.view !== 'reports' && queueView}</TabPanel>{capabilities.includes('complaint.reports.view') && <TabPanel>{route.view === 'reports' && <Reports group={route.group} refresh={refresh} open={open} location={route.report} change={report => { const next = {...routeRef.current, report}; writeRoute(next, true); setRoute(next); }}/>}</TabPanel>}</Tabs>)}
+      {bootstrap.data && preferencesReady && (route.view === 'settings' ? <Stack space="space.250"><Inline><Button appearance="subtle" onClick={() => navigate({...route, view: 'queue'})}>← Back to complaints</Button></Inline><WorkspaceSettings slot={slot} markDirty={markDirty} group={route.group} branches={bootstrap.data.location_options.branches.map(row => row.name)} reports={capabilities.includes('complaint.reports.view')}/></Stack> :
+        <Tabs id="complaints-destinations" selected={route.view === 'reports' ? 1 : 0} onChange={index => navigate({...route, view: index ? 'reports' : 'queue'})}><Box xcss={styles.tabsBar}><Box xcss={styles.tabs}><TabList><Tab>Queue{queue.data?` · ${queue.data.pagination.total}`:""}</Tab>{capabilities.includes('complaint.reports.view') && <Tab>Reports</Tab>}</TabList></Box><Inline alignBlock="center" shouldWrap space="space.100"><Button appearance="subtle" aria-label="Refresh workspace" onClick={()=>{if(!pendingSave.current)setRefresh(value=>value+1);}}>{!online?"Offline":!updatedAt?"Refresh":refreshedMinutes?`Updated ${refreshedMinutes} min ago`:"Updated just now"}</Button>{(sync.error||Boolean(sync.data?.counts.total))&&<Button iconBefore={CloudIcon} onClick={()=>setSyncOpen(true)}>{sync.error?"Sync unavailable":sync.data!.counts.failed?`${sync.data!.counts.total} waiting to sync · ${sync.data!.counts.failed} need attention`:`${sync.data!.counts.total} waiting to sync`}</Button>}</Inline></Box><TabPanel>{route.view !== 'reports' && queueView}</TabPanel>{capabilities.includes('complaint.reports.view') && <TabPanel>{route.view === 'reports' && <Reports slot={slot} markDirty={markDirty} group={route.group} refresh={refresh} open={open} location={route.report} change={report => { const next = {...routeRef.current, report}; writeRoute(next, true); setRoute(next); }}/>}</TabPanel>}</Tabs>)}
       {bootstrap.data && ownerReady && recovery.bound(bootstrap.data.continuity_key) && route.view === 'new' && <TaskDialog title="Create complaint" hasStatus close={() => navigate({...route, view: 'queue'})}><Create slot={slot} key={route.group} group={route.group} bootstrap={bootstrap.data} onSaved={saved} cancel={() => navigate({...route, view: 'queue'})} markDirty={markDirty}/></TaskDialog>}
       {syncOpen && <TaskDialog title="Google Sheets sync" size="medium" close={() => setSyncOpen(false)}><Text color="color.text.subtle">Changes are saved in Complaints. Google Sheets updates separately.</Text>{sync.error?<Stack space="space.100"><Text color="color.text.danger">Sheet sync status could not be loaded.</Text><Button onClick={()=>setRefresh(value=>value+1)}>Retry sync status</Button></Stack>:<><Text>{sync.data?.counts.total||0} complaints awaiting sync · {sync.data?.counts.failed||0} need attention</Text>{sync.data?.issues.map(item=><Box key={item.key} xcss={styles.attachmentRow}><Text>{item.reference} · {item.status==='failed'?'Needs attention':item.status==='suspended'?'Paused':'Waiting'}</Text><Button onClick={()=>{setSyncOpen(false);open(item.key);}}>Review complaint</Button></Box>)}{sync.data&&sync.data.counts.total>sync.data.issues.length&&<Text size="small" color="color.text.subtle">Showing the first {sync.data.issues.length} complaints.</Text>}</>}</TaskDialog>}
-    </Stack></Box></Main>
+    </Stack></Box></Box></Main>
   </Root></SessionRecheck.Provider>;
 }

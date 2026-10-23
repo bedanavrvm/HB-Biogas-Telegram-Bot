@@ -4,6 +4,7 @@ Separate from the intentionally restricted v1 read projection. Never mounted by
 config.urls before release acceptance; no Telegram credential/session fallback.
 """
 import json
+from uuid import UUID
 from functools import wraps
 
 from django.conf import settings
@@ -24,7 +25,7 @@ CASE_FIELDS = (
     'customer_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
     'constituency', 'village', 'branch', 'category', 'description', 'status',
     'needs_details', 'reported_at', 'recorded_at', 'age_label', 'revision',
-    'hb_comment_count', 'sync_status',
+    'hb_comment_count', 'sync_status', 'days_open',
 )
 CREATE_FIELDS = frozenset((
     'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
@@ -101,7 +102,9 @@ def source_case(group, case_key):
 
 def project(data):
     return {'key': data['id'], 'reference': data['reference_number'],
-            **{key: data.get(key) for key in CASE_FIELDS}}
+            **{key: data.get(key) for key in CASE_FIELDS},
+            'reported_at': data.get('reported_at_iso', data.get('reported_at')),
+            'recorded_at': data.get('recorded_at_iso', data.get('recorded_at'))}
 
 
 def project_detail(data, actor, group):
@@ -115,7 +118,7 @@ def project_detail(data, actor, group):
                          if cases.actor_can(group, actor, capability)]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
     result['evidence'] = [{key: item.get(key, '') for key in (
-        'id', 'name', 'mime_type', 'previewable', 'status', 'created_at',
+        'id', 'name', 'mime_type', 'previewable', 'status', 'created_at', 'created_at_iso', 'uploaded_by', 'size',
     )} for item in data['evidence']] if cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
     result['location'] = data['location']
     return result
@@ -140,17 +143,26 @@ def bootstrap(request, group, actor):
 def queue(request, group, actor):
     # Search identifiers belong in the body, not access logs/referrers/URLs.
     params = payload(request)
-    if set(params) - {'q', 'status', 'branch', 'category', 'page'}:
+    if set(params) - {'q', 'status', 'branch', 'category', 'page', 'order', 'selected'}:
         raise cases.ComplaintCaseError('Review the queue filters.')
-    if any(not isinstance(params.get(key, ''), str) for key in ('q', 'status', 'branch', 'category')):
+    if any(not isinstance(params.get(key, ''), str) for key in ('q', 'status', 'branch', 'category', 'order', 'selected')):
         raise cases.ComplaintCaseError('Review the queue filters.')
+    if params.get('order', '') not in {'', 'oldest', 'newest'}:
+        raise cases.ComplaintCaseError('Choose oldest or newest first.')
+    if params.get('selected'):
+        try:
+            UUID(params['selected'])
+        except ValueError:
+            raise cases.ComplaintCaseError('Select a valid complaint.')
     if len(params.get('q', '')) > 150 or params.get('status', 'pending') not in {'pending', 'resolved', 'all'}:
         raise cases.ComplaintCaseError('Review the search or status filter.')
     result = cases.list_cases_page(group, actor=actor, query=params.get('q', ''),
         status=params.get('status', 'pending'), branch=params.get('branch', ''),
-        category=params.get('category', ''), page=params.get('page', 1), page_size=10)
+        category=params.get('category', ''), page=params.get('page', 1), page_size=10,
+        order=params.get('order', ''), focus_key=params.get('selected', ''))
     return JsonResponse({'items': [project(item) for item in result['items']],
-                         'pagination': result['pagination'], 'filter_options': result['filter_options']})
+                         'pagination': result['pagination'], 'filter_options': result['filter_options'],
+                         'navigation': result.get('navigation')})
 
 
 @endpoint(['GET'])
@@ -276,10 +288,11 @@ def category_suggestion(request, group, actor):
 @endpoint(['GET', 'POST'])
 def preferences(request, group, actor):
     from django.core.exceptions import ValidationError
-    from core.services.miniapp_settings import preference_payload, update_preference
+    from core.services.miniapp_settings import PreferenceConflict, preference_payload, update_preference
     try:
         if request.method == 'POST':
-            values = payload(request).get('preferences', {})
+            body = payload(request)
+            values = body.get('preferences', {})
             if not isinstance(values, dict):
                 raise ValueError
             filters = values.get('default_filters', {})
@@ -287,8 +300,10 @@ def preferences(request, group, actor):
                     or filters.get('status', '') not in {'', 'pending', 'resolved', 'all'}
                     or not isinstance(filters.get('branch', ''), str) or len(filters.get('branch', '')) > 150):
                 raise ValueError
-            update_preference(actor.user, 'complaint_cases', values)
+            update_preference(actor.user, 'complaint_cases', values, expected=body.get('expected'))
         return JsonResponse(preference_payload(actor.user, 'complaint_cases'))
+    except PreferenceConflict as exc:
+        return JsonResponse({'error': str(exc)}, status=409)
     except (ValidationError, ValueError, TypeError, AttributeError):
         raise cases.ComplaintCaseError('Review your preferences.') from None
 
@@ -358,15 +373,17 @@ def voice(request, group, actor):
 @endpoint(['GET'], 'complaint.case.evidence.view')
 def evidence(request, group, actor, evidence_key):
     from core.services.order_approval import GoogleDriveMediaStorage
-    item = cases.evidence_for_preview(group, actor, str(evidence_key))
+    original_download = request.GET.get('download') == '1'
+    item = cases.evidence_for_preview(group, actor, str(evidence_key), original_download=original_download)
     try:
         content = GoogleDriveMediaStorage().download(item.drive_file_id)
     except Exception:
         return JsonResponse({'error': 'The document could not be loaded. Try again shortly.'}, status=503)
     cases.record_evidence_preview(group, actor, item)
-    response = HttpResponse(content, content_type=item.mime_type)
+    extensions = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf'}
+    response = HttpResponse(content, content_type=item.mime_type if item.mime_type in extensions else 'application/octet-stream')
     response['Content-Disposition'] = content_disposition_header(
-        request.GET.get('download') == '1', item.original_filename or 'complaint-evidence.pdf')
+        original_download, item.original_filename or 'complaint-evidence' + extensions.get(item.mime_type, '.bin'))
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 
@@ -380,18 +397,40 @@ def evidence_preview(request, group, actor, evidence_key):
     item = cases.evidence_for_preview(group, actor, str(evidence_key))
     body = payload(request)
     page = body.get('page', 1)
-    if type(page) is not int or not 1 <= page <= 10000 or item.mime_type != 'application/pdf':
-        raise cases.ComplaintCaseError('Choose a valid PDF page to preview.')
+    thumbnail = body.get('thumbnail', False)
+    if (set(body) - {'page', 'thumbnail'} or type(thumbnail) is not bool
+            or type(page) is not int or not 1 <= page <= 10000
+            or item.mime_type not in {'application/pdf', 'image/jpeg', 'image/png', 'image/webp'}
+            or (item.mime_type != 'application/pdf' and page != 1)):
+        raise cases.ComplaintCaseError('Choose a valid image or PDF page to preview.')
     try:
         content = GoogleDriveMediaStorage().download(item.drive_file_id)
-        rendered = pdf_preview_html(content, item.original_filename or 'Complaint evidence',
-                                    start_page=page, page_limit=1).decode('utf-8')
-        total = int(re.search(r'data-total-pages="(\d+)"', rendered).group(1))
-        image = re.search(r'<img src="(data:image/jpeg;base64,[A-Za-z0-9+/=]+)"', rendered).group(1)
-        if page > total:
-            raise ValueError('This page does not exist.')
+        if item.mime_type == 'application/pdf':
+            rendered = pdf_preview_html(content, item.original_filename or 'Complaint evidence',
+                                        start_page=page, page_limit=1).decode('utf-8')
+            total = int(re.search(r'data-total-pages="(\d+)"', rendered).group(1))
+            image = re.search(r'<img src="(data:image/jpeg;base64,[A-Za-z0-9+/=]+)"', rendered).group(1)
+            if page > total:
+                raise ValueError('This page does not exist.')
+        else:
+            total = 1
+        if thumbnail or item.mime_type != 'application/pdf':
+            import base64
+            from io import BytesIO
+            from PIL import Image, ImageOps
+            source = base64.b64decode(image.split(',')[1]) if item.mime_type == 'application/pdf' else content
+            if not source or len(source) > 16 * 1024 * 1024:
+                raise ValueError('Preview source is too large.')
+            with Image.open(BytesIO(source)) as original:
+                if original.width * original.height > 12_000_000:
+                    raise ValueError('Preview dimensions are too large.')
+                with ImageOps.exif_transpose(original).convert('RGB') as resized:
+                    resized.thumbnail((320, 320) if thumbnail else (1920, 1920))
+                    output = BytesIO()
+                    resized.save(output, 'JPEG', quality=82)
+                    image = 'data:image/jpeg;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
     except Exception:
-        return JsonResponse({'error': 'This PDF could not be previewed. Try again or download the original.'}, status=503)
+        return JsonResponse({'error': 'This file could not be previewed. Try again or download the original.'}, status=503)
     cases.record_evidence_preview(group, actor, item)
     response = JsonResponse({'image': image, 'page': page, 'page_count': total})
     response['Cache-Control'] = 'no-store, private'
@@ -404,7 +443,7 @@ def reports(request, group, actor):
     from core.services.complaint_register import complaint_report_page, complaint_report_summary, REPORT_SORT_FIELDS
     params = payload(request)
     selection = params.get('selection', {})
-    if (set(params) - REPORT_FIELDS - {'granularity', 'page', 'selection', 'sort'}
+    if (set(params) - REPORT_FIELDS - {'granularity', 'page', 'selection', 'sort', 'table_search'}
             or any(not isinstance(value, str) for key, value in params.items() if key not in {'page', 'selection'})
             or not isinstance(selection, dict) or set(selection) - REPORT_FIELDS
             or any(not isinstance(value, str) for value in selection.values())):
@@ -415,7 +454,12 @@ def reports(request, group, actor):
         raise cases.ComplaintCaseError('Choose a supported table sort.')
     # A drill-down changes the table/export cohort, not the chart that supplied
     # it. Keep both populations behind the existing canonical filter rules.
-    table = complaint_report_page(filters={**filters, **selection}, page=params.get('page', 1), sort=sort)
+    table_filters = {**filters, **selection}
+    if params.get('table_search'):
+        if len(params['table_search']) > 150:
+            raise cases.ComplaintCaseError('Use a shorter table search.')
+        table_filters['search'] = params['table_search']
+    table = complaint_report_page(filters=table_filters, page=params.get('page', 1), page_size=25, sort=sort)
     # Links only for complaints in this request's currently authorized workspace.
     keys = dict(ParsedMessage.objects.filter(group_id=group.group_id,
         complaint_control__reference_number__in=[row['complaint_id'] for row in table['results']])
@@ -431,7 +475,8 @@ def reports(request, group, actor):
         previous = complaint_report_summary(filters={**filters, 'date_from': (start - span).isoformat(),
             'date_to': (start - timedelta(days=1)).isoformat()}, granularity=params.get('granularity', 'month'))
     return JsonResponse({'summary': complaint_report_summary(filters=filters, granularity=params.get('granularity', 'month')),
-                         'table': table, 'previous': {key: previous[key] for key in ('total', 'pending', 'resolved')} if previous else None})
+                         'table': table, 'previous': {key: previous[key] for key in
+                             ('total', 'pending', 'resolved', 'card_timing', 'card_coverage')} if previous else None})
 
 
 @endpoint(['POST'], 'complaint.reports.view')

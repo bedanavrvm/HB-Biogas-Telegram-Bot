@@ -1,5 +1,21 @@
 # Known Gaps and Verified Workarounds
 
+## Browser operational acceptance - 23 October 2026
+
+The current extension covers settings, schedule and report-email recovery in
+one tab, superseding the exclusion in the historical 22 October entry below.
+Reload/tab closure still loses unsaved memory; never assume offline server save
+or automatic replay. PostgreSQL-only native security state is governed by ADR
+0074 and staff_auth migration 0004; production browser access stays gated.
+
+One authorized synthetic email was accepted by the configured provider; the
+mailbox owner confirmed Gmail receipt and successful Excel attachment opening.
+The complete live browser/delivery/support drill is not yet accepted. No real
+recipient address belongs in Git. Physical-device, assistive-technology and
+named privacy/support approval cannot be inferred from Playwright or code review.
+Current executed results and exact remaining acceptance are recorded in
+`docs/runbooks/browser-channel-parity.md`.
+
 ## Closed Complaints recovery scope - 22 October 2026
 
 The recovery slice resumes the work paused for `ui.txt`. Complaint creation

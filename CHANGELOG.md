@@ -1,5 +1,44 @@
 # Changelog
 
+## 23 October 2026 - Specification 18: browser Complaints UI
+
+- Complete the compact queue/detail composition, truthful activity, page-aware
+  previous/next navigation and explicit resolve-and-open-next behavior.
+- Add product confirmations, semantic queued notifications, a theme tooltip,
+  protected image/PDF thumbnail tiles and attachment/page navigation.
+- Unify the six report KPIs with cohort-owned timing/coverage and prior-period
+  comparisons. Keep table-only search, 25-row pages, exact server sorting and
+  the complete filtered Excel/email scope together.
+- Fix normalized preference retry confirmation under the lock shared by browser
+  and Telegram saves, preserving other workflows' existing preference behavior.
+- Preserve green positive actions, complete authorized IDs, existing upload
+  authority and native recovery. Source-bound evidence, deliberate ADS
+  compositions and remaining acceptance are in browser/DESIGN.md and the browser
+  channel runbook. Production browser access remains disabled/unmounted.
+
+## 23 October 2026 - Repository engineering-skill configuration
+
+- Configure Matt Pocock's engineering skills to use this repository's GitHub
+  Issues and the five standard triage labels. Add short AGENTS pointers to the
+  tracker, label mapping, and existing glossary/ADR layout.
+- Preserve shared terminology, independent workflow roles, existing review
+  gates, and application behaviour. GitHub authentication is machine-local;
+  remote label verification requires an authenticated CLI with repository access.
+
+## 23 October 2026 - Browser task recovery and PostgreSQL security state
+
+- Retain unfinished preferences, report schedules and email-report tasks across
+  same-account native reauthentication. Explicit retries reuse captured requests;
+  reconnect/sign-in never sends automatically. Keep customer values tab-local.
+- Detect stale preference snapshots and retain edits for explicit reconciliation.
+  Reuse schedule revisions and report-delivery request keys after lost responses.
+- Add an owner-bound, expiring PostgreSQL security-state adapter for native
+  authentication limits and used-code markers, avoiding a separate Redis service.
+  Ordinary cache keys, workflow grants and Telegram behaviour remain unchanged.
+- Add the checked-in staff_auth 0004 migration and expiry-only maintenance.
+  Production browser access stays disabled/unmounted. Executed checks and open
+  real-delivery/device/privacy acceptance are in the browser rollout runbook.
+
 ## 22 October 2026 - Closed Complaints form recovery
 
 - Preserve unfinished complaint creation/case updates and selected files across

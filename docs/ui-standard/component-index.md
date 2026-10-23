@@ -1,5 +1,20 @@
 # Component index and migration hold
 
+Specification 18 (23 October) completes the native Complaints candidate's queue,
+detail, protected evidence and reporting composition. Shared product dialogs,
+calendar, notifications, thumbnail gallery and report metrics reuse the pinned
+ADS graph. Current official references and deliberate compositions are in
+browser/DESIGN.md; source-bound verification and rollback are in the browser
+channel runbook. The source ratchet records candidates only: no approved
+baseline, Telegram migration, workflow authority or production activation.
+
+The 23 October settings/schedule/email recovery extension reuses tab-local
+`workspace-recovery.ts` through `workspace-task.tsx`, with the existing ADS
+SectionMessage/Button task feedback. Exact pending requests and confirmations
+survive same-owner reauthentication; no persistent browser data or new visual
+standard is introduced. Evidence: browser/DESIGN.md and browser-channel-parity
+runbook. Telegram candidates/baselines and the Phase 6 hold are unchanged.
+
 The 23 October browser Complaints composition correction extends the existing
 shared `complaints-ui.tsx`: fixed dialog header/body/footer, named status/action
 slots, adaptive menu placement and the explicitly requested green-positive

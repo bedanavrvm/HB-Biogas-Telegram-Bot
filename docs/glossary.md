@@ -10,6 +10,11 @@ respective service modules.
 
 ## Canonical staff access
 
+**Browser security state:** Shared, expiring authentication limits, exclusive
+lock ownership and used-code markers. This state prevents competing workers
+from treating the same allowance as unused; it never grants workflow access.
+The PostgreSQL-only implementation decision is ADR 0074.
+
 **Browser MFA assurance:** A server-owned, expiring record that the existing
 Django user completed company password and allauth TOTP/recovery authentication.
 It is not a workflow grant or an alternative to owning-action authorization.

@@ -1,4 +1,11 @@
 MODEL_METADATA = {
+    'staff_auth.StaffBrowserSecurityState': {
+        'domain': 'staff_auth',
+        'purpose': 'Shared PostgreSQL native authentication histories, owner-bound lock leases and used-code markers; no identity assurance or workflow grant.',
+        'classification': 'security_state', 'source_of_truth': True, 'lifecycle': 'temporary',
+        'retention': 'Retain every live row until database-clock expiry. Bounded preview-first purge_staff_browser_security removes expired rows only; no eviction, global clear or deletion of audit evidence.',
+        'index_justifications': {'staff_security_expiry_idx': 'Bound expiry-only security-state maintenance without scanning live authentication rows.'},
+    },
     'staff_auth.StaffBrowserSetupGrant': {
         'domain': 'staff_auth',
         'purpose': 'Closed, expiring preparation/mailbox-proof/first-password state for the exact existing admitted non-Admin account; no login or workflow authority.',

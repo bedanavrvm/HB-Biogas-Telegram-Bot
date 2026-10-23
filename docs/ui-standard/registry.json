@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "712a8a474a093bf1de99640cf1ae4cbfbfea174781c9f8e514ab2b6b4af12dc4",
+      "sha256": "2f1c84b069ee6309e4b5b4aae0841f8676f20d902fdc8b63af6ca22d62dbc56d",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -629,9 +629,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "fca46ce635b06351f43d590cc828a2ab449d9ce94453b5dcee0a0099c8e36191",
+      "sha256": "71fe70fd715e3190c5ee6d2da4567d3446f32afbbe83a061dcbdd813a33455aa",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -641,33 +641,33 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "8e33fa019d86e416a573b732ff48612e967441a7e452b2d01f2a0cfe211b28d4",
+      "sha256": "8694f9589286f1ae6b921411886fad876fd43e17c87a24ebd17f8b0f6f41f7ef",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "c6c719cb3d34af76236e4164080ad0099134e313dcbb5e0793fe54180095317a",
+      "sha256": "99276aeded8aed0e024491fb53c40e27b0b65f9e1dabc36af9a4efde147b4f1d",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "2d3e4f48e5696688a2b59b74d723caf635be0c574703e996d24973192f711f34",
+      "sha256": "94a8a7d68a97d22245209707711c7c59c152b1d368e4111349e0bc91f5b38a6b",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "dd7bca92795bc55d600e6ad0ce40760d18fa4daf555eeff7d71aa1f9199618a1",
+      "sha256": "f643c241028719484cc67b4bd8a8783213d0f1cd07478a18cde4e8a2a73d9f21",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "e08d92b5565ea13c3f52e05affd951da545e6b9f449235289c8b083079b73971",
+      "sha256": "22c32a3c271e8225fac13626a9fd27b65b3dd0a22bb6a51e0b8c5ed15eaa937a",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -677,21 +677,21 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "725d224ed469341f481b656eb96d67ebe76b9f64376fdc7ba010605bba39e309",
+      "sha256": "c72092d094a4f562bd332a48fd31848190607875a2c3620ca136e845fe1ffe9e",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "7289e6e7d732b259ca3490d3b30607aa7e00bce936de04dff3f0b3799206f87b",
+      "sha256": "1d384c963a121e6c3f736d32c85149ed545132371e8715ad16e79f98f49d3292",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "c521f4d27aabe04348b887dfa58c176cb965eae8bcc93f7338db81bb240ff91a",
+      "sha256": "2e9216c694c7bab49e48e8bf4426d5d53a51acfd7c34e3d5d0b58f02be0081e3",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -701,15 +701,33 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "914cc00721cd1fd8e584fcac7f43bfca12e6b4e1b2a0468acae04b5cacc37b5f",
+      "sha256": "e01882b5d3f7f281b90c96dcb2cddfcdea4dbbe54b21310345c2c5a07202b0ba",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
-      "sha256": "f91f9f8d8567fa397dcd7b07b36eaf26ca94e63a9d45e3dd2e5a0afd07bfafbc",
+      "sha256": "573740c2b6f8f34db9f3f343c6433826427105b99d5daf79e144dfaa7703ba16",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+    },
+    {
+      "path": "browser/src/workspace-task.tsx",
+      "sha256": "49426153208db680c94ea4bae167519d28efae2e0d381fe830757886138b83e4",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+    },
+    {
+      "path": "browser/src/complaints-date-control.tsx",
+      "sha256": "976a0ff92a93fc2bef3ede92b0d4eb1a686026802d973a1951b7033f62864a19",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+    },
+    {
+      "path": "browser/src/complaints-report-metrics.tsx",
+      "sha256": "047e5a050697503624c61e4f6c77cd26367baab6ee8151c053c4a135fdd223ad",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     }
   ],
   "source_roots": [

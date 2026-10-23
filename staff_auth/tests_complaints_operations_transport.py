@@ -97,6 +97,71 @@ class ComplaintsOperationsDevelopmentTransportTests(ComplaintsOperationsTranspor
     """Same native workflow under development and React StrictMode."""
 
 
+class ComplaintsSpec18TransportTests(ComplaintsOperationsTransportTests):
+    """Specification #18 through the existing native-session browser seam."""
+    test_native_authenticated_complaints_workspace = None
+
+    def test_product_dialogs_and_responsive_workspace(self):
+        from io import BytesIO
+        from PIL import Image
+        from pypdf import PdfWriter
+        from core.models import ComplaintCaseEvidence
+        from unittest.mock import patch
+        from .transport_test_urls import assets
+        assets(operations=True)
+        AccessGrant.objects.create(user=self.user, workflow='complaint_cases', role='IT', group_configuration=self.group)
+        for index in range(24):
+            case = synthetic_case(self.group, 4000+index, timestamp=timezone.now()-timedelta(days=6+index%20),
+                complaint_category=['Synthetic service issue','Synthetic billing question','System service'][index%3])
+            ensure_case_control(case)
+        for index in range(8):
+            start = timezone.now().replace(hour=6, minute=0, second=0, microsecond=0) - timedelta(days=7+index*2)
+            case = synthetic_case(self.group, 5000+index, timestamp=start,
+                complaint_status='Closed', date_resolved=start+timedelta(hours=6))
+            ensure_case_control(case)
+        image = BytesIO()
+        Image.new('RGB', (900, 600), '#336699').save(image, 'PNG')
+        pdf = BytesIO()
+        writer = PdfWriter()
+        writer.add_blank_page(width=300, height=400)
+        writer.add_blank_page(width=300, height=400)
+        writer.write(pdf)
+        files = {'synthetic-image': image.getvalue(), 'synthetic-pdf': pdf.getvalue(), 'synthetic-legacy': b'synthetic,value\n'}
+        for key, name, mime, status in (
+            ('synthetic-image', 'Synthetic evidence.png', 'image/png', 'success'),
+            ('synthetic-pdf', 'Synthetic evidence.pdf', 'application/pdf', 'success'),
+            ('synthetic-broken', 'Synthetic unavailable.png', 'image/png', 'success'),
+            ('synthetic-pending', 'Synthetic pending.png', 'image/png', 'pending'),
+            ('synthetic-legacy', 'Synthetic legacy.csv', 'text/csv', 'success'),
+        ):
+            update = CaseUpdate.objects.create(parsed_message=self.cases[0], group_id=self.group.group_id,
+                old_status='Open', new_status='Open', source='mini_app', updated_by='Synthetic evidence officer')
+            ComplaintCaseEvidence.objects.create(parsed_message=self.cases[0], case_update=update, group_id=self.group.group_id,
+                original_filename=name, mime_type=mime, upload_status=status,
+                drive_file_id=key, size=len(files.get(key, b'')), uploaded_by='Synthetic evidence officer')
+        def stored_bytes(key):
+            if key not in files:
+                raise FileNotFoundError('synthetic-private-storage-detail')
+            return files[key]
+        with self.settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-private-folder', REPORT_EMAIL_DELIVERY_ENABLED=True,
+                           RESEND_API_KEY='synthetic-only', REPORT_EMAIL_FROM='Synthetic <reports@example.invalid>'), \
+                patch('core.services.order_approval.GoogleDriveMediaStorage.download', side_effect=stored_bytes), \
+                patch('report_delivery.dispatch.wake_deliveries'):
+            result = subprocess.run([os.environ.get('STAFF_BROWSER_TEST_NODE', 'node'),
+                str(Path(settings.BASE_DIR) / 'scripts/test_complaints_ui_spec18.js')],
+                input=json.dumps({'origin': self.live_server_url, 'username': self.user.username,
+                    'password': PASSWORD, 'code': self.codes[0], 'build': settings.STAFF_BROWSER_TRANSPORT_BUILD,
+                    'group': str(self.group.pk), 'evidence_case': str(self.cases[0].pk)}),
+                cwd=settings.BASE_DIR, capture_output=True, text=True, encoding='utf-8', timeout=240)
+        self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+        self.assertTrue(json.loads(result.stdout)['passed'])
+
+
+@override_settings(STAFF_BROWSER_TRANSPORT_BUILD='dist-complaints-operations-development')
+class ComplaintsSpec18DevelopmentTransportTests(ComplaintsSpec18TransportTests):
+    """The same interactions under React StrictMode."""
+
+
 class ComplaintsResponsiveTransportTests(ComplaintsOperationsTransportTests):
     """Dedicated native-session visual checks; do not extend the human review host."""
     test_native_authenticated_complaints_workspace = None

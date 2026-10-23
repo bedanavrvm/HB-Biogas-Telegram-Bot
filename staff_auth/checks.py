@@ -52,10 +52,12 @@ def staff_browser_checks(app_configs, **kwargs):
     # P1a is only a dormant foundation, not a provision/enroll/recover product.
     errors.append(Error('P1a has no approved browser login/enrollment/recovery routes. Keep STAFF_BROWSER_AUTH_ENABLED=False.', id='staff_auth.E006'))
     default_cache = settings.CACHES.get('default', {})
-    if default_cache.get('BACKEND') not in SHARED_CACHE_BACKENDS:
+    postgres_security = (default_cache.get('BACKEND') == 'staff_auth.security_cache.PostgresSecurityCache'
+                         and settings.DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql')
+    if not postgres_security and default_cache.get('BACKEND') not in SHARED_CACHE_BACKENDS:
         errors.append(Error(
-            'Browser authentication requires a reviewed shared Redis/Memcached cache; local, file, database and dummy caches are not accepted.',
-            hint='Prove all workers share non-evicting security state, consistent reads and atomic add before M1. This check does not connect to a cache.',
+            'Browser authentication requires PostgreSQL native security state or a reviewed shared Redis/Memcached cache; ordinary database/local caches are not accepted.',
+            hint='Use ADR 0074 with PostgreSQL and the checked-in migration. Prove shared atomic state before M1. This check does not connect to a store.',
             id='staff_auth.E007',
         ))
     if default_cache.get('KEY_FUNCTION') != PRIVACY_KEY_FUNCTION:
