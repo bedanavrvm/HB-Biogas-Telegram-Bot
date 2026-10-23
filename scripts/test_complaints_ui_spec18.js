@@ -77,6 +77,7 @@ async function main() {
     await page.getByRole('tab', { name: 'Reports', exact: true }).click();
     await page.getByRole('group', { name: 'Report metrics', exact: true }).waitFor();
     assert.equal(await page.getByRole('group', { name: 'Report metrics', exact: true }).locator(':scope > *').count(), 6, 'Use one six-card KPI composition');
+    await page.getByRole('grid').getByRole('row').nth(25).waitFor();
     assert.equal(await page.getByRole('grid').getByRole('row').count(),26,'Render 25 server rows and their header');
     await page.getByRole('tab',{name:'Overview',exact:true}).press('ArrowRight');
     await page.getByRole('region',{name:'First response time chart',exact:true}).waitFor();
@@ -90,6 +91,8 @@ async function main() {
     const daily=page.waitForResponse(response=>response.url().endsWith('/reports/')&&response.request().postDataJSON()?.granularity==='day');
     await page.getByRole('option',{name:'Day',exact:true}).click();await daily;
     await page.getByRole('button',{name:'Done',exact:true}).click();
+    await resolutionChart.getByRole('button',{name:/Median resolution: <0\.1 days/}).waitFor();
+    await resolutionChart.getByRole('button',{name:/Median resolution: 0 days/}).waitFor();
     await resolutionChart.getByRole('button',{name:'Chart options',exact:true}).click();
     await page.getByRole('menuitemradio',{name:'Line chart',exact:true}).click();
     const line=await resolutionChart.locator('svg[role="group"] > path').getAttribute('d');
@@ -179,7 +182,7 @@ async function main() {
     const resolution=page.getByRole('dialog',{name:'Resolve complaint',exact:true});
     const openNext=resolution.getByRole('checkbox',{name:'Open next complaint after resolving',exact:true});
     assert.equal(await openNext.getAttribute('aria-checked'),'false');
-    await resolution.getByLabel('Resolution note',{exact:true}).fill('Synthetic confirmed resolution');
+    await resolution.getByLabel(/^Resolution note/).fill('Synthetic confirmed resolution');
     await openNext.click();
     await resolution.getByRole('button',{name:'Resolve and open next',exact:true}).click();
     await page.waitForURL(url=>url.pathname===new URL(nextCase,origin).pathname);

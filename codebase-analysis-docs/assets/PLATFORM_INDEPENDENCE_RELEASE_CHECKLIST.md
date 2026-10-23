@@ -558,3 +558,40 @@ associated documentation. No deployment, schema reversal or production monitorin
 change is required. Keep installation held until the exact candidate/graph,
 licence/asset/notice obligations and build scope are accepted. A checker pass is
 evidence consistency, never licence approval or browser operational readiness.
+
+## Specification 18 Complaints candidate handoff - 23 October 2026
+
+Branch: `Platform-Interdependence`; candidate based on `08340741` plus the
+reviewed working changes. Source, visual evidence, verification and rollback:
+`docs/ui-standard/reviews/2026-10-23-complaints-spec18.md` and the Specification
+18 section of `docs/runbooks/browser-channel-parity.md`.
+
+- [x] Add compact queue/detail navigation, protected evidence previews, shared
+  dialogs/notifications and cohort-correct reports. Preserve unfinished
+  complaint, preferences, schedule and email tasks through native reauthentication.
+- [x] Keep Complaint authority in its owning services and current native
+  password/MFA/session/CSRF boundary. Shared evidence ownership checks also protect
+  Telegram callers; no Telegram UI, role, grant or launch change is introduced.
+- [x] Retain reviewed dependencies, separate native/synthetic artifacts and
+  candidate-only UI records. No new package, setting, schema or backfill is
+  required by Specification 18. The included earlier security work retains
+  `staff_auth.0004_staffbrowsersecuritystate` and ADR 0074's deployment boundary.
+- [x] Record isolated PostgreSQL/native-browser checks, both build modes,
+  responsive visual review and existing unrelated failures in the runbook.
+  Headless checks do not certify physical devices or assistive technology.
+- [ ] Resolve full-repository CI failures, operational M1, named-reader/privacy,
+  support and physical-device/accessibility acceptance before activation.
+- [ ] Record the exact release commit, deployed baseline, named release/support
+  owners and explicit merge/deployment/activation authority. No deployment,
+  production migration, provider call or review-server restart occurred here.
+- [ ] On an approved release, monitor lost-response retries for duplicate saves
+  or email, evidence scope, queue positions, chart timings, export scope and
+  Sheet publication separately from canonical saves. Verify Telegram compatibility
+  on the deployed artifact before accepting that release.
+- [x] UI rollback restores a compatible browser artifact and reruns its native
+  journey, retaining authorization, canonical saves and audit history. Keep the
+  native security store; never clear live claims or substitute local caches.
+  If reversing the earlier security migration is separately approved, disable
+  browser access and drain its workers first, then run
+  `python manage.py migrate staff_auth 0003_staffbrowsersetupgrant` as ADR 0074
+  requires. No rollback or schema reversal was executed.

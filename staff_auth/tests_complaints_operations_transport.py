@@ -117,7 +117,7 @@ class ComplaintsSpec18TransportTests(ComplaintsOperationsTransportTests):
         for index in range(8):
             start = timezone.now().replace(hour=6, minute=0, second=0, microsecond=0) - timedelta(days=7+index*2)
             case = synthetic_case(self.group, 5000+index, timestamp=start,
-                complaint_status='Closed', date_resolved=start+timedelta(hours=6))
+                complaint_status='Closed', date_resolved=start+timedelta(hours=0.25 if index == 0 else 6))
             ensure_case_control(case)
         image = BytesIO()
         Image.new('RGB', (900, 600), '#336699').save(image, 'PNG')

@@ -1,5 +1,18 @@
 # Known Gaps and Verified Workarounds
 
+## Specification 18 candidate - 23 October 2026
+
+The native browser Complaints UI, evidence gallery and reporting corrections
+are implemented with the existing recovery and PostgreSQL security boundary.
+Current native test results, source-bound visual comparisons, review and
+rollback are in `docs/runbooks/browser-channel-parity.md` and
+`docs/ui-standard/reviews/2026-10-23-complaints-spec18.md`.
+Production browser routes remain off/unmounted; physical devices, assistive
+technology and named operational/privacy acceptance remain outstanding.
+The runbook separately records existing environment-template, dependency
+namespace and strict Sheet-header test failures; whole-repository CI is not
+claimed green by this bounded change.
+
 ## Browser operational acceptance - 23 October 2026
 
 The current extension covers settings, schedule and report-email recovery in

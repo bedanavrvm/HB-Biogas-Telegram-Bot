@@ -9,6 +9,8 @@
 - Unify the six report KPIs with cohort-owned timing/coverage and prior-period
   comparisons. Keep table-only search, 25-row pages, exact server sorting and
   the complete filtered Excel/email scope together.
+- Keep small positive chart durations distinct from exact zero, including
+  when the shared axis uses days; verify both native browser build modes.
 - Fix normalized preference retry confirmation under the lock shared by browser
   and Telegram saves, preserving other workflows' existing preference behavior.
 - Preserve green positive actions, complete authorized IDs, existing upload

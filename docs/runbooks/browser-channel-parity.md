@@ -785,3 +785,83 @@ The complete live browser/delivery workflow, named owners, physical devices and
 production release remain unaccepted until their evidence above exists. The
 bounded synthetic Gmail check is confirmed; it does not close those gates.
 Nothing here authorizes deployment.
+
+## Specification 18 verification
+
+23 October 2026: the browser Complaints candidate now implements the queue and
+detail hierarchy, protected evidence gallery, shared dismissal/notification
+controls and cohort-correct reports in
+[Specification 18](https://github.com/bedanavrvm/HB-Biogas-Telegram-Bot/issues/18).
+The previously authorized recovery/security work is included. The current
+[review record](../ui-standard/reviews/2026-10-23-complaints-spec18.md) documents
+before/after provenance, official design references, scoped exceptions and
+rollback. This entry records current execution; older counts above describe
+their own earlier verification.
+
+Current isolated checks:
+
+- The final PostgreSQL run covered 48 checks: 47 native security/operations/
+  recovery tests and one source-bound visual comparison. It passed 47 of 48;
+  the production Specification 18 journey counted AG Grid rows before rendering
+  finished. After adding a wait for the last row, both production and
+  development journeys passed (2 tests, 59.502 seconds), retaining the exact
+  25-row-plus-header assertion. All 48 checks have passing coverage across
+  these runs; the full suite was not repeated after this test-only wait.
+  Logs: `test-results/spec18-retry-postgres.log` and
+  `test-results/spec18-retry-final-journeys.log`. No tests were skipped.
+- A regression reproduced positive durations rounding to zero on a days axis.
+  Both native build modes now verify `<0.1 days` for a small positive duration,
+  `0 days` for an exact zero and broken lines for missing timing periods.
+  Both operations artifacts were rebuilt from the final source.
+- 77 additional PostgreSQL tests passed: complaint timing, shared Mini App
+  preferences, channel isolation, native browser authentication, abuse controls
+  and TOTP replay/concurrency. No tests were skipped. Log:
+  `test-results/spec18-final-regression.log`.
+- Both production and development/StrictMode browser builds passed using pinned
+  Node 22; TypeScript, browser lint and context/selector-parser checks passed.
+  No dependencies were added or upgraded.
+- First-party JavaScript syntax (162 files) and all root Node regression suites
+  passed. Ruff, architecture, UI source ratchet, database governance/catalogue,
+  the write-route inventory and migration graph passed. `makemigrations --check
+  --dry-run` found no changes; 216 application tables and 291 migrations were
+  checked. No production migration was run.
+- Final Standards and Spec reviews have no remaining source findings. Their
+  fixes include normalized preference retry under the shared row lock,
+  attachment-owner binding for colliding group-local message IDs, independent
+  notice ownership, and blocking sign-out/Excel dismissal of uncertain saves.
+
+Reproduce the native suite after building both operations artifacts:
+
+```powershell
+$env:RUN_STAFF_BROWSER_E2E='1'
+# TEST_DATABASE_URL must select an isolated loopback PostgreSQL test database.
+# Set STAFF_BROWSER_TEST_NODE to the pinned Node 22 executable if needed.
+.venv/Scripts/python.exe manage.py test staff_auth.tests_security_cache core.tests_browser_complaint_operations staff_auth.tests_complaints_operations_transport staff_auth.tests_complaints_tasks_transport --settings=staff_auth.acceptance_test_settings --keepdb --noinput
+```
+
+The native journeys cover password/MFA and real Django endpoints, protected
+image/PDF rendering, cross-group denial, queue page positions, canonical saves,
+table/search/export scope, dialog focus and recoverable lost responses. Both
+build modes include light/dark responsive and enlarged-text checks. Provider
+transport is synthetic/blocked; no further live delivery was attempted.
+The final comparison captured 20 screenshots per source; current desktop and
+phone captures, both themes, the evidence gallery and timing labels were
+inspected. Comparison manifests retain source/artifact/screenshot hashes and
+the rendered system-font evidence. No approved baseline was changed.
+
+Broader exploratory checks are **not all green**. The tooling suite passed 74
+of 75 tests; its unchanged dependency parser misclassifies the first-party
+`scripts` namespace. Environment-template parity reports 119 discrepancies,
+identical to clean `f4a37ded` when checked with the same parser. The unchanged
+strict Sheet-header test
+`ComplaintRegisterCutoverTests.test_strict_sheet_contract_accepts_only_exact_row_one_headers`
+also failed in the broader earlier run because a previously validated header
+was cached. These are recorded existing issues, not additional fixes or a
+claim of whole-repository CI success. A SQLite responsive run hit a database
+lock; final native concurrency/browser acceptance uses PostgreSQL.
+
+The physical-device, assistive-technology, deployed M1, privacy and support
+acceptance gates above remain open. No Telegram UI, roles or approval baseline
+was migrated, and no human review service was restarted. Production remains
+disabled/unmounted. UI rollback never clears native security rows or weakens
+evidence authorization; use the review record and ADR 0074 boundaries.

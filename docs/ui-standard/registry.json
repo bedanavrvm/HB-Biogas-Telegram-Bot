@@ -419,7 +419,7 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "2f1c84b069ee6309e4b5b4aae0841f8676f20d902fdc8b63af6ca22d62dbc56d",
+      "sha256": "4995d709c657d6b2856fb87ef98d09eb3d5029df92063079721550d176a9ec40",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
     },

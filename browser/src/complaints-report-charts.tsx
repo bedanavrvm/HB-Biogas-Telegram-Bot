@@ -157,7 +157,7 @@ function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection
   const x=(index:number)=>left+(index+0.5)*(right-left)/Math.max(1,rows.length);
   const y=(value:number)=>bottom-value/factor/maximum*(bottom-top);
   const tick=(label:string)=>spec.temporal?displayDate(label,grouping==='month'):label;
-  const number=(value:number)=>String(Number((value/factor).toFixed(1)));
+  const number=(value:number)=>{const rounded=Number((value/factor).toFixed(1));return value>0&&rounded===0?'<0.1':String(rounded);};
   const text=(point:Point,series:number)=>`${tick(point.label)} · ${spec.series[series].label}: ${spec.hours?number(point.values[series]!)+' '+unit:complaintCount(point.values[series]!)}${point.count!==undefined?' · '+complaintCount(point.count):''}`;
   const activate=(index:number,series:number)=>{if(index>=0)select(spec.select(index,series));};
   const dateTitle=spec.id==='activity'?'Date reported / resolved':spec.id==='resolution'?'Date resolved':spec.id==='response'?'Date first response':spec.id==='reopened'?'Date reopened':'Period';

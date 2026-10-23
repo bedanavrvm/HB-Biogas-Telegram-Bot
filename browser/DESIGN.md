@@ -552,6 +552,10 @@ across server pages and a successful resolve rechecks the next item's current
 membership. Report-only search combines with selection for Excel/email without
 changing KPI/chart populations. Timing comparisons and coverage come from the
 canonical cohort projection; incomplete response coverage is explained inline.
+Small positive chart durations that round below the displayed precision use
+`<0.1`; a recorded zero remains `0`, including when the shared axis uses days.
+This preserves readable labels and visible timing context under the typography
+and tooltip guidance above; it adds no new control or visual exception.
 
 Builds, screenshots and code reviews are candidates, not approved baselines.
 The current runbook records executed checks, limitations and rollback. No
