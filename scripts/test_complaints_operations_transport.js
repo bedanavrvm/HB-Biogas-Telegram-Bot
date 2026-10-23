@@ -22,7 +22,7 @@ async function main() {
     if (url.origin === origin.origin) return route.continue();
     errors.push('External browser request'); return route.abort();
   });
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => {errors.push(error.message);console.error('Browser runtime:',error.message);});
   page.on('request', request => requests.push({ url: request.url(), resource: request.resourceType() }));
   const heading = name => page.getByRole('heading', { name, exact: true }).waitFor();
   async function capture(name, keepScroll = false) {
@@ -44,12 +44,21 @@ async function main() {
     assert.ok(metrics.mainScroll <= metrics.mainClient + 1, name + ': workspace clipping');
     if (metrics.width >= 1024 && metrics.detailRight) assert.ok(metrics.contentRight - metrics.detailRight <= 32, name + ': unused detail width');
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }); captures++;
+    // This harness freezes timers. Dismiss the captured toast before the next
+    // interaction rather than leaving an otherwise expiring overlay forever.
+    const dismiss=page.getByRole('button',{name:'Dismiss notification',exact:true});if(await dismiss.count())await dismiss.click();
   }
   async function select(label, option) {
+    if (!(await page.getByLabel(label, {exact:true}).isVisible()) && await page.getByRole('button',{name:/^Filters/}).count()) await page.getByRole('button',{name:/^Filters/}).click();
     const scope = await page.getByRole('dialog').count() ? page.getByRole('dialog') : page;
     const box = scope.getByLabel(label, { exact: true }); await box.fill(option);
     const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     await scope.getByRole('option', { name: new RegExp('^' + escaped + '(?:$| - )') }).click();
+    if(option!=='Custom dates'&&await page.getByRole('dialog',{name:/^Filter (reports|complaints)$/}).count()) await page.getByRole('button',{name:'Done',exact:true}).click();
+  }
+  async function saveAutomaticDraft() {
+    if(await page.getByRole('button',{name:'Retry draft',exact:true}).count()) {await page.getByRole('button',{name:'Retry draft',exact:true}).click();return;}
+    const field=page.getByLabel(/^Customer name/), value=await field.inputValue();await field.fill(value+' ');await field.fill(value);await page.clock.runFor(800);
   }
   async function recoveryCaptures(name) {
     const viewport=page.viewportSize();const theme=await page.evaluate(()=>document.documentElement.dataset.colorMode);
@@ -80,7 +89,7 @@ async function main() {
     assert.equal(response.request().postDataJSON().status, 'resolved', 'Restored request must use the saved status');
     assert.equal((await response.json()).pagination.total, 4, 'Saved branch must include the synthetic cases');
     await heading('4 complaints');
-    await page.getByText('Synthetic Other Branch', { exact: true }).waitFor();
+    await page.getByRole('button', {name:/Branch: Synthetic Other Branch/}).waitFor();
     await page.goto(origin.origin + '/staff/app/complaints/?status=pending'); await heading('7 complaints');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', {name:'Open + Reopened',exact:true}).click(); await select('Default branch', 'All branches');
@@ -105,8 +114,8 @@ async function main() {
     await page.getByLabel('Choose evidence files',{exact:true}).setInputFiles({name:'synthetic-retained.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4 synthetic only')});
     await context.setOffline(true);
     await page.getByLabel(/^Customer name/).fill('Synthetic recovery draft offline');
-    await page.getByRole('button',{name:'Save draft',exact:true}).click();
-    await page.getByText('You are offline. Reconnect before saving your draft.',{exact:true}).waitFor();
+    await saveAutomaticDraft();
+    await page.getByRole('dialog').getByText('You are offline. Reconnect before saving your draft.',{exact:true}).first().waitFor();
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
     await page.clock.fastForward(30000);
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline','A quiet network failure must not remove the editing workspace');
@@ -122,7 +131,7 @@ async function main() {
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(),'Synthetic recovery draft offline');
     // End the real server session, without clicking the explicit discard/sign-out action.
     await page.evaluate(async()=>{const session=await(await fetch('/api/staff/auth/v1/session/')).json();await fetch('/api/staff/auth/v1/logout/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':session.csrf_token},body:'{}'});});
-    await page.getByRole('button',{name:'Save draft',exact:true}).click();
+    await saveAutomaticDraft();
     await page.getByRole('dialog').getByRole('button',{name:'Sign in again',exact:true}).click();
     await heading('Sign in');
     await page.getByLabel(/^Staff username/).fill(input.username);
@@ -218,12 +227,12 @@ async function main() {
       if(route.request().method()!=='POST') return route.continue();
       draftWrites++;const result=await route.fetch();assert.equal(result.status(),200);await route.abort('failed');
     },{times:2});
-    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await saveAutomaticDraft();
     await heading('Action could not be completed');
     await page.unroute('**/draft/');
     await page.route('**/draft/',async route=>{if(route.request().method()==='POST')draftWrites++;await route.continue();});
-    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-    await page.getByText('Draft saved.', { exact: true }).waitFor();
+    await saveAutomaticDraft();
+    await page.getByText('Saved', { exact: true }).waitFor();
     assert.equal(draftWrites,1,'Lost draft response must be reconciled by reading, not a second write');
     await page.unroute('**/draft/');
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
@@ -236,7 +245,7 @@ async function main() {
 
     await page.getByRole('tab', {name:'Reports',exact:true}).click();
     await page.getByRole('grid', {name:'Complaint results'}).waitFor();
-    assert.equal(await page.getByRole('columnheader').count(),7);
+    assert.equal(await page.getByRole('columnheader').count(),10);
     assert.equal(await page.getByLabel('From',{exact:true}).count(),0);
     await select('Date range','All dates'); await heading('11 complaints');
     const metricFont=await page.getByRole('button',{name:'View closed complaints',exact:true}).getByText('4',{exact:true}).evaluate(element=>Number.parseFloat(getComputedStyle(element).fontSize));
@@ -245,14 +254,17 @@ async function main() {
     await page.getByRole('button',{name:'View closed complaints',exact:true}).press('Enter');
     assert.equal((await(await closedRows).json()).table.count,4);
     await page.getByRole('button',{name:'Clear chart selection',exact:true}).click();await heading('11 complaints');
-    await select('Count by','Closed date');await heading('4 complaints');
+    await select('Count by','Resolved date');await heading('4 complaints');
     assert.equal(await page.getByRole('button',{name:'View still open complaints',exact:true}).isDisabled(),true);
     await select('Count by','Reported date');await heading('11 complaints');
     await select('Date range','Custom dates');
-    await page.getByLabel('From',{exact:true}).fill('not-a-date');await page.getByLabel('From',{exact:true}).press('Tab');
-    await page.getByText('Use a date such as 22 Oct 2026.',{exact:true}).waitFor();
+    if(!(await page.getByRole('dialog',{name:'Filter reports',exact:true}).count())) await page.getByRole('button',{name:/^Filters/}).click();
+    await page.getByLabel('From',{exact:true}).fill('2026-12-31');
+    await page.getByLabel('To',{exact:true}).fill(input.month_start);
+    await page.getByText('End date must be on or after the start date.',{exact:true}).waitFor();
     const customRows=page.waitForResponse(response=>response.url().endsWith('/reports/')&&response.request().postDataJSON()?.date_from===input.month_start);
     await page.getByLabel('From',{exact:true}).fill(input.month_start);await page.getByLabel('From',{exact:true}).press('Tab');await customRows;
+    await page.getByRole('button',{name:'Done',exact:true}).click();
     await select('Date range','All dates');await heading('11 complaints');
     async function reportCaptures(view) {
       for (const theme of ['light','dark']) {

@@ -1,5 +1,14 @@
 # Component index and migration hold
 
+The responsive browser Complaints correction adds `browser-interactions.tsx`
+(provider-owned theme, event toasts and measured viewport panes) and
+`complaints-report-filters.tsx` (collapsed fine-grained report filters). Existing
+ADS forms/dialogs, AG Grid and SVG charts remain the source patterns. The native
+browser evidence adapter adds bounded PDF page previews. Current references,
+storage/geometry/native-popover exceptions and evidence are in browser/DESIGN.md
+and docs/runbooks/browser-channel-parity.md. Candidate only: no baseline approval,
+Telegram migration, permission expansion or production activation.
+
 The 22 October recovery slice adds `browser/src/workspace-recovery.ts` for one
 owner-bound, tab-local unfinished task and extends the existing operations
 forms with connection/session feedback and explicit same-request retry. It

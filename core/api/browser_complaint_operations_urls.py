@@ -16,6 +16,7 @@ urlpatterns = [
     path('recovery/', views.recovery),
     path('voice/', views.voice),
     path('evidence/<uuid:evidence_key>/', views.evidence),
+    path('evidence/<uuid:evidence_key>/preview/', views.evidence_preview),
     path('reports/', views.reports),
     path('reports/export/', views.export),
     path('reports/email/', views.email),

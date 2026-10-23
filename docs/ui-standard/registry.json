@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "95e304ea85cc7e79ec4db2aa46d98b58b9d9a7db4a5618e6a5179cad980ecb07",
+      "sha256": "bca5a33beb95f001f7ab1b686970ac536da38c909f8ef19cc5604fce9dde3ad4",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -563,9 +563,9 @@
     },
     {
       "path": "browser/src/auth-index.tsx",
-      "sha256": "71a6565876d540dd8fb3b76624cf9ecee63ed8ff0dfe12aa376df69b3ce995a3",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
-      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
+      "sha256": "e25a750032b3b86bb3cf853c983466a31f8063f5f3ad5e4c8ed6501c32142440",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
     },
     {
       "path": "browser/src/auth-transport.ts",
@@ -575,9 +575,9 @@
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "7ba9078a54527160904c6f62351f875deeebd7df08944e3454356190a95defe7",
+      "sha256": "3afba68004e387b73b78407a1066af187270644ba9ea6ef5f6971dd7a8b5e454",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints.html",
@@ -587,9 +587,9 @@
     },
     {
       "path": "browser/src/complaints-index.tsx",
-      "sha256": "828809905fb806c831db2e53162a24cf734c8e28ac5768152028e452977157f9",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
-      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+      "sha256": "4a2cb2098b27906c6dc5005129d051a389143cafdeca7f0d49e9e2db7bed13ef",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
     },
     {
       "path": "browser/src/complaints-transport.ts",
@@ -629,33 +629,33 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "d3e604b3d3078d15647d15adcaa08b5d7dd2e388cfe0a971e14e836e7fda2bf7",
+      "sha256": "91628dc424e336bb3e90f43107d5088a09d19645659a36081d33534d4ba93a30",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
-      "sha256": "b2bef51fe9a3505cbe9b48010d412c8f5687c0a832a5d23b116381f1f8513985",
+      "sha256": "8b621ecdaae378defe7e1c3c0ed1e0096f98665fb82b24b8f42c30347206b389",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "2aedaa298537022a23b931d010158a11123a84509795103dbffad2b18561a6b3",
+      "sha256": "f2a5e35de161304ad10fb133914504470959b357b71e61379beffb6d9758f646",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "2355d44b1d4a8cf2f9edbd8d2e7b58ca17bec6661017a744d99e14717862ee3a",
+      "sha256": "70e37b800b7209c9ee154808360d6791be7e37a6477ceff5124c10a336c2167a",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "cb6132e6fddc6ef2cad6cd76c2eb97cc51f38cb79e9412109dba19e7ff24848c",
+      "sha256": "2293b25bd80ba782d129b5ca219a6bda289095b7cac0e58360003dc6d221d975",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "b20f60696fd786648db893e1d2c02a2eb2d7754713d4ce5cc7329bf87a7589ea",
+      "sha256": "5b41fc56c859e9518453abd6ef47afc2be90c789ebc5dcc73459b0ebf16f5f46",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -677,27 +677,39 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "f5c9e8abcfe76255b60e81a75ba40c124c33a6166a9514302e2b18f56ac527c2",
+      "sha256": "725d224ed469341f481b656eb96d67ebe76b9f64376fdc7ba010605bba39e309",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "a6c170e3c971371efb9e097c128087614296f6f9741b3d078159f6bb38566802",
+      "sha256": "077748ec57734c74dbeacc692a682400b4ff6193597842e8fdec38ed6477ec13",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "b928f4cc1d33a7202a79458b18dbe0c6d63f90001e9edbcd04199d35a1f1745c",
+      "sha256": "941389cf274ebcff2477a23d098ac932f98323b6769b3382f2bc8d2aebb5190b",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User ui.txt correction: source-bound native browser candidate with real ADS tabs/status/icons, contextual native dialogs and AG Grid Community. Intentional exceptions and official references: browser/DESIGN.md. Synthetic viewport/behavior evidence only, pending human review; no baseline approval, production activation or Telegram migration."
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
       "sha256": "135f38c8f8b095c99b8b8bf737d9369dc3fb5aa269d9678971fed3552dfa7e75",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
       "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+    },
+    {
+      "path": "browser/src/browser-interactions.tsx",
+      "sha256": "f8d8c848854427dbff75eb103d6d72ed8dddade83722399edf8ea62ee30b44e7",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+    },
+    {
+      "path": "browser/src/complaints-report-filters.tsx",
+      "sha256": "35dcbd0b40c2e60d489781488748ff7a110e71f9aae452ab6562992eaff57870",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
     }
   ],
   "source_roots": [

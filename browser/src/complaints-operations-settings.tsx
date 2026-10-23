@@ -11,10 +11,13 @@ import SectionMessage from '@atlaskit/section-message';
 import Select from '@atlaskit/select';
 import { operation, OperationError } from './complaints-operations-transport';
 import { EmailSchedules } from './complaints-operations-reports';
+import { notify } from './browser-interactions';
 const styles = cssMap({ form: { width: '100%', maxWidth: '30rem' } });
 type Preferences = { default_screen: string; default_filters: Record<string, string>; compact_cards: boolean; alert_mode: string };
 export function WorkspaceSettings({ group, branches, reports }: { group: string; branches: string[]; reports: boolean }) {
   const [retry, setRetry] = useState(0), [preferences, setPreferences] = useState<Preferences>(), [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(()=>{if(notice){notify(notice);setNotice('');}},[notice]);
+  useEffect(()=>{if(error)notify(error,'error');},[error]);
   useEffect(() => { let active = true; const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20000);
     setError(''); void operation<Preferences>(group, 'preferences/', controller.signal).then(value => { if (active) setPreferences(value); }).catch(() => { if (active) setError('Preferences could not be loaded. Try again.'); }).finally(() => clearTimeout(timer));
     return () => { active = false; controller.abort(); clearTimeout(timer); };

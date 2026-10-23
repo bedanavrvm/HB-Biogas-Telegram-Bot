@@ -23,11 +23,12 @@ export function displayDate(value: string, month = false) {
 const styles = cssMap({
   dialog: { font: token('font.body'), width: '94vw', maxWidth: '60rem', maxHeight: '90vh', boxSizing: 'border-box', padding: token('space.300'), borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.large'), backgroundColor: token('elevation.surface.overlay'), color: token('color.text'), boxShadow: token('elevation.shadow.overlay'), overflowY: 'auto' },
   compact: { maxWidth: '32rem' },
+  wide: { width: '98vw', maxWidth: '90rem', maxHeight: '96vh', padding: token('space.150') },
 });
 /** Native modal focus/inert/Escape semantics with the existing ADS content. */
-export function TaskDialog({ title, close, children, compact = false }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean }) {
+export function TaskDialog({ title, close, children, compact = false, wide = false }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null), heading = useId();
   const closeRef = useRef(close); closeRef.current = close;
   useEffect(() => { const dialog = ref.current!; const opener = document.activeElement as HTMLElement | null; dialog.showModal(); const cancel = (event: Event) => { event.preventDefault(); closeRef.current(); }; dialog.addEventListener('cancel', cancel); return () => { dialog.removeEventListener('cancel', cancel); dialog.close(); opener?.focus(); }; }, []);
-  return <Box as="dialog" ref={ref} aria-labelledby={heading} xcss={cx(styles.dialog, compact && styles.compact)}><Stack space="space.250"><Inline spread="space-between" alignBlock="center" space="space.150"><Heading id={heading} as="h2" size="medium">{title}</Heading><Button appearance="subtle" onClick={close}>Close</Button></Inline>{children}</Stack></Box>;
+  return <Box as="dialog" ref={ref} aria-labelledby={heading} xcss={cx(styles.dialog, compact && styles.compact, wide && styles.wide)}><Stack space="space.250"><Inline spread="space-between" alignBlock="center" space="space.150"><Heading id={heading} as="h2" size="medium">{title}</Heading><Button appearance="subtle" onClick={close}>Close</Button></Inline>{children}</Stack></Box>;
 }

@@ -25,7 +25,10 @@ from .tests import PASSWORD
 class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
     def setUp(self):
         super().setUp()
-        now = timezone.now()
+        # Keep short resolutions on their intended Nairobi reporting day even
+        # when this suite runs after 20:00 EAT. Otherwise 4h crosses midnight
+        # and merges with the zero-hour fixture's daily median.
+        now = timezone.now().replace(hour=6, minute=0, second=0, microsecond=0)
         for case, days in zip(self.cases, (1, 3, 5, 8, 15, 20, 35)):
             case.timestamp = now - timedelta(days=days)
             case.save(update_fields=['timestamp'])
@@ -92,3 +95,32 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
 @override_settings(STAFF_BROWSER_TRANSPORT_BUILD='dist-complaints-operations-development')
 class ComplaintsOperationsDevelopmentTransportTests(ComplaintsOperationsTransportTests):
     """Same native workflow under development and React StrictMode."""
+
+
+class ComplaintsResponsiveTransportTests(ComplaintsOperationsTransportTests):
+    """Dedicated native-session visual checks; do not extend the human review host."""
+    test_native_authenticated_complaints_workspace = None
+
+    def test_responsive_controls_with_native_authentication(self):
+        from .transport_test_urls import assets
+        assets(operations=True)
+        AccessGrant.objects.create(user=self.user, workflow='complaint_cases', role='IT', group_configuration=self.group)
+        case = synthetic_case(self.group, 991, complaint_category='Synthetic additional type')
+        ensure_case_control(case)
+        root = Path(settings.BASE_DIR)
+        environment = {**os.environ, 'COMPLAINTS_REVIEW_ORIGIN': self.live_server_url,
+            'COMPLAINTS_REVIEW_BUILD': settings.STAFF_BROWSER_TRANSPORT_BUILD,
+            'COMPLAINTS_REVIEW_USERNAME': self.user.username,
+            'COMPLAINTS_REVIEW_PASSWORD': PASSWORD, 'COMPLAINTS_REVIEW_CODE': self.codes[0]}
+        result = subprocess.run([os.environ.get('STAFF_BROWSER_TEST_NODE', 'node'),
+            str(root / 'node_modules/playwright/cli.js'), 'test',
+            'core/tests_browser/complaints_responsive.spec.js', '--workers=1', '--reporter=line',
+            '--output=' + str(root / 'test-results/complaints-responsive' / settings.STAFF_BROWSER_TRANSPORT_BUILD)],
+            cwd=root, env=environment, capture_output=True, text=True, encoding='utf-8', timeout=200)
+        self.assertEqual(result.returncode, 0, (result.stdout + result.stderr)[-5000:])
+        print('Responsive Complaints: native MFA, viewports, autosave, export, charts and media passed')
+
+
+@override_settings(STAFF_BROWSER_TRANSPORT_BUILD='dist-complaints-operations-development')
+class ComplaintsResponsiveDevelopmentTransportTests(ComplaintsResponsiveTransportTests):
+    """Responsive controls under development and React StrictMode."""

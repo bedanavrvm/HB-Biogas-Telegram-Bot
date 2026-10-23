@@ -189,6 +189,28 @@ dependency, schema, policy matrix, Telegram, merge or deployment change applies.
 
 ### Latest native workspace: one-command local review
 
+Responsive correction checks use the existing Playwright CLI against a dedicated
+loopback review host. They never persist credentials or browser session state:
+
+```powershell
+$env:COMPLAINTS_REVIEW_ORIGIN='http://127.0.0.1:8769'
+node node_modules/playwright/cli.js test core/tests_browser/complaints_responsive.spec.js --workers=1
+```
+
+To check the development artifact, set
+`COMPLAINTS_REVIEW_BUILD=dist-complaints-operations-development` after building it.
+This test context loads hash-checked build assets itself; other tabs keep their
+startup-pinned UI. Native requests still use the isolated host's real cookie,
+CSRF, MFA and owning Complaint authorization. Restart an older host if its API
+predates the current source. Captures are synthetic review evidence under
+`test-results/playwright/`, not approved screenshot baselines.
+
+The opted-in `staff_auth.tests_complaints_operations_transport` suite also runs
+this CLI spec against fresh native sessions in both build modes. It supplies
+synthetic credentials only to child-process memory, so CI does not need the human
+review host or consume its recovery codes. Those captures are retained separately
+under `test-results/complaints-responsive/<build>/`.
+
 From the repository root, keep this foreground PowerShell terminal open:
 
 ```powershell

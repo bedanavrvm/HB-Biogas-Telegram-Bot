@@ -14,7 +14,8 @@ import Form, { ErrorMessage, Field, Label, MessageWrapper } from '@atlaskit/form
 import Heading from '@atlaskit/heading';
 import { Root } from '@atlaskit/navigation-system/layout/root';
 import { Main } from '@atlaskit/navigation-system/layout/main';
-import { TopNav, TopNavStart, TopNavMiddle, TopNavEnd } from '@atlaskit/navigation-system/layout/top-nav';
+import { TopNav, TopNavStart, TopNavMiddle } from '@atlaskit/navigation-system/layout/top-nav';
+import { BrowserActions, notify, useViewportPane } from './browser-interactions';
 import { Box } from '@atlaskit/primitives/compiled/box';
 import { Grid } from '@atlaskit/primitives/compiled/grid';
 import { Inline } from '@atlaskit/primitives/compiled/inline';
@@ -34,14 +35,17 @@ const styles = cssMap({
     full: { width: '100%', minWidth: 0 },
     page: { width: '100%', maxWidth: '80rem', marginInline: 'auto', boxSizing: 'border-box', padding: token('space.200'), '@media (min-width: 64rem)': { padding: token('space.300') } },
     columns: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', alignItems: 'start', '@media (min-width: 64rem)': { gridTemplateColumns: 'minmax(20rem, 24rem) minmax(0, 1fr)' } },
+    queue: { minHeight: 0, display: 'flex', flexDirection: 'column', gap: token('space.100') },
+    list: { overflowY: 'auto', minHeight: 0, flexGrow: 1, overscrollBehavior: 'contain' },
+    detailScroll: { overflowY: 'auto', minHeight: 0, overscrollBehavior: 'contain' },
+    search: { minWidth: 0, flexGrow: 1 },
     selectedRow: { backgroundColor: token('color.background.selected'), borderRadius: token('radius.medium') },
     mobileList: { display: 'none', '@media (min-width: 64rem)': { display: 'block' } },
     mobileOnly: { '@media (min-width: 64rem)': { display: 'none' } },
     itemLink: { display: 'block', padding: token('space.150'), color: token('color.text'), textDecoration: 'none', borderRadius: token('radius.medium'), '&:hover': { backgroundColor: token('color.background.neutral.subtle.hovered'), textDecoration: 'none' } },
     panel: { minWidth: 0, padding: token('space.200'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere' },
     row: { minWidth: 0, paddingBlock: token('space.100'), borderBlockEndWidth: token('border.width'), borderBlockEndStyle: 'solid', borderBlockEndColor: token('color.border'), overflowWrap: 'anywhere' },
-    fields: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
-    filters: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', alignItems: 'end', '@media (min-width: 48rem)': { gridTemplateColumns: 'minmax(15rem, 2fr) repeat(3, minmax(8rem, 1fr))' } },
+    fields: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', alignItems: 'start' },
     prewrap: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
     textarea: { width: '100%', boxSizing: 'border-box', padding: token('space.100'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border.input'), borderRadius: token('radius.small'), backgroundColor: token('color.background.input'), color: token('color.text'), font: token('font.body'), resize: 'vertical' },
     form: { width: '100%', maxWidth: '42rem', marginInline: 'auto' },
@@ -49,6 +53,26 @@ const styles = cssMap({
 });
 const statuses = [{ value: 'pending', label: 'Open + Reopened' }, { value: 'resolved', label: 'Closed' }, { value: 'all', label: 'All complaints' }];
 const actionLabels: Record<string, string> = { resolve: 'Resolve complaint', comment: 'Add resolution comment', reopen: 'Reopen complaint', 'complete-details': 'Complete missing details', 'retry-publication': 'Retry publication' };
+/** Align real wrapped ADS labels per row without shrinking type or reserving blank rows. */
+function AlignedFields({children}:{children:React.ReactNode}) {
+    const ref=useRef<HTMLDivElement>(null);
+    useEffect(()=>{
+        const node=ref.current;if(!node)return;
+        const align=()=>{
+            const children=Array.from(node.children).filter((item):item is HTMLElement=>item instanceof HTMLElement);
+            children.forEach(child=>{child.style.paddingBlockStart='';const label=child.querySelector('label');if(label)label.style.minHeight='';});
+            const columns=getComputedStyle(node).gridTemplateColumns.split(' ').length;
+            for(let i=0;i<children.length;i+=columns){
+                const row=children.slice(i,i+columns).map(child=>({child,label:child.querySelector('label')})).filter((item):item is {child:HTMLElement;label:HTMLLabelElement}=>item.label instanceof HTMLLabelElement);
+                const labelTop=Math.max(...row.map(item=>item.label.getBoundingClientRect().top)),labelHeight=Math.max(...row.map(item=>item.label.getBoundingClientRect().height));
+                row.forEach(({child,label})=>{const adjustment=labelTop-label.getBoundingClientRect().top;if(adjustment>0)child.style.paddingBlockStart=`${adjustment}px`;label.style.minHeight=`${labelHeight}px`;});
+            }
+        };
+        const resize=new ResizeObserver(align),mutation=new MutationObserver(align);resize.observe(node);mutation.observe(node,{childList:true,subtree:true,characterData:true});align();
+        return()=>{resize.disconnect();mutation.disconnect();};
+    },[]);
+    return <Grid ref={ref} xcss={styles.fields} gap="space.150">{children}</Grid>;
+}
 function labelStatus(item: Complaint) { return item.needs_details ? 'Needs details' : item.status === 'CLOSED' ? 'Closed' : item.status === 'REOPENED' ? 'Reopened' : 'Open'; }
 function failure(error: unknown) { return error instanceof OperationError ? error.message : 'The request could not be confirmed. Your entries are retained. Check your connection and try again.'; }
 function useRead<T>(group: string, path: string, refresh: number, body?: Record<string, unknown>) {
@@ -78,6 +102,7 @@ function Feedback({ error }: {
     error?: unknown;
 }) {
     const recheck = React.useContext(SessionRecheck);
+    useEffect(() => { if (error) notify(failure(error), 'error'); }, [error]);
     return error ? <Box role="alert"><SectionMessage appearance="error" title="Action could not be completed" headingLevel="h2"><Text as="p">{failure(error)}</Text>{error instanceof OperationError && error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}</SectionMessage></Box> : null;
 }
 function Choice({ id, label, value, options, onChange, error }: {
@@ -115,6 +140,7 @@ function Files({ files, setFiles }: {
     const locked = React.useContext(LockedForm);
     const picker = useRef<HTMLInputElement>(null), camera = useRef<HTMLInputElement>(null);
     const [error, setError] = useState('');
+    useEffect(()=>{if(error)notify(error,'error');},[error]);
     const add = (items: FileList | null) => {
         const next = [...files, ...Array.from(items || [])];
         if (next.length > 10 || next.some(file => file.size > 10 * 1024 * 1024) || next.reduce((size, file) => size + file.size, 0) > 30 * 1024 * 1024)
@@ -122,6 +148,7 @@ function Files({ files, setFiles }: {
         else {
             setFiles(next);
             setError('');
+            notify('Files attached.', 'information');
         }
     };
     return <Stack space="space.100"><Text weight="medium">Attachments</Text><Text size="small" color="color.text.subtle">Images or PDF · up to 10 files · 10 MB each, 30 MB total</Text>
@@ -250,8 +277,12 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
     const draftPending = useRef(false);
     const draftRequest = useRef<AbortController | null>(null);
     useEffect(() => () => draftRequest.current?.abort(), []);
-    const locked = state.busy || state.uncertain || draftBusy;
+    const [draftReady, setDraftReady] = useState(false), [draftPaused, setDraftPaused] = useState(false);
+    const draftTimer = useRef<ReturnType<typeof setTimeout>>(), draftWork = useRef<Promise<void>>(), submitting = useRef(false);
+    const latestValues = useRef(values); latestValues.current = values;
+    const locked = state.busy || state.uncertain;
     useEffect(() => { markDirty(Boolean(JSON.stringify(values) !== savedDraftValues || files.length || locked), locked); return () => markDirty(false); }, [values, files, locked, savedDraftValues, markDirty]);
+    useEffect(() => () => { clearTimeout(draftTimer.current); submitting.current = true; }, []);
     const [locations, setLocations] = useState(bootstrap.location_options);
     useEffect(() => {
         const controller = new AbortController();
@@ -261,7 +292,7 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
                 fields: Record<string, string>;
                 revision: number;
             } | null;
-        }>(group, 'draft/', controller.signal).then(result => { setDraft(result.draft); if (!slot.read().draftKey) { setDraftRevision(result.draft?.revision || 0); setDraftKey(result.draft?.key || ''); } }).catch(() => setDraftMessage('Saved draft could not be checked. Your current entries are unaffected.'));
+        }>(group, 'draft/', controller.signal).then(result => { if(controller.signal.aborted)return; setDraft(result.draft); setDraftReady(true); if (!slot.read().draftKey) { setDraftRevision(result.draft?.revision || 0); setDraftKey(result.draft?.key || ''); } }).catch(() => {if(!controller.signal.aborted){setDraftPaused(true);setDraftMessage('Saved draft could not be checked. Your current entries are unaffected.');}});
         return () => controller.abort();
     }, [group]);
     useEffect(() => {
@@ -275,7 +306,8 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
     const change = (name: string, value: string) => { setValues(previous => ({ ...previous, [name]: value, ...(name === 'branch_region' ? { county: '', sub_county: '' } : name === 'county' ? { sub_county: '' } : {}) })); state.setErrors({}); };
     const saveDraft = async (discard = false) => {
         if (draftPending.current || locked) return;
-        if (!navigator.onLine) { setDraftError(new OperationError(0, 'You are offline. Reconnect before saving your draft.')); return; }
+        const snapshot = {...latestValues.current};
+        if (!navigator.onLine) { setDraftPaused(true);setDraftError(new OperationError(0, 'You are offline. Reconnect before saving your draft.')); return; }
         draftPending.current = true; setDraftBusy(true); setDraftError(undefined); setDraftMessage('');
         const request = new AbortController(); draftRequest.current = request;
         const timeout = setTimeout(() => request.abort(), 30000);
@@ -283,11 +315,11 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
             const current = await operation<{draft: typeof draft}>(group, 'draft/', request.signal);
             if ((current.draft?.key || '') !== draftKey || (current.draft?.revision || 0) !== draftRevision) {
                 setDraft(current.draft); setDraftRevision(current.draft?.revision || 0); setDraftKey(current.draft?.key || '');
-                const fields = Object.fromEntries(Object.entries(values).filter(([key]) => !['voice_transcription_id', 'category_inference_token'].includes(key)));
+                const fields = Object.fromEntries(Object.entries(snapshot).filter(([key]) => !['voice_transcription_id', 'category_inference_token'].includes(key)));
                 const same = current.draft && JSON.stringify(Object.entries(current.draft.fields).sort()) === JSON.stringify(Object.entries(fields).sort());
                 if (discard && !current.draft) setDraftMessage('Saved draft discarded.');
-                else if (!discard && same) { setSavedDraftValues(JSON.stringify(values)); setDraftMessage('Draft saved.'); }
-                else setDraftMessage('Your saved draft changed. Review it before saving again. Your current entries are still here.');
+                else if (!discard && same) { setSavedDraftValues(JSON.stringify(snapshot)); setDraft(null); setDraftMessage('Saved'); }
+                else {setDraftPaused(true);setDraftMessage('Your saved draft changed. Review it before saving again. Your current entries are still here.');}
                 return;
             }
             const result = await operation<{
@@ -296,22 +328,33 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
                     fields: Record<string, string>;
                     revision: number;
                 } | null;
-            }>(group, 'draft/', request.signal, discard ? { action: 'discard', key: draftKey, revision: draftRevision } : { fields: values, key: draftKey, revision: draftRevision });
-            setDraft(result.draft);
+            }>(group, 'draft/', request.signal, discard ? { action: 'discard', key: draftKey, revision: draftRevision } : { fields: snapshot, key: draftKey, revision: draftRevision });
+            setDraft(null);
             setDraftRevision(result.draft?.revision || 0); setDraftKey(result.draft?.key || '');
-            setDraftMessage(discard ? 'Saved draft discarded.' : 'Draft saved.');
-            if (!discard) setSavedDraftValues(JSON.stringify(values));
+            setDraftMessage(discard ? 'Saved draft discarded.' : 'Saved');
+            setDraftPaused(false);
+            if (!discard) setSavedDraftValues(JSON.stringify(snapshot));
+            else notify('Saved draft discarded.');
         }
         catch (error) {
-            setDraftError(error);
+            setDraftError(error); setDraftPaused(true);
         }
         finally { clearTimeout(timeout); draftPending.current = false; setDraftBusy(false); }
     };
+    const runDraft = (discard = false) => { const work = saveDraft(discard); draftWork.current = work; return work; };
+    useEffect(() => {
+        submitting.current = false;
+        if (!draftReady || draft || draftPaused || draftBusy || locked || JSON.stringify(values) === savedDraftValues || !Object.keys(values).length) return;
+        setDraftMessage(navigator.onLine ? 'Saving…' : 'Not saved — offline');
+        draftTimer.current = setTimeout(() => { if (!submitting.current) void runDraft(); }, 700);
+        return () => clearTimeout(draftTimer.current);
+    }, [values, savedDraftValues, draftReady, draft, draftPaused, draftBusy, locked]);
     return <LockedForm.Provider value={locked}><Box xcss={styles.form}><Stack space="space.200">
-    {draft && <Inline shouldWrap space="space.100" alignBlock="center"><Text>A saved draft is available.</Text><Button isDisabled={locked} onClick={() => { if (Object.keys(values).length && !window.confirm('Replace the current entries with your saved draft?')) return; setValues(draft.fields); setSavedDraftValues(JSON.stringify(draft.fields)); setDraft(null); setDraftMessage('Draft restored.'); }}>Restore</Button><Button appearance="danger" isDisabled={locked} onClick={() => { if (window.confirm('Discard the saved draft?')) void saveDraft(true); }}>Discard</Button></Inline>}
+    {draft && <Inline shouldWrap space="space.100" alignBlock="center"><Text>You have a saved draft.</Text><Button isDisabled={locked || draftBusy} onClick={() => { if (Object.keys(values).length && !window.confirm('Replace the current entries with your saved draft?')) return; setValues(draft.fields); setSavedDraftValues(JSON.stringify(draft.fields)); setDraft(null); setDraftPaused(false); setDraftMessage('Draft restored.'); notify('Draft restored. Reselect files if needed.', 'information'); }}>Restore</Button><Button appearance="danger" isDisabled={locked || draftBusy} onClick={() => { if (window.confirm('Discard the saved draft?')) void runDraft(true); }}>Discard</Button></Inline>}
     {draftMessage && <Box role="status"><Text>{draftMessage}</Text></Box>}
+    {draftPaused && !draft && <Button onClick={() => {setDraftPaused(false);setDraftReady(true);void runDraft();}}>Retry draft</Button>}
     <Feedback error={state.uncertain ? undefined : state.error || draftError}/><PreviousSave state={state} leave={() => { markDirty(false); cancel(); }}/>
-    <Form<Record<string, string>> onSubmit={() => {
+    <Form<Record<string, string>> onSubmit={async () => {
             const required = ['client_name', 'customer_phone', 'customer_id', 'branch_region', 'county', 'sub_county', 'village', 'complaint_category', 'complaint_description'];
             const errors = Object.fromEntries(required.filter(name => !values[name]?.trim()).map(name => [name, 'Complete this field.']));
             if (values.customer_id && !/^\d+$/.test(values.customer_id))
@@ -322,16 +365,17 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
                 state.setErrors(errors);
                 return;
             }
-            return state.save('cases/create/', { ...values, browser_draft_revision: String(draftRevision), browser_draft_key: draftKey }, files);
+            submitting.current = true; clearTimeout(draftTimer.current); await draftWork.current;
+            return state.save('cases/create/', { ...values, browser_draft_revision: String(slot.read().draftRevision || 0), browser_draft_key: String(slot.read().draftKey || '') }, files);
         }}>{({ formProps }) => <Box as="form" {...formProps} noValidate><Stack space="space.200">
-      <Grid xcss={styles.fields} gap="space.150">{[['client_name', 'Customer name'], ['customer_id', 'National ID'], ['customer_phone', 'Primary phone number'], ['secondary_phone', 'Alternative phone number']].map(([name, label]) => <Input key={name} name={name} label={label} values={values} errors={state.errors} change={change} required={name !== 'secondary_phone'} type={name.includes('phone') ? 'tel' : 'text'}/>)}</Grid>
-      <Grid xcss={styles.fields} gap="space.150">{[['branch_region', 'Branch', locations.branches], ['county', 'County', locations.counties], ['sub_county', 'Constituency', locations.sub_counties]].map(([name, label, options]) => <Stack key={String(name)} space="space.050"><Choice id={`create-${name}`} label={String(label)} value={values[String(name)] || ''} options={(options as Locations['branches']).map(item => ({ value: item.code, label: item.name }))} onChange={value => change(String(name), value)} error={state.errors[String(name)]}/></Stack>)}<Input name="village" label="Village/Nearest Landmark" values={values} errors={state.errors} change={change} required/></Grid>
+      <AlignedFields>{[['client_name', 'Customer name'], ['customer_id', 'National ID'], ['customer_phone', 'Primary phone number'], ['secondary_phone', 'Alternative phone number']].map(([name, label]) => <Input key={name} name={name} label={label} values={values} errors={state.errors} change={change} required={name !== 'secondary_phone'} type={name.includes('phone') ? 'tel' : 'text'}/>)}</AlignedFields>
+      <AlignedFields>{[['branch_region', 'Branch', locations.branches], ['county', 'County', locations.counties], ['sub_county', 'Constituency', locations.sub_counties]].map(([name, label, options]) => <Stack key={String(name)} space="space.050"><Choice id={`create-${name}`} label={String(label)} value={values[String(name)] || ''} options={(options as Locations['branches']).map(item => ({ value: item.code, label: item.name }))} onChange={value => change(String(name), value)} error={state.errors[String(name)]}/></Stack>)}<Input name="village" label="Village/Nearest Landmark" values={values} errors={state.errors} change={change} required/></AlignedFields>
       <Choice id="create-category" label="Complaint type" value={values.complaint_category || ''} options={bootstrap.categories.map(value => ({ value, label: value }))} onChange={value => change('complaint_category', value)} error={state.errors.complaint_category}/>
       <Input name="complaint_description" label="Complaint description" values={values} errors={state.errors} change={change} required/>
-      <Inline shouldWrap space="space.100" alignBlock="center"><Button isDisabled={locked} onClick={() => { navigator.geolocation?.getCurrentPosition(position => { change('latitude', position.coords.latitude.toFixed(6)); change('longitude', position.coords.longitude.toFixed(6)); setDraftMessage('Location captured.'); }, () => setDraftMessage('Location was not shared. You can continue without a map pin.')); }}>Use current location</Button>{values.latitude && <Text size="small">Location captured</Text>}</Inline>
+      <Inline shouldWrap space="space.100" alignBlock="center"><Button isDisabled={locked} onClick={() => { navigator.geolocation?.getCurrentPosition(position => { change('latitude', position.coords.latitude.toFixed(6)); change('longitude', position.coords.longitude.toFixed(6)); setDraftMessage('Location captured.');notify('Location captured.'); }, () => {setDraftMessage('Location was not shared. You can continue without a map pin.');notify('Location was not shared. You can continue without a map pin.','information');}); }}>Use current location</Button>{values.latitude && <Text size="small">Location captured</Text>}</Inline>
       {!locked && bootstrap.voice_input?.enabled && <VoiceInput group={group} field="complaint_description" maxSeconds={bootstrap.voice_input.max_seconds} accept={(text, id) => { change('complaint_description', text); change('voice_transcription_id', id); }} />}
       <Files files={files} setFiles={setFiles}/>
-      <Inline shouldWrap space="space.100"><Button appearance="primary" type="submit" isLoading={state.busy} isDisabled={state.uncertain || draftBusy}>Submit complaint</Button><Button isLoading={draftBusy} isDisabled={locked} onClick={() => { void saveDraft(); }}>Save draft</Button><Button isDisabled={locked} onClick={cancel}>Cancel</Button></Inline>
+      <Inline shouldWrap space="space.100"><Button appearance="primary" type="submit" isLoading={state.busy} isDisabled={state.uncertain}>Submit complaint</Button><Button isDisabled={locked} onClick={cancel}>Cancel</Button></Inline>
     </Stack></Box>}</Form>
   </Stack></Box></LockedForm.Provider>;
 }
@@ -339,7 +383,11 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
   const [route, setRoute] = useState<WorkspaceRoute>(readRoute), [groups, setGroups] = useState<Group[] | null>(null), [groupError, setGroupError] = useState<unknown>(), [refresh, setRefresh] = useState(0);
   const [query, setQuery] = useState(''), [typedQuery, setTypedQuery] = useState(''), [branch, setBranch] = useState(''), [category, setCategory] = useState(''), [notice, setNotice] = useState('');
   const [ownerReady, setOwnerReady] = useState(''), [online, setOnline] = useState(navigator.onLine);
-  const [syncOpen, setSyncOpen] = useState(false), [preferencesReady, setPreferencesReady] = useState(false);
+    const [syncOpen, setSyncOpen] = useState(false), [preferencesReady, setPreferencesReady] = useState(false), [filtersOpen, setFiltersOpen] = useState(false);
+    const queuePane = useViewportPane(), detailPane = useViewportPane();
+    const queuePosition = useRef(0);
+    const queueList = useRef<HTMLDivElement | null>(null);
+    useEffect(()=>{queuePosition.current=0;if(queueList.current)queueList.current.scrollTop=0;},[query,branch,category,route.status,route.page]);
   const entryUrl = useRef(window.location.href), appliedPreferences = useRef(false), detailPanel = useRef<HTMLDivElement>(null), dirty = useRef(false), pendingSave = useRef(false);
   const acceptedPosition = useRef(historyPosition()), undoPop = useRef(false);
   const routeRef = useRef(route); routeRef.current = route;
@@ -377,29 +425,33 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
   const capabilities = bootstrap.data?.actor.capabilities || [];
   const open = (key: string) => navigate({ ...route, view: 'queue', selected: key });
   const facet = (items: {label: string}[] | undefined, value: string) => [{value: '', label: 'All'}, ...Array.from(new Set([...(items || []).map(item => item.label), value].filter(Boolean))).map(label => ({value: label, label}))];
-  const queueView = <Stack xcss={styles.full} space="space.250">
-    {<Box xcss={route.selected ? styles.mobileList : undefined}><Grid xcss={styles.filters} gap="space.150"><Box><Label htmlFor="search">Search name, ID, phone or branch</Label><Textfield id="search" type="search" value={typedQuery} onChange={event => setTypedQuery(event.currentTarget.value)}/></Box><Choice id="status" label="Status" value={route.status} options={statuses} onChange={status => navigate({ ...route, status, page: 1, selected: '' })}/><Choice id="branch" label="Branch" value={branch} options={facet(queue.data?.filter_options.branches, branch)} onChange={value => { setBranch(value); navigate({ ...route, page: 1, selected: '' }); }}/><Choice id="category" label="Complaint type" value={category} options={facet(queue.data?.filter_options.categories, category)} onChange={value => { setCategory(value); navigate({ ...route, page: 1, selected: '' }); }}/></Grid></Box>}
+  useEffect(() => { if (notice) { notify(notice); setNotice(''); } }, [notice]);
+  const activeFilters = [route.status !== 'pending' ? statuses.find(item => item.value === route.status)?.label : '', branch, category].filter(Boolean);
+  const queueView = <Stack xcss={styles.full} space="space.150">
+    <Box xcss={route.selected ? styles.mobileList : undefined}><Inline alignBlock="end" space="space.100"><Box xcss={styles.search}><Label htmlFor="search">Search name, ID, phone or branch</Label><Textfield id="search" type="search" value={typedQuery} onChange={event => setTypedQuery(event.currentTarget.value)}/></Box><Button onClick={() => setFiltersOpen(true)}>Filters{activeFilters.length ? ` (${activeFilters.length})` : ''}</Button></Inline>
+    {activeFilters.length > 0 && <Inline shouldWrap space="space.050">{route.status !== 'pending' && <Button appearance="subtle" onClick={() => navigate({...route,status:'pending',page:1,selected:''})}>{statuses.find(item => item.value === route.status)?.label} ×</Button>}{branch && <Button appearance="subtle" onClick={() => {setBranch('');navigate({...route,page:1,selected:''});}}>Branch: {branch} ×</Button>}{category && <Button appearance="subtle" onClick={() => {setCategory('');navigate({...route,page:1,selected:''});}}>Type: {category} ×</Button>}</Inline>}</Box>
+    {filtersOpen && <TaskDialog title="Filter complaints" compact close={() => setFiltersOpen(false)}><Grid xcss={styles.fields} gap="space.150"><Choice id="status" label="Status" value={route.status} options={statuses} onChange={status => navigate({ ...route, status, page: 1, selected: '' })}/><Choice id="branch" label="Branch" value={branch} options={facet(queue.data?.filter_options.branches, branch)} onChange={value => { setBranch(value); navigate({ ...route, page: 1, selected: '' }); }}/><Choice id="category" label="Complaint type" value={category} options={facet(queue.data?.filter_options.categories, category)} onChange={value => { setCategory(value); navigate({ ...route, page: 1, selected: '' }); }}/></Grid><Inline space="space.100"><Button onClick={() => {setBranch('');setCategory('');navigate({...route,status:'pending',page:1,selected:''});}}>Reset filters</Button><Button appearance="primary" onClick={() => setFiltersOpen(false)}>Done</Button></Inline></TaskDialog>}
     {Boolean(sync.data?.issues.length) && <Inline alignBlock="center" shouldWrap space="space.100"><Text size="small" color="color.text.subtle">{sync.data!.issues.length} saved updates awaiting Google Sheets sync</Text><Button appearance="subtle" onClick={() => setSyncOpen(true)}>Sync details</Button></Inline>}
     <Grid xcss={styles.columns} gap="space.250">
-      <Box as="section" aria-label="Complaint queue" xcss={route.selected ? styles.mobileList : undefined}><Stack space="space.100">
+      <Box xcss={route.selected ? styles.mobileList : undefined}><Box as="section" aria-label="Complaint queue" ref={queuePane} xcss={styles.queue}>
         <Inline spread="space-between" alignBlock="center"><Heading as="h2" size="small">{queue.data ? complaintCount(queue.data.pagination.total) : 'Complaints'}</Heading><Text size="small" color="color.text.subtle">{route.status === 'resolved' ? 'Recently closed' : 'Oldest first'}</Text></Inline>
-        {queue.data?.items.map(item => <Box key={item.key} xcss={route.selected === item.key ? styles.selectedRow : styles.row}><Anchor xcss={styles.itemLink} href={`/staff/app/complaints/cases/${item.key}/?workspace=${route.group}&status=${route.status}&page=${route.page}`} aria-current={route.selected === item.key ? 'true' : undefined} onClick={event => { event.preventDefault(); open(item.key); }}><Stack space="space.100"><Inline spread="space-between" space="space.100" alignBlock="center"><Text weight="semibold">{item.customer_name || item.reference}</Text><ComplaintStatus status={item.status} needs={item.needs_details}/></Inline><Text size="small" color="color.text.subtle">{item.reference} · {item.branch || 'Branch not recorded'}</Text><Inline shouldWrap spread="space-between" space="space.100"><Text size="small">{item.category}</Text><Text size="small" weight="medium">{item.age_label}</Text></Inline></Stack></Anchor></Box>)}
+        <Box as="div" xcss={styles.list} aria-label="Scrollable complaints" ref={(element: HTMLDivElement | null) => { queueList.current=element;if (element) element.scrollTop = queuePosition.current; }} onScroll={(event: React.UIEvent<HTMLDivElement>) => {queuePosition.current = event.currentTarget.scrollTop;}}>{queue.data?.items.map(item => <Box key={item.key} xcss={route.selected === item.key ? styles.selectedRow : styles.row}><Anchor xcss={styles.itemLink} href={`/staff/app/complaints/cases/${item.key}/?workspace=${route.group}&status=${route.status}&page=${route.page}`} aria-current={route.selected === item.key ? 'true' : undefined} onClick={event => { event.preventDefault(); open(item.key); }}><Stack space="space.100"><Inline spread="space-between" space="space.100" alignBlock="center"><Text weight="semibold">{item.customer_name || item.reference}</Text><ComplaintStatus status={item.status} needs={item.needs_details}/></Inline><Text size="small" color="color.text.subtle">{item.reference} · {item.branch || 'Branch not recorded'}</Text><Inline shouldWrap spread="space-between" space="space.100"><Text size="small">{item.category}</Text><Text size="small" weight="medium">{item.age_label}</Text></Inline></Stack></Anchor></Box>)}</Box>
         {queue.data?.items.length === 0 && <Text>No complaints match these filters.</Text>}{!queue.data && !queue.error && <Box role="status"><Text>Loading complaints…</Text></Box>}
         {queue.data && queue.data.pagination.pages > 1 && <Inline spread="space-between" alignBlock="center" space="space.100"><Text size="small">Page {queue.data.pagination.page} of {queue.data.pagination.pages}</Text><Inline space="space.100"><Button isDisabled={route.page <= 1} onClick={() => navigate({...route, page: route.page - 1, selected: ''})}>Previous</Button><Button isDisabled={route.page >= queue.data.pagination.pages} onClick={() => navigate({...route, page: route.page + 1, selected: ''})}>Next</Button></Inline></Inline>}
-      </Stack></Box>
-      <Box as="section" aria-label="Complaint detail" xcss={styles.panel} ref={detailPanel} tabIndex={-1}>{detail.data ? <Stack space="space.250">
+      </Box></Box>
+      <Box xcss={route.selected ? undefined : styles.mobileList}><Box ref={detailPane} xcss={styles.detailScroll}><Box as="section" aria-label="Complaint detail" xcss={styles.panel} ref={detailPanel} tabIndex={-1}>{detail.data ? <Stack space="space.250">
         <Box xcss={styles.mobileOnly}><Button appearance="subtle" onClick={() => navigate({...route, selected: ''})}>← Back to complaints</Button></Box>
         <Inline shouldWrap spread="space-between" alignBlock="center" space="space.100"><Stack space="space.050"><Heading as="h2" size="medium">{detail.data.case.customer_name || detail.data.case.reference}</Heading><Text color="color.text.subtle">{detail.data.case.reference}</Text></Stack><ComplaintStatus status={detail.data.case.status} needs={detail.data.case.needs_details}/></Inline>
         <Grid xcss={styles.fields} gap="space.250"><Stack space="space.150"><Heading as="h3" size="small">Customer</Heading><Stack space="space.050"><Text size="small" color="color.text.subtle">National ID</Text><Text>{detail.data.case.customer_id || 'Not provided'}</Text></Stack><Stack space="space.050"><Text size="small" color="color.text.subtle">Phone</Text>{detail.data.case.customer_phone ? <Anchor href={`tel:${detail.data.case.customer_phone}`}>{detail.data.case.customer_phone}</Anchor> : <Text>Not provided</Text>}</Stack></Stack><Stack space="space.150"><Heading as="h3" size="small">Complaint</Heading><Text>{detail.data.case.branch || 'Branch not recorded'}</Text><Text>{detail.data.case.category || 'Type not recorded'}</Text><Text size="small" color="color.text.subtle">Reported {displayDate(detail.data.case.reported_at)}</Text><Text size="small">{detail.data.case.age_label}</Text></Stack></Grid>
         <Stack space="space.100"><Heading as="h3" size="small">Description</Heading><Box xcss={styles.prewrap}><Text as="p">{detail.data.case.description}</Text></Box></Stack>
         <Activity key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} caseKey={detail.data.case.key} initial={detail.data.case.history} next={detail.data.case.history_next_cursor} reported={detail.data.case.reported_at}/>
-        <Stack space="space.100"><Heading as="h3" size="small">Attachments</Heading>{detail.data.case.evidence.length === 0 ? <Text size="small" color="color.text.subtle">No attachments.</Text> : detail.data.case.evidence.map(item => <Inline key={item.id} shouldWrap space="space.100"><EvidencePreview group={route.group} id={item.id} name={item.name} type={item.mime_type}/><Button onClick={() => { void download(route.group, `evidence/${item.id}/?download=1`).catch(error => setNotice(failure(error))); }}>Download</Button></Inline>)}</Stack>
+        <Stack space="space.100"><Heading as="h3" size="small">Attachments</Heading>{detail.data.case.evidence.length === 0 ? <Text size="small" color="color.text.subtle">No attachments.</Text> : detail.data.case.evidence.map(item => <Inline key={item.id} shouldWrap space="space.100"><EvidencePreview group={route.group} id={item.id} name={item.name} type={item.mime_type}/><Button onClick={() => { void download(route.group, `evidence/${item.id}/?download=1`).then(()=>notify('File ready. Your browser handles the download.','information')).catch(error => notify(failure(error),'error')); }}>Download</Button></Inline>)}</Stack>
         {route.view !== 'new' && ownerReady && recovery.bound(bootstrap.data?.continuity_key || '') && <CaseActions slot={slot} key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} item={detail.data.case} saved={saved} voiceEnabled={Boolean(bootstrap.data?.voice_input?.enabled)} markDirty={markDirty}/>}
         <Inline shouldWrap space="space.100"><Button appearance="subtle" onClick={() => { void navigator.clipboard.writeText(window.location.href).then(() => setNotice('Complaint link copied.')).catch(() => setNotice('Copy the link from your address bar.')); }}>Copy link</Button>{queue.data?.items.some(item => item.key !== route.selected) && <Button appearance="subtle" onClick={() => { const items = queue.data!.items; open(items[(items.findIndex(item => item.key === route.selected) + 1) % items.length].key); }}>Next complaint</Button>}</Inline>
-      </Stack> : <Text>{route.selected ? 'Loading complaint…' : 'Select a complaint to read its details and activity.'}</Text>}</Box>
+      </Stack> : <Text>{route.selected ? 'Loading complaint…' : 'Select a complaint to read its details and activity.'}</Text>}</Box></Box></Box>
     </Grid>
   </Stack>;
-  return <SessionRecheck.Provider value={recheck}><Root><TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold">JBL workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle><TopNavEnd><Button appearance="subtle" onClick={() => { if (!dirty.current || window.confirm('Sign out? Unsaved entries will be lost.')) signOut(); }}>Sign out</Button></TopNavEnd></TopNav>
+  return <SessionRecheck.Provider value={recheck}><Root><TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold">JBL workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle><BrowserActions><Button appearance="subtle" onClick={() => { if (!dirty.current || window.confirm('Sign out? Unsaved entries will be lost.')) signOut(); }}>Sign out</Button></BrowserActions></TopNav>
     <Main><Box xcss={styles.page} testId="complaints-operations-content"><Stack space="space.300">
       <Inline alignBlock="center" spread="space-between" shouldWrap space="space.150"><Stack space="space.050"><Heading as="h1" size="large">{route.view === 'settings' ? 'Complaint settings' : 'Complaints'}</Heading><Text color="color.text.subtle">{groups?.find(item => item.key === route.group)?.label || 'Manage complaints and follow up'}</Text></Stack><Inline shouldWrap space="space.100" alignBlock="center">{capabilities.includes('complaint.case.create') && route.view !== 'settings' && <Button appearance="primary" onClick={() => navigate({...route, view: 'new'})}>Create complaint</Button>}<IconButton appearance="subtle" label="Settings" icon={SettingsIcon} onClick={() => navigate({...route, view: 'settings'})}/><IconButton appearance="subtle" label="Refresh workspace" icon={RefreshIcon} onClick={() => { if (!pendingSave.current) setRefresh(value => value + 1); }}/></Inline></Inline>
       {groups && groups.length > 1 && <Choice id="workspace" label="Workspace" value={route.group} options={groups.map(item => ({value: item.key, label: item.label}))} onChange={group => navigate({...route, group, selected: '', page: 1})}/>}

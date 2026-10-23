@@ -22,7 +22,7 @@ export function reportLocation(url = new URL(window.location.href)): ReportLocat
   const params = url.searchParams;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const end = new Date(today + 'T12:00:00Z'), start = new Date(end); start.setUTCDate(start.getUTCDate() - 29);
-  const range = choose(params.get('range'), ['last30', 'month', 'quarter', 'year', 'all', 'custom'], params.has('from') || params.has('to') ? 'custom' : 'last30');
+  const range = choose(params.get('range'), ['last30', 'month', 'quarter', 'year', 'all', 'custom', 'specific-month', 'specific-quarter', 'specific-year'], params.has('from') || params.has('to') ? 'custom' : 'last30');
   if (range === 'month') start.setUTCFullYear(end.getUTCFullYear(), end.getUTCMonth(), 1);
   if (range === 'quarter') start.setUTCFullYear(end.getUTCFullYear(), Math.floor(end.getUTCMonth() / 3) * 3, 1);
   if (range === 'year') start.setUTCFullYear(end.getUTCFullYear(), 0, 1);
@@ -55,7 +55,7 @@ export function writeRoute(route: WorkspaceRoute, replace = false) {
     params.set('report', choose(report.view, ['overview', 'turnaround', 'follow-up'], 'overview'));
     params.set('group_by', choose(report.grouping, ['day', 'week', 'month', 'year'], 'month'));
     params.set('date_basis', choose(report.basis, ['reported', 'resolved'], 'reported'));
-    params.set('range', choose(report.range, ['last30', 'month', 'quarter', 'year', 'all', 'custom'], 'custom'));
+    params.set('range', choose(report.range, ['last30', 'month', 'quarter', 'year', 'all', 'custom', 'specific-month', 'specific-quarter', 'specific-year'], 'custom'));
     if (['open', 'reopened', 'resolved'].includes(report.status)) params.set('report_status', report.status);
     if (date(report.from)) params.set('from', report.from);
     if (date(report.to)) params.set('to', report.to);

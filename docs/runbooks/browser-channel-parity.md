@@ -479,3 +479,91 @@ review credentials were verified through ordinary password/recovery-code MFA.
 Refresh `http://127.0.0.1:8769/_review/` for the running fixture and unused code;
 normal rate limiting may apply after failed attempts. Never weaken auth to
 make the review available. No credentials are recorded in this handoff.
+
+## Responsive Complaints correction (22-23 October 2026)
+
+This supersedes the earlier seven-column/manual-draft UI descriptions above,
+not the native authentication, workflow authorization or release boundaries.
+
+- The queue fills the remaining viewport and scrolls independently. Desktop
+  detail has its own scroll area; returning from mobile detail retains the
+  queue position. Pagination stays outside the scrolling list. Hidden panes
+  are not measured as though they were visible.
+- Queue and report filters open from one Filters button. Related inputs use
+  two columns without changing ADS typography. Report controls retain search,
+  status, branch, complaint type, date basis and grouping, plus current or
+  historical calendar month/quarter/year and custom dates. Invalid/incomplete
+  ranges do not trigger report requests. Active choices remain visible.
+- Creation autosaves server drafts after a short pause; Saved means the server
+  confirmed it. There is no manual Save draft button. Draft conflicts, offline
+  state and uncertain saves retain the existing explicit recovery path, never
+  automatically replay a business submission. Files remain memory-only and
+  must be selected again after a reload. Draft restore/discard is still explicit.
+- Light/dark/system control stays visible in the header, including phones.
+  Only the non-sensitive theme choice is persisted in local storage.
+- Outcome notifications use icon/word/message toasts. Errors and warnings are
+  dismissible; routine confirmed autosaves use the small Saved indicator.
+  Field errors and persistent recovery instructions remain with their task.
+  Toasts inside modals remain interactive; closing an export dialog cannot
+  attempt to show a detached popover.
+- Chart help is a contextual dialog. Appropriate charts offer line/bar or
+  pie/doughnut choices. Bar values sit inside when they fit, line values sit
+  above centred points and dense dates angle diagonally. Drill-down smoothly
+  focuses the filtered table, respecting reduced-motion preferences.
+- AG Grid Community remains the table: ten default columns, all 23 selectable,
+  bounded internal scrolling, canonical supported sorting and page-aware row
+  numbers. Phone links dial and National IDs copy without also opening the row.
+  Activity uses two logical rows, with wrapped notes rather than empty repeats.
+- Evidence has a large zoomable/pannable preview, opposite-end navigation,
+  original download, and clear timeout/error/retry feedback. Browser-only
+  POST `evidence/<uuid>/preview/` checks native CSRF and current Complaint
+  evidence access, validates the page and reuses the existing bounded PDF
+  subprocess renderer. It returns one page and page count, not a public URL.
+  Telegram's preview appearance and original-download route are unchanged.
+
+### Verification and review evidence
+
+- Production and development/StrictMode native operations journeys passed,
+  together with both responsive CLI journeys: four tests, no skips. Each full
+  journey produced 101 synthetic captures; each responsive journey produced 25.
+  The CLI checks six widths (320/360/390/768/1366/1920), both themes, bounded
+  scrolling, restored position, wrapped errors, autosave, quarter filtering,
+  selectable columns, real Excel download, chart selection and media controls.
+- The focused native API suite passed all 23 tests on isolated full-schema
+  SQLite, including PDF-page access/CSRF/invalid-page checks, a real two-page
+  renderer fixture and failure recovery. Drive reads were mocked; no real
+  provider, customer record or operational database was used.
+- TypeScript, full ADS/style lint, six native entry/build-mode artifacts,
+  dependency/notice/asset guards, changed-Python Ruff, architecture/UI source
+  ratchets, pure navigation/recovery tests and diff checks pass. All 28 tooling
+  tests pass with the previously documented long-path TEMP/TMP workaround.
+- Early red runs exposed hidden-pane scroll resets, modal-inert/detached toast
+  handling and silent preview timeouts. Regression checks exercise those
+  paths; a successful rerun is not inferred from screenshots. The operations
+  fixture's short resolutions now start at 06:00 UTC to prevent a late-evening
+  test run from crossing Nairobi midnight and merging different daily medians.
+  No reporting calculation was changed to accommodate that test-clock defect.
+- Source-bound captures: `test-results/complaints-browser-operations/<build>/`
+  and `test-results/complaints-responsive/<build>/`. Mobile queue, wrapped-error
+  alignment, desktop/dark reports and preview failure were visually inspected.
+  These are temporary review evidence, not approved baselines or user approval.
+
+The final combined shared sign-in/restricted-read and responsive rerun passed
+all 11 tests in 129 seconds, with no skips. Initial unsuccessful invocations
+are not counted as passing.
+The final 23-test API plus development-responsive run also passed together
+(24 tests, 36 seconds). Additional Chromium platform-font checks passed in
+both build modes, alongside the declared-font and wrapped-control alignment
+assertions. These do not substitute for real-device font/accessibility review.
+
+Restart `scripts/start_complaints_local_review.ps1` to review the new artifact
+at `http://127.0.0.1:8769/_review/`. A running review deliberately retains its
+startup-pinned assets; rebuilding does not silently replace them. Use only the
+fresh synthetic credentials shown on that local page.
+
+No production routes/flags were enabled, no role grants or schema changed and
+no Telegram appearance was migrated. Real devices/assistive technology,
+PostgreSQL/shared workers, real delivery, privacy/named readers, M1 and explicit
+human design/release acceptance remain outstanding. No commit or deployment
+was performed. Rollback restores the prior browser artifact/adapter while
+keeping the browser release switches disabled; canonical records are retained.

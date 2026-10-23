@@ -365,6 +365,34 @@ def evidence(request, group, actor, evidence_key):
     return response
 
 
+@endpoint(['POST'], 'complaint.case.evidence.view')
+def evidence_preview(request, group, actor, evidence_key):
+    """Browser-only, bounded raster page. Original files remain private downloads."""
+    import re
+    from core.services.order_approval import GoogleDriveMediaStorage
+    from core.services.secure_media_preview import pdf_preview_html
+    item = cases.evidence_for_preview(group, actor, str(evidence_key))
+    body = payload(request)
+    page = body.get('page', 1)
+    if type(page) is not int or not 1 <= page <= 10000 or item.mime_type != 'application/pdf':
+        raise cases.ComplaintCaseError('Choose a valid PDF page to preview.')
+    try:
+        content = GoogleDriveMediaStorage().download(item.drive_file_id)
+        rendered = pdf_preview_html(content, item.original_filename or 'Complaint evidence',
+                                    start_page=page, page_limit=1).decode('utf-8')
+        total = int(re.search(r'data-total-pages="(\d+)"', rendered).group(1))
+        image = re.search(r'<img src="(data:image/jpeg;base64,[A-Za-z0-9+/=]+)"', rendered).group(1)
+        if page > total:
+            raise ValueError('This page does not exist.')
+    except Exception:
+        return JsonResponse({'error': 'This PDF could not be previewed. Try again or download the original.'}, status=503)
+    cases.record_evidence_preview(group, actor, item)
+    response = JsonResponse({'image': image, 'page': page, 'page_count': total})
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @endpoint(['POST'], 'complaint.reports.view')
 def reports(request, group, actor):
     from core.services.complaint_register import complaint_report_page, complaint_report_summary, REPORT_SORT_FIELDS

@@ -5,7 +5,8 @@ import Form, { ErrorMessage, Field, FormFooter, MessageWrapper } from '@atlaskit
 import Heading from '@atlaskit/heading';
 import { Root } from '@atlaskit/navigation-system/layout/root';
 import { Main } from '@atlaskit/navigation-system/layout/main';
-import { TopNav, TopNavStart, TopNavMiddle, TopNavEnd } from '@atlaskit/navigation-system/layout/top-nav';
+import { TopNav, TopNavStart, TopNavMiddle } from '@atlaskit/navigation-system/layout/top-nav';
+import { BrowserActions } from './browser-interactions';
 import { Anchor } from '@atlaskit/primitives/compiled/anchor';
 import { Box } from '@atlaskit/primitives/compiled/box';
 import { Grid } from '@atlaskit/primitives/compiled/grid';
@@ -153,7 +154,7 @@ export function StaffAccess({ invitation = null, renderAuthenticated, retainWork
   };
   if (state === 'authenticated' && renderAuthenticated) return <>{renderAuthenticated({ signOut: () => void run('logout'), recheck: () => void run() })}</>;
   return <Root>
-    <TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold">JBL Staff workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle>{state === 'authenticated' && <TopNavEnd><Button onClick={() => void run('logout', {})} isLoading={busy}>Sign out</Button></TopNavEnd>}</TopNav>
+    <TopNav><TopNavStart sideNavToggleButton={null}><Text weight="bold">JBL Staff workspace</Text></TopNavStart><TopNavMiddle>{null}</TopNavMiddle><BrowserActions>{state === 'authenticated' && <Button onClick={() => void run('logout', {})} isLoading={busy}>Sign out</Button>}</BrowserActions></TopNav>
     <Main id="content" testId="auth-content" skipLinkLabel="Page content"><Box xcss={styles.page}><Box as="section" aria-labelledby="access-heading" aria-busy={busy} xcss={details.enrollment ? styles.enrollmentAccess : styles.access}><Stack space="space.150">
       <Box id="access-heading" tabIndex={-1}><Heading as="h1" size="large">{title}</Heading></Box>
       {feedback && <Box role="alert"><SectionMessage title={feedback.title} appearance="error" headingLevel="h2"><Text as="p">{feedback.message}</Text></SectionMessage></Box>}

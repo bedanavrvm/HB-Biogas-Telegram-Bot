@@ -179,6 +179,58 @@ class BrowserComplaintOperationsTests(TestCase):
         self.assertEqual(result.status_code, 200, result.content)
         self.assertIn('filename=', result['Content-Disposition'])
 
+    def pdf_evidence(self, case=None):
+        from core.models import ComplaintCaseEvidence
+        case = case or self.cases[0]
+        update = CaseUpdate.objects.create(parsed_message=case, group_id=case.group_id,
+            old_status='Open', new_status='Open', updated_by='Synthetic officer')
+        return ComplaintCaseEvidence.objects.create(parsed_message=case, case_update=update,
+            group_id=case.group_id, mime_type='application/pdf', original_filename='synthetic.pdf',
+            drive_file_id='synthetic-private-file', upload_status='success')
+
+    def test_evidence_raster_preview_is_authenticated_csrf_protected_and_scoped(self):
+        item = self.pdf_evidence()
+        self.assertEqual(self.post(f'evidence/{item.pk}/preview/', {}, csrf=False).status_code, 403)
+        self.login()
+        self.grant_role('IT')
+        self.assertEqual(self.post(f'evidence/{item.pk}/preview/', {}, csrf=False).status_code, 403)
+        other = self.pdf_evidence(self.other_case)
+        with patch('core.services.order_approval.GoogleDriveMediaStorage.download') as download:
+            self.assertEqual(self.post(f'evidence/{other.pk}/preview/', {}).status_code, 400)
+            for page in (0, -1, True, '1', 10001):
+                self.assertEqual(self.post(f'evidence/{item.pk}/preview/', {'page': page}).status_code, 400)
+            download.assert_not_called()
+
+    def test_evidence_preview_renders_requested_page_without_browser_pdf_plugin(self):
+        from io import BytesIO
+        from reportlab.pdfgen.canvas import Canvas
+        self.login()
+        self.grant_role('IT')
+        item = self.pdf_evidence()
+        source = BytesIO()
+        canvas = Canvas(source)
+        for label in ('Synthetic first page', 'Synthetic second page'):
+            canvas.drawString(50, 700, label)
+            canvas.showPage()
+        canvas.save()
+        with self.settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-private-folder'), patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=source.getvalue()):
+            response = self.post(f'evidence/{item.pk}/preview/', {'page': 2})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['page'], 2)
+        self.assertEqual(response.json()['page_count'], 2)
+        self.assertTrue(response.json()['image'].startswith('data:image/jpeg;base64,/9j/'))
+        self.assertEqual(response['Cache-Control'], 'no-store, private')
+        self.assertNotIn('synthetic-private-file', response.content.decode())
+
+    def test_evidence_preview_failure_has_a_download_recovery_message(self):
+        self.login()
+        self.grant_role('IT')
+        item = self.pdf_evidence()
+        with patch('core.services.order_approval.GoogleDriveMediaStorage.download', side_effect=TimeoutError):
+            response = self.post(f'evidence/{item.pk}/preview/', {})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('download the original', response.json()['error'])
+
     def test_saved_preferences_are_in_bootstrap_and_workflow_isolated(self):
         self.login()
         before = UserMiniAppPreference.objects.count()

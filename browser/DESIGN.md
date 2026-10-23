@@ -1,5 +1,67 @@
 # Browser design references and application decisions
 
+## Responsive Complaints correction (22 October 2026)
+
+This source-bound candidate implements the user's approved responsive plan,
+not a Telegram migration or production activation. Current official usage
+references consulted for this change:
+
+- https://atlassian.design/components/form/usage
+- https://atlassian.design/components/popup/usage
+- https://atlassian.design/components/flag/usage
+- https://atlassian.design/components/app-provider/code
+- https://atlassian.design/foundations/color/data-visualization-color
+- https://atlassian.design/foundations/typography (rechecked 23 October)
+
+The queue consumes the measured remaining viewport, with its own scrolling and
+pagination. Desktop detail scrolls independently; returning from mobile detail
+retains queue position. Dynamic geometry uses DOM measurement, not a new type
+or spacing scale. Compatible field pairs retain ADS controls and typography;
+wrapped labels are measured per row to align their actual control borders.
+
+Queue/report filters are short native-dialog compositions with labelled ADS
+Select/Textfield controls. Valid selections apply immediately; incomplete or
+reversed custom dates do not issue a report request. Historical month, quarter
+and year choices project canonical date ranges. Help opens a small contextual
+dialog instead of displacing chart content. ADS's installed popup/modal peer
+limitations remain: no new dependency or feature-flag override was introduced.
+
+The pinned TopNavEnd collapses its ordinary children on phones; its persistent
+items API requires an unavailable platform flag. A small grid-end composition
+keeps ThemeControl outside that overflow, alongside the unchanged TopNavEnd.
+The provider owns light/dark/system themes. The sole device-storage exception
+is `jbl.browser.colorMode`, containing only `light` or `dark`; System removes
+the key. Customer values, answers, credentials and session proof are never stored.
+
+One tokenized toast replaces an older event notification. Success/information
+expires; warning/error remains dismissible. Persistent field/session/uncertain
+save feedback remains in the affected task. A native manual popover is hosted
+inside the current modal when necessary, avoiding both stacking and modal-inert
+failures. Icon, plain severity and message convey the result without colour
+alone. This existing-primitive composition is a narrow Flag-package exception.
+Routine draft autosaves use the compact server-confirmed Saved indicator,
+not repeated toasts. Restore/discard and explicit workflow results use toasts.
+
+AG Grid remains Community with a bounded viewport, ten default columns and a
+Columns selector for the complete 23-column register. Only canonical server-sort
+fields advertise sorting. Phones dial; IDs copy; those actions never also open
+the row. Row numbers include the canonical page offset. SVG marks retain keyboard
+drill-down, accessible values, chart/text tokens and explicit units. Bars place
+contrasting labels inside when they fit; line labels centre above points; dense
+dates angle diagonally and charts scroll horizontally rather than shrinking text.
+Composition charts offer pie/doughnut only where the underlying counts support
+them, with separated small-slice labels and a textual legend.
+
+Evidence opens in a large native dialog, with fit/zoom/reset/pan and opposite-end
+PDF navigation. Raster images are not restyled form controls; runtime image width
+is zoom geometry. The browser-only, CSRF-protected page adapter reuses the existing
+bounded PDF subprocess renderer, rechecks owning Complaint evidence access and
+returns one JPEG page plus page count. Original downloads are unchanged. No raw
+PDF plugin, external viewer, customer-storage cache or new renderer dependency.
+
+Evidence and actual executed checks belong in the runbook below; screenshots
+are review candidates, not automatic approval of a design standard.
+
 ## Queue preferences and long activity (ADR 0073)
 
 Official usage guidance consulted live on 22 October 2026:

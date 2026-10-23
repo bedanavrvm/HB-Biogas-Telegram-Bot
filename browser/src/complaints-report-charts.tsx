@@ -11,7 +11,9 @@ import Select from '@atlaskit/select';
 import { IconButton } from '@atlaskit/button/new';
 import BarChartIcon from '@atlaskit/icon/core/chart-bar';
 import LineChartIcon from '@atlaskit/icon/core/chart-trend-up';
-import { displayDate, complaintCount } from './complaints-ui';
+import PieChartIcon from '@atlaskit/icon/core/chart-pie';
+import InfoIcon from '@atlaskit/icon/core/information-circle';
+import { displayDate, complaintCount, TaskDialog } from './complaints-ui';
 import { token } from '@atlaskit/tokens';
 
 type Count = { label: string; count: number };
@@ -45,7 +47,7 @@ const styles = cssMap({
   full: { gridColumn: '1 / -1' },
   metrics: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } },
   panel: { minWidth: 0, height: '100%', boxSizing: 'border-box', padding: token('space.200'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere' },
-  chart: { width: '100%', font: token('font.body.small') },
+  chart: { width: '100%', font: token('font.body.small'), overflowX: 'auto' },
 });
 export function duration(hours: number | null) {
   if (hours === null) return 'Not available';
@@ -115,18 +117,33 @@ export function ReportCharts({ summary, view, grouping, from, to, select }: {
 }
 
 /** Chart geometry is first-party; controls and presentation use the pinned ADS graph. */
-/* eslint-disable @atlaskit/design-system/no-html-button -- Interactive SVG marks are not ordinary controls. ADS Select provides the same drill-down with full text, including dense/long-label data. See DESIGN.md. */
+/* eslint-disable @atlaskit/design-system/no-html-button -- Interactive SVG marks have keyboard semantics and a textual alternative; ADS cannot render an SVG mark. See DESIGN.md. */
+function RadialChart({spec,doughnut,select}:{spec:ChartSpec;doughnut:boolean;select:(index:number,series:number)=>void}) {
+  const values=spec.rows.map(row=>row.values.reduce<number>((sum,value)=>sum+(value||0),0)),total=values.reduce((sum,value)=>sum+value,0);
+  const outside=values.map((value,index)=>{const start=values.slice(0,index).reduce((sum,n)=>sum+n,0),middle=-Math.PI/2+(start+value/2)/Math.max(1,total)*Math.PI*2;return {x:Math.cos(middle)<0?22:338,y:130+Math.sin(middle)*112,small:value/Math.max(1,total)*Math.PI*2<0.4};});
+  for(const side of [22,338]){const labels=outside.filter(item=>item.small&&item.x===side).sort((a,b)=>a.y-b.y);let previous=10;labels.forEach(item=>{item.y=Math.max(item.y,previous+18);previous=item.y;});const overflow=Math.max(0,previous-246);labels.forEach(item=>{item.y-=overflow;});}
+  let angle=-Math.PI/2;
+  const colors=[token('color.chart.categorical.1'),token('color.chart.categorical.2'),token('color.chart.categorical.3'),token('color.chart.categorical.4'),token('color.chart.categorical.5'),token('color.chart.categorical.6'),token('color.chart.categorical.7'),token('color.chart.categorical.8')];
+  return <Stack space="space.100"><svg viewBox="0 0 360 260" width="100%" role="group" aria-label={spec.title}>{values.map((value,index)=>{
+    const start=angle,end=start+(total?value/total:0)*Math.PI*2;angle=end;if(!value)return null;const point=(a:number,r=90)=>[180+Math.cos(a)*r,130+Math.sin(a)*r];const [x,y]=point(start),[ex,ey]=point(end),[mx,my]=point(start+Math.PI);
+    const path=value===total?`M180 130 L${x} ${y} A90 90 0 1 1 ${mx} ${my} A90 90 0 1 1 ${x} ${y} Z`:`M180 130 L${x} ${y} A90 90 0 ${end-start>Math.PI?1:0} 1 ${ex} ${ey} Z`;
+    const middle=(start+end)/2,small=end-start<0.4,[lx,ly]=small?[outside[index].x,outside[index].y]:point(middle,doughnut?70:56),series=spec.rows[index].values.findIndex(v=>v!==null&&v>0);
+    return <g key={index} role="button" tabIndex={0} aria-label={`${spec.rows[index].label}: ${complaintCount(value)}. Filter results.`} onClick={()=>select(index,Math.max(0,series))} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(index,Math.max(0,series));}}}><title>{spec.rows[index].label}: {value}</title><path d={path} fill={spec.id==='targets'?spec.series[Math.max(0,series)].color:colors[index%colors.length]}/>{small&&<line x1={point(middle)[0]} y1={point(middle)[1]} x2={lx} y2={ly} stroke={token('color.border.bold')}/>}<text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill={small?token('color.text'):token('color.text.inverse')}>{value}</text></g>;
+  })}{doughnut&&<circle cx="180" cy="130" r="48" fill={token('elevation.surface')}/>}</svg><Inline shouldWrap space="space.150">{spec.rows.map((row,index)=><Text key={row.label} size="small">{row.label}: {values[index]} ({total?Math.round(values[index]/total*100):0}%)</Text>)}</Inline></Stack>;
+}
 function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection: ReportSelection) => void; grouping: string }) {
   const root = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(500), [chosenMode, setChosenMode] = useState(''), [selected, setSelected] = useState(''), [hover, setHover] = useState('');
+  const [measuredWidth, setWidth] = useState(500), [chosenMode, setChosenMode] = useState(''), [selected, setSelected] = useState(''), [hover, setHover] = useState(''), [helpOpen,setHelpOpen]=useState(false);
   const hasData = spec.rows.some(row => row.values.some(value => value !== null && (spec.hours || value > 0)));
   useEffect(() => { const observer = new ResizeObserver(entries => setWidth(Math.max(230, entries[0].contentRect.width))); if (root.current) observer.observe(root.current); return () => observer.disconnect(); }, [hasData]);
   const rows = spec.horizontal ? spec.rows.slice(0, 10) : spec.rows;
   const mode = chosenMode || (spec.temporal && rows.length >= 8 ? 'line' : 'bar');
+  const radial=mode==='pie'||mode==='doughnut';
+  const width=spec.temporal?Math.max(measuredWidth,rows.length*44+76):measuredWidth;
   const maximumValue = Math.max(0, ...rows.flatMap(row => row.values.filter((value): value is number => value !== null)));
   const maximum = spec.hours ? Math.max(1, Math.ceil(maximumValue * 1.2 * 2) / 2) : Math.max(2, Math.ceil(maximumValue * 1.2 / 2) * 2);
-  const left = spec.horizontal ? Math.min(150, width * 0.38) : 48, right = width - 18, top = 40;
-  const bottom = spec.horizontal ? top + Math.max(1, rows.length) * 40 : 206, height = bottom + 55;
+  const left = spec.horizontal ? Math.min(150, width * 0.38) : rows.length>5?76:48, right = width - 18, top = 40;
+  const bottom = spec.horizontal ? top + Math.max(1, rows.length) * 40 : 206, height = bottom + (rows.length>5?100:55);
   const stamp = (label: string) => Date.parse(`${label.length === 4 ? label + '-01-01' : label.length === 7 ? label + '-01' : label}T00:00:00Z`);
   const stamps = spec.temporal ? rows.map(row => stamp(row.label)) : [];
   const span = stamps.length > 1 ? stamps[stamps.length - 1] - stamps[0] : 0;
@@ -135,10 +152,10 @@ function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection
   const valueText = (row: Point, series: number) => `${spec.series[series].label}: ${spec.hours ? duration(row.values[series]) : complaintCount(row.values[series]!)}${spec.hours && row.count !== undefined ? `; ${row.count} complaints` : ''}`;
   const choose = (index: number, series: number) => { setSelected(''); select(spec.select(index, series)); };
   const options = spec.rows.flatMap((row, index) => row.values.flatMap((value, series) => value === null ? [] : [{ value: `${index}:${series}`, label: `${tick(row.label)} - ${valueText(row, series)}` }]));
-  return <Box xcss={styles.panel} role="region" aria-label={`${spec.title} chart`}><Stack space="space.150"><Inline spread="space-between" alignBlock="center" space="space.100"><Heading as="h3" size="small">{spec.title}</Heading>{spec.temporal && rows.length > 2 && <Inline space="space.050"><IconButton label="Bar chart" appearance="subtle" icon={BarChartIcon} isSelected={mode === 'bar'} onClick={() => setChosenMode('bar')}/><IconButton label="Line chart" appearance="subtle" icon={LineChartIcon} isSelected={mode === 'line'} onClick={() => setChosenMode('line')}/></Inline>}</Inline><Box as="details"><Box as="summary"><Text size="small" color="color.text.subtle">About this chart</Text></Box><Text size="small">{spec.help}</Text></Box>
+  return <Box xcss={styles.panel} role="region" aria-label={`${spec.title} chart`}><Stack space="space.150"><Inline spread="space-between" alignBlock="center" space="space.100"><Heading as="h3" size="small">{spec.title}</Heading>{spec.temporal && rows.length > 1 && <Inline space="space.050"><IconButton label="Bar chart" appearance="subtle" icon={BarChartIcon} isSelected={mode === 'bar'} onClick={() => setChosenMode('bar')}/><IconButton label="Line chart" appearance="subtle" icon={LineChartIcon} isSelected={mode === 'line'} onClick={() => setChosenMode('line')}/></Inline>}{((spec.id==='category'&&spec.rows.length<=8)||spec.id==='targets')&&<Inline space="space.050"><IconButton label="Bar chart" icon={BarChartIcon} appearance="subtle" isSelected={!radial} onClick={()=>setChosenMode('bar')}/><IconButton label="Doughnut chart" icon={PieChartIcon} appearance="subtle" isSelected={mode==='doughnut'} onClick={()=>setChosenMode('doughnut')}/>{spec.id==='category'&&<IconButton label="Pie chart" icon={PieChartIcon} appearance="subtle" isSelected={mode==='pie'} onClick={()=>setChosenMode('pie')}/>}</Inline>}<IconButton label={`About ${spec.title}`} icon={InfoIcon} appearance="subtle" onClick={()=>setHelpOpen(true)}/></Inline>{helpOpen&&<TaskDialog title={spec.title} compact close={()=>setHelpOpen(false)}><Text>{spec.help}</Text></TaskDialog>}
     {spec.id === 'category' && rows.length === 1 ? <Text>{rows[0].label}: {rows[0].values[0]} complaints</Text> : !hasData ? <Text>{spec.hours ? 'No recorded timing in this period.' : 'No matching complaints.'}</Text> : <Box ref={root} xcss={styles.chart}>
       <Inline shouldWrap space="space.150">{spec.series.map((series, i) => <Inline key={series.label} alignBlock="center" space="space.050"><svg width="14" height="14" aria-hidden="true">{mode === 'line' && !i ? <circle cx="7" cy="7" r="5" fill={series.color} /> : <rect x="2" y="2" width="10" height="10" fill={series.color} />}</svg><Text size="small">{series.label}{spec.series.length > 1 && mode === 'line' ? ` (${i ? 'dashed' : 'solid'})` : ''}</Text></Inline>)}</Inline>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="group" aria-label={`${spec.title}. ${spec.hours ? 'Hours' : 'Complaints'}.`}>
+      {radial ? <RadialChart spec={spec} doughnut={mode==='doughnut'} select={choose}/> : <svg viewBox={`0 0 ${width} ${height}`} width={width} role="group" aria-label={`${spec.title}. ${spec.hours ? 'Hours' : 'Complaints'}.`}>
         {[0, 0.5, 1].map(ratio => <g key={ratio}><line x1={spec.horizontal ? left + ratio * (right - left) : left} x2={spec.horizontal ? left + ratio * (right - left) : right} y1={spec.horizontal ? top : bottom - ratio * (bottom - top)} y2={spec.horizontal ? bottom : bottom - ratio * (bottom - top)} stroke={token('color.border')} /><text x={spec.horizontal ? left + ratio * (right - left) : left - 8} y={spec.horizontal ? bottom + 20 : bottom - ratio * (bottom - top) + 4} textAnchor={spec.horizontal ? 'middle' : 'end'} fill={token('color.text.subtle')}>{Number((ratio * maximum).toFixed(spec.hours ? 1 : 0))}</text></g>)}
         <line x1={left} x2={left} y1={top} y2={bottom} stroke={token('color.border.bold')} /><line x1={left} x2={right} y1={bottom} y2={bottom} stroke={token('color.border.bold')} />
         <text x={left} y={16} fill={token('color.text.subtle')}>{spec.hours ? 'Hours' : 'Complaints'}</text>
@@ -151,12 +168,12 @@ function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection
             const key = `${i}:${s}`, label = `${tick(row.label)}: ${valueText(row, s)}`;
             return <g key={s} role="button" tabIndex={0} aria-label={`${label}. Filter results.`} onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover('')} onFocus={() => setHover(key)} onBlur={() => setHover('')} onClick={() => choose(i, s)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(i, s); } }}>
               <title>{label}</title>{spec.horizontal ? <rect x={left} y={top + i * 40 + 8} width={Math.max(2, value / maximum * (right - left))} height={20} fill={spec.series[s].color} opacity={hover && hover !== key ? token('opacity.disabled') : 1} /> : mode === 'line' ? (s ? <rect x={x - 5} y={y - 5} width={10} height={10} fill={spec.series[s].color} /> : <circle cx={x} cy={y} r={5} fill={spec.series[s].color} />) : <rect x={x - band / 2} y={y} width={band} height={Math.max(2, bottom - y)} fill={spec.series[s].color} opacity={hover && hover !== key ? token('opacity.disabled') : 1} />}
-              {value > 0 && (spec.horizontal || rows.length <= 6) && <text x={spec.horizontal ? Math.max(left + 8, left + value / maximum * (right - left)) : x} y={spec.horizontal ? top + i * 40 + 5 : y - 6} textAnchor={spec.horizontal && value === 0 ? 'start' : 'end'} fill={token('color.text')}>{Number(value.toFixed(2))}</text>}
+              {value > 0 && <text x={spec.horizontal ? left + value / maximum * (right-left) + (value/maximum*(right-left)>String(value).length*8+12 ? -6 : 6) : x} y={spec.horizontal ? top+i*40+22 : mode==='bar'&&bottom-y>=24&&band>=String(value).length*7 ? y+16 : y-8-(mode==='line'&&s>0&&Math.abs((row.values[0]||0)-value)/maximum*(bottom-top)<18?16:0)} textAnchor={spec.horizontal ? (value/maximum*(right-left)>String(value).length*8+12?'end':'start'):'middle'} fill={(spec.horizontal&&value/maximum*(right-left)>String(value).length*8+12)||(mode==='bar'&&!spec.horizontal&&bottom-y>=24&&band>=String(value).length*7)?token('color.text.inverse'):token('color.text')}>{Number(value.toFixed(2))}</text>}
             </g>;
           })}
-          {spec.horizontal ? <text x={left - 8} y={top + i * 40 + 22} textAnchor="end" fill={token('color.text')}><title>{row.label}</title>{row.label.length > Math.floor(left / 7) ? `${row.label.slice(0, Math.max(4, Math.floor(left / 7) - 2))}...` : row.label}</text> : (i === 0 || i === rows.length - 1 || i % Math.max(1, Math.ceil(rows.length / Math.max(2, Math.floor(width / 105)))) === 0) && <text x={baseX(i)} y={bottom + 20} textAnchor="middle" fill={token('color.text.subtle')}>{tick(row.label)}</text>}
+          {spec.horizontal ? <text x={left - 8} y={top + i * 40 + 22} textAnchor="end" fill={token('color.text')}><title>{row.label}</title>{row.label.length > Math.floor(left / 7) ? `${row.label.slice(0, Math.max(4, Math.floor(left / 7) - 2))}...` : row.label}</text> : (i === 0 || i === rows.length - 1 || i % Math.max(1, Math.ceil(rows.length / Math.max(2, Math.floor(width / 105)))) === 0) && <text x={baseX(i)} y={bottom + 20} transform={rows.length>5?`rotate(-40 ${baseX(i)} ${bottom+20})`:undefined} textAnchor={rows.length>5?'end':'middle'} fill={token('color.text.subtle')}>{tick(row.label)}</text>}
         </g>)}
-      </svg>
+      </svg>}
 
     </Box>}
     {spec.note && <Text size="small" color="color.text.subtle">{spec.note}</Text>}

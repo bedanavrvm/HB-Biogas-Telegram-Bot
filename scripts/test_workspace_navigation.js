@@ -15,6 +15,8 @@ const sandbox = { window, URL, URLSearchParams, exports: {} };
 vm.runInNewContext(compiled, sandbox);
 const { readRoute, writeRoute, initialQueuePreferences, reportLocation, formDate } = sandbox.exports;
 const route = readRoute();
+const quarter = reportLocation(new URL('http://127.0.0.1/staff/app/complaints/reports/?range=specific-quarter&from=2025-04-01&to=2025-06-30'));
+assert.equal(quarter.range,'specific-quarter');assert.equal(quarter.from,'2025-04-01');assert.equal(quarter.to,'2025-06-30');
 assert.equal(route.view, 'reports'); assert.equal(route.report.view, 'follow-up');
 assert.equal(route.report.grouping, 'week'); assert.equal(route.report.from, '2024-02-29');
 assert.equal(route.report.page, 4);
