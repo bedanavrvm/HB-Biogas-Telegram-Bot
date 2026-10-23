@@ -13,7 +13,7 @@ export type Evidence = { id: string; name: string; mime_type: string; status: st
 export type Detail = Complaint & { actions: string[]; evidence: Evidence[];
   history: HistoryItem[]; history_truncated: boolean; history_next_cursor: string };
 export type Locations = Record<'branches' | 'counties' | 'sub_counties', { code: string; name: string; parent_code: string }[]>;
-export type Bootstrap = { continuity_key: string; actor: { capabilities: string[] }; location_options: Locations; categories: string[]; counts: Record<string, number>; voice_input: { enabled: boolean; max_seconds: number; fields: string[] }; preferences?: { default_filters: Record<string, string> } };
+export type Bootstrap = { continuity_key: string; actor: { name: string; capabilities: string[] }; location_options: Locations; categories: string[]; counts: Record<string, number>; voice_input: { enabled: boolean; max_seconds: number; fields: string[] }; preferences?: { default_filters: Record<string, string> } };
 export type QueueNeighbour = {key:string;page:number};
 export type Queue = { items: Complaint[]; pagination: { page: number; pages: number; total: number; page_size?:number }; filter_options: Record<'branches' | 'categories', { label: string; count: number }[]>; navigation?:{position:number;total:number;previous:QueueNeighbour|null;next:QueueNeighbour|null}|null };
 export class OperationError extends Error {

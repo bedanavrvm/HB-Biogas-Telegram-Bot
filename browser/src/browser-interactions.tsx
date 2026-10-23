@@ -24,7 +24,7 @@ export function initialColorMode(): 'auto' | 'light' | 'dark' {
 }
 const styles = cssMap({
   theme: { display: 'flex', justifyContent: 'flex-end' },
-  actions: { gridColumn: 3, display: 'flex', alignItems: 'center', gap: token('space.050') },
+  actions: { gridColumn: 3, justifySelf: 'end', display: 'flex', alignItems: 'center', gap: token('space.050') },
 
   toast: { position: 'fixed', bottom: token('space.200'), left: token('space.200'), margin: 0, width: '90vw', maxWidth: '28rem', maxHeight: '50vh', overflowY: 'auto', boxSizing: 'border-box', padding: 0, font: token('font.body'), color: token('color.text'), backgroundColor: 'transparent', border: 'none' },
   notice: { padding: token('space.200'), borderWidth: token('border.width'), borderStyle: 'solid', borderRadius: token('radius.medium'), boxShadow: token('elevation.shadow.overlay') },
@@ -83,7 +83,7 @@ export function useViewportPane(enabled = true) {
   const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!element || !enabled) return;
-    const resize = () => { if(!element.getClientRects().length)return;const font=parseFloat(getComputedStyle(document.documentElement).fontSize),viewport=window.visualViewport?.height||innerHeight;const bounded=innerWidth>=64*font&&viewport>=40*font;const top=element.getBoundingClientRect().top;const next=bounded?`${Math.max(200,viewport-top-16)}px`:'';if(element.style.height!==next)element.style.height=next; };
+    const resize = () => { if(!element.getClientRects().length)return;const font=parseFloat(getComputedStyle(document.documentElement).fontSize),viewport=window.visualViewport?.height||innerHeight;const bounded=innerWidth>=90*font&&viewport>=40*font;const top=element.getBoundingClientRect().top;const next=bounded?`${Math.max(200,viewport-top-16)}px`:'';if(element.style.height!==next)element.style.height=next; };
     const observer = new ResizeObserver(resize); if (element.parentElement) observer.observe(element.parentElement);
     const text=new MutationObserver(resize);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});
     window.addEventListener('resize', resize); window.visualViewport?.addEventListener('resize', resize); resize();

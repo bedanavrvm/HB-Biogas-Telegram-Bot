@@ -233,3 +233,17 @@ its final consumer has moved. Role grants and workflow semantics remain local.
 
 **STOP:** this is preparation, not permission to start Phase 6. The user's
 explicit migration approval must be obtained after reviewing that package.
+
+## Complaints browser manual-audit repair candidate, 23 October 2026
+
+The closed operations workspace now binds the existing ADS shell, Pressable,
+Form/Label/Textfield/Select, checkbox semantics, task footer, status, feedback,
+and report compositions to the F01-F39 corrections. The shared access shell also
+removes its unused middle navigation slot. Relevant usage references and bounded
+calendar/viewer/mobile-register compositions are recorded in `browser/DESIGN.md`.
+
+Review: [repair record](reviews/2026-10-23-complaints-ui-repair.md).
+Original audit evidence remains in `reviews/complaints-manual-audit-assets/`,
+with separately prefixed repair captures. The source ratchet records the new
+candidate hashes only; it does not authorize Phase 6, production browser access,
+Telegram appearance changes or screenshot-baseline replacement.

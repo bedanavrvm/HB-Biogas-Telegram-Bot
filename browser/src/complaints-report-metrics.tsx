@@ -5,8 +5,8 @@ import { Text } from '@atlaskit/primitives/compiled/text';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { MetricText } from '@atlaskit/primitives/compiled/metric-text';
 import { Pressable } from '@atlaskit/primitives/compiled/pressable';
-import SectionMessage from '@atlaskit/section-message';
 import { token } from '@atlaskit/tokens';
+import { displayDate } from './complaints-ui';
 import { duration, type ReportSummary, type ReportSelection } from './complaints-report-charts';
 
 export type PreviousSummary = Pick<ReportSummary, 'total'|'pending'|'resolved'|'card_timing'|'card_coverage'>;
@@ -16,14 +16,15 @@ const styles = cssMap({
 });
 function comparison(current: number|null, previous: number|null, direction: number, unit = '') {
   if(current === null || previous === null) return {text:'No earlier data yet', color:'color.text.subtle' as const};
-  const difference=current-previous, change=Number(Math.abs(difference).toFixed(unit===' pts'?0:1));
+  const difference=current-previous, change=Number(Math.abs(difference).toFixed(1));
   const word=difference===0?'Unchanged':direction===0?'Change':difference*direction>0?'Better':'Worse';
   const color=word==='Better'?'color.text.success':word==='Worse'?'color.text.danger':'color.text.subtle';
-  return {text:`${difference>0?'↑':difference<0?'↓':'→'} ${change}${unit} · ${word} · was ${Number(previous.toFixed(unit===' pts'?0:1))}${unit===' pts'?'%':unit}`,color} as const;
+  if(difference===0)return {text:`Unchanged · previously ${Number(previous.toFixed(1))}${unit===' pts'?'%':unit}`,color} as const;
+  return {text:`${difference>0?'↑':difference<0?'↓':'→'} ${change===0?'<0.1':change}${unit} · ${word} · previously ${Number(previous.toFixed(1))}${unit===' pts'?'%':unit}`,color} as const;
 }
-export function ReportMetrics({summary,previous,basis,select}:{summary:ReportSummary;previous:PreviousSummary|null;basis:string;select:(value:ReportSelection)=>void}) {
+export function ReportMetrics({summary,previous,basis,select,view='overview',from='',to=''}:{summary:ReportSummary;previous:PreviousSummary|null;basis:string;view?:string;from?:string;to?:string;select:(value:ReportSelection)=>void}) {
   const root=useRef<HTMLDivElement>(null);
-  useEffect(()=>{const node=root.current!;const measure=()=>{const em=parseFloat(getComputedStyle(document.documentElement).fontSize),width=node.clientWidth;node.style.gridTemplateColumns=`repeat(${width>=72*em?6:width>=40*em?3:width>=16*em?2:1},minmax(0,1fr))`;};const resize=new ResizeObserver(measure),text=new MutationObserver(measure);resize.observe(node);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});measure();return()=>{resize.disconnect();text.disconnect();};},[]);
+  useEffect(()=>{const node=root.current!;const measure=()=>{const em=parseFloat(getComputedStyle(document.documentElement).fontSize),width=node.clientWidth;node.style.gridTemplateColumns=`repeat(${Math.min(shown.length,width>=40*em?3:width>=20*em?2:1)},minmax(0,1fr))`;};const resize=new ResizeObserver(measure),text=new MutationObserver(measure);resize.observe(node);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});measure();return()=>{resize.disconnect();text.disconnect();};},[view]);
   const timing=summary.card_timing, before=previous?.card_timing, coverage=summary.card_coverage;
   const metrics: {label:string;value:string;current:number|null;previous:number|null;direction:number;unit:string;coverage?:{eligible:number;contributing:number};filters:Record<string,string>}[]=[
     {label:'Resolved on time',value:timing.on_time_percent===null?'Not available':`${Math.round(timing.on_time_percent)}%`,current:timing.on_time_percent,previous:before?.on_time_percent??null,direction:1,unit:' pts',coverage:coverage.on_time,filters:{metric:'on_time'}},
@@ -33,15 +34,18 @@ export function ReportMetrics({summary,previous,basis,select}:{summary:ReportSum
     }),
     ...([{label:basis==='resolved'?'Resolved in range':'Reported in range',key:'total',direction:0,status:''},{label:'Still open',key:'pending',direction:-1,status:'open'},{label:'Closed',key:'resolved',direction:1,status:'resolved'}] as const).map(item=>({label:item.label,value:String(summary[item.key]),current:summary[item.key],previous:previous?.[item.key]??null,direction:item.direction,unit:'',coverage:undefined,filters:Object.fromEntries(item.status?[['status',item.status]]:[])})),
   ];
-  const warnings=([{name:'first response',counts:coverage.first_response},{name:'resolution time',counts:coverage.resolution},{name:'resolution target',counts:coverage.on_time}]).filter(item=>item.counts.eligible>0&&item.counts.contributing/item.counts.eligible<0.5);
-  return <Stack space="space.200"><Box ref={root} role="group" aria-label="Report metrics" xcss={styles.metrics}>{metrics.map(item=>{
+  const shown=metrics.filter(item=>view==='turnaround'?Boolean(item.coverage):view==='follow-up'?item.label==='Still open':!item.coverage);
+  let previousPeriod='';
+  if(previous&&from&&to){const start=Date.parse(from+'T12:00:00Z'),end=Date.parse(to+'T12:00:00Z'),day=86400000;previousPeriod=displayDate(new Date(start-(end-start+day)).toISOString())+' – '+displayDate(new Date(start-day).toISOString());}
+  return <Stack space="space.150">{previousPeriod&&<Text size="small" color="color.text.subtle">Compared with {previousPeriod}</Text>}<Box ref={root} role="group" aria-label="Report metrics" xcss={styles.metrics}>{shown.map(item=>{
     const delta=comparison(item.current,item.previous,item.direction,item.unit);
     const drill= !item.coverage;
     const Card=drill?Pressable:Box;
     return <Card key={item.label} xcss={styles.card} aria-label={`${drill?'View ':''}${item.label.toLowerCase()}${drill?' complaints':''}`} {...(drill?{onClick:()=>select({label:item.label,filters:{...item.filters,date_basis:basis}})}:{})}>
       <Text size="small" weight="medium" color="color.text.subtle">{item.label}</Text>
-      <Stack space="space.050"><MetricText size="medium">{item.value}</MetricText>{item.coverage&&<Text size="small" color="color.text.subtle">Based on {item.coverage.contributing} of {item.coverage.eligible}</Text>}</Stack>
+      <Stack space="space.050"><MetricText size="medium">{item.value}</MetricText>{item.coverage&&<Text size="small" color="color.text.subtle">Recorded for {item.coverage.contributing} of {item.coverage.eligible} eligible complaints</Text>}</Stack>
+      {item.coverage&&item.coverage.contributing<item.coverage.eligible&&<Text size="small" color="color.text.warning">{item.coverage.eligible-item.coverage.contributing} missing {item.label==='Resolved on time'?'timing or target':'timing'} records</Text>}
       <Text size="small" color={delta.color}>{delta.text}</Text>
     </Card>;
-  })}</Box>{warnings.length>0&&<SectionMessage appearance="warning" title="Some timing is missing" headingLevel="h3">{warnings.map(item=><Text as="p" key={item.name}>{item.counts.eligible-item.counts.contributing} of {item.counts.eligible} complaints have no recorded {item.name}. This metric does not describe every eligible complaint.</Text>)}</SectionMessage>}</Stack>;
+  })}</Box></Stack>;
 }

@@ -32,7 +32,7 @@ export function displayDate(value: string, month = false) {
   return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat('en-GB', { ...(month ? {} : { day: 'numeric' }), month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(parsed).replace(/Sept\b/, 'Sep');
 }
 const styles = cssMap({
-  dialog: { font: token('font.body'), width: '94vw', maxWidth: '60rem', maxHeight: '94vh', boxSizing: 'border-box', padding: 0, borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.large'), backgroundColor: token('elevation.surface.overlay'), color: token('color.text'), boxShadow: token('elevation.shadow.overlay'), overflow: 'visible' },
+  dialog: { font: token('font.body'), width: '94vw', maxWidth: '46rem', maxHeight: '94vh', boxSizing: 'border-box', padding: 0, borderWidth: token('border.width'), borderStyle: 'solid', borderColor: token('color.border'), borderRadius: token('radius.large'), backgroundColor: token('elevation.surface.overlay'), color: token('color.text'), boxShadow: token('elevation.shadow.overlay'), overflow: 'visible' },
   frame: { display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', maxHeight: '94vh', minHeight: 0 },
   header: { padding: token('space.200'), borderBlockEnd: `${token('border.width')} solid ${token('color.border')}` },
   body: { padding: token('space.200'), overflowY: 'auto', minHeight: 0, overscrollBehavior: 'contain' },
@@ -61,10 +61,13 @@ let bodyLocks=0, previousOverflow='';
 export function DialogStatus({children}:{children:React.ReactNode}) { const {status}=useContext(DialogContext);return status?createPortal(children,status):null; }
 export function DialogFooter({children}:{children:React.ReactNode}) {
   const {footer}=useContext(DialogContext),root=useRef<HTMLDivElement>(null);
-  useLayoutEffect(()=>{const node=root.current;if(!node)return;const measure=()=>{node.style.gridTemplateColumns=node.clientWidth<18*parseFloat(getComputedStyle(document.documentElement).fontSize)?'minmax(0, 1fr)':'repeat(2, minmax(0, 1fr))';};const resize=new ResizeObserver(measure),text=new MutationObserver(measure);resize.observe(node);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});measure();return()=>{resize.disconnect();text.disconnect();};},[footer]);
+  useLayoutEffect(()=>{const node=root.current;if(!node)return;const measure=()=>{node.style.gridTemplateColumns='repeat(2, minmax(0, 1fr))';if(node.clientWidth<18*parseFloat(getComputedStyle(document.documentElement).fontSize)||Array.from(node.querySelectorAll('button span')).some(span=>span.clientWidth>0&&span.scrollWidth>span.clientWidth+1))node.style.gridTemplateColumns='minmax(0, 1fr)';};const resize=new ResizeObserver(measure),text=new MutationObserver(measure);resize.observe(node);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});measure();return()=>{resize.disconnect();text.disconnect();};},[footer]);
   return footer?createPortal(<Box ref={root} xcss={styles.footerActions}>{children}</Box>,footer):null;
 }
 export function Section({title,children}:{title:string;children:React.ReactNode}) { return <Box xcss={styles.section}><Stack space="space.150"><Heading as="h3" size="small">{title}</Heading>{children}</Stack></Box>; }
+export function useValidationFocus(formId:string,errors:Record<string,string>) {
+  useEffect(()=>{if(!Object.keys(errors).length)return;const frame=requestAnimationFrame(()=>{const input=document.getElementById(formId)?.querySelector<HTMLElement>('[aria-invalid="true"]');input?.focus();input?.scrollIntoView({block:'nearest'});});return()=>cancelAnimationFrame(frame);},[formId,errors]);
+}
 export function ActionButton({tone='positive',...props}:React.ComponentProps<typeof Button>&{tone?:'positive'|'destructive'|'neutral'}) {
   const root=useRef<HTMLDivElement>(null);
   useLayoutEffect(()=>{const node=root.current;if(!node)return;const colors=[['--ds-background-brand-bold',token('color.background.success.bold')],['--ds-background-brand-bold-hovered',token('color.background.success.bold.hovered')],['--ds-background-brand-bold-pressed',token('color.background.success.bold.pressed')]];colors.forEach(([key,value])=>{if(tone==='positive')node.style.setProperty(key,value);else node.style.removeProperty(key);});},[tone]);
@@ -85,6 +88,8 @@ export function AdaptiveSelect<Option extends {label:string;value:string|number}
 /** Native modal focus/inert/Escape semantics with the existing ADS content. */
 export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean }) {
   const ref = useRef<HTMLDialogElement|null>(null), heading = useId();
+  const [online,setOnline]=useState(navigator.onLine);
+  useEffect(()=>{const update=()=>setOnline(navigator.onLine);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
   const scrimDown = useRef(false);
   const [root,setRoot]=useState<HTMLDialogElement|null>(null),[status,setStatus]=useState<HTMLDivElement|null>(null),[footer,setFooter]=useState<HTMLDivElement|null>(null);
   const bind=useCallback((node:HTMLDialogElement|null)=>{ref.current=node;setRoot(node);},[]);
@@ -105,7 +110,7 @@ export function TaskDialog({ title, close, children, compact = false, wide = fal
     const rect = event.currentTarget.getBoundingClientRect();
     return event.target === event.currentTarget && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
   };
-  return <Box as="dialog" ref={bind} aria-labelledby={heading} onPointerDown={event=>{scrimDown.current=outside(event);}} onPointerUp={event=>{const dismiss=scrimDown.current&&outside(event);scrimDown.current=false;if(dismiss)closeRef.current();}} onPointerCancel={()=>{scrimDown.current=false;}} xcss={cx(styles.dialog,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
+  return <Box as="dialog" ref={bind} aria-labelledby={heading} onPointerDown={event=>{scrimDown.current=outside(event);}} onPointerUp={event=>{const dismiss=scrimDown.current&&outside(event);scrimDown.current=false;if(dismiss)closeRef.current();}} onPointerCancel={()=>{scrimDown.current=false;}} xcss={cx(styles.dialog,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{hasStatus&&!online&&<Box role="status"><Text color="color.text.warning">You are offline. Keep editing and reconnect before saving. Nothing is submitted automatically.</Text></Box>}{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
 }
 
 type Confirmation = { message: string; title: string; accept: string; cancel: string; resolve: (value: boolean) => void };
@@ -123,19 +128,20 @@ export function ConfirmationHost() {
 }
 
 type MenuItem = { label: string; run: ()=>void|Promise<void>; disabled?: boolean; selected?: boolean };
-export function ActionMenu({label,icon,items}:{label:string;icon?:React.ComponentProps<typeof IconButton>['icon'];items:MenuItem[]}) {
+export function ActionMenu({label,icon,items,heading}:{label:string;icon?:React.ComponentProps<typeof IconButton>['icon'];items:MenuItem[];heading?:string}) {
   const [open,setOpen]=useState(false),anchor=useRef<HTMLDivElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
   useEffect(()=>{
     if(!open)return;const node=panel.current!;node.setAttribute('popover','auto');
-    const place=()=>{const bounds=anchor.current!.getBoundingClientRect(),height=window.visualViewport?.height||innerHeight;node.style.insetInlineStart=`${Math.max(8,Math.min(bounds.left,innerWidth-node.offsetWidth-8))}px`;node.style.top=`${Math.max(8,Math.min(bounds.bottom+4,height-node.offsetHeight-8))}px`;};
+    const place=()=>{const bounds=anchor.current!.getBoundingClientRect(),height=window.visualViewport?.height||innerHeight;if(bounds.bottom<0||bounds.top>height){setOpen(false);return;}const below=bounds.bottom+4,above=bounds.top-node.offsetHeight-4;node.style.insetInlineStart=`${Math.max(8,Math.min(bounds.left,innerWidth-node.offsetWidth-8))}px`;node.style.top=`${Math.max(8,below+node.offsetHeight<=height-8?below:above>=8?above:height-node.offsetHeight-8)}px`;};
     const toggle=(event:Event)=>{if((event as ToggleEvent).newState==='closed')setOpen(false);};
     node.addEventListener('toggle',toggle);node.showPopover();place();node.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     window.addEventListener('resize',place);
-    return()=>{node.removeEventListener('toggle',toggle);window.removeEventListener('resize',place);if(node.matches(':popover-open'))node.hidePopover();};
+    window.addEventListener('scroll',place,true);
+    return()=>{node.removeEventListener('toggle',toggle);window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);if(node.matches(':popover-open'))node.hidePopover();};
   },[open]);
   const close=()=>{setOpen(false);anchor.current?.querySelector<HTMLButtonElement>('button')?.focus();};
   const keyboard=(event:React.KeyboardEvent<HTMLDivElement>)=>{const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));const index=buttons.indexOf(document.activeElement as HTMLButtonElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}else if(event.key==='Escape'){event.preventDefault();close();}};
-  return <Box ref={anchor} xcss={styles.menuAnchor}>{icon?<IconButton appearance="subtle" label={label} icon={icon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}/>:<Button iconAfter={ChevronDownIcon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{label}</Button>}{open&&<Box ref={panel} id={id} role="menu" aria-label={label} xcss={styles.menu} onKeyDown={keyboard}><Stack space="space.050">{items.map(item=><Button key={item.label} appearance="subtle" shouldFitContainer role={item.selected===undefined?'menuitem':'menuitemradio'} aria-checked={item.selected} isDisabled={item.disabled} isSelected={item.selected} onClick={()=>{close();void item.run();}}>{item.label}</Button>)}</Stack></Box>}</Box>;
+  return <Box ref={anchor} xcss={styles.menuAnchor}>{icon?<IconButton appearance="subtle" label={label} icon={icon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}/>:<Button iconAfter={ChevronDownIcon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{label}</Button>}{open&&<Box ref={panel} id={id} role="menu" aria-label={label} xcss={styles.menu} onKeyDown={keyboard}><Stack space="space.050">{heading&&<Box role="presentation"><Text weight="semibold">{heading}</Text></Box>}{items.map(item=><Button key={item.label} appearance="subtle" shouldFitContainer role={item.selected===undefined?'menuitem':'menuitemradio'} aria-checked={item.selected} isDisabled={item.disabled} isSelected={item.selected} onClick={()=>{close();void item.run();}}>{item.label}</Button>)}</Stack></Box>}</Box>;
 }
 
 /** Match actual control boxes; does not restyle ADS labels, colours or focus. */

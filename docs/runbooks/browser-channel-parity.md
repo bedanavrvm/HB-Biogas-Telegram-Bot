@@ -865,3 +865,21 @@ acceptance gates above remain open. No Telegram UI, roles or approval baseline
 was migrated, and no human review service was restarted. Production remains
 disabled/unmounted. UI rollback never clears native security rows or weakens
 evidence authorization; use the review record and ADR 0074 boundaries.
+
+
+### 23 October 2026: manual Complaints UI audit repair
+
+The user requested UI corrections after the exhaustive manual audit and
+explicitly requested no tests. This follow-up uses Playwright CLI journeys and
+static type/lint/build/source-integrity checks; the earlier test results above
+were not rerun and must not be attributed to this source revision.
+
+The current change/disposition/evidence record is
+[2026-10-23-complaints-ui-repair.md](../ui-standard/reviews/2026-10-23-complaints-ui-repair.md).
+All before/after screenshots live in the same
+[evidence folder](../ui-standard/reviews/complaints-manual-audit-assets/).
+Review remains local, native, synthetic and provider-blocked. The repair adds
+safe existing-record sync timestamps to the authorized recovery projection;
+no write, role, authentication or production-mount contract is changed.
+Physical-device, assistive-technology, M1, privacy and human acceptance remain
+separate gates. Rolling back UI code does not clear security or workflow rows.

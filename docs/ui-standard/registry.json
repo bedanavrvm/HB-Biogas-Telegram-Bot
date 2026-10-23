@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "4995d709c657d6b2856fb87ef98d09eb3d5029df92063079721550d176a9ec40",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "771ee7f0eb3e92bb0ba5a0a181c4d20c825d4cade95d2b82a72deda2d97c6bd4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -575,9 +575,9 @@
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "3afba68004e387b73b78407a1066af187270644ba9ea6ef5f6971dd7a8b5e454",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "sha256": "174855e2143a0640ac269be4b14632beccd6bd9647cc5edc6750971142a0b909",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints.html",
@@ -629,9 +629,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "71fe70fd715e3190c5ee6d2da4567d3446f32afbbe83a061dcbdd813a33455aa",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "5f7a6d1713584f3ae001407771fa6976c21eb0fd458f5d0a84f7ef8c49410442",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -641,33 +641,33 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "8694f9589286f1ae6b921411886fad876fd43e17c87a24ebd17f8b0f6f41f7ef",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "2305f5b1a4457ea0e928f96d4d9e4c78999f93c5ad877be38480d181320e6243",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "79907672091fc2afdefe9ec891756d5b6c4909e82865791e155201bd0024cdb8",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "9e5670a05a3de259929ae6acfd6465f8bae5b5c6a0b2e599e3c6349394d772b7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "94a8a7d68a97d22245209707711c7c59c152b1d368e4111349e0bc91f5b38a6b",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "6831484d4caa63db971a3e21533a7972dfcdaa73b603ee98c9c5ab0e3d414427",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "f643c241028719484cc67b4bd8a8783213d0f1cd07478a18cde4e8a2a73d9f21",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "f81df9cfe37a830a78b69d15cfb90e748c556328bc3b86153848ea2a6c4289a7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "22c32a3c271e8225fac13626a9fd27b65b3dd0a22bb6a51e0b8c5ed15eaa937a",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "3d1564942bea87edfd3c923fa1d086b552931ed6bfa5e68338ee13f1d5a4fea9",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "1d384c963a121e6c3f736d32c85149ed545132371e8715ad16e79f98f49d3292",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "5011bb3efa2662fd8067934b91935ec7daf32454e43a961b0f34e2e10cadf908",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "2e9216c694c7bab49e48e8bf4426d5d53a51acfd7c34e3d5d0b58f02be0081e3",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "973a388f71a95010bfe70fbe96c9166f96d81bf7d3060a9e7fe5ccb71bbaeaac",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -701,15 +701,15 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "e01882b5d3f7f281b90c96dcb2cddfcdea4dbbe54b21310345c2c5a07202b0ba",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "82e3c5861c5eebc1ccdaaa27ae99a9011f17dd4742731491de1bf21744a0cad8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
-      "sha256": "573740c2b6f8f34db9f3f343c6433826427105b99d5daf79e144dfaa7703ba16",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "470fd8f577e8a0b1d8a52c054b283840d7f1af8a0e70acb1ee69ccc6b440082f",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/workspace-task.tsx",
@@ -719,15 +719,15 @@
     },
     {
       "path": "browser/src/complaints-date-control.tsx",
-      "sha256": "976a0ff92a93fc2bef3ede92b0d4eb1a686026802d973a1951b7033f62864a19",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "20d120e64fe3df0593cfe4e9ecb0fcd4900b91a6dafad828443229677ee381bd",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     },
     {
       "path": "browser/src/complaints-report-metrics.tsx",
-      "sha256": "047e5a050697503624c61e4f6c77cd26367baab6ee8151c053c4a135fdd223ad",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "718945d72c42a66565184dad069b17fb579eb5016178119e4038c9ad6347920d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
     }
   ],
   "source_roots": [

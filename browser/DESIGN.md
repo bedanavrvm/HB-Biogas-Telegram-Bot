@@ -531,12 +531,12 @@ Official usage/design guidance rechecked on 23 October:
 Intentional bounded compositions: the existing native `dialog` wraps pinned
 ADS Form/Button/Heading content instead of adding the incompatible modal
 package. It retains the existing h2 task heading and explicit aria-labelledby.
-The calendar composes existing ADS buttons/textfields/selects; the notification
+The calendar composes existing ADS Pressable/textfields/selects; the notification
 host composes existing primitives/icons; native popovers supply top-layer menus.
 No native alert/confirm/prompt or browser date picker supplies an application
 decision. OS file/camera pickers and beforeunload remain necessary exceptions.
 Live geometry adjusts mobile input size, available pane height, text enlargement,
-six/three/two/one metric columns and the AG Grid header's scroll position.
+three/two/one metric columns and the AG Grid header's scroll position.
 These adjustments use the installed controls and tokens, not a second palette.
 Charts retain first-party SVG geometry with keyboard marks and visible textual
 details; chart choices and help use product controls.
@@ -582,3 +582,49 @@ Button/Heading/Box/Stack compose the exit task. No new asset, palette, component
 library or layout exception is introduced. The existing compact filter toolbar
 exception remains documented above. Synthetic captures/technical checks do not
 approve a Telegram standard, certify design quality or open an operational gate.
+
+## Complaints manual-audit corrections, 23 October 2026
+
+The repair candidate is tracked in
+`docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md`, against F01-F39
+of the manual audit. Source bindings remain candidates; the original audit,
+approved baselines and Telegram migration hold remain unchanged.
+
+Official guidance consulted for these corrections:
+
+- [Navigation layout](https://atlassian.design/components/navigation-system/layout/code):
+  omit an unused middle slot so branding and real actions retain their space.
+- [Form usage](https://atlassian.design/components/form/usage): required markers,
+  field-linked errors, first-error focus and dependent location choices.
+- [Calendar usage](https://atlassian.design/components/calendar/usage) and
+  [Pressable](https://atlassian.design/components/primitives/pressable/code):
+  complete numeric dates, editable year text, visible selected days and labels.
+- [Modal dialog usage](https://atlassian.design/components/modal-dialog/usage):
+  focused tasks, case identity, a bounded body and readable action footer.
+- [Checkbox usage](https://atlassian.design/components/checkbox/usage):
+  the existing Open next checkbox semantics now have a checked/unchecked icon.
+- [Section message usage](https://atlassian.design/components/section-message/usage):
+  one persistent queue error with Retry; offline guidance inside active forms.
+- [Data visualization color](https://atlassian.design/foundations/color/data-visualization-color):
+  token-backed radial legend swatches identify their matching chart series.
+
+Existing bounded exceptions continue: native dialog/popover semantics compose
+installed ADS controls; no additional package is installed. Calendar day cells
+use the installed Pressable with token typography, surfaces and visible focus,
+without Button's truncating text wrapper. Custom SVG charts and AG Grid remain.
+Mobile register rows use ADS text, buttons, status and selection controls rather
+than a horizontally clipped grid. Only long narrative desktop columns wrap;
+short fields retain compact rows and the reference stays pinned.
+
+The queue/detail split uses the supported 90rem breakpoint; narrower screens
+show one working pane with Back navigation. Auto-fit grids use available width
+for facts, fields and attachment cards. Runtime geometry keeps existing dialog
+footers readable and fits the evidence viewport around its actual controls;
+Fit page preserves image aspect ratio, while Fit width/zoom retain scrolling.
+This is application layout, not a new palette, type scale or component library.
+
+Report filters edit a local draft until Apply; invalid dates cannot apply.
+Each report tab shows its own metrics and timing coverage. Single-point charts
+use complete text; radial legends include swatches. Account names and safe sync
+timestamps come from the existing authorized actor/record projections. No raw
+provider diagnostics, broader access or new workflow state is introduced.

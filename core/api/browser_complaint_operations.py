@@ -318,10 +318,14 @@ def recovery(request, group, actor):
               rows.values('complaint_control__sync_status').annotate(count=Count('pk'))}
     counts = {status: totals.get(status, 0) for status in ('pending', 'failed', 'suspended')}
     counts['total'] = sum(counts.values())
-    visible = rows.select_related('complaint_control').order_by('complaint_control__sync_status', 'pk')[:50]
+    visible = rows.select_related('complaint_control').order_by(
+        'complaint_control__sync_status', 'complaint_control__updated_at', 'pk')[:50]
     return JsonResponse({'counts': counts, 'issues': [{
         'key': str(row.pk), 'reference': row.complaint_control.reference_number,
         'status': row.complaint_control.sync_status,
+        'status_updated_at': row.complaint_control.updated_at.isoformat(),
+        'last_synced_at': row.complaint_control.last_sync_at.isoformat()
+            if row.complaint_control.last_sync_at else '',
         'can_retry': cases.complaint_sheet_projection_enabled(group)
             and cases.actor_can(group, actor, 'complaint.case.sync.retry', row),
     } for row in visible]})
