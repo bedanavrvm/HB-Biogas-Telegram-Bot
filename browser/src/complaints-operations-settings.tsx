@@ -8,7 +8,7 @@ import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { Text } from '@atlaskit/primitives/compiled/text';
 import { cssMap } from '@atlaskit/css';
 import SectionMessage from '@atlaskit/section-message';
-import Select from '@atlaskit/select';
+import { AdaptiveSelect as Select, ActionButton } from './complaints-ui';
 import { operation, OperationError } from './complaints-operations-transport';
 import { EmailSchedules } from './complaints-operations-reports';
 import { notify } from './browser-interactions';
@@ -28,6 +28,6 @@ export function WorkspaceSettings({ group, branches, reports }: { group: string;
     {notice && <Box role="status"><SectionMessage appearance="success"><Text>{notice}</Text></SectionMessage></Box>}
     {!preferences && !error && <Text>Loading preferences…</Text>}
     {preferences && <Form onSubmit={save}>{({formProps}) => <Box as="form" {...formProps}><Stack space="space.250"><Box role="group" aria-labelledby="default-status-label"><Text id="default-status-label" weight="medium">Default status</Text><Inline shouldWrap space="space.050">{[{value:'pending',label:'Open + Reopened'},{value:'resolved',label:'Closed'},{value:'all',label:'All complaints'}].map(option => <Button key={option.value} isSelected={(preferences.default_filters.status || 'pending') === option.value} onClick={() => setPreferences({...preferences,default_filters:{...preferences.default_filters,status:option.value}})}>{option.label}</Button>)}</Inline></Box>
-    <Box><Label htmlFor="default-branch">Default branch</Label><Select inputId="default-branch" options={[{value:'',label:'All branches'},...Array.from(new Set([...branches,preferences.default_filters.branch || ''])).filter(Boolean).map(value=>({value,label:value}))]} value={{value:preferences.default_filters.branch||'',label:preferences.default_filters.branch||'All branches'}} onChange={option=>setPreferences({...preferences,default_filters:{...preferences.default_filters,branch:option?.value||''}})}/></Box><Text size="small" color="color.text.subtle">Defaults apply when you open Complaints. Links keep their selected status.</Text><Inline><Button type="submit" appearance="primary" isLoading={busy}>Save preferences</Button></Inline></Stack></Box>}</Form>}
+    <Box><Label htmlFor="default-branch">Default branch</Label><Select inputId="default-branch" options={[{value:'',label:'All branches'},...Array.from(new Set([...branches,preferences.default_filters.branch || ''])).filter(Boolean).map(value=>({value,label:value}))]} value={{value:preferences.default_filters.branch||'',label:preferences.default_filters.branch||'All branches'}} onChange={option=>setPreferences({...preferences,default_filters:{...preferences.default_filters,branch:option?.value||''}})}/></Box><Text size="small" color="color.text.subtle">Defaults apply when you open Complaints. Links keep their selected status.</Text><Inline><ActionButton type="submit" isLoading={busy}>Save preferences</ActionButton></Inline></Stack></Box>}</Form>}
   </Stack></Box>{reports && <EmailSchedules group={group}/>}</Stack>;
 }

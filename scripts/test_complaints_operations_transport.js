@@ -42,6 +42,7 @@ async function main() {
     });
     assert.ok(metrics.page <= metrics.width, name + ': horizontal clipping'); layouts.push({ name, ...metrics });
     assert.ok(metrics.mainScroll <= metrics.mainClient + 1, name + ': workspace clipping');
+    if(metrics.width>=1024)assert.ok(metrics.main>=metrics.width-32,name+': navigation shell unexpectedly narrowed the main area');
     if (metrics.width >= 1024 && metrics.detailRight) assert.ok(metrics.contentRight - metrics.detailRight <= 32, name + ': unused detail width');
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }); captures++;
     // This harness freezes timers. Dismiss the captured toast before the next
@@ -245,6 +246,7 @@ async function main() {
 
     await page.getByRole('tab', {name:'Reports',exact:true}).click();
     await page.getByRole('grid', {name:'Complaint results'}).waitFor();
+    await page.waitForFunction(()=>document.querySelectorAll('[role="columnheader"]').length===10);
     assert.equal(await page.getByRole('columnheader').count(),10);
     assert.equal(await page.getByLabel('From',{exact:true}).count(),0);
     await select('Date range','All dates'); await heading('11 complaints');

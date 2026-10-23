@@ -567,3 +567,78 @@ PostgreSQL/shared workers, real delivery, privacy/named readers, M1 and explicit
 human design/release acceptance remain outstanding. No commit or deployment
 was performed. Rollback restores the prior browser artifact/adapter while
 keeping the browser release switches disabled; canonical records are retained.
+
+## Complaints composition and interaction correction (23 October 2026)
+
+The user approved the whole browser Complaints correction and an explicit
+green-positive/red-destructive action convention. This supersedes the earlier
+theme-popup and in-flow save-indicator presentation, not its security contracts.
+
+- Dialogs have a persistent titled header with X, independently scrolling body
+  and separate action footer. Header status has reserved height from initial
+  render; Saving/Saved cannot insert a row above form fields. Spinner/check/
+  warning/error icon plus concise text convey state. Saved remains a confirmed
+  server draft; detailed recovery/validation stays in the task.
+- Filter dialogs use a 720px maximum width, available phone width, grouped date
+  and complaint criteria and a separate Reset/Done footer. Searchable option
+  menus portal into the active dialog's accessible layer, outside its scrolling
+  body. The menu itself adapts to viewport space and scrolls independently.
+- Heading/Create, tabs/utility controls and search/filter occupy distinct rows.
+  A compact sync control replaces the sentence above results. The native
+  recovery endpoint additively returns exact pending/failed/suspended/total
+  counts over the same existing group query; disclosed records stay capped at
+  50, failed first. Counts represent complaints, not individual queued updates.
+- Attachment capture buttons pair symmetrically. File rows keep their name and
+  Preview/Download controls aligned. Copy/Next are detail utilities; workflow
+  actions have their own divided section. Modal Cancel/Submit no longer look
+  like attachment controls. Section titles, metadata colours and light dividers
+  provide hierarchy without changing the existing type family or type scale.
+- Positive buttons use the documented local success-token adapter, destructive
+  buttons use ADS danger and utilities remain neutral. Direct theme switching
+  sits at the navbar's far right, follows system initially and persists only
+  the explicit theme enum. There is no theme dialog.
+- Turnaround metrics share three equal columns at ordinary phone sizes and
+  reflow for enlarged text. Header utilities and footer actions also reflow
+  rather than clipping. Error toasts remain dismissible and are positioned
+  above a modal footer so that Submit is never hidden behind a notification.
+
+Native dialog/select composition, local positive-action token mapping and
+measured accessibility layout are explicit exceptions in browser/DESIGN.md.
+No new dependency, font, model, migration, workflow permission or operational
+channel mount is introduced. Production stays off/unmounted and Telegram
+assets/authentication are unchanged. The API counts are additive; rollback may
+restore the old browser artifact without deleting any canonical records.
+
+Verification (23 October 2026): all 37 focused tests passed with no skips:
+24 operations API tests, nine authentication/restricted-read transport tests,
+and four operations browser tests covering production and development builds.
+The full native-session journeys captured 101 screenshots per build; the
+responsive CLI journeys additionally covered 320/360/390/768/1366/1920 px,
+200% text, light/dark, 100-option searchable menus, unchanged field positions
+during autosave, offline/failed-save recovery, media and real Excel downloads.
+Screenshots and layout geometry were inspected, including the repaired
+development desktop width. They remain synthetic candidates under
+`test-results/complaints-browser-operations/<build>/` and
+`test-results/complaints-responsive/<build>/`, never approved baselines.
+TypeScript, recommended ADS/style lint, dependency/notice/build guards, 28
+tooling unit tests, architecture/UI ratchets, changed-Python Ruff and whitespace
+checks also passed. Authentication, restricted-read and operations artifacts
+were rebuilt in both modes; the final development operations build used one
+Parcel worker after a native multi-worker build exited without diagnostics.
+
+The regression loop initially caught dropped Grid aria-label forwarding,
+200% header clipping and a toast intercepting Submit. These were corrected in
+the actual composition rather than hiding overflow, shrinking text, forcing
+test clicks or weakening the assertions. An early foreign-group denial test
+was corrected to expect the existing 403, not by relaxing access checks.
+The development run additionally caught the documented ADS atomic-class order
+collision: local single-column declarations now use `repeat(1, minmax(0, 1fr))`
+instead of reusing Root's base class. A real Main-width assertion protects
+against empty desktop gutters; waiting for virtualized headers alone was not
+treated as a fix. Error notifications now clear with their owning error, not
+an unrelated notification or a successful task on another screen.
+
+Restart the existing local-review command to load this build. A running host
+keeps startup-pinned assets. Real devices, assistive technology, PostgreSQL,
+shared-worker/provider operation and human design/release acceptance remain
+separate gates; no remote CI, deployment or real external IO is claimed.

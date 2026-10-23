@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { cssMap } from '@atlaskit/css';
+import { cssMap, cx } from '@atlaskit/css';
 import { Label } from '@atlaskit/form';
 import Heading from '@atlaskit/heading';
 import { Box } from '@atlaskit/primitives/compiled/box';
@@ -7,7 +7,7 @@ import { Grid } from '@atlaskit/primitives/compiled/grid';
 import { Inline } from '@atlaskit/primitives/compiled/inline';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { Text } from '@atlaskit/primitives/compiled/text';
-import Select from '@atlaskit/select';
+import { AdaptiveSelect as Select } from './complaints-ui';
 import { IconButton } from '@atlaskit/button/new';
 import BarChartIcon from '@atlaskit/icon/core/chart-bar';
 import LineChartIcon from '@atlaskit/icon/core/chart-trend-up';
@@ -45,8 +45,10 @@ type ChartSpec = {
 const styles = cssMap({
   columns: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'stretch' },
   full: { gridColumn: '1 / -1' },
-  metrics: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } },
+  metrics: { display: 'grid', gap: token('space.100'), gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
+  metricsStacked: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))' },
   panel: { minWidth: 0, height: '100%', boxSizing: 'border-box', padding: token('space.200'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere' },
+  metric: { minWidth: 0, padding: token('space.100'), borderStyle: 'solid', borderWidth: token('border.width'), borderColor: token('color.border'), borderRadius: token('radius.medium'), overflowWrap: 'anywhere', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: token('space.050') },
   chart: { width: '100%', font: token('font.body.small'), overflowX: 'auto' },
 });
 export function duration(hours: number | null) {
@@ -69,6 +71,8 @@ export function ReportCharts({ summary, view, grouping, from, to, select }: {
   summary: ReportSummary; view: string; grouping: string; from: string; to: string;
   select: (selection: ReportSelection) => void;
 }) {
+  const [stackMetrics,setStackMetrics]=useState(false);
+  useEffect(()=>{const measure=()=>setStackMetrics(innerWidth<20*parseFloat(getComputedStyle(document.documentElement).fontSize));const observer=new MutationObserver(measure);observer.observe(document.documentElement,{attributes:true,attributeFilter:['style']});window.addEventListener('resize',measure);measure();return()=>{observer.disconnect();window.removeEventListener('resize',measure);};},[]);
   const timing = summary.timing;
   const temporal = (label: string, metric: string, basis: string) => ({ ...period(label, grouping, from, to), metric, date_basis: basis });
   const countSeries = [{ label: 'Complaints', color: blue }];
@@ -107,11 +111,11 @@ export function ReportCharts({ summary, view, grouping, from, to, select }: {
   const charts = specifications.filter(spec => spec.id !== 'category' || spec.rows.length > 1);
   return <Stack space="space.200">
     {view === 'overview' && summary.by_category.length === 1 && <Text size="small" color="color.text.subtle">Complaint type: {summary.by_category[0].label}</Text>}
-    {view === 'turnaround' && <Grid xcss={styles.metrics} gap="space.200">{[
+    {view === 'turnaround' && <Box xcss={cx(styles.metrics,stackMetrics&&styles.metricsStacked)} role="group" aria-label="Turnaround metrics">{[
       ['Resolved on time', timing.on_time_percent === null ? 'No targets set' : `${Math.round(timing.on_time_percent)}%`, `${timing.on_time} of ${timing.on_time + timing.late} resolutions with targets`],
       ['Median resolution', duration(timing.median_resolution_hours), `${timing.resolution_count} timed resolutions`],
       ['Median first response', duration(timing.median_response_hours), `${timing.response_count} first ${timing.response_count === 1 ? 'response' : 'responses'}`],
-    ].map(([label, value, note]) => <Box key={label} xcss={styles.panel}><Stack space="space.050"><Text>{label}</Text><Heading as="h3" size="medium">{value}</Heading><Text size="small" color="color.text.subtle">{note}</Text></Stack></Box>)}</Grid>}
+    ].map(([label, value, note]) => <Box key={label} xcss={styles.metric}><Text size="small" color="color.text.subtle" weight="medium">{label}</Text><Heading as="h3" size="small">{value}</Heading><Text size="small" color="color.text.subtle">{note}</Text></Box>)}</Box>}
     <Grid xcss={styles.columns} gap="space.200">{charts.map((spec, index) => <Box key={spec.id} xcss={charts.length % 2 === 1 && index === charts.length - 1 ? styles.full : undefined}><Chart spec={spec} select={select} grouping={grouping} /></Box>)}</Grid>
   </Stack>;
 }

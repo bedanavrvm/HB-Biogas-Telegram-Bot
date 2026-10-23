@@ -7,7 +7,7 @@ import { token } from '@atlaskit/tokens';
 import { ComplaintStatus, displayDate } from './complaints-ui';
 import { TaskDialog } from './complaints-ui';
 import Button from '@atlaskit/button/default/button';
-import Select from '@atlaskit/select';
+import { AdaptiveSelect as Select, DialogFooter } from './complaints-ui';
 import { Label } from '@atlaskit/form';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { notify } from './browser-interactions';
@@ -57,5 +57,5 @@ export function ReportTable({ rows, open, sort, setSort, offset=0 }: { rows: Rep
   useEffect(() => { api.current?.setGridOption('rowData', rows); }, [rows]);
   useEffect(()=>{api.current?.applyColumnState({state:registerColumns.map(([colId])=>({colId,hide:!visible.includes(colId)}))});},[visible]);
   useEffect(()=>{api.current?.refreshCells({force:true});},[offset]);
-  return <Stack space="space.100"><Box><Button onClick={()=>setColumnsOpen(true)}>Columns</Button></Box><Box ref={root} xcss={styles.grid}/>{columnsOpen&&<TaskDialog title="Report columns" compact close={()=>setColumnsOpen(false)}><Box><Label htmlFor="report-columns">Visible columns</Label><Select isMulti inputId="report-columns" options={registerColumns.map(([value,label])=>({value,label}))} value={registerColumns.filter(([field])=>visible.includes(field)).map(([value,label])=>({value,label}))} onChange={items=>setVisible(items.map(item=>item.value))}/></Box><Button onClick={()=>setVisible(defaultColumns)}>Reset columns</Button><Button appearance="primary" onClick={()=>setColumnsOpen(false)}>Done</Button></TaskDialog>}</Stack>;
+  return <Stack space="space.100"><Box><Button onClick={()=>setColumnsOpen(true)}>Columns</Button></Box><Box ref={root} xcss={styles.grid}/>{columnsOpen&&<TaskDialog title="Report columns" compact close={()=>setColumnsOpen(false)}><Box><Label htmlFor="report-columns">Visible columns</Label><Select isMulti inputId="report-columns" options={registerColumns.map(([value,label])=>({value,label}))} value={registerColumns.filter(([field])=>visible.includes(field)).map(([value,label])=>({value,label}))} onChange={items=>setVisible(items.map(item=>item.value))}/></Box><DialogFooter><Button shouldFitContainer onClick={()=>setVisible(defaultColumns)}>Reset columns</Button><Button shouldFitContainer appearance="primary" onClick={()=>setColumnsOpen(false)}>Done</Button></DialogFooter></TaskDialog>}</Stack>;
 }

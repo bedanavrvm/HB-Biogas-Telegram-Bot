@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+The 23 October browser Complaints composition correction extends the existing
+shared `complaints-ui.tsx`: fixed dialog header/body/footer, named status/action
+slots, adaptive menu placement and the explicitly requested green-positive
+ActionButton adapter. It reuses the pinned ADS controls and tokens. Direct theme
+switching, grouped workspace/attachment actions and mobile metric layout are
+candidate-only; current references and narrow exceptions are in
+browser/DESIGN.md. No approved baseline, Telegram UI or Phase 6 hold is changed.
+
 The responsive browser Complaints correction adds `browser-interactions.tsx`
 (provider-owned theme, event toasts and measured viewport panes) and
 `complaints-report-filters.tsx` (collapsed fine-grained report filters). Existing

@@ -53,6 +53,26 @@ class BrowserComplaintOperationsTests(TestCase):
         self.assertIn('history', response.json()['case'])
         self.assertNotIn('EXCLUDED_RAW_MESSAGE', response.content.decode())
 
+    def test_recovery_totals_are_exact_beyond_the_visible_list_and_group_scoped(self):
+        from core.services.complaint_cases import ensure_case_control
+        self.login()
+        for index in range(55):
+            case = reads.synthetic_case(self.group, 1000 + index)
+            control = ensure_case_control(case)
+            control.sync_status = 'failed' if index < 3 else 'suspended' if index < 5 else 'pending'
+            control.save(update_fields=['sync_status'])
+        foreign = ensure_case_control(self.other_case)
+        foreign.sync_status = 'failed'
+        foreign.save(update_fields=['sync_status'])
+        response = self.client.get(self.base + 'recovery/')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['counts'], {'total': 55, 'pending': 50, 'failed': 3, 'suspended': 2})
+        self.assertEqual(len(data['issues']), 50)
+        self.assertEqual([row['status'] for row in data['issues'][:3]], ['failed'] * 3)
+        self.assertNotIn(str(self.other_case.pk), {row['key'] for row in data['issues']})
+        self.assertEqual(self.client.get(self.base.replace(str(self.group.pk), str(self.other.pk)) + 'recovery/').status_code, 403)
+
     def test_recovery_binding_survives_relogin_but_not_account_security_change(self):
         self.login()
         first = self.client.get(self.base + 'bootstrap/').json()['continuity_key']

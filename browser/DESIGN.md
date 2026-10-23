@@ -1,5 +1,59 @@
 # Browser design references and application decisions
 
+## Complaints composition correction (23 October 2026)
+
+The user explicitly approved this correction across the browser Complaints
+workspace, including green positive actions. It does not migrate Telegram or
+enable production. Current official guidance was rechecked:
+
+- https://atlassian.design/components/modal-dialog/usage — persistent header,
+  close control, content and right-aligned action footer; focus and Escape.
+- https://atlassian.design/components/button/usage — one primary action per
+  task, meaningful labels, deliberate secondary/utility groups.
+- https://atlassian.design/components/select/usage — labelled searchable
+  options; long lists remain in their own bounded menu.
+- https://atlassian.design/foundations/typography/applying-typography — retain
+  the installed type scale, distinguish headings/body/secondary metadata.
+
+`TaskDialog` retains native modal focus/inert semantics while separating its
+header, scrollable body and footer. Named portal slots put a fixed-height draft
+status and form-associated submit controls outside the scrolling body. X and
+Escape use the same existing close/unsaved-change guard. `AdaptiveSelect` portals
+to the active dialog (not inert document.body), bounds its own list to available
+viewport space, and never enlarges the dialog. No modal/select package or
+platform feature flag was added. Native-layer composition remains intentional.
+
+The reserved status shows Draft/Saving/Saved/Offline/Not saved, with icon and
+text. Saved still requires server confirmation. Saving animation uses the Web
+Animations API only while in flight and respects reduced motion. Routine status
+changes do not insert content above fields. Existing uncertain-write, conflict,
+offline and session-recovery rules remain authoritative.
+
+The green `ActionButton` is an explicit JBL deviation: its wrapper locally maps
+only ADS brand-background normal/hover/pressed variables to existing success
+tokens. It keeps the pinned Button's focus, disabled, loading and keyboard
+behaviour. Destructive uses ADS danger; utility uses neutral. It does not change
+the global theme or create a second font/spacing scale. Imperative token-variable
+assignment is confined to that wrapper because typed cssMap does not expose
+custom-property declarations. No broad lint exception was introduced.
+
+The heading/Create row, tabs/utility row and search/filter row are deliberately
+separate. A compact sync control replaces the misleading full-width sentence;
+exact counts cover all matching complaints, not the first 50 disclosed rows.
+Attachment capture and file rows are separate from workflow footer actions.
+Section dividers and semantic text colours add hierarchy without boxing fields.
+
+Theme switching is now direct, at the navbar's far right: no theme modal. System
+preference remains the initial default until an explicit light/dark choice.
+Only that non-sensitive enum is persisted. Three turnaround metrics share a row
+at ordinary mobile sizes. Their layout reflows below 20 root-font units, using
+measured geometry because that application breakpoint is not in the pinned ADS
+cssMap media-query schema; typography is never reduced to force a fit.
+
+Verification and remaining acceptance are recorded in
+docs/runbooks/browser-channel-parity.md. Source ratchet entries remain candidates,
+not approved screenshots or permission to bypass the Phase 6 hold.
+
 ## Responsive Complaints correction (22 October 2026)
 
 This source-bound candidate implements the user's approved responsive plan,

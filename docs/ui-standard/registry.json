@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "bca5a33beb95f001f7ab1b686970ac536da38c909f8ef19cc5604fce9dde3ad4",
+      "sha256": "712a8a474a093bf1de99640cf1ae4cbfbfea174781c9f8e514ab2b6b4af12dc4",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -629,9 +629,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "91628dc424e336bb3e90f43107d5088a09d19645659a36081d33534d4ba93a30",
+      "sha256": "fca46ce635b06351f43d590cc828a2ab449d9ce94453b5dcee0a0099c8e36191",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -641,21 +641,21 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "f2a5e35de161304ad10fb133914504470959b357b71e61379beffb6d9758f646",
+      "sha256": "8e33fa019d86e416a573b732ff48612e967441a7e452b2d01f2a0cfe211b28d4",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "70e37b800b7209c9ee154808360d6791be7e37a6477ceff5124c10a336c2167a",
+      "sha256": "c6c719cb3d34af76236e4164080ad0099134e313dcbb5e0793fe54180095317a",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "2293b25bd80ba782d129b5ca219a6bda289095b7cac0e58360003dc6d221d975",
+      "sha256": "2d3e4f48e5696688a2b59b74d723caf635be0c574703e996d24973192f711f34",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "5b41fc56c859e9518453abd6ef47afc2be90c789ebc5dcc73459b0ebf16f5f46",
+      "sha256": "e08d92b5565ea13c3f52e05affd951da545e6b9f449235289c8b083079b73971",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "077748ec57734c74dbeacc692a682400b4ff6193597842e8fdec38ed6477ec13",
+      "sha256": "7289e6e7d732b259ca3490d3b30607aa7e00bce936de04dff3f0b3799206f87b",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "941389cf274ebcff2477a23d098ac932f98323b6769b3382f2bc8d2aebb5190b",
+      "sha256": "c521f4d27aabe04348b887dfa58c176cb965eae8bcc93f7338db81bb240ff91a",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -701,15 +701,15 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "f8d8c848854427dbff75eb103d6d72ed8dddade83722399edf8ea62ee30b44e7",
+      "sha256": "914cc00721cd1fd8e584fcac7f43bfca12e6b4e1b2a0468acae04b5cacc37b5f",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
-      "sha256": "35dcbd0b40c2e60d489781488748ff7a110e71f9aae452ab6562992eaff57870",
+      "sha256": "f91f9f8d8567fa397dcd7b07b36eaf26ca94e63a9d45e3dd2e5a0afd07bfafbc",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+      "reason": "User-approved browser Complaints composition correction: stable modal status/footer, independent select scrolling, semantic JBL actions, direct theme, section hierarchy and compact metrics. Current references and narrow exceptions: browser/DESIGN.md. Synthetic review evidence only; no approved baseline replacement, Telegram migration or production activation."
     }
   ],
   "source_roots": [

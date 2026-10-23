@@ -296,14 +296,20 @@ def preferences(request, group, actor):
 @endpoint(['GET'])
 def recovery(request, group, actor):
     # Browser-owned repair links only. Never forward Telegram action URLs.
+    from django.db.models import Count
     rows = ParsedMessage.objects.filter(group_id=group.group_id,
-        complaint_control__sync_status__in=['failed', 'pending', 'suspended']).select_related('complaint_control')[:50]
-    return JsonResponse({'issues': [{
+        complaint_control__sync_status__in=['failed', 'pending', 'suspended'])
+    totals = {row['complaint_control__sync_status']: row['count'] for row in
+              rows.values('complaint_control__sync_status').annotate(count=Count('pk'))}
+    counts = {status: totals.get(status, 0) for status in ('pending', 'failed', 'suspended')}
+    counts['total'] = sum(counts.values())
+    visible = rows.select_related('complaint_control').order_by('complaint_control__sync_status', 'pk')[:50]
+    return JsonResponse({'counts': counts, 'issues': [{
         'key': str(row.pk), 'reference': row.complaint_control.reference_number,
         'status': row.complaint_control.sync_status,
         'can_retry': cases.complaint_sheet_projection_enabled(group)
             and cases.actor_can(group, actor, 'complaint.case.sync.retry', row),
-    } for row in rows]})
+    } for row in visible]})
 
 
 @endpoint(['POST'])

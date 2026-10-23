@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import Button from '@atlaskit/button/default/button';
 import { IconButton } from '@atlaskit/button/new';
 import ThemeIcon from '@atlaskit/icon/core/theme';
 import CrossIcon from '@atlaskit/icon/core/cross';
@@ -15,7 +14,6 @@ import { Inline } from '@atlaskit/primitives/compiled/inline';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { Text } from '@atlaskit/primitives/compiled/text';
 import { token } from '@atlaskit/tokens';
-import { TaskDialog } from './complaints-ui';
 import { TopNavEnd } from '@atlaskit/navigation-system/layout/top-nav';
 
 const themeKey = 'jbl.browser.colorMode';
@@ -29,38 +27,43 @@ const styles = cssMap({
 });
 type Notice = { id: number; message: string; tone: 'success' | 'error' | 'warning' | 'information' };
 const noticeEvent = 'jbl-browser-notice';
+const dismissEvent = 'jbl-browser-dismiss-notice';
 let sequence = 0;
 export function notify(message: string, tone: Notice['tone'] = 'success') {
-  window.dispatchEvent(new CustomEvent<Notice>(noticeEvent, { detail: { id: ++sequence, message, tone } }));
+  const id=++sequence;window.dispatchEvent(new CustomEvent<Notice>(noticeEvent, { detail: { id, message, tone } }));return id;
 }
+export function dismissNotice(id:number) {window.dispatchEvent(new CustomEvent<number>(dismissEvent,{detail:id}));}
 /** Manual popover is in the top layer, including above an open task dialog. */
 export function ToastHost() {
   const [queue, setQueue] = useState<Notice[]>([]), root = useRef<HTMLDivElement>(null);
   const [target,setTarget]=useState<HTMLElement>(document.body);
   const current = queue[0];
   const dismiss = () => setQueue(items => items.slice(1));
-  useEffect(() => { const receive = (event: Event) => { const notice = (event as CustomEvent<Notice>).detail; setQueue([notice]); }; window.addEventListener(noticeEvent, receive); return () => window.removeEventListener(noticeEvent, receive); }, []);
+  useEffect(() => { const receive = (event: Event) => { const notice = (event as CustomEvent<Notice>).detail; setQueue([notice]); };const clear=(event:Event)=>{const id=(event as CustomEvent<number>).detail;setQueue(items=>items.filter(item=>item.id!==id));};window.addEventListener(noticeEvent, receive);window.addEventListener(dismissEvent,clear);return()=>{window.removeEventListener(noticeEvent,receive);window.removeEventListener(dismissEvent,clear);}; }, []);
   useEffect(()=>{
     const move=()=>{const active=document.activeElement?.closest('dialog[open]');const dialogs=document.querySelectorAll<HTMLDialogElement>('dialog[open]');setTarget(active instanceof HTMLElement?active:dialogs[dialogs.length-1]||document.body);};
     const observer=new MutationObserver(move);observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['open']});move();return()=>observer.disconnect();
   },[]);
   useEffect(() => {
     if (!current) return;
+    const footer=target.tagName==='DIALOG'?target.querySelector<HTMLElement>('[aria-label="Dialog actions"]'):null;
+    const place=()=>{const element=root.current;if(element)element.style.bottom=`${footer&&footer.getBoundingClientRect().height?Math.max(16,innerHeight-footer.getBoundingClientRect().top+8):16}px`;};
     const raise=()=>{const element=root.current;if(!element?.isConnected)return;element.setAttribute('popover','manual');element.style.top='auto';if(element.matches(':popover-open'))element.hidePopover();element.showPopover();};
-    raise();
+    place();raise();
+    const resize=new ResizeObserver(place);if(footer)resize.observe(footer);window.addEventListener('resize',place);
     const timer = current.tone === 'error' || current.tone === 'warning' ? undefined : setTimeout(dismiss, 6000);
-    return () => {clearTimeout(timer);};
+    return () => {clearTimeout(timer);resize.disconnect();window.removeEventListener('resize',place);};
   }, [current,target]);
   const StatusIcon=current?.tone==='error'?ErrorIcon:current?.tone==='warning'?WarningIcon:current?.tone==='success'?CheckIcon:InfoIcon;
   return current ? createPortal(<Box as="div" ref={root} xcss={styles.toast} role={current.tone === 'error' ? 'alert' : 'status'} aria-live={current.tone === 'error' ? 'assertive' : 'polite'}><Inline spread="space-between" alignBlock="start" space="space.150"><StatusIcon label=""/><Stack space="space.050"><Text weight="semibold">{{ success: 'Success', error: 'Error', warning: 'Attention', information: 'Information' }[current.tone]}</Text><Text>{current.message}</Text></Stack><IconButton label="Dismiss notification" appearance="subtle" icon={CrossIcon} onClick={dismiss}/></Inline></Box>, target) : null;
 }
 export function ThemeControl() {
-  const color = useColorMode(), setColor = useSetColorMode(), [open, setOpen] = useState(false);
-  const choose = (mode: 'auto' | 'light' | 'dark') => { setColor(mode); try { if (mode === 'auto') localStorage.removeItem(themeKey); else localStorage.setItem(themeKey, mode); } catch { /* Theme still works without storage. */ } setOpen(false); };
-  return <Box xcss={styles.theme}><IconButton label="Change colour theme" appearance="subtle" icon={ThemeIcon} onClick={() => setOpen(true)}/>{open && <TaskDialog title="Colour theme" compact close={() => setOpen(false)}><Inline shouldWrap space="space.100">{(['light','dark','auto'] as const).map(mode => <Button key={mode} isSelected={color === mode} onClick={() => choose(mode)}>{mode === 'auto' ? 'System' : mode === 'light' ? 'Light' : 'Dark'}</Button>)}</Inline></TaskDialog>}</Box>;
+  const color=useColorMode(),setColor=useSetColorMode();
+  const next=color==='dark'?'light':'dark';
+  return <Box xcss={styles.theme}><IconButton label={`Switch to ${next} mode`} title={`Switch to ${next} mode`} appearance="subtle" icon={ThemeIcon} onClick={()=>{setColor(next);try{localStorage.setItem(themeKey,next);}catch{/* Theme still works without storage. */}}}/></Box>;
 }
 export function BrowserActions({ children }: { children?: React.ReactNode }) {
-  return <Box xcss={styles.actions}><ThemeControl/>{children && <TopNavEnd>{children}</TopNavEnd>}</Box>;
+  return <Box xcss={styles.actions}>{children && <TopNavEnd>{children}</TopNavEnd>}<ThemeControl/></Box>;
 }
 /** Geometry only: consume the actual remaining viewport, not an assumed header height. */
 export function useViewportPane(enabled = true) {
