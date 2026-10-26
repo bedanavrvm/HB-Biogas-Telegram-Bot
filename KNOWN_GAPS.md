@@ -1,5 +1,36 @@
 # Known Gaps and Verified Workarounds
 
+## Portal varied-data acceptance and remaining limits - 26 October 2026
+
+The expanded local run passes 995 backend checks (six PostgreSQL-only skips),
+271 Chromium checks and 858 requests across all 211 Portal route patterns.
+Volume evidence covers 5,000 imported cases/Sheet rows, 1,000 BRO-created cases,
+100 complete varied journeys and recovery of one whole 1,000-row SysUp source
+after interruption at 360 committed rows. Original driver failures and their
+independent postcondition checks are disclosed in the existing Portal audit.
+
+Fixed: HB Actions drawer group mismatch for HB Staff/IT, expected Portal
+exceptions becoming 500s, overlong BRO names and the SysUp upload-row ceiling.
+Files are retained whole; internal matching defaults to 400-row chunks, while
+approved writes keep the 20-row request budget. The existing upload-size guard
+still applies. The old `SYSUP_MAX_ROWS_PER_UPLOAD` setting is obsolete.
+
+Portal continuation runs while Imports is open; it is not a background approval
+worker. Committed progress survives interruption; remaining rows can be reviewed
+and resumed. Separate legacy token-review screens were not migrated to this
+Portal continuation loop. Sheet money remains whole-KES presentation: 4,999.99
+can display as 5,000, while canonical Portal eligibility correctly remains held.
+
+Large FarmUp commits still need bounded processing: the 5,000-row local run
+spent 307.0 seconds in one commit request. The in-process test client has no
+reverse-proxy/worker timeout, so successful reconciliation does not establish
+production readiness for that size. SysUp continuation does not change FarmUp.
+
+No deployment, migration or real provider write occurred. PostgreSQL races,
+production throughput/scheduling, real sharing/quotas and physical devices
+remain unverified. See `docs/portal-miniapp-audit-2026-10-26.md` for source-bound
+UI exceptions, exact datasets, artifacts and reproduction commands.
+
 ## Portal audit remediation - 26 October 2026
 
 The reported Sheet alias, invoice-phone and Nairobi timestamp defects are fixed.

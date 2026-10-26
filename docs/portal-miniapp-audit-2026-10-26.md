@@ -2,7 +2,65 @@
 
 Date: 26 October 2026. Base checkout: `6bd755bf`. Updated after the requested remediation. Application fixes, regression tests and isolated diagnostic scripts are present in the working tree. No deployment, migration, operational-data change or external write was performed.
 
-## Assessment
+## Expanded variance and whole-file handling
+
+The latest gate runs **1,001 backend tests: 995 pass, six PostgreSQL-only tests skip, and none fail or error**. All **271 Portal/FarmUp Chromium tests pass**, including automatic SysUp continuation and retry after a partial commit. A separate sweep exercises **211 Portal route patterns with 858 GET/POST/PATCH/DELETE requests** using ordinary IT and BRO accounts; no request returns a server error. These are route/validation checks, not successful business execution of every action with every possible payload.
+
+| Dataset / route | Verified outcome |
+| --- | --- |
+| 5,000-row FarmUp file | All 5,000 cases committed; all 5,000 initial Sheet rows reconcile by immutable internal ID, National ID and phone |
+| 1,000 BRO-created entries, no SysUp | 900 deposit-held entries and 100 immediate visits; 64 selected cases reach matched invoices, a completed signed mixed-mode payment and commissioning; 2,161 integration operations succeed |
+| 240 FarmUp-only entries | 24 selected cases complete the full process; all 240 Sheet rows reconcile; 565 integration operations succeed |
+| 40 SysUp-enriched entries | 12 varied cases complete the full process; all 40 Sheet rows reconcile; 246 integration operations succeed |
+| One whole 1,000-row SysUp file | No manual splitting. Interrupted after 360 committed rows; a fresh process resumes the remaining 640, preserves source bytes, reaches 1,000 committed rows, and completes all 2,000 publication attempts |
+| CSV / Excel boundaries | Both formats accept 801 rows across three internal 400-row processing chunks; an authenticated Portal upload retains all 1,201 rows and the exact source bytes |
+
+The full varied journeys complete **100 cases** across BRO, FarmUp-only and SysUp routes, in addition to the original two-case smoke journey. The datasets vary names (apostrophes, commas, accents and long values), six phone representations, two counties/branches and both partners, eight deposit amounts including blank/zero/4,999.99/5,000/5,000.01, eight invoice balances, mixed payment modes and intake ages. Visits include 29-Feb-2024, 31-Dec-2025, 1-Jan-2026, month ends and today. Installation/commissioning dates vary; tests reject future/invalid visits, impossible dates, commissioning before installation and unacknowledged early commissioning. Parameterized checks also cover invalid identity/amount input, retries, conflicting retry payloads, duplicate identities, role denials, positive/negative/deferred decisions, and both audit/strict location policies.
+
+Findings and resulting changes:
+
+- **HB Actions disappeared from the drawer for HB Staff and IT.** Its presentation group was `Pipeline · HB Actions`, while the drawer allowlist still used `Pipeline · Install & Commission`. The names now agree. Tests verify actual scoped HB Staff and IT accounts can see the link and open Deposits, Installation and Commissioning. Another invariant checks that every authorized navigation item survives grouping. No role grants changed.
+- **Missing documents and invalid IDs became server errors.** The Portal authentication wrapper caught normal Django 404/permission/validation exceptions as unexpected faults. It now returns safe 404/403/400 responses. All 858 route probes pass after the correction.
+- **BRO names above 255 characters were accepted by SQLite despite the production column limit.** The form now rejects them before creating a customer/case pair. Failed funded intake also leaves no orphan pair in the tested date-error paths.
+- **Large SysUp files hit a 150-row ceiling with an unhelpful 502.** Uploads now retain the whole size-validated file. Matching uses configurable internal chunks (`SYSUP_PROCESSING_CHUNK_SIZE=400`); approved writes retain the separate 20-row request budget. The Portal automatically continues the selected rows in bounded requests, stops on validation/conflict/no-progress errors, and avoids resending completed rows after a recoverable failure. Invalid source files return a validation response. The old `SYSUP_MAX_ROWS_PER_UPLOAD` setting no longer controls this route.
+- **Whole-KES Sheet display needs care near thresholds.** Django retains cents, while the existing Sheet contract rounds monetary projections using half-up rounding. Thus 4,999.99 can display as 5,000 in Sheets while Portal correctly keeps the deposit hold. This existing presentation policy was preserved; the tests assert the canonical eligibility separately.
+
+### Whole-file SysUp processing
+
+One upload remains one retained source/review batch. Internal chunking does not silently approve unmatched rows, override revisions/scopes or create leads. Staff review and select rows once; the Imports page continues those selected rows automatically. Continuation currently runs while that page remains open, with committed progress and outstanding rows retained for reopening/retry. It is not an unattended background approval worker. The existing configured file-size limit remains in force.
+
+The default processing chunk is 400; the existing default commit budget is 20. Neither requires a migration or a mandatory environment override. Deploy the updated assets/settings normally; the shell cache version is incremented. The UI change reuses the existing loading/feedback controls and does not change layout, tokens or approved baselines. Source-bound behavior evidence is in `core/tests_browser/portal_operations_workspace.spec.js`; this is a nonvisual source-ratchet exception, not Phase 6 approval.
+
+### Evidence, timings and qualifications
+
+Artifacts are under ignored `test-results/portal-local-audit-2026-10-26/`:
+
+- `volume-office-1000-1792998232183761700/verification.json`: independent reconciliation of all 1,000 rows, 64 completed cases, retained workbook checksums and local Drive blobs.
+- `volume-farmup-5000-1792998129812623300/bulk-intake-verification.json`: 5,000-case intake and initial projection proof.
+- `volume-farmup-240-1792999926181369300/verification.json` and `volume-sysup-40-1793000059218587000/verification.json`: complete varied journeys and artifact reconciliation.
+- `volume-sysup-1000-1792999106472861900/sysup-resume.json`: actual interrupted-import recovery, request sizes/timings, exact original source and 1,000 final Sheet rows.
+- `variance-probes.json`, `suite-summary.json`; full browser output: `test-results/portal-volume-final-browser.json`.
+
+The original BRO driver reached every business postcondition but its final assertion incorrectly expected unrounded cents in the whole-KES Sheet. The first 5,000-row driver passed intake/publication and stopped later because it compared original whitespace against the canonical workbook name. Both driver assumptions were corrected; raw failures remain intact. The BRO artifacts were independently rechecked without editing business records. The 5,000-row result proves intake/initial publication only; the corrected smaller FarmUp run proves downstream completion. The 1,000-row whole-file SysUp driver was deliberately stopped to test resume; its separate resume evidence supersedes its unfinished driver status without rewriting that history.
+
+Observed local elapsed times: 1,000 BRO entries with 64 completed cases took about 13.4 minutes; the 240/24 FarmUp journey took 200.6 seconds; the 40/12 SysUp journey took 101.1 seconds. Resuming 640 SysUp rows and draining 2,000 publication attempts took 246.7 seconds. These include a sequential synthetic driver, real image/PDF/workbook processing, local SQLite and fake Google transports; they are not concurrency, throughput or production-latency guarantees. PostgreSQL races, real provider quotas/sharing and physical Telegram devices remain unverified.
+
+**Open performance finding:** the 5,000-row FarmUp commit took **307.0 seconds in one request** (`journey.json`, `portal_farmup_commit`, `duration_ms=307042.96`). Intake and initial publication reconcile, but this in-process client does not enforce reverse-proxy or worker timeouts. Large FarmUp commits therefore still need bounded processing before production acceptance at this size. The SysUp continuation change does not alter FarmUp commits.
+
+Reproduce using the existing safe harness (each volume run gets an isolated database and output directory):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --prepare
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --volume office --rows 1000 --complete 64
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --volume farmup --rows 5000 --complete 24
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --volume sysup --rows 1000 --complete 24
+# Verify a retained completed run, or resume a deliberately interrupted SysUp review:
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --verify-volume <volume-output-directory>
+.\.venv\Scripts\python.exe scripts\portal_local_audit.py --resume-sysup <volume-output-directory>
+```
+
+## Initial audit and remediation
 
 The Portal coordinates customer intake, visits, lending decisions, official orders, invoices, payments, and HomeBiogas fulfilment. Django owns the records and history; Sheets and Drive are publication destinations. The assumed operating model is several staff accounts working across stages and a separate publication worker.
 
@@ -10,7 +68,7 @@ The Portal coordinates customer intake, visits, lending decisions, official orde
 
 The connected journey reaches payment completion and commissioning for both HB and Eco-conserve. Final publication succeeds with the original `Order No` and `Payment No` headings, without repairing headers or bypassing business rules. All 32 integration operations finish successfully.
 
-## Verification results
+## Initial verification results
 
 | Check | Result |
 | --- | --- |

@@ -12,6 +12,22 @@ from core.services.portal_navigation import (
 
 
 class PortalNavigationTests(SimpleTestCase):
+    def test_hb_actions_stays_in_the_drawer_for_hb_staff_and_it(self):
+        for role in ('HB_STAFF', 'IT'):
+            with self.subTest(role=role), patch(
+                    'core.services.workflow_capabilities.effective_capability_keys',
+                    return_value={'portal.dashboard.view', 'portal.hb_action.view'}):
+                access = {'roles': [role]}
+                groups = get_portal_nav_groups({'user_id': 'synthetic-hb-navigation'}, access=access)
+                items = [item for group in groups for item in group['items']]
+                self.assertIn('hb_actions', [item['key'] for item in items])
+                self.assertTrue(portal_screen_allowed({'user_id': 'synthetic-hb-navigation'}, 'hb_actions', access=access))
+
+    def test_every_permitted_destination_is_retained_in_one_drawer_group(self):
+        items = get_portal_nav_items(None)
+        grouped = [item for group in get_portal_nav_groups(None) for item in group['items']]
+        self.assertCountEqual([item['key'] for item in grouped], [item['key'] for item in items])
+
     def _items_for(self, roles, capabilities):
         with patch(
             'core.services.workflow_capabilities.effective_capability_keys',

@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 from unittest.mock import patch
 
 
-def run(output):
+def run(output, *, source='sysup', intake_count=2, completion_count=None):
     from django.conf import settings
     from django.contrib.auth import get_user_model
     from django.core.files.base import ContentFile
@@ -37,11 +37,19 @@ def run(output):
     from core.services.jawabu_pipeline import current_pipeline_state_label, JBL_FORWARD_STATUS
     from hb_operations.models import HomeBiogasAction
     from payments.models import PaymentBatch
+    from decimal import Decimal
+    from core.services.requisition_partners import fulfillment_partner_for_farmer
+
+    completion_count = completion_count or intake_count
+    varied = intake_count > 2 or source != 'sysup'
+    started = time.monotonic()
 
     evidence = {'steps': [], 'status': 'running', 'network': 'blocked',
-                'business_logic_patched': False, 'database': settings.DATABASES['default']['NAME']}
+                'business_logic_patched': False, 'database': settings.DATABASES['default']['NAME'],
+                'source': source, 'intake_count': intake_count, 'completion_count': completion_count}
     def record(name, **details):
         evidence['steps'].append({'step': name, **details})
+        evidence['elapsed_seconds'] = round(time.monotonic() - started, 2)
         (output / 'journey.json').write_text(json.dumps(evidence, indent=2, default=str), encoding='utf-8')
         print(name, json.dumps(details, default=str), flush=True)
 
@@ -92,7 +100,7 @@ def run(output):
             result = attempt_publication(operation)
             attempts += 1
             assert not result.get('error'), result
-            assert attempts < 150, 'Publication queue stopped progressing'
+            assert attempts <= intake_count * 30 + 100, 'Publication queue stopped progressing'
         save_sheets()
         record(name, attempts=attempts, rows={tab: len(sheet.values) - 1 for tab, sheet in sheets.items()})
 
@@ -116,6 +124,7 @@ def run(output):
 
     def api(role, name, data=None, *, args=(), expected=200, multipart=False, key=None):
         url = reverse(name, args=args)
+        request_started = time.monotonic()
         if data is None:
             response = clients[role].get(url)
         else:
@@ -127,7 +136,8 @@ def run(output):
         except ValueError:
             result = {'body': response.content[:300].decode(errors='replace')}
         record(name, role=role, status=response.status_code, expected=expected,
-               ok=result.get('ok'), error=result.get('error'))
+               ok=result.get('ok'), error=result.get('error'),
+               duration_ms=round((time.monotonic() - request_started) * 1000, 2))
         assert response.status_code == expected, result
         if expected < 300:
             assert result.get('ok', True), result
@@ -188,54 +198,115 @@ def run(output):
 
             identities = [('SYNTHETIC HB APPLICANT', '99000001', '254700000001', 'Kiambu', 'Limuru', 'Synthetic HB'),
                           ('SYNTHETIC ECO APPLICANT', '99000002', '254700000002', 'Nakuru', 'Nakuru', 'Eco-conserve')]
-            sysup = csv_bytes(['Customer ID', 'Name', 'Mobile No', 'ID NO', 'Branch', 'Loan Officer', 'Product Name', 'LGF Balance'],
-                              [[str(990001 + i), name, phone, identity, branch, 'Synthetic officer', 'HomeBiogas', '0']
-                               for i, (name, identity, phone, county, branch, sales) in enumerate(identities)])
-            staged = api('IT', 'portal_import_stage', {'file': SimpleUploadedFile('synthetic-sysup.csv', sysup)}, args=('sysup',), multipart=True, expected=201)
-            sys_batch = JawabuFarmerUploadBatch.objects.get(pk=staged['batch']['id'])
-            assert not JawabuFarmerMaster.objects.exists()
-            record('sysup_does_not_create_leads', rows=sys_batch.total_rows)
-            farmup = csv_bytes(['Full Name', 'ID NUMBER', 'HBG Hub', 'Branch', 'Mobile', 'Phone', 'Actual Receipts', 'Sign Date', 'Sales Person'],
-                               [[name, identity, county, branch, phone, '254711' + phone[-6:], '5000', (timezone.localdate() - timedelta(days=2)).strftime('%d/%m/%Y'), sales]
-                                for name, identity, phone, county, branch, sales in identities])
-            staged = api('OPERATIONS_ADMIN', 'portal_farmup_stage', {'file': SimpleUploadedFile('synthetic-farmup.csv', farmup), 'period': timezone.localdate().strftime('%Y-%m')}, multipart=True, expected=201)
-            farm_batch = JawabuFarmerUploadBatch.objects.get(pk=staged['batch']['id'])
-            rows = [{**row, 'approved': True, 'warning_acknowledged': True} for row in farm_batch.parsed_rows]
-            payload = {'rows': rows, 'revision_token': farmup_revision_token(farm_batch)}
-            api('OPERATIONS_ADMIN', 'portal_farmup_validate', payload, args=(farm_batch.pk,))
-            api('OPERATIONS_ADMIN', 'portal_farmup_commit', payload, args=(farm_batch.pk,), key='local-farmup-commit')
-            api('OPERATIONS_ADMIN', 'portal_farmup_commit', payload, args=(farm_batch.pk,), key='local-farmup-commit')
-            assert JawabuFarmerMaster.objects.count() == 2
-            for batch in (sys_batch, farm_batch):
-                operation = IntegrationOperation.objects.get(source_id=str(batch.pk), operation_type='portal_import_drive_archive')
-                archive_result = attempt_import_archive(str(operation.pk))
-                assert not archive_result.get('error'), archive_result
-            from core.services.system_export import resolve_system_export_row
-            sys_rows = []
-            for row in sys_batch.parsed_rows:
-                resolved = resolve_system_export_row(dict(row))
-                farmer = JawabuFarmerMaster.objects.get(national_id=row['ID NO'])
-                sys_rows.append({**resolved, 'approved': True, 'Matched Farmer ID': str(farmer.pk), 'case_revision': farmer.workflow_revision})
-            api('OPERATIONS_ADMIN', 'portal_import_commit', {'rows': sys_rows, 'portal_revision': sys_batch.portal_revision}, args=(sys_batch.pk,))
+            if varied:
+                name_variants = ('APPLICANT', "O'NEIL", 'MWÄNGI', 'KAMAU, TEST', 'A VERY LONG ' + 'NAME ' * 24)
+                identities = [(f'SYNTHETIC {name_variants[i % len(name_variants)]} {i:05}',
+                               str(99000000 + i), f'2547{i:08}',
+                               'Kiambu' if i % 2 else 'Nakuru', 'Limuru' if i % 2 else 'Nakuru',
+                               'Synthetic HB' if i % 2 else 'Eco-conserve') for i in range(1, intake_count + 1)]
+
+            def phone_format(value, index):
+                return (value, '+' + value, '0' + value[3:], '00254' + value[3:],
+                        '+254 (0) ' + value[3:6] + '-' + value[6:9] + '-' + value[9:],
+                        '005' + value[3:])[index % 6] if varied else value
+
+            from datetime import date
+            date_cases = (date(2024, 2, 29), date(2025, 12, 31), date(2026, 1, 1),
+                          date(2026, 4, 30), date(2026, 9, 30), timezone.localdate())
+
+            def visit_day(index):
+                return date_cases[index % len(date_cases)] if varied else timezone.localdate()
+
+            def captures():
+                return {'client_id_front': photo(1), 'client_id_back': photo(2),
+                        'laf_page_1': photo(3), 'laf_page_2': photo(4), 'jbl_visit_photo_files': photo(5)}
+
+            deposits = ('', '0', '1', '4999.99', '5000', '5000.01', '10000', '100000.00')
+            sys_batches = []
+            if source == 'sysup':
+                sysup = csv_bytes(['Customer ID', 'Name', 'Mobile No', 'ID NO', 'Branch', 'Loan Officer', 'Product Name', 'LGF Balance'],
+                                  [[str(990001 + i), name, phone_format(phone, i), identity, branch, 'Synthetic officer', 'HomeBiogas', str(i % 4 * 2500) if varied else '0']
+                                   for i, (name, identity, phone, county, branch, sales) in enumerate(identities)])
+                staged = api('IT', 'portal_import_stage', {'file': SimpleUploadedFile('synthetic-sysup.csv', sysup)}, args=('sysup',), multipart=True, expected=201)
+                sys_batches.append(JawabuFarmerUploadBatch.objects.get(pk=staged['batch']['id']))
+                assert not JawabuFarmerMaster.objects.exists()
+                record('sysup_does_not_create_leads', rows=intake_count, uploads=len(sys_batches))
+            if source == 'office':
+                for i, (name, identity, phone, county, branch, sales) in enumerate(identities):
+                    direct_visit = i % 10 == 0
+                    created = api('JBL_OFFICER', 'portal_create_and_complete_jbl_lead', {
+                        'customer_name': name, 'national_id': identity, 'primary_phone': phone_format(phone, i),
+                        'county': county, 'sub_county': 'Limuru' if county == 'Kiambu' else 'Nakuru Town East',
+                        'village': 'Synthetic village', 'hb_sales_person': sales,
+                        'deposit_paid_hbg': deposits[4 + i % 4] if direct_visit else deposits[i % 4],
+                        **({'visit_date': visit_day(i).isoformat(),
+                            'visit_status': JBL_FORWARD_STATUS,
+                            'location_unavailable_reason': 'Synthetic audit without GPS', **captures()} if direct_visit else {}),
+                    }, multipart=True, expected=200 if direct_visit else 201, key=f'local-office-{i}')
+                    if direct_visit:
+                        assert created['farmer']['jbl_visit_date']
+                    else:
+                        assert created['deposit_hold'] and not created['visit_logged']
+                record('office_intake_without_sysup', rows=intake_count)
+            else:
+                farmup = csv_bytes(['Full Name', 'ID NUMBER', 'HBG Hub', 'Branch', 'Mobile', 'Phone', 'Actual Receipts', 'Sign Date', 'Sales Person'],
+                                   [[name, identity, county, branch, phone_format(phone, i), '254711' + phone[-6:],
+                                     deposits[i % len(deposits)] if varied else '5000',
+                                     (visit_day(i) - timedelta(days=2 + i % 180)).strftime('%d/%m/%Y'), sales]
+                                    for i, (name, identity, phone, county, branch, sales) in enumerate(identities)])
+                staged = api('OPERATIONS_ADMIN', 'portal_farmup_stage', {'file': SimpleUploadedFile('synthetic-farmup.csv', farmup), 'period': timezone.localdate().strftime('%Y-%m')}, multipart=True, expected=201)
+                farm_batch = JawabuFarmerUploadBatch.objects.get(pk=staged['batch']['id'])
+                rows = [{'row_id': row['row_id'], 'approved': True, 'warning_acknowledged': True} for row in farm_batch.parsed_rows]
+                payload = {'rows': rows, 'revision_token': farmup_revision_token(farm_batch)}
+                validated = api('OPERATIONS_ADMIN', 'portal_farmup_validate', payload, args=(farm_batch.pk,))
+                assert validated['counts']['selected'] == intake_count, validated['counts']
+                api('OPERATIONS_ADMIN', 'portal_farmup_commit', payload, args=(farm_batch.pk,), key='local-farmup-commit')
+                api('OPERATIONS_ADMIN', 'portal_farmup_commit', payload, args=(farm_batch.pk,), key='local-farmup-commit')
+                for batch in [*sys_batches, farm_batch]:
+                    operation = IntegrationOperation.objects.get(source_id=str(batch.pk), operation_type='portal_import_drive_archive')
+                    archive_result = attempt_import_archive(str(operation.pk))
+                    assert not archive_result.get('error'), archive_result
+            assert JawabuFarmerMaster.objects.count() == intake_count
+            if source == 'sysup':
+                from core.services.system_export import resolve_system_export_row
+                for sys_batch in sys_batches:
+                    while sys_batch.parsed_rows:
+                        sys_rows = []
+                        for row in sys_batch.parsed_rows[:settings.SYSUP_PROCESSING_CHUNK_SIZE]:
+                            resolved = dict(row) if row.get('Matched Farmer ID') else resolve_system_export_row(dict(row))
+                            farmer = JawabuFarmerMaster.objects.get(national_id=row['ID NO'])
+                            sys_rows.append({**resolved, 'approved': True, 'Matched Farmer ID': str(farmer.pk), 'case_revision': farmer.workflow_revision})
+                        result = api('OPERATIONS_ADMIN', 'portal_import_commit', {'rows': sys_rows, 'portal_revision': sys_batch.portal_revision}, args=(sys_batch.pk,))
+                        assert result['result']['committed'] > 0, result
+                        sys_batch.refresh_from_db()
+            else:
+                assert not JawabuFarmerMaster.objects.exclude(customer_no='').exists()
+                assert not JawabuFarmerUploadBatch.objects.filter(import_kind='system_export').exists()
+                record('no_sysup_or_initial_system_identity', source=source, rows=intake_count)
             drain('initial_sheet_publication')
 
             orders, receipts = [], []
-            for name, identity, phone, county, branch, sales in identities:
+            for index, (name, identity, phone, county, branch, sales) in enumerate(identities[:completion_count]):
                 farmer = JawabuFarmerMaster.objects.get(national_id=identity)
+                if varied and (farmer.deposit_paid_hbg is None or farmer.deposit_paid_hbg < Decimal('5000')):
+                    api('JBL_OFFICER', 'portal_complete_jbl_visit', {'workflow_revision': farmer.workflow_revision}, args=(farmer.pk,), multipart=True, expected=400)
+                    api('HB_STAFF', 'portal_hb_deposit_update', {'amount': '5000', 'expected_revision': farmer.workflow_revision}, args=(farmer.pk,))
+                    farmer.refresh_from_db()
                 api('OPERATIONS_ADMIN', 'portal_set_final_decision', {'final_decision': 'Approved', 'workflow_revision': farmer.workflow_revision}, args=(farmer.pk,), expected=403)
-                visit = {'workflow_revision': farmer.workflow_revision, 'visit_date': timezone.localdate().isoformat(),
+                visit = {'workflow_revision': farmer.workflow_revision, 'visit_date': visit_day(index).isoformat(),
                          'visit_status': JBL_FORWARD_STATUS, 'officer': 'Synthetic officer', 'county': county,
                          'sub_county': 'Limuru' if county == 'Kiambu' else 'Nakuru Town East', 'village': 'Synthetic village',
                          'location_unavailable_reason': 'Synthetic local audit without device GPS',
                          'client_id_front': photo(1), 'client_id_back': photo(2),
                          'laf_page_1': photo(3), 'laf_page_2': photo(4),
                          'jbl_visit_photo_files': photo(5)}
-                api('JBL_OFFICER', 'portal_complete_jbl_visit', visit, args=(farmer.pk,), multipart=True)
+                if not farmer.jbl_visit_date:
+                    api('JBL_OFFICER', 'portal_complete_jbl_visit', visit, args=(farmer.pk,), multipart=True)
                 farmer.refresh_from_db()
                 api('CREDIT_ANALYST', 'portal_set_credit_decision', {'workflow_revision': farmer.workflow_revision - 1,
                     'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': farmer.customer_no}, args=(farmer.pk,), expected=409)
                 api('CREDIT_ANALYST', 'portal_set_credit_decision', {'workflow_revision': farmer.workflow_revision,
-                    'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': farmer.customer_no}, args=(farmer.pk,))
+                    'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': farmer.customer_no or str(880000 + index)}, args=(farmer.pk,))
                 farmer.refresh_from_db()
                 api('BUSINESS_ADMIN', 'portal_set_final_decision', {'workflow_revision': farmer.workflow_revision,
                     'final_decision': 'Approved', 'repayment_date': '10', 'repayment_tenor': '6', 'decision_comment': 'Synthetic order approval'}, args=(farmer.pk,))
@@ -247,26 +318,29 @@ def run(output):
                 assert official_requisition_eligibility(farmer)['code'] == 'invoice_order_unsigned'
                 record('unsigned_order_blocks_invoice', order=order.order_number)
                 (output / f'{order.order_number}.xlsx').write_bytes(bytes(order.file_content))
-                assert load_workbook(BytesIO(bytes(order.file_content))).active.cell(9, 2).value == name
+                assert load_workbook(BytesIO(bytes(order.file_content))).active.cell(9, 2).value == farmer.customer_name
                 scan = SimpleUploadedFile('synthetic-signed-order.pdf', pdf('SYNTHETIC signed and stamped order\n' + order.order_number), content_type='application/pdf')
                 api('BUSINESS_ADMIN', 'portal_document_physical_signoff_upload', {'signed_scan': scan, 'attested_complete': 'true'}, args=('requisition', order.pk), multipart=True)
                 assert HomeBiogasAction.objects.filter(farmer=farmer).exists()
                 orders.append(order)
-                invoice_pdf = pdf(f'HOMEBIOGAS VENTURES LIMITED\nBILL TO\n{name}\n{identity}\n+{phone}\nINVOICE {990001 + len(orders)}\nDATE {timezone.localdate():%d/%m/%Y}\nSUBTOTAL 54,000.00\nDISCOUNT -4,500.00\nTOTAL 49,500.00\nPAYMENT 5,000.00\nBALANCE DUE 44,500.00')
+                balance = Decimal('44500.00') + (Decimal(index % 8) * Decimal('137.25') if varied else 0)
+                gross = balance + Decimal('9500')
+                invoice_pdf = pdf(f'HOMEBIOGAS VENTURES LIMITED\nBILL TO\n{farmer.customer_name}\n{identity}\n{phone_format(phone, index)}\nINVOICE {990001 + len(orders)}\nDATE {timezone.localdate():%d/%m/%Y}\nSUBTOTAL {gross:,.2f}\nDISCOUNT -4,500.00\nTOTAL {gross - Decimal("4500"):,.2f}\nPAYMENT 5,000.00\nBALANCE DUE {balance:,.2f}')
                 uploaded = api('OPERATIONS_ADMIN', 'portal_invoice_pool_upload', {
                     'file': SimpleUploadedFile(f'synthetic-invoice-{identity}.pdf', invoice_pdf, content_type='application/pdf')}, multipart=True)
                 assert uploaded['auto_matched_count'] == 1, uploaded
                 receipts.append(uploaded['receipt_batch'])
                 farmer.refresh_from_db()
-                assert str(farmer.balance_due) == '44500.00', str(farmer.balance_due)
+                assert farmer.balance_due == balance, str(farmer.balance_due)
                 record('invoice_parsed_and_matched', farmer_id=str(farmer.pk), invoice=farmer.invoice_number, balance=str(farmer.balance_due))
 
-            farmers = list(JawabuFarmerMaster.objects.order_by('national_id'))
+            farmers = list(JawabuFarmerMaster.objects.filter(national_id__in=[item[1] for item in identities[:completion_count]]).order_by('national_id'))
+            payment_modes = {str(farmer.pk): 'LOAN-JAWABU' if i % 2 == 0 else 'CASH' for i, farmer in enumerate(farmers)}
             created = api('OPERATIONS_ADMIN', 'portal_invoice_receipt_batch_payment', {
                 'revision': receipts[0]['revision'], 'payment_modes': {str(farmers[0].pk): 'LOAN-JAWABU'}}, args=(receipts[0]['id'],), expected=201)
             batch = PaymentBatch.objects.get(pk=created['batch']['id'])
             api('OPERATIONS_ADMIN', 'portal_payment_batch_cases', {'farmer_ids': [str(farmer.pk) for farmer in farmers],
-                'payment_modes': {str(farmers[0].pk): 'LOAN-JAWABU', str(farmers[1].pk): 'CASH'}, 'revision': batch.revision}, args=(batch.pk,))
+                'payment_modes': payment_modes, 'revision': batch.revision}, args=(batch.pk,))
             batch.refresh_from_db()
             api('OPERATIONS_ADMIN', 'portal_payment_batch_submit', {'revision': batch.revision}, args=(batch.pk,))
             batch.refresh_from_db()
@@ -281,20 +355,27 @@ def run(output):
             from core.services.payment_documents import payment_template_layout
             workbook = load_workbook(BytesIO(bytes(document.file_content)))
             layout = payment_template_layout(workbook)
-            assert workbook[layout.sheet_name].cell(layout.data_start_row, layout.columns['name']).value == identities[1][0]
+            from core.services.requisition import ordered_document_farmers
+            expected_order = ordered_document_farmers(farmers, eco_first=True)
+            self_names = [workbook[layout.sheet_name].cell(layout.data_start_row + i, layout.columns['name']).value
+                          for i in range(len(farmers))]
+            assert self_names == [farmer.customer_name for farmer in expected_order], self_names
             api('BUSINESS_ADMIN', 'portal_document_physical_signoff_upload', {'signed_scan': SimpleUploadedFile('synthetic-signed-payment.pdf', pdf('SYNTHETIC signed payment'), content_type='application/pdf'),
                 'attested_complete': 'true'}, args=('payment', document.pk), multipart=True)
             batch.refresh_from_db()
             assert batch.status == PaymentBatch.STATUS_COMPLETED, batch.status
-            record('payment_completed', number=batch.payment_number, cases=2)
-            for farmer in farmers:
+            record('payment_completed', number=batch.payment_number, cases=len(farmers))
+            for i, farmer in enumerate(farmers):
                 action = HomeBiogasAction.objects.get(farmer=farmer)
+                installed_on = timezone.localdate() - timedelta(days=45 + i % 365) if varied else timezone.localdate()
+                commissioned_on = installed_on + timedelta(days=7 if i % 2 else 30) if varied else timezone.localdate()
                 api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': timezone.localdate().isoformat(), 'revision': action.revision}, args=(farmer.pk,), expected=400)
-                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'installation', 'installation_status': 'installed', 'installation_date': timezone.localdate().isoformat(), 'revision': action.revision}, args=(farmer.pk,))
+                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'installation', 'installation_status': 'installed', 'installation_date': installed_on.isoformat(), 'revision': action.revision}, args=(farmer.pk,))
                 action.refresh_from_db()
-                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': (timezone.localdate() - timedelta(days=1)).isoformat(), 'early_commissioning_acknowledged': True, 'revision': action.revision}, args=(farmer.pk,), expected=400)
-                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': timezone.localdate().isoformat(), 'revision': action.revision}, args=(farmer.pk,), expected=400)
-                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': timezone.localdate().isoformat(), 'early_commissioning_acknowledged': True, 'revision': action.revision}, args=(farmer.pk,))
+                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': (installed_on - timedelta(days=1)).isoformat(), 'early_commissioning_acknowledged': True, 'revision': action.revision}, args=(farmer.pk,), expected=400)
+                if (commissioned_on - installed_on).days < 21:
+                    api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': commissioned_on.isoformat(), 'revision': action.revision}, args=(farmer.pk,), expected=400)
+                api('HB_STAFF', 'portal_hb_action_transition', {'workstream': 'commissioning', 'commissioning_date': commissioned_on.isoformat(), 'early_commissioning_acknowledged': True, 'revision': action.revision}, args=(farmer.pk,))
                 action.refresh_from_db()
                 assert action.commissioning_status == 'commissioned'
                 farmer.refresh_from_db()
@@ -302,11 +383,19 @@ def run(output):
             drain('final_sheet_publication')
             for tab in ('Master Data', 'Eco-conserve'):
                 values = sheets[tab].values
-                assert len(values) == 2, (tab, len(values))
-                assert values[1][values[0].index('Case ID')]
-                assert values[1][values[0].index('Current Pipeline State')] == 'COMMISSIONED'
-                assert str(values[1][values[0].index('Payment No')]) == '1'
-                assert str(values[1][values[0].index('Balance Due')]) in {'44500', '44500.00'}
+                expected_farmers = [farmer for farmer in JawabuFarmerMaster.objects.all()
+                                    if (fulfillment_partner_for_farmer(farmer) == 'ECOCONSERVE') == (tab == 'Eco-conserve')]
+                assert len(values) - 1 == len(expected_farmers), (tab, len(values), len(expected_farmers))
+                by_id = {row[values[0].index('Master Record ID')]: row for row in values[1:]}
+                assert len(by_id) == len(expected_farmers)
+                for farmer in farmers:
+                    if (fulfillment_partner_for_farmer(farmer) == 'ECOCONSERVE') != (tab == 'Eco-conserve'):
+                        continue
+                    row = by_id[str(farmer.pk)]
+                    assert row[values[0].index('Current Pipeline State')] == 'COMMISSIONED'
+                    assert str(row[values[0].index('Payment No')]) == '1'
+                    from decimal import ROUND_HALF_UP
+                    assert Decimal(str(row[values[0].index('Balance Due')])) == farmer.balance_due.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
             from datetime import datetime
             sheet_timestamp = sheets['Master Data'].values[1][sheets['Master Data'].values[0].index('Last Updated At')]
             displayed = datetime.strptime(sheet_timestamp, '%d-%b-%Y %H:%M').replace(tzinfo=timezone.get_current_timezone())
@@ -343,3 +432,137 @@ def probe_invoice_phones(output):
                         'matched': matches, 'expected_match': expected, 'passes_expected_behavior': matches == expected})
     (output / 'invoice-phone-probes.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return results
+
+
+def verify_retained_journey(output):
+    """Independently reconcile retained DB facts, local Sheet cells and workbook bytes."""
+    from decimal import Decimal, ROUND_HALF_UP
+    from django.utils import timezone
+    from openpyxl import load_workbook
+    from core.models import IntegrationOperation, JawabuFarmerMaster, RequisitionBatch, ParsedInvoice
+    from core.services.requisition_partners import fulfillment_partner_for_farmer
+    from core.services.jawabu_case_reference import display_case_reference
+    from hb_operations.models import HomeBiogasAction
+    from payments.models import PaymentBatch
+
+    evidence = json.loads((output / 'journey.json').read_text(encoding='utf-8'))
+    expected = evidence['completion_count']
+    assert expected >= 2
+    farmers = list(JawabuFarmerMaster.objects.order_by('national_id'))
+    assert len(farmers) == evidence['intake_count']
+    completed = farmers[:expected]
+    assert RequisitionBatch.objects.count() == expected
+    assert ParsedInvoice.objects.filter(status='matched').count() == expected
+    assert HomeBiogasAction.objects.filter(commissioning_status='commissioned').count() == expected
+    batch = PaymentBatch.objects.get(status=PaymentBatch.STATUS_COMPLETED)
+    assert batch.case_memberships.filter(is_active=True).count() == expected
+    assert not IntegrationOperation.objects.exclude(status='succeeded').exists()
+    assert not [step for step in evidence['steps'] if 'expected' in step and step['status'] != step['expected']]
+    sheet_rows = 0
+    for tab in ('Master Data', 'Eco-conserve'):
+        with (output / 'sheets' / f'{tab}.csv').open(newline='', encoding='utf-8') as stream:
+            rows = list(csv.DictReader(stream))
+        sheet_rows += len(rows)
+        by_id = {row['Master Record ID']: row for row in rows}
+        assert len(by_id) == len(rows)
+        target = [farmer for farmer in farmers if (fulfillment_partner_for_farmer(farmer) == 'ECOCONSERVE') == (tab == 'Eco-conserve')]
+        assert set(by_id) == {str(farmer.pk) for farmer in target}
+        for farmer in completed:
+            if str(farmer.pk) not in by_id:
+                continue
+            row = by_id[str(farmer.pk)]
+            assert row['Case ID'] == display_case_reference(farmer.pk)
+            assert row['Current Pipeline State'] == 'COMMISSIONED'
+            assert row['Payment No'] == str(batch.payment_number)
+            assert Decimal(row['Balance Due']) == farmer.balance_due.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+            action = HomeBiogasAction.objects.get(farmer=farmer)
+            assert action.installation_date <= action.commissioning_date <= timezone.localdate()
+            assert farmer.customer_no and farmer.credit_decision == farmer.final_decision == 'Approved'
+    assert sheet_rows == len(farmers)
+    for order in RequisitionBatch.objects.all():
+        assert sha256(bytes(order.file_content)).hexdigest() == order.content_checksum
+        workbook = load_workbook(BytesIO(bytes(order.file_content)))
+        assert workbook.active.cell(9, 2).value == JawabuFarmerMaster.objects.get(pk=order.farmer_ids[0]).customer_name
+    manifest = json.loads((output / 'drive' / 'manifest.json').read_text(encoding='utf-8'))
+    for entry in manifest:
+        content = (output / 'drive' / entry['id']).read_bytes()
+        assert sha256(content).hexdigest() == entry['id'] and len(content) == entry['size']
+    result = {'status': 'passed', 'intake': len(farmers), 'completed': expected,
+              'source': evidence['source'], 'sheet_rows': sheet_rows,
+              'orders': RequisitionBatch.objects.count(), 'matched_invoices': expected,
+              'commissioned': expected, 'payment_batches': 1,
+              'operations': IntegrationOperation.objects.count(), 'drive_uploads': len(manifest),
+              'unique_blobs': len({entry['id'] for entry in manifest}),
+              'original_harness_status': evidence['status'], 'elapsed_seconds': evidence['elapsed_seconds']}
+    (output / 'verification.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    print(json.dumps(result))
+    return result
+
+
+def resume_sysup(output):
+    """Resume an interrupted synthetic review using its saved source and current revisions."""
+    from django.conf import settings
+    from django.test import Client
+    from django.urls import reverse
+    from core.models import JawabuFarmerUploadBatch, JawabuFarmerMaster, UserProfile, IntegrationOperation
+    from core.tests import FakeMasterDataSheet, FakeJawabuService
+    from core.services.portal_publication import queued_publication_operations, attempt_publication
+
+    settings.TELEGRAM_BOT_TOKEN = '000000:synthetic-local-audit-only'
+    settings.PORTAL_PUBLICATION_MIN_SPACING_SECONDS = 0
+    profile = UserProfile.objects.get(user__username='synthetic-operations_admin')
+    fields = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': int(profile.telegram_id)})}
+    secret = hmac.new(b'WebAppData', settings.TELEGRAM_BOT_TOKEN.encode(), sha256).digest()
+    fields['hash'] = hmac.new(secret, '\n'.join(f'{key}={value}' for key, value in sorted(fields.items())).encode(), sha256).hexdigest()
+    client = Client(HTTP_X_TELEGRAM_INIT_DATA=urlencode(fields))
+    batch = JawabuFarmerUploadBatch.objects.get(import_kind='system_export')
+    original_hash = sha256(bytes(batch.source_content)).hexdigest()
+    result = {'initially_committed': batch.committed_count, 'remaining_before': len(batch.parsed_rows),
+              'requests': [], 'source_rows': batch.total_rows, 'status': 'running'}
+    started = time.monotonic()
+    while batch.parsed_rows:
+        rows = [{**row, 'approved': True} for row in batch.parsed_rows[:settings.SYSUP_PROCESSING_CHUNK_SIZE]]
+        assert all(row.get('Matched Farmer ID') for row in rows)
+        payload = {'rows': rows, 'portal_revision': batch.portal_revision,
+                   'client_request_id': f'synthetic-resume-{batch.pk}-{batch.portal_revision}'}
+        before = time.monotonic()
+        response = client.post(reverse('portal_import_commit', args=(batch.pk,)), json.dumps(payload), content_type='application/json')
+        data = response.json()
+        assert response.status_code == 200 and data['ok'], data
+        assert 0 < data['result']['committed'] <= settings.SYSUP_COMMIT_MAX_ROWS_PER_REQUEST, data
+        result['requests'].append({'selected': len(rows), 'committed': data['result']['committed'],
+                                   'duration_ms': round((time.monotonic() - before) * 1000, 2)})
+        batch.refresh_from_db()
+        (output / 'sysup-resume.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+        print('resume', batch.committed_count, 'of', batch.total_rows, flush=True)
+    assert batch.status == 'committed' and batch.committed_count == batch.total_rows
+    assert sha256(bytes(batch.source_content)).hexdigest() == original_hash
+    assert JawabuFarmerMaster.objects.exclude(customer_no='').count() == batch.total_rows
+    sheet_dir = output / 'sheets'
+    sheet_dir.mkdir(exist_ok=True)
+    with (output.parent / 'sheets' / 'Master Data.csv').open(newline='', encoding='utf-8') as stream:
+        headers = next(csv.reader(stream))
+    sheets = {tab: FakeMasterDataSheet(headers) for tab in ('Master Data', 'Eco-conserve', 'Orders')}
+    for sheet in sheets.values():
+        sheet.values = [list(headers)]
+    def service(*, sheet_id, sheet_name, **kwargs):
+        assert sheet_id == 'local-audit-sheet'
+        return FakeJawabuService(sheets[sheet_name])
+    with patch('core.services.sheets.GoogleSheetsService.get_instance', side_effect=service):
+        attempts = 0
+        while (operation := queued_publication_operations().first()) is not None:
+            attempted = attempt_publication(operation)
+            assert not attempted.get('error'), attempted
+            attempts += 1
+            assert attempts <= batch.total_rows * 3
+    assert not IntegrationOperation.objects.exclude(status='succeeded').exists()
+    for tab, sheet in sheets.items():
+        with (sheet_dir / f'{tab}.csv').open('w', newline='', encoding='utf-8') as stream:
+            csv.writer(stream).writerows(sheet.values)
+    assert sum(len(sheet.values) - 1 for sheet in sheets.values()) == batch.total_rows
+    result.update(status='passed', final_committed=batch.committed_count, remaining_after=0,
+                  sheet_rows=batch.total_rows, publication_attempts=attempts,
+                  elapsed_seconds=round(time.monotonic() - started, 2))
+    (output / 'sysup-resume.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    print(json.dumps({key: value for key, value in result.items() if key != 'requests'}))
+    return result

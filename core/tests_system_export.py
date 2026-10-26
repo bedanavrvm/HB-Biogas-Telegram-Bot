@@ -86,8 +86,7 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(rows[0]['LGF Balance'], '0')
         self.assertTrue(rows[0]['approved'])
 
-    @override_settings(SYSUP_MAX_ROWS_PER_UPLOAD=1)
-    def test_parser_rejects_an_export_above_the_configured_web_budget(self):
+    def test_explicit_parser_row_bound_is_still_enforced(self):
         with self.assertRaisesMessage(ValueError, 'more than 1 non-blank rows'):
             parse_system_export(export_csv([
                 {
@@ -100,7 +99,33 @@ class SystemExportImportTests(TestCase):
                     'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer B',
                     'Product Name': 'Biogas', 'LGF Balance': '0',
                 },
-            ]), 'customers.csv')
+            ]), 'customers.csv', max_rows=1)
+
+    @override_settings(SYSUP_PROCESSING_CHUNK_SIZE=400)
+    def test_whole_csv_and_xlsx_accept_more_than_one_processing_chunk(self):
+        from openpyxl import Workbook
+        records = [{'Customer ID': str(990000 + i), 'Name': f'SYNTHETIC WHOLE FILE {i}',
+                    'Mobile No': f'2547{i:08}', 'ID NO': str(99000000 + i),
+                    'Branch': 'Limuru', 'Loan Officer': 'Synthetic officer',
+                    'Product Name': 'HomeBiogas', 'LGF Balance': '0'} for i in range(801)]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(HEADERS)
+        for record in records:
+            sheet.append([record.get(header, '') for header in HEADERS])
+        xlsx = io.BytesIO()
+        workbook.save(xlsx)
+        for filename, content in [('synthetic.csv', export_csv(records)), ('synthetic.xlsx', xlsx.getvalue())]:
+            with self.subTest(filename=filename):
+                rows, stats = parse_system_export(content, filename)
+                self.assertEqual(stats['total_rows'], 801)
+                self.assertEqual(stats['processing_chunk_size'], 400)
+                self.assertEqual(stats['processing_chunks'], 3)
+                self.assertEqual(rows[0]['Source Row'], 2)
+                self.assertEqual(rows[-1]['Source Row'], 802)
+                self.assertEqual(rows[-1]['Customer ID'], '990800')
+                self.assertEqual(rows[-1]['LGF Balance'], '0')
+                self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
 
     @override_settings(SYSUP_COMMIT_MAX_ROWS_PER_REQUEST=1)
     @patch('core.services.portal_publication.reserve_farmer_publication')
@@ -130,7 +155,7 @@ class SystemExportImportTests(TestCase):
         self.assertTrue(result['success'])
         self.assertEqual(result['committed'], 1)
         self.assertEqual(result['deferred'], 1)
-        self.assertIn('commit again', result['message'])
+        self.assertIn('next processing batch', result['message'])
         batch.refresh_from_db()
         self.assertEqual(batch.status, 'pending_review')
         self.assertEqual(len(batch.parsed_rows), 1)

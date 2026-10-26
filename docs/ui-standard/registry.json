@@ -455,9 +455,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "f54774dc83eeb6d38a5804593594cc0674dd7fdc1d1338a32000119900c3e86e",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "Nonvisual loading/cache-version update for the user-approved HB Deposits implementation; no candidate tokens or Phase 6 migration."
+      "sha256": "178e53f24a6ad1a4110f118b22f0677102c62299bbd11b50110bb7aa44063d9a",
+      "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
+      "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -728,6 +728,12 @@
       "sha256": "718945d72c42a66565184dad069b17fb579eb5016178119e4038c9ad6347920d",
       "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
       "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "core/static/miniapp/portal_imports.js",
+      "sha256": "28343050a18cdef89acbba63a6cda43639d7a67567704dc6d4bead92ebf2e34b",
+      "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
+      "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
     }
   ],
   "source_roots": [

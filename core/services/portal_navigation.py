@@ -63,7 +63,7 @@ PORTAL_SCREEN_PRESENTATION = {
 
 PORTAL_NAV_GROUP_ORDER = (
     'Home', 'Pipeline · Intake', 'Pipeline · Field Visit', 'Pipeline · Credit',
-    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · Install & Commission', 'Cases', 'More',
+    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · HB Actions', 'Cases', 'More',
 )
 
 PORTAL_HUBS = (

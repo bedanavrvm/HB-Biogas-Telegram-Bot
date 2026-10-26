@@ -21,9 +21,9 @@ from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
 from django.contrib.auth import login
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import BadSignature, TimestampSigner
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
@@ -134,6 +134,15 @@ def portal_auth_required(view_func):
                 request.portal_request_id = ''
         try:
             response = view_func(request, *args, **kwargs)
+        except Http404:
+            response = JsonResponse({'ok': False, 'code': 'not_found',
+                                     'error': 'This record is unavailable. Refresh and try again.'}, status=404)
+        except PermissionDenied:
+            response = JsonResponse({'ok': False, 'code': 'permission_denied',
+                                     'error': 'This action is outside your access scope.'}, status=403)
+        except ValidationError:
+            response = JsonResponse({'ok': False, 'code': 'invalid_request',
+                                     'error': 'Check the submitted values and try again.'}, status=400)
         except Exception as exc:
             logger.exception(
                 'Portal request failed: request_id=%s method=%s path=%s',
@@ -7864,6 +7873,7 @@ def portal_create_and_complete_jbl_lead(request):
     deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
+    elif len(name) > 255: errors['customer_name'] = 'Customer name must be 255 characters or fewer.'
     if not national_id: errors['national_id'] = 'National ID must contain 1 to 9 digits only.'
     if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'

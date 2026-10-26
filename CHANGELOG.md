@@ -1,5 +1,24 @@
 # Changelog
 
+## 26 October 2026 - Portal volume testing, whole-file SysUp and HB navigation
+
+- Accept whole SysUp CSV/XLSX files within the existing file-size guard; match
+  them in internal 400-row chunks and automatically continue approved Portal
+  selections with the existing 20-row commit budget. Preserve exact sources,
+  held rows, revision checks and interruption/retry progress. Document the new
+  `SYSUP_PROCESSING_CHUNK_SIZE` setting; remove the old upload-row ceiling.
+- Restore HB Actions in the drawer for HB Staff and IT by correcting its group
+  name. Verify all three workstreams with ordinary scoped accounts and require
+  every authorized destination to survive navigation grouping.
+- Return safe 404/403/400 responses for expected Portal exceptions and reject
+  overlong BRO names before creating records.
+- Exercise 5,000-row intake, 1,000 BRO entries, 1,000-row SysUp recovery, 100
+  complete varied cases and 211 Portal route patterns. Verify 995 backend and
+  271 browser checks; six PostgreSQL-only checks remain skipped. Evidence,
+  driver corrections and limits: `docs/portal-miniapp-audit-2026-10-26.md`.
+- No migration, dependency or production write. Automatic Portal continuation
+  needs the Imports page open; outstanding rows remain available for retry.
+
 ## 26 October 2026 - Portal workflow audit fixes
 
 - Resolve Sheet order/payment headings with the publisher's punctuation

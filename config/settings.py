@@ -635,7 +635,7 @@ FCA_BATCH_MAX_FILE_SIZE_MB = config('FCA_BATCH_MAX_FILE_SIZE_MB', default=10, ca
 # budgets explicit so a large system export is reviewed in safe chunks rather
 # than holding a worker until Gunicorn terminates it.
 SYSUP_MAX_FILE_SIZE_MB = config('SYSUP_MAX_FILE_SIZE_MB', default=5, cast=int)
-SYSUP_MAX_ROWS_PER_UPLOAD = config('SYSUP_MAX_ROWS_PER_UPLOAD', default=150, cast=int)
+SYSUP_PROCESSING_CHUNK_SIZE = config('SYSUP_PROCESSING_CHUNK_SIZE', default=400, cast=int)
 SYSUP_COMMIT_MAX_ROWS_PER_REQUEST = config('SYSUP_COMMIT_MAX_ROWS_PER_REQUEST', default=20, cast=int)
 INVOICE_UPLOAD_MAX_FILE_SIZE_MB = config('INVOICE_UPLOAD_MAX_FILE_SIZE_MB', default=8, cast=int)
 # Physically signed/stamped requisition and payment scans are stored in Django

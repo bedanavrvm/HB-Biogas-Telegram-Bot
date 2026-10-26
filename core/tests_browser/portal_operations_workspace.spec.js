@@ -12,6 +12,54 @@ async function mount(page, html) {
   await page.evaluate(() => document.body.classList.add('portal-app', 'workflow-standard'));
 }
 
+for (const interrupted of [false, true]) {
+  test(`SysUp automatically processes a whole review in bounded requests${interrupted ? ' and resumes after interruption' : ''}`, async ({page}) => {
+    await mount(page, '<div id="portal-screen" data-screen="imports"><div id="portal-import-list"></div><div id="portal-import-review" hidden></div></div>');
+    await page.evaluate(({interrupted}) => {
+      window.Telegram = {WebApp:{initData:'synthetic-only'}};
+      window.sysupCalls = [];
+      const makeRow = i => ({Name:`Synthetic applicant ${i}`, 'ID NO':String(99000000+i),
+        'Import Status':'ready', 'Matched Farmer ID':`case-${i}`, row_fingerprint:`row-${i}`,
+        'Match Candidates':[{id:`case-${i}`, customer_name:`Synthetic applicant ${i}`, workflow_revision:1, fields:{}}]});
+      const batch = {id:'whole-synthetic', kind:'sysup', portal_revision:1, total_rows:405,
+        processing_chunk_size:400, source_filename:'whole.csv', source_table:{headers:[], rows:[]},
+        review_rows:Array.from({length:405}, (_,i) => makeRow(i))};
+      window.interruptedOnce = false;
+      window.PortalMiniAppApi = {
+        apiFetch:async () => ({ok:true, data:{ok:true, batches:[batch], batch}}),
+        postJson:async (url,payload) => {
+          sysupCalls.push(JSON.parse(JSON.stringify(payload)));
+          if (interrupted && sysupCalls.length === 2 && !interruptedOnce) {
+            interruptedOnce = true;
+            return {ok:false,data:{error:'Synthetic connection interruption. Retry the remaining rows.'}};
+          }
+          const ids = new Set(payload.rows.filter(row => row.approved).slice(0,20).map(row => row.row_fingerprint));
+          batch.review_rows = batch.review_rows.filter(row => !ids.has(row.row_fingerprint));
+          batch.portal_revision += 1;
+          return {ok:true,data:{ok:true,batch:{portal_revision:batch.portal_revision},
+            result:{committed:ids.size,errors:[]},review_rows:batch.review_rows}};
+        },
+      };
+    }, {interrupted});
+    await page.addScriptTag({path:asset('portal_imports.js')});
+    await page.evaluate(() => PortalMiniAppImports.load());
+    await page.getByRole('button',{name:'Review rows',exact:true}).click();
+    await page.getByRole('button',{name:'Commit selected',exact:true}).click();
+    if (interrupted) {
+      await expect(page.locator('#portal-import-feedback')).toContainText('Synthetic connection interruption');
+      await expect(page.locator('.portal-sysup-approve:disabled')).toHaveCount(20);
+      await page.getByRole('button',{name:'Commit selected',exact:true}).click();
+    }
+    await expect(page.locator('#portal-import-feedback')).toContainText(`${interrupted ? 385 : 405} SysUp rows committed.`);
+    const calls = await page.evaluate(() => sysupCalls);
+    expect(calls.length).toBe(interrupted ? 22 : 21);
+    expect(Math.max(...calls.map(call => call.rows.length))).toBe(400);
+    expect(calls.at(-1).rows).toHaveLength(5);
+    expect(calls.at(-1).portal_revision).toBe(21);
+    if (interrupted) expect(calls[2].rows.some(row => row.row_fingerprint === 'row-0')).toBe(false);
+  });
+}
+
 for (const width of [320, 430, 768, 1280]) {
   test(`SysUp offers inline field choices and preserves corrections after conflict at ${width}px`, async ({page}, info) => {
     await page.setViewportSize({width, height:900});

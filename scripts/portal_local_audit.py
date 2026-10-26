@@ -32,7 +32,7 @@ DEFAULT_LABELS = [
     'core.tests_jbl_visit_documents', 'core.tests_jawabu_data_quality',
     'core.tests_document_signoffs', 'core.tests_portal_full_reset',
     'core.tests_portal_voice', 'core.tests_template_storage',
-    'core.tests_portal_audit_fixes',
+    'core.tests_portal_audit_fixes', 'core.tests_portal_realistic_variance',
     'core.tests_miniapp_messages',
     'core.tests_tat_tracker.TatTrackerWorkflowTest.test_create_endpoint_alerts_next_stage_role',
     'core.tests_tat_tracker.TatTrackerWorkflowTest.test_create_endpoint_returns_specific_invalid_bro_message',
@@ -86,11 +86,38 @@ def configure(database_name='audit.sqlite3'):
 
 
 def main():
+    global OUTPUT
     import sqlite3
-    journey = sys.argv[1:] == ['--journey']
+    if sys.argv[1:2] in (['--verify-volume'], ['--resume-sysup']):
+        target = Path(sys.argv[2]).resolve()
+        assert target.is_relative_to(OUTPUT.resolve()) and target != OUTPUT.resolve()
+        evidence = json.loads((target / 'journey.json').read_text(encoding='utf-8'))
+        database_name = Path(evidence['database']).name
+        assert (target / database_name).is_file()
+        OUTPUT = target
+        configure(database_name)
+        from portal_local_journey import resume_sysup, verify_retained_journey
+        (resume_sysup if sys.argv[1] == '--resume-sysup' else verify_retained_journey)(OUTPUT)
+        return 0
+    volume = sys.argv[1:2] == ['--volume']
+    journey = sys.argv[1:] == ['--journey'] or volume
+    baseline = OUTPUT / 'baseline.sqlite3'
+    journey_options = {}
+    if volume:
+        import argparse
+        parser = argparse.ArgumentParser(description='Isolated Portal volume and non-SysUp journey')
+        parser.add_argument('source', choices=('sysup', 'farmup', 'office'))
+        parser.add_argument('--rows', type=int, default=1000)
+        parser.add_argument('--complete', type=int, default=50)
+        options = parser.parse_args(sys.argv[2:])
+        if not 2 <= options.complete <= options.rows <= 10000:
+            parser.error('Use 2 <= complete <= rows <= 10000.')
+        OUTPUT = OUTPUT / f'volume-{options.source}-{options.rows}-{time.time_ns()}'
+        journey_options = {'source': options.source, 'intake_count': options.rows,
+                           'completion_count': options.complete}
+        OUTPUT.mkdir(parents=True, exist_ok=True)
     database_name = f'journey-{time.time_ns()}.sqlite3' if journey else 'audit.sqlite3'
     if journey:
-        baseline = OUTPUT / 'baseline.sqlite3'
         if not baseline.exists():
             raise SystemExit('Run --prepare before the connected journey.')
         with sqlite3.connect(baseline) as source, sqlite3.connect(OUTPUT / database_name) as target:
@@ -108,9 +135,9 @@ def main():
         with sqlite3.connect(OUTPUT / 'audit.sqlite3') as source, sqlite3.connect(OUTPUT / 'baseline.sqlite3') as target:
             source.backup(target)
         return 0
-    if sys.argv[1:] == ['--journey']:
+    if journey:
         from portal_local_journey import run
-        return run(OUTPUT)
+        return run(OUTPUT, **journey_options)
     from django.test.runner import DiscoverRunner
     if (OUTPUT / 'baseline.sqlite3').exists():
         with sqlite3.connect(OUTPUT / 'baseline.sqlite3') as source, sqlite3.connect(OUTPUT / 'suite-verified.sqlite3') as target:
