@@ -24,7 +24,7 @@ from core.models import (
 )
 from core.services.portal_publication import reserve_farmer_publication
 from core.services.workflow_transitions import next_workflow_revision
-from core.services.identifiers import normalize_national_id
+from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ def record_invoice_event(
 
 
 AMOUNT_RE = re.compile(r"^(?:KES\s*)?-?\d[\d,]*(?:\.\d{2})$")
-PHONE_RE = re.compile(r"(?:\+254|0)\d{8,9}")
+PHONE_RE = re.compile(r"(?<![\d+])(?:\+?254(?:[\s()-]*0)?|00254(?:[\s()-]*0)?|005|0)[\s()-]*[17](?:[\s()-]*\d){8}(?!\d)")
 
 def clean_amount(val: str) -> Decimal | None:
     if not val:
@@ -995,6 +995,9 @@ def verify_balance_due(invoice_amount: str, discount: str, total_after_discount:
     }
 
 def clean_phone(phone: str) -> str:
+    canonical = normalize_kenyan_phone(phone)
+    if canonical:
+        return canonical[3:]
     cleaned = re.sub(r'\D', '', str(phone or ''))
     if cleaned.startswith('254'):
         return cleaned[3:]

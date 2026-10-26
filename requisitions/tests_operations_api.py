@@ -1,5 +1,6 @@
 """Current Operations API contract; external integrations remain mocked."""
 import json
+from hashlib import sha256
 from datetime import date
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
@@ -71,6 +72,13 @@ class OperationsApiTests(TestCase):
         initial_preview = self.preview(first)
         generated = self.generate(initial_preview, 'training-generate')
         batch = RequisitionBatch.objects.get(pk=generated['batch']['id'])
+        self.assertTrue(generated['drive_sync_pending'])
+        self.assertTrue(generated['download_url'])
+        self.assertEqual(bytes(batch.file_content), b'synthetic-workbook')
+        self.assertEqual(batch.content_checksum, sha256(b'synthetic-workbook').hexdigest())
+        batch.drive_file_id = 'synthetic-version-1'
+        batch.drive_url = 'https://example.invalid/synthetic-version-1'
+        batch.save(update_fields=['drive_file_id', 'drive_url'])
         unselected = self.preview(second)
         self.assertEqual(unselected['ready_count'], 1)
         self.assertEqual(unselected['append_candidates'][0]['id'], str(batch.pk))
@@ -80,6 +88,13 @@ class OperationsApiTests(TestCase):
         self.assertEqual(appended['batch']['id'], str(batch.pk))
         self.assertEqual(appended['batch']['version'], 2)
         self.assertEqual(OrderWorkbookVersion.objects.filter(batch=batch).count(), 2)
+        batch.refresh_from_db()
+        self.assertEqual((batch.drive_file_id, batch.drive_url), ('', ''))
+        original = batch.workbook_versions.get(version=1)
+        self.assertEqual(bytes(original.file_content), b'synthetic-workbook')
+        self.assertEqual(original.farmer_ids, [str(first.pk)])
+        self.assertCountEqual(batch.workbook_versions.get(version=2).farmer_ids,
+                              [str(first.pk), str(second.pk)])
         replay = self.generate(initial_preview, 'training-generate')
         self.assertTrue(replay['idempotent_replay'])
         self.sequence.refresh_from_db()
@@ -87,6 +102,44 @@ class OperationsApiTests(TestCase):
         for farmer in (first, second):
             farmer.refresh_from_db()
             self.assertEqual(farmer.requisition_batch_id, batch.pk)
+
+    def test_stale_preview_cannot_generate_or_assign_an_order(self):
+        farmer = self.farmer(1)
+        preview = self.preview(farmer)
+        farmer.workflow_revision += 1
+        farmer.save(update_fields=['workflow_revision'])
+        request = self.request('POST', {'preview_token': preview['preview_token'],
+                                       'client_request_id': 'training-stale-finalize'})
+        with patch('core.services.jawabu_approvals.require_effective_approval'), \
+             patch('core.services.requisition.generate_requisition_excel') as generate:
+            response = views.portal_requisition_finalize(request)
+        self.assertEqual(response.status_code, 409, response.content)
+        generate.assert_not_called()
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.order_number, '')
+        self.assertIsNone(farmer.requisition_batch_id)
+        self.assertFalse(RequisitionBatch.objects.exists())
+        self.sequence.refresh_from_db()
+        self.assertEqual(self.sequence.next_number, 10)
+
+    def test_template_failure_does_not_consume_a_number_or_assign_cases(self):
+        from core.services.requisition import RequisitionTemplateError
+        farmer = self.farmer(1)
+        preview = self.preview(farmer)
+        request = self.request('POST', {'preview_token': preview['preview_token'],
+                                       'client_request_id': 'training-missing-template'})
+        with patch('core.services.jawabu_approvals.require_effective_approval'), \
+             patch('core.services.requisition.requisition_template_for_partner',
+                   side_effect=RequisitionTemplateError('Synthetic missing template')):
+            response = views.portal_requisition_finalize(request)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(json.loads(response.content)['code'], 'order_template_unavailable')
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.order_number, '')
+        self.assertIsNone(farmer.requisition_batch_id)
+        self.assertFalse(RequisitionBatch.objects.exists())
+        self.sequence.refresh_from_db()
+        self.assertEqual(self.sequence.next_number, 10)
 
     def test_signed_order_is_not_append_candidate(self):
         first = self.farmer(1)

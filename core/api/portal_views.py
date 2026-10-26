@@ -1442,7 +1442,7 @@ def _portal_screen_fragment(request, screen: str, context: dict | None = None):
 def portal_screen(request, screen: str):
     """Return the full Portal shell for browser routes; retain HTMX compatibility."""
     from core.services.portal_navigation import PORTAL_NAV_ITEMS, PORTAL_PERSONAL_NAV_ITEM
-    known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0]}
+    known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0], 'case_history'}
     if screen not in known_screens:
         return HttpResponse('Unknown portal screen.', status=404)
     if request.htmx:
@@ -6097,7 +6097,9 @@ def portal_requisition_preview(request):
             raise ValueError('Select cases from Prepare Orders.')
         preview_ids = preview_body.get('farmer_ids') or []
         if not isinstance(preview_ids, list) or not preview_ids or len(preview_ids) != len(set(map(str, preview_ids))):
-            raise ValueError('Select at least one case, without duplicate selections.')
+            return JsonResponse({'ok': False, 'code': 'order_selection_required',
+                                 'error': 'Select at least one case, without duplicate selections.',
+                                 'field_errors': {'farmer_ids': 'Select at least one case, without duplicates.'}}, status=400)
         preview_ids = [str(uuid.UUID(str(value))) for value in preview_ids]
         from core.models import JawabuFarmerMaster
         from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner

@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -112,7 +113,8 @@ class PortalCaseCorrectionTests(TestCase):
         )
         self.farmer.workflow_state = 'requisition'
         self.farmer.final_decision = 'Approved'
-        self.farmer.save(update_fields=['workflow_state', 'final_decision'])
+        self.farmer.jbl_visit_date = date(2026, 9, 15)
+        self.farmer.save(update_fields=['workflow_state', 'final_decision', 'jbl_visit_date'])
         approval = JawabuApprovalRecord.objects.create(
             farmer=self.farmer, gate=JawabuApprovalRecord.GATE_FINAL_REVIEW,
             decision=JawabuApprovalRecord.DECISION_APPROVED,

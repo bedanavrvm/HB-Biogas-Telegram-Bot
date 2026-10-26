@@ -1,5 +1,29 @@
 # Known Gaps and Verified Workarounds
 
+## Portal audit remediation - 26 October 2026
+
+The reported Sheet alias, invoice-phone and Nairobi timestamp defects are fixed.
+The existing Case History route is restored; TAT creation field errors no longer
+echo submitted customer values. Current authorization and financial-finality
+rules are unchanged. Retired order tests now require 426/no-write behavior;
+current finalize tests retain local bytes, exact membership and version history.
+
+The isolated run executes 990 backend checks: 984 pass, six PostgreSQL-only
+checks skip, and none fail or error. All 269 Portal/FarmUp Chromium checks pass.
+The real-backend synthetic journey completes SysUp/FarmUp, visits, approvals,
+signed orders, PDF invoices, a mixed-mode signed payment and commissioning for
+HB and Eco-conserve. All 32 integration operations succeed against local
+Sheets/Drive substitutes, with no header repair or business-rule bypass.
+
+PostgreSQL row-lock races/schema upgrade, real Google/Telegram/email delivery,
+physical devices and production scheduling remain unverified. No production
+data, deployment, dependency or setting was changed, and no migration is needed.
+Before operational acceptance, run the six skipped checks under PostgreSQL and
+the provider/device checks listed in
+`docs/portal-miniapp-audit-2026-10-26.md`. Local logs, DBs, CSV projections and
+retained workbook/blob evidence are under ignored
+`test-results/portal-local-audit-2026-10-26/` and `test-results/portal-fixes-*`.
+
 ## Origination alignment and model cleanup - 23 October 2026
 
 Implemented: strict placed-only filling (including no-layout drafts), signature

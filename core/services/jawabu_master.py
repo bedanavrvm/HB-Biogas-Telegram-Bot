@@ -370,7 +370,7 @@ def flag_farmup_master_sheet_conflicts(
         header_lookup = header_lookup_from_headers(headers)
         existing = build_master_existing_index(values, header_lookup, data_start_row)
         details = []
-        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
+        now_text = timezone.localtime().strftime('%d-%m-%Y %H:%M')
         for index, row in enumerate(review_rows, start=1):
             if row.get('approved') is False:
                 continue
@@ -785,7 +785,7 @@ def write_rows_to_master_sheet(
     overwrite_details = []
     pending_updates = []
     deposit_repairs = []
-    now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
+    now_text = timezone.localtime().strftime('%d-%m-%Y %H:%M')
     for cleaned in cleaned_rows:
         try:
             row_number = find_master_row_number(cleaned, existing)
@@ -1180,7 +1180,7 @@ def append_master_import_log(*, service, log_sheet_name: str, batch: JawabuFarme
                  'Total Rows', 'Created', 'Updated', 'Conflicts', 'Errors']
         values = [
             str(batch.id), batch.source_filename, batch.group_id, batch.sender,
-            timezone.now().strftime('%d-%m-%Y %H:%M'), batch.total_rows,
+            timezone.localtime().strftime('%d-%m-%Y %H:%M'), batch.total_rows,
             result.get('created', 0), result.get('updated', 0), result.get('conflicts', 0),
             '; '.join(result.get('errors') or []),
         ]
@@ -1351,6 +1351,7 @@ def update_master_sheet_row(
 ) -> None:
     from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
     columns = NamedColumns(headers)
+    normalized_columns = columns.lookup(normalize_header)
     columns.validate_row(row_values)
     assert_columns_unchanged(sheet, columns, header_row=header_row)
     # Preserve reviewed text exactly as staff see it in the form. Date columns
@@ -1358,7 +1359,9 @@ def update_master_sheet_row(
     # dates instead of text values with a hidden leading apostrophe.
     payload = []
     for name in dict.fromkeys(changed_headers):
-        column = columns.column(name)
+        column = normalized_columns.get(normalize_header(name))
+        if column is None:
+            column = columns.column(name)
         cell = f'{col_letter(column)}{row_number}'
         payload.append({'range': f'{cell}:{cell}', 'values': [[row_values[column - 1]]]})
     if payload:

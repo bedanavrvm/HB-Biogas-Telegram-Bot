@@ -1,5 +1,25 @@
 # Changelog
 
+## 26 October 2026 - Portal workflow audit fixes
+
+- Resolve Sheet order/payment headings with the publisher's punctuation
+  normalization while retaining ambiguous-column and schema-drift rejection.
+- Preserve invoice phone discrepancies across Kenyan country-code, local and
+  international-access formats; use Nairobi time for staff-facing Sheet updates.
+- Restore the existing Case History screen route and use safe catalogue messages
+  for TAT creation field errors, without changing workflow permissions.
+- Reconcile retired order endpoints and stale invoice/visit fixtures with the
+  current exact-membership, signed-version and preview/finalize contracts. Add
+  regressions for aliases, identity matching, timestamps and order finality.
+- Verify 984 backend checks and 269 Portal/FarmUp browser checks; six
+  PostgreSQL-only checks remain skipped. The connected two-partner journey
+  completes payment, commissioning and all 32 local publication operations with
+  the original Sheet aliases and no workaround. See
+  `docs/portal-miniapp-audit-2026-10-26.md` for evidence and limits.
+- No migration, dependency or setting change is required. No deployment or real
+  provider write was performed; PostgreSQL locking and live-device/provider
+  acceptance remain unverified.
+
 ## 23 October 2026 - Origination placement, signatures and model cleanup
 
 - Add Edit beside signatures and signer identity-field controls, including an
