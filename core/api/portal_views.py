@@ -21,9 +21,9 @@ from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
 from django.contrib.auth import login
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import BadSignature, TimestampSigner
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
@@ -134,6 +134,15 @@ def portal_auth_required(view_func):
                 request.portal_request_id = ''
         try:
             response = view_func(request, *args, **kwargs)
+        except Http404:
+            response = JsonResponse({'ok': False, 'code': 'not_found',
+                                     'error': 'This record is unavailable. Refresh and try again.'}, status=404)
+        except PermissionDenied:
+            response = JsonResponse({'ok': False, 'code': 'permission_denied',
+                                     'error': 'This action is outside your access scope.'}, status=403)
+        except ValidationError:
+            response = JsonResponse({'ok': False, 'code': 'invalid_request',
+                                     'error': 'Check the submitted values and try again.'}, status=400)
         except Exception as exc:
             logger.exception(
                 'Portal request failed: request_id=%s method=%s path=%s',
@@ -1455,7 +1464,7 @@ def _portal_screen_fragment(request, screen: str, context: dict | None = None):
 def portal_screen(request, screen: str):
     """Return the full Portal shell for browser routes; retain HTMX compatibility."""
     from core.services.portal_navigation import PORTAL_NAV_ITEMS, PORTAL_PERSONAL_NAV_ITEM
-    known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0]}
+    known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0], 'case_history'}
     if screen not in known_screens:
         return HttpResponse('Unknown portal screen.', status=404)
     if request.htmx:
@@ -6101,7 +6110,9 @@ def portal_requisition_preview(request):
             raise ValueError('Select cases from Prepare Orders.')
         preview_ids = preview_body.get('farmer_ids') or []
         if not isinstance(preview_ids, list) or not preview_ids or len(preview_ids) != len(set(map(str, preview_ids))):
-            raise ValueError('Select at least one case, without duplicate selections.')
+            return JsonResponse({'ok': False, 'code': 'order_selection_required',
+                                 'error': 'Select at least one case, without duplicate selections.',
+                                 'field_errors': {'farmer_ids': 'Select at least one case, without duplicates.'}}, status=400)
         preview_ids = [str(uuid.UUID(str(value))) for value in preview_ids]
         from core.models import JawabuFarmerMaster
         from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner
@@ -7862,6 +7873,7 @@ def portal_create_and_complete_jbl_lead(request):
     deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
+    elif len(name) > 255: errors['customer_name'] = 'Customer name must be 255 characters or fewer.'
     if not national_id: errors['national_id'] = 'National ID must contain 1 to 9 digits only.'
     if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'

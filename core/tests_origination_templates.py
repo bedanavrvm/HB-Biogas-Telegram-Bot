@@ -13,14 +13,12 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from pypdf import PdfReader, PdfWriter
-from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
 from origination.models import (
     LoanOriginationApplication,
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
-    OriginationProductDocumentAssignment,
     OriginationProductDefinition,
     OriginationTemplateConfigurationRevision,
 )
@@ -236,6 +234,8 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.maker = user_model.objects.create_superuser('template-maker', 'maker@example.test', 'x')
         self.checker = user_model.objects.create_superuser('template-checker', 'checker@example.test', 'x')
         self.pdf = synthetic_pdf()
+        OriginationDataField.objects.get_or_create(key='applicant_first_name',
+            defaults={'label': 'Applicant first name', 'data_type': 'text'})
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_upload_activate_and_load_are_drive_backed_and_audited(self, storage_class):
@@ -386,7 +386,8 @@ class OriginationTemplateLifecycleTests(TestCase):
             drive_file_id='drive-consent-v2', created_by=self.maker,
         )
         candidate_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=candidate, revision=1, configuration={}, is_published=True,
+            template=candidate, revision=1, configuration={'document_type': 'shared-guarantor-consent', 'version': 2,
+                'field_overlay_manifest': {'fields': {}}, 'signature_overlay_manifest': {'slots': {}}}, is_published=True,
             created_by=self.maker, published_at=timezone.now(),
         )
         candidate.published_configuration_revision = candidate_revision
@@ -695,200 +696,6 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('cal-signature-stroke-width', builder)
         self.assertIn('cal-stamp-fit', builder)
 
-    def test_shared_assignment_admin_derives_document_identity_from_template(self):
-        from origination.admin import OriginationProductDocumentAssignmentForm
-
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='guarantor_form',
-            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
-            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            document_type='guarantor_form', name='Guarantor Form', version=1,
-            status=OriginationDocumentTemplate.STATUS_ACTIVE,
-            source_filename='guarantor.pdf', source_sha256='c' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            created_by=self.user,
-        )
-        form = OriginationProductDocumentAssignmentForm(data={
-            'product_definition': str(self.product.pk), 'template': str(template.pk),
-            'version_policy': OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
-            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            'display_order': 10,
-        })
-
-        self.assertNotIn('document_key', form.fields)
-        self.assertNotIn('name', form.fields)
-        self.assertTrue(form.is_valid(), form.errors)
-        assignment = form.save(commit=False)
-        assignment.created_by = self.user
-        assignment.save()
-
-        self.assertEqual(assignment.document_key, template.document_key)
-        self.assertEqual(assignment.name, template.name)
-        self.client.force_login(self.user)
-        response = self.client.get(
-            reverse('admin:origination_originationproductdocumentassignment_add'),
-            {'product_definition': str(self.product.pk)},
-        )
-        self.assertContains(response, 'Only include this document when')
-        self.assertContains(response, 'Attach a published document to a draft product')
-        self.assertContains(response, 'A newer version of the same Main LAF upgrades')
-        self.assertContains(response, 'origination_document_conditions.js')
-
-    def test_shared_assignment_admin_stores_simple_rule_from_form_controls(self):
-        from origination.admin import OriginationProductDocumentAssignmentForm
-
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='guarantor_form',
-            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
-            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            document_type='guarantor_form', name='Guarantor Form', version=1,
-            status=OriginationDocumentTemplate.STATUS_ACTIVE,
-            source_filename='guarantor.pdf', source_sha256='d' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            created_by=self.user,
-        )
-        form = OriginationProductDocumentAssignmentForm(data={
-            'product_definition': str(self.product.pk), 'template': str(template.pk),
-            'version_policy': OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
-            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_CONDITIONAL,
-            'display_order': 10,
-            'condition_field': 'farmer_name',
-            'condition_operator': 'truthy',
-            'condition_value': '',
-        })
-
-        self.assertTrue(form.is_valid(), form.errors)
-        assignment = form.save(commit=False)
-        self.assertEqual(assignment.applicability_rule, {
-            'field': 'farmer_name', 'operator': 'truthy',
-        })
-
-    def test_assignment_admin_upgrades_existing_primary_when_published_family_version_is_selected(self):
-        baseline = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='shared_primary_family',
-            name='Shared Primary LAF', version=1, status='retired',
-            source_filename='shared-v1.pdf', source_sha256='1' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            form_schema={'fields': [{'key': 'farmer_name', 'type': 'text', 'required': True}]},
-            signer_rules=[], created_by=self.user,
-        )
-        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=baseline, revision=1, configuration={}, is_published=True,
-            created_by=self.user, published_at=timezone.now(),
-        )
-        baseline.published_configuration_revision = baseline_revision
-        baseline.save(update_fields=['published_configuration_revision'])
-        successor = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='shared_primary_family',
-            name='Shared Primary LAF', version=2, status='active',
-            source_filename='shared-v2.pdf', source_sha256='2' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            form_schema={'fields': [{'key': 'farmer_name', 'type': 'text', 'required': True}]},
-            signer_rules=[], created_by=self.user,
-        )
-        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=successor, revision=1, configuration={}, is_published=True,
-            created_by=self.user, published_at=timezone.now(),
-        )
-        successor.published_configuration_revision = successor_revision
-        successor.save(update_fields=['published_configuration_revision'])
-        assignment = OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=baseline,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary', name=baseline.name, inclusion_mode='required',
-            display_order=0, created_by=self.user,
-        )
-        self.client.force_login(self.user)
-
-        response = self.client.post(
-            reverse('admin:origination_originationproductdocumentassignment_add')
-            + f'?template={successor.pk}',
-            {
-                'product_definition': str(self.product.pk),
-                'template': str(successor.pk),
-                'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
-                'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
-                'display_order': 0,
-                'applicability_rule': '{}',
-                '_save': 'Save',
-            },
-        )
-
-        self.assertEqual(response.status_code, 302, response.content.decode())
-        self.assertEqual(
-            response.url,
-            reverse('admin:origination_originationproductdefinition_change', args=[self.product.pk]),
-        )
-        assignment.refresh_from_db()
-        self.product.refresh_from_db()
-        self.assertEqual(assignment.template, successor)
-        self.assertEqual(self.product.document_template_version, 2)
-        self.assertEqual(
-            self.product.document_assignments.filter(
-                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-            ).count(),
-            1,
-        )
-        self.assertTrue(self.product.events.filter(action='shared_primary_upgraded').exists())
-
-    def test_assignment_admin_explains_different_primary_family_without_server_error(self):
-        baseline = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='existing_primary_family',
-            name='Existing Main LAF', version=1, status='retired',
-            source_filename='existing.pdf', source_sha256='3' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            form_schema={}, signer_rules=[], created_by=self.user,
-        )
-        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=baseline, revision=1, configuration={}, is_published=True,
-            created_by=self.user, published_at=timezone.now(),
-        )
-        baseline.published_configuration_revision = baseline_revision
-        baseline.save(update_fields=['published_configuration_revision'])
-        replacement = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='different_primary_family',
-            name='Different Main LAF', version=1, status='active',
-            source_filename='different.pdf', source_sha256='4' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            form_schema={}, signer_rules=[], created_by=self.user,
-        )
-        replacement_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=replacement, revision=1, configuration={}, is_published=True,
-            created_by=self.user, published_at=timezone.now(),
-        )
-        replacement.published_configuration_revision = replacement_revision
-        replacement.save(update_fields=['published_configuration_revision'])
-        OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=baseline,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary', name=baseline.name, inclusion_mode='required',
-            display_order=0, created_by=self.user,
-        )
-        self.client.force_login(self.user)
-
-        response = self.client.post(
-            reverse('admin:origination_originationproductdocumentassignment_add'),
-            {
-                'product_definition': str(self.product.pk),
-                'template': str(replacement.pk),
-                'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
-                'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
-                'display_order': 0,
-                'applicability_rule': '{}',
-                '_save': 'Save',
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(
-            response,
-            'Remove it from the product Document packet before selecting a different LAF family.',
-        )
-        self.assertEqual(self.product.document_assignments.count(), 1)
 
     def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
         source = (
@@ -952,44 +759,6 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(config['field_overlay_manifest']['fields'], {})
         self.assertIn('farmer_name', config['sample_context'])
 
-    def test_admin_creates_visual_product_draft_without_raw_template_identifiers(self):
-        self.client.force_login(self.user)
-        add_url = reverse('admin:origination_originationproductdefinition_add')
-        response = self.client.get(add_url)
-        self.assertContains(response, 'id="origination-product-builder"')
-        self.assertEqual(response.context['adminform'].readonly_fields, ())
-        self.assertIsInstance(
-            response.context['adminform'].form.fields['product_version'].widget,
-            UnfoldAdminSelectWidget,
-        )
-        self.assertIsInstance(
-            response.context['adminform'].form.fields['laf_pdf'].widget,
-            UnfoldAdminFileFieldWidget,
-        )
-        self.assertContains(response, 'LAF PDF template')
-        self.assertContains(response, 'Product and LAF')
-        self.assertContains(response, 'Assign and align fields on the LAF')
-        response = self.client.post(add_url, {
-            'product_key': 'solar-upgrade',
-            'name': 'Solar Upgrade Loan',
-            'form_schema': json.dumps({
-                'sections': [{'key': 'customer', 'label': 'Customer'}],
-                'fields': [{
-                    'key': 'customer_name', 'label': 'Customer name', 'type': 'text',
-                    'section_key': 'customer', 'required': True, 'width': 'full',
-                }],
-            }),
-            'signer_rules': json.dumps([{
-                'role': 'borrower', 'required': True,
-                'slots': [{'key': 'signature', 'label': 'Signature', 'type': 'signature', 'required': True}],
-            }]),
-            '_save': 'Save',
-        })
-        self.assertEqual(response.status_code, 302)
-        product = OriginationProductDefinition.objects.get(product_key='solar-upgrade')
-        self.assertEqual(product.document_type, 'solar-upgrade')
-        self.assertEqual(product.lifecycle_status, product.STATUS_DRAFT)
-        self.assertEqual(product.document_template_sha256, '')
 
     def test_unsaved_product_builder_can_create_an_audited_canonical_field_inline(self):
         self.client.force_login(self.user)
@@ -1177,238 +946,10 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(OriginationDataField.objects.filter(key='forbidden_field').exists())
 
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_admin_product_builder_uploads_laf_and_opens_alignment_workspace(self, storage_class):
-        storage_class.return_value.upload.return_value = (
-            'drive-integrated-laf', 'https://drive.test/integrated-laf',
-        )
-        storage_class.return_value.download.return_value = self.pdf
-        self.client.force_login(self.user)
 
-        response = self.client.post(
-            reverse('admin:origination_originationproductdefinition_add'),
-            {
-                'product_key': 'integrated-laf',
-                'name': 'Integrated LAF Loan',
-                'form_schema': json.dumps({
-                    'sections': [{'key': 'customer', 'label': 'Customer'}],
-                    'fields': [{
-                        'key': 'customer_name', 'label': 'Customer name', 'type': 'text',
-                        'section_key': 'customer', 'required': True, 'width': 'full',
-                    }],
-                }),
-                'signer_rules': json.dumps([{
-                    'role': 'borrower', 'required': True,
-                    'slots': [{
-                        'key': 'signature', 'label': 'Signature',
-                        'type': 'signature', 'required': True,
-                    }],
-                }]),
-                'laf_pdf': SimpleUploadedFile(
-                    'integrated-laf.pdf', self.pdf, content_type='application/pdf',
-                ),
-                '_save': 'Save',
-            },
-        )
 
-        product = OriginationProductDefinition.objects.get(product_key='integrated-laf')
-        template = product.document_templates.get()
-        self.assertRedirects(
-            response,
-            reverse(
-                'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
-            ),
-            fetch_redirect_response=False,
-        )
-        self.assertEqual(template.drive_file_id, 'drive-integrated-laf')
-        self.assertEqual(
-            template.placement_config['sample_context']['customer_name'],
-            'Sample Applicant',
-        )
-        self.assertEqual(
-            list(template.events.values_list('action', flat=True)),
-            ['created', 'uploaded'],
-        )
-        state_response = self.client.get(reverse(
-            'admin:origination_originationdocumenttemplate_calibration_state',
-            args=[template.pk],
-        ))
-        state = state_response.json()
-        self.assertEqual(state_response.status_code, 200)
-        self.assertIn('customer_name', {item['key'] for item in state['context_keys']})
-        customer_field = next(item for item in state['context_keys'] if item['key'] == 'customer_name')
-        self.assertTrue(customer_field['required'])
-        self.assertEqual(customer_field['section_key'], 'customer')
-        self.assertIn(
-            'borrower.signature',
-            {
-                f"{item['role']}.{item['slot_key']}"
-                for item in state['signature_slots']
-            },
-        )
 
-    def test_admin_product_builder_allows_audited_draft_laf_replacement(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=self.product,
-            document_type=self.product.document_type,
-            name='Dairy LAF',
-            version=self.product.version,
-            source_filename='dairy-laf.pdf',
-            source_sha256='f' * 64,
-            source_byte_size=100,
-            page_count=1,
-            placement_config=initial_template_configuration(self.product),
-            drive_file_id='drive-existing-laf',
-            drive_url='https://drive.test/existing-laf',
-            created_by=self.user,
-        )
-        self.client.force_login(self.user)
 
-        response = self.client.get(reverse(
-            'admin:origination_originationproductdefinition_change', args=[self.product.pk],
-        ))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context['adminform'].form.fields['laf_pdf'].disabled)
-        self.assertContains(
-            response,
-            'current draft template is retained as immutable history',
-        )
-        self.assertContains(response, 'Open alignment builder')
-        self.assertContains(response, reverse(
-            'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
-        ))
-
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_existing_draft_product_can_upload_laf_from_its_builder(self, storage_class):
-        storage_class.return_value.upload.return_value = (
-            'drive-existing-draft', 'https://drive.test/existing-draft',
-        )
-        self.client.force_login(self.user)
-
-        response = self.client.post(
-            reverse(
-                'admin:origination_originationproductdefinition_change', args=[self.product.pk],
-            ),
-            {
-                'product_version': '',
-                'product_key': self.product.product_key,
-                'name': self.product.name,
-                'form_schema': json.dumps(self.product.form_schema),
-                'signer_rules': json.dumps(self.product.signer_rules),
-                'laf_pdf': SimpleUploadedFile(
-                    'dairy-laf.pdf', self.pdf, content_type='application/pdf',
-                ),
-                '_save': 'Save',
-            },
-        )
-
-        template = self.product.document_templates.get()
-        self.assertRedirects(
-            response,
-            reverse(
-                'admin:origination_originationdocumenttemplate_calibrate', args=[template.pk],
-            ),
-            fetch_redirect_response=False,
-        )
-        self.assertEqual(template.drive_file_id, 'drive-existing-draft')
-
-    def test_admin_template_add_is_compact_and_explains_eligible_drafts(self):
-        self.client.force_login(self.user)
-        response = self.client.get(
-            reverse('admin:origination_originationdocumenttemplate_add'),
-            {'product_definition': str(self.product.pk)},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Upload a product PDF or reusable document')
-        self.assertContains(response, 'Loan form definition')
-        self.assertContains(response, 'Dairy Working Capital - loan form v1')
-        self.assertContains(response, f'value="{self.product.pk}" selected')
-        self.assertEqual(
-            tuple(response.context['adminform'].form.fields),
-            (
-                'product_definition', 'reusable_family', 'schema_preset', 'name', 'document_role',
-                'inclusion_mode', 'display_order', 'officer_selectable',
-                'default_selected', 'condition_field', 'condition_operator',
-                'condition_value', 'applicability_rule', 'form_schema',
-                'signer_rules', 'pdf_file', 'native_consent_policy',
-                'native_consent_attestation_reference',
-            ),
-        )
-        self.assertEqual(response.context['adminform'].readonly_fields, ())
-        self.assertIsInstance(
-            response.context['adminform'].form.fields['product_definition'].widget,
-            UnfoldAdminSelectWidget,
-        )
-        self.assertIsInstance(
-            response.context['adminform'].form.fields['pdf_file'].widget,
-            UnfoldAdminFileFieldWidget,
-        )
-        self.assertContains(response, 'file_upload')
-        self.assertContains(response, 'Document form builder')
-        self.assertContains(response, 'Create canonical field')
-        self.assertContains(response, 'type="hidden" name="form_schema"')
-        self.assertContains(response, 'type="hidden" name="signer_rules"')
-
-    def test_admin_template_add_links_to_definition_builder_when_no_draft_is_eligible(self):
-        self.product.lifecycle_status = OriginationProductDefinition.STATUS_PUBLISHED
-        self.product.save(update_fields=['lifecycle_status'])
-        self.client.force_login(self.user)
-
-        response = self.client.get(reverse('admin:origination_originationdocumenttemplate_add'))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Upload to the reusable document library')
-        self.assertContains(response, 'No draft product is currently available')
-        self.assertContains(response, reverse('admin:origination_originationproductdefinition_add'))
-        self.assertFalse(
-            response.context['adminform'].form.fields['product_definition'].queryset.exists(),
-        )
-
-    def test_admin_template_dropdown_allows_supporting_document_after_primary_template(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=self.product,
-            document_type=self.product.document_type,
-            name='Existing PDF',
-            version=self.product.version,
-            source_filename='existing.pdf',
-            source_sha256='e' * 64,
-            source_byte_size=100,
-            page_count=1,
-            placement_config=initial_template_configuration(self.product),
-            created_by=self.user,
-        )
-        self.client.force_login(self.user)
-
-        response = self.client.get(reverse('admin:origination_originationdocumenttemplate_add'))
-
-        self.assertContains(response, 'Dairy Working Capital - loan form v1')
-        self.assertTrue(response.context['adminform'].form.fields['product_definition'].queryset.exists())
-
-        change_response = self.client.get(
-            reverse('admin:origination_originationdocumenttemplate_change', args=[template.pk]),
-        )
-        self.assertEqual(change_response.status_code, 200)
-        self.assertContains(change_response, 'Source PDF')
-        self.assertContains(change_response, 'Published calibration')
-
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_admin_template_upload_requires_only_draft_product_and_pdf(self, storage_class):
-        storage_class.return_value.upload.return_value = ('drive-admin-pdf', 'https://drive.test/admin-pdf')
-        self.client.force_login(self.user)
-        response = self.client.post(reverse('admin:origination_originationdocumenttemplate_add'), {
-            'product_definition': str(self.product.pk),
-            'name': 'Dairy Admin PDF',
-            'pdf_file': SimpleUploadedFile('dairy-admin.pdf', self.pdf, content_type='application/pdf'),
-            '_save': 'Save',
-        })
-
-        self.assertEqual(response.status_code, 302)
-        template = OriginationDocumentTemplate.objects.get(product_definition=self.product)
-        self.assertEqual(template.document_type, self.product.document_type)
-        self.assertEqual(template.version, self.product.version)
-        self.assertEqual(template.placement_config['field_overlay_manifest']['fields'], {})
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_admin_uploads_global_supporting_template_without_product_owner(self, storage_class):
@@ -1477,66 +1018,6 @@ class MultiProductOriginationTemplateTests(TestCase):
             'The locked template query must not outer-join its nullable product relation.',
         )
 
-    @patch('core.services.compliance_audit.record_event')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_published_reusable_primary_activates_assigned_product(self, storage_class, audit):
-        storage_class.return_value.download.return_value = self.pdf
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None,
-            document_key='primary',
-            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            display_order=0,
-            document_type=self.product.document_type,
-            name='Reusable Dairy LAF',
-            version=1,
-            status=OriginationDocumentTemplate.STATUS_ACTIVE,
-            source_filename='reusable-dairy.pdf',
-            source_sha256=hashlib.sha256(self.pdf).hexdigest(),
-            source_byte_size=len(self.pdf),
-            page_count=1,
-            drive_file_id='drive-reusable-dairy',
-            form_schema=self.product.form_schema,
-            signer_rules=self.product.signer_rules,
-            created_by=self.user,
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template,
-            revision=1,
-            configuration=self.calibrated_configuration(),
-            is_published=True,
-            created_by=self.user,
-            published_at=timezone.now(),
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision', 'updated_at'])
-        OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product,
-            template=template,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary',
-            name=template.name,
-            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            display_order=0,
-            created_by=self.user,
-        )
-
-        product, resolved_template, published = publish_product_template(
-            template=template,
-            revision=revision.revision,
-            product_definition=self.product,
-            actor=self.user,
-        )
-
-        product.refresh_from_db()
-        self.assertTrue(product.is_active)
-        self.assertEqual(product.lifecycle_status, product.STATUS_PUBLISHED)
-        self.assertEqual(product.document_template_name, template.name)
-        self.assertEqual(product.document_template_sha256, template.source_sha256)
-        self.assertEqual(resolved_template, template)
-        self.assertEqual(published, revision)
-        self.assertTrue(product.events.filter(action='published').exists())
-        audit.assert_called_once()
 
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -1747,31 +1228,6 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(inherited.placement_config['version'], 1)
         self.assertTrue(inherited.document_type.endswith('-primary-owned'))
 
-    def test_published_assignment_change_page_is_read_only_without_form_key_error(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='guarantor_form',
-            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
-            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            document_type='guarantor_form', name='Guarantor Form', version=1,
-            status=OriginationDocumentTemplate.STATUS_ACTIVE,
-            source_filename='guarantor.pdf', source_sha256='8' * 64,
-            source_byte_size=100, page_count=1, placement_config={},
-            created_by=self.user,
-        )
-        assignment = OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=template,
-            document_key=template.document_key, name=template.name,
-            created_by=self.user,
-        )
-        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
-        self.product.save(update_fields=['lifecycle_status', 'updated_at'])
-        self.client.force_login(self.user)
-
-        response = self.client.get(reverse(
-            'admin:origination_originationproductdocumentassignment_change', args=[assignment.pk],
-        ))
-
-        self.assertEqual(response.status_code, 200)
 
     def test_published_product_stale_form_post_redirects_instead_of_raising_permission_denied(self):
         self.product.lifecycle_status = self.product.STATUS_PUBLISHED
@@ -1784,7 +1240,8 @@ class MultiProductOriginationTemplateTests(TestCase):
 
         response = self.client.post(url, {'name': 'Attempted stale edit'})
 
-        self.assertRedirects(response, url)
+        self.assertRedirects(response, reverse('admin:origination_origination_setup_workspace', args=[self.product.pk]),
+                             fetch_redirect_response=False)
         self.product.refresh_from_db()
         self.assertEqual(self.product.name, 'Dairy Working Capital')
         self.assertEqual(self.product.lifecycle_status, self.product.STATUS_PUBLISHED)
@@ -1817,9 +1274,8 @@ class MultiProductOriginationTemplateTests(TestCase):
         historical = self.client.get(reverse(
             'admin:origination_originationproductdefinition_change', args=[self.product.pk],
         ))
-        self.assertEqual(historical.status_code, 200)
-        self.assertContains(historical, 'Open editable v2')
-        self.assertContains(historical, 'Published product version')
+        self.assertRedirects(historical, reverse('admin:origination_origination_setup_workspace', args=[self.product.pk]),
+                             fetch_redirect_response=False)
 
     def test_direct_successor_action_is_post_only_and_opens_inherited_alignment(self):
         config = self.calibrated_configuration()

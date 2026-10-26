@@ -125,6 +125,11 @@ def record_event(
             return existing, False
 
         position = state.last_position + 1
+        from core.services.channel_context import audit_context
+        request_context = audit_context()
+        event_metadata = dict(metadata or {})
+        if request_context:
+            event_metadata['request_context'] = request_context
         values = {
             'workflow': workflow,
             'action': str(action),
@@ -143,7 +148,7 @@ def record_event(
             'deduplication_key': key,
             'before_values': _json_safe(before_values or {}),
             'after_values': _json_safe(after_values or {}),
-            'metadata': _json_safe(metadata or {}),
+            'metadata': _json_safe(event_metadata),
             'sensitive': bool(sensitive),
             'occurred_at': occurred_at or timezone.now(),
             'chain_position': position,

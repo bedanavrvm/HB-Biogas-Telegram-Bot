@@ -418,6 +418,12 @@
   ],
   "changes": [
     {
+      "path": "browser/src/complaints-report-charts.tsx",
+      "sha256": "771ee7f0eb3e92bb0ba5a0a181c4d20c825d4cade95d2b82a72deda2d97c6bd4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
       "path": "core/static/miniapp/portal.css",
       "sha256": "8bb62b32ed235c071d988cfe9f349df223d50a90eb45e14c0b26ad9a6a3eb6cc",
       "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
@@ -449,9 +455,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "f54774dc83eeb6d38a5804593594cc0674dd7fdc1d1338a32000119900c3e86e",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "Nonvisual loading/cache-version update for the user-approved HB Deposits implementation; no candidate tokens or Phase 6 migration."
+      "sha256": "178e53f24a6ad1a4110f118b22f0677102c62299bbd11b50110bb7aa44063d9a",
+      "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
+      "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -518,6 +524,228 @@
       "sha256": "742ff776b31a68a09ad84d13ca861fdb7f13b3fd8c8dae29b54e121f1984cfaf",
       "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
       "reason": "Nonvisual cache-version update for the approved SMS feedback copy; existing source baselines and Phase 6 hold remain unchanged."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/index.html",
+      "sha256": "a4b759b3d5a475ba48fc716d9ae1218269d897511bda9b2c86fc74d3000b888c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/preview.css",
+      "sha256": "c5a4d623e6a751d0554a02d4e3c3ca979458112570483a67554bead5c550475c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "codebase-analysis-docs/assets/browser-access-preview/preview.js",
+      "sha256": "fe2256b7c895c465c6da388195ec2263bf90aba067c519ee7789d6549fabb90a",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#6-source-only-access-preview--20-october-2026",
+      "reason": "First-party synthetic access wireframe candidate, loopback only; source-bound browser evidence, fixed demo values and no API or vendor assets. Not human design approval, React/ADS installation or Phase 6 migration."
+    },
+    {
+      "path": "browser/src/index.html",
+      "sha256": "bdadd620a197499529a4cacd318435264459052d1fe832aaba40301c5b967dbc",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/index.tsx",
+      "sha256": "068f716b32aab4ec24eb79648a5706cf21a37587f5142444cc8228b05841e4d9",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/preview.tsx",
+      "sha256": "dae1e02704e0208ab5ae8da35f94dcfa187d22a77ea4619fffa91aefc612cb14",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/review.html",
+      "sha256": "98f306db226e62e7a3c60dbc032e38280546c7564baa37a20c8813c446725300",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
+      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+    },
+    {
+      "path": "browser/src/access.html",
+      "sha256": "66c65695444f902508b7d91e3d07a3b9c8a73b6c728f4abfc99f584fd819e956",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/auth-index.tsx",
+      "sha256": "e25a750032b3b86bb3cf853c983466a31f8063f5f3ad5e4c8ed6501c32142440",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+    },
+    {
+      "path": "browser/src/auth-transport.ts",
+      "sha256": "d94fcaa3ba992323845f14eb9bec68c5524ba8360ecd14b6ba8b03f282a80e65",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
+      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/staff-access.tsx",
+      "sha256": "174855e2143a0640ac269be4b14632beccd6bd9647cc5edc6750971142a0b909",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints.html",
+      "sha256": "83d95465fbd45210172c4d21a3554856749dda5373af71e2de8dbcf38ab60b25",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#13-p2a--closed-complaints-read-integration",
+      "reason": "ADR 0070: separate dormant Complaints candidate, native sign-in composition, ADS queue/detail Grid and labelled search/status controls. Source-bound synthetic evidence only; no human acceptance, operational mount, approved baseline change or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-index.tsx",
+      "sha256": "4a2cb2098b27906c6dc5005129d051a389143cafdeca7f0d49e9e2db7bed13ef",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive native browser candidate; references, geometry/layer/theme exceptions and synthetic verification are in browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. No approved baseline replacement, Telegram migration, permission expansion or production activation."
+    },
+    {
+      "path": "browser/src/complaints-transport.ts",
+      "sha256": "6a4572b3965a5e419ff9a8eac08ebe3a6c76c9394521d4333942ecd6332d5baf",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-workspace.tsx",
+      "sha256": "325557d900737e4fe014f950cfbddd02202f4b3be27ba8e727f19b675a0a1f18",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo.html",
+      "sha256": "3a399f361c0fd7d84cfd9b86f5e2fe26951bdd448bef46b045f59b303ccf2f87",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-index.tsx",
+      "sha256": "fa393e5b553fae0906312cc4f0c956ac64ed8d04111a32316a0233fcd42cc67c",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-api.ts",
+      "sha256": "f11e815b91dd54376e0f535f1e1a4ced6e58909c73e357f31e4affc047da190b",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-demo-forms.tsx",
+      "sha256": "fb1cf51ec446b6493532200ad03d006b41d50156ec53635cc7d893e2b19d0949",
+      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#15-p2a2---role-based-local-complaints-journeys",
+      "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-operations-history.tsx",
+      "sha256": "5f7a6d1713584f3ae001407771fa6976c21eb0fd458f5d0a84f7ef8c49410442",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-index.tsx",
+      "sha256": "8b621ecdaae378defe7e1c3c0ed1e0096f98665fb82b24b8f42c30347206b389",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "User-approved responsive browser Complaints correction: bounded scrolling, collapsed fine-grained filters, automatic drafts, accessible theme/toasts, full AG Grid columns and controlled media previews. References and narrow geometry/native-layer exceptions: browser/DESIGN.md. Candidate evidence in docs/runbooks/browser-channel-parity.md; no human standard approval, baseline replacement, Telegram migration or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-media.tsx",
+      "sha256": "2305f5b1a4457ea0e928f96d4d9e4c78999f93c5ad877be38480d181320e6243",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-reports.tsx",
+      "sha256": "9e5670a05a3de259929ae6acfd6465f8bae5b5c6a0b2e599e3c6349394d772b7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-settings.tsx",
+      "sha256": "6831484d4caa63db971a3e21533a7972dfcdaa73b603ee98c9c5ab0e3d414427",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-transport.ts",
+      "sha256": "f81df9cfe37a830a78b69d15cfb90e748c556328bc3b86153848ea2a6c4289a7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations-workspace.tsx",
+      "sha256": "3d1564942bea87edfd3c923fa1d086b552931ed6bfa5e68338ee13f1d5a4fea9",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-operations.html",
+      "sha256": "32d7352341c00b497ec393d0765c7ead829a3de5308c508ca7b8f509d08d13b5",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 closed native operations candidate: actual ADS shell/forms, soft navigation, private media and reporting. Native camera/textarea and interactive SVG exceptions are documented in browser/DESIGN.md. Synthetic source-bound evidence only; not human approval, production activation or Telegram migration."
+    },
+    {
+      "path": "browser/src/workspace-navigation.ts",
+      "sha256": "c72092d094a4f562bd332a48fd31848190607875a2c3620ca136e845fe1ffe9e",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+    },
+    {
+      "path": "browser/src/complaints-report-table.tsx",
+      "sha256": "5011bb3efa2662fd8067934b91935ec7daf32454e43a961b0f34e2e10cadf908",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-ui.tsx",
+      "sha256": "973a388f71a95010bfe70fbe96c9166f96d81bf7d3060a9e7fe5ccb71bbaeaac",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/workspace-recovery.ts",
+      "sha256": "135f38c8f8b095c99b8b8bf737d9369dc3fb5aa269d9678971fed3552dfa7e75",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "ADR 0073 bounded Complaints form recovery: owner-bound tab memory, explicit same-request retry, offline/session feedback and guarded history. ADS references and temporary read-only exception: browser/DESIGN.md. Synthetic candidate only; no baseline approval, Telegram migration or production activation."
+    },
+    {
+      "path": "browser/src/browser-interactions.tsx",
+      "sha256": "82e3c5861c5eebc1ccdaaa27ae99a9011f17dd4742731491de1bf21744a0cad8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-report-filters.tsx",
+      "sha256": "470fd8f577e8a0b1d8a52c054b283840d7f1af8a0e70acb1ee69ccc6b440082f",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/workspace-task.tsx",
+      "sha256": "49426153208db680c94ea4bae167519d28efae2e0d381fe830757886138b83e4",
+      "review_reference": "docs/runbooks/browser-channel-parity.md",
+      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+    },
+    {
+      "path": "browser/src/complaints-date-control.tsx",
+      "sha256": "20d120e64fe3df0593cfe4e9ecb0fcd4900b91a6dafad828443229677ee381bd",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "browser/src/complaints-report-metrics.tsx",
+      "sha256": "718945d72c42a66565184dad069b17fb579eb5016178119e4038c9ad6347920d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
+      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+    },
+    {
+      "path": "core/static/miniapp/portal_imports.js",
+      "sha256": "28343050a18cdef89acbba63a6cda43639d7a67567704dc6d4bead92ebf2e34b",
+      "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
+      "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
     }
   ],
   "source_roots": [
@@ -526,7 +754,9 @@
     "core/templates/portal",
     "core/templates/tat_tracker",
     "core/templates/complaint_cases",
-    "origination/templates/loan_origination"
+    "origination/templates/loan_origination",
+    "codebase-analysis-docs/assets/browser-access-preview",
+    "browser/src"
   ],
   "source_hash_format": "lf-text-v1"
 }

@@ -4,7 +4,7 @@
   if (!app) return;
   const $ = id => document.getElementById(id);
   const copy = value => JSON.parse(JSON.stringify(value));
-  const escapeHtml = value => { const node = document.createElement('div'); node.textContent = String(value ?? ''); return node.innerHTML; };
+  const escapeHtml = value => { const node = document.createElement('div'); node.textContent = String(value ?? ''); return node.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); };
   const csrf = document.cookie.split('; ').find(item => item.startsWith('csrftoken='))?.split('=')[1] || '';
 
   let configuration = null;
@@ -57,6 +57,7 @@
 
   const fields = () => configuration?.field_overlay_manifest?.fields || {};
   const signatures = () => configuration?.signature_overlay_manifest?.slots || {};
+  const signatureOwner = spec => signerRules.find(rule => rule.role === spec?.role && rule.slots?.some(slot => slot.key === spec.slot_key));
   const pageSize = () => pageSizes.find(item => item.page_number === page);
   const unitsScale = spec => spec.units === 'mm' ? 72 / 25.4 : 1;
   const boxFor = spec => spec?.allowed_area || spec?.box;
@@ -500,7 +501,7 @@
       : essential === 'signing' ? 'Required for signing' : essential === 'lending' ? 'Required for lending'
       : essential === 'calculation' ? 'Needed for calculation' : essential === 'dependency' ? 'Required detail'
       : essential ? 'Applicant details' : 'Hidden from form') : '';
-    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? ' is-placed' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong>${formHint ? `<small>${escapeHtml(formHint)}</small>` : ''}</span><span class="calibration-nav-meta">${item.required && (item.placed || essential || !field) ? '<b>Required</b>' : ''}${item.page ? `<em>✓ Placed · Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}</div>`;
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? ' is-placed' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong>${formHint ? `<small>${escapeHtml(formHint)}</small>` : ''}</span><span class="calibration-nav-meta">${item.required && (item.placed || essential || !field) ? '<b>Required</b>' : ''}${item.page ? `<em>✓ Placed · Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button>${item.kind === 'field' && !published && catalogueByKey(item.canonicalKey)?.attached ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit" data-key="${escapeHtml(item.canonicalKey)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit field">✎</button>` : ''}${item.kind === 'signature' && !published ? `<button type="button" class="cal-field-edit-button" data-nav-action="edit-signature" data-key="${escapeHtml(item.key)}" aria-label="Edit ${escapeHtml(item.label)}" title="Edit signer">?</button>` : ''}</div>`;
   }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
@@ -905,7 +906,8 @@
     $('calibration-field-controls').hidden = isSignature;
     $('calibration-signature-controls').hidden = !isSignature;
     $('calibration-format-controls').hidden = isSignature;
-    $('calibration-duplicate').disabled = isSignature;
+    $('calibration-duplicate').textContent = isSignature ? 'Duplicate signature' : 'Duplicate field';
+    $('calibration-duplicate').disabled = published || (isSignature && (operationState === 'saving' || spec.slot_type !== 'signature' || !signatureOwner(spec)));
     const box = boxFor(spec);
     $('cal-x').value = box.x; $('cal-y').value = box.y; $('cal-width').value = box.width; $('cal-height').value = box.height;
     if (isSignature) {
@@ -990,6 +992,7 @@
     app.querySelector('.calibration-topbar').classList.toggle('is-published', published);
     app.classList.toggle('is-write-locked', locked);
     app.querySelectorAll('.document-signer-controls input, .document-signer-controls select, .document-signer-controls button, #document-name, #document-product-choices input, #document-lending-fields, .tool-row button, #calibration-inspector input, #calibration-inspector select, #calibration-inspector button, .global-formatting input, .global-formatting select, .global-formatting button').forEach(control => {control.disabled = locked;});
+    if (selectedKind === 'signature') $('calibration-duplicate').disabled = saving || locked || currentSpec()?.slot_type !== 'signature' || !signatureOwner(currentSpec());
     $('calibration-save').disabled = saving || locked;
     if ($('document-shared-values')) $('document-shared-values').disabled = locked || Boolean(documentDetails.shared_values);
     if (locked) $('calibration-publish').disabled = true;
@@ -1372,6 +1375,10 @@
     const button = event.target.closest('[data-nav-action]');
     if (!button) return;
     if (button.dataset.navAction === 'edit') { openFieldDialog(button.dataset.key, true); return; }
+    if (button.dataset.navAction === 'edit-signature') {
+      const slot = signatureByKey(button.dataset.key) || signatures()[button.dataset.key];
+      editSigner(signerRules.indexOf(signatureOwner(slot))); return;
+    }
     const kind = button.dataset.kind, key = button.dataset.key;
     if (button.dataset.navAction === 'select') { selectAndReveal(kind, key); return; }
     armPlacement({kind,item_key:key});
@@ -1494,6 +1501,29 @@
   };
   $('calibration-duplicate').onclick = () => {
     if (operationState === 'publishing' || published) return;
+    if (selectedKind === 'signature') {
+      if (operationState === 'saving') return;
+      const source = currentSpec(), owner = signatureOwner(source);
+      if (!owner || source.slot_type !== 'signature' || !pageSize()) return;
+      const slot = owner.slots.find(item => item.key === source.slot_key);
+      const occupied = new Set(signerRules.filter(rule => rule.role === source.role).flatMap(rule => rule.slots.map(item => item.key)));
+      let key = `${source.slot_key}_copy`, index = 2;
+      while (occupied.has(key) || occupied.has(`${key}_date`)) key = `${source.slot_key}_copy_${index++}`;
+      const label = `${slot.label || source.label} copy`.slice(0, 120);
+      const signature = {...copy(slot), key, label};
+      const date = {key:`${key}_date`, type:'date_signed', signature_key:key, required:slot.required ?? owner.required,
+        label:`${owner.label} date signed`.slice(0,120)};
+      owner.slots.push(signature, date);
+      signatureCatalog.push({...copy(signatureByKey(selectedKey)),slot_key:key,label},
+        {role:source.role,slot_key:date.key,slot_type:'date_signed',signature_key:key,required:date.required,label:date.label});
+      const identity = `${source.role}.${key}`, box = boxFor(source), unit = unitsScale(source);
+      placeSignatureOverlay(identity, {x:(box.x+box.width/2+8)*unit,y:(box.y+box.height/2+8)*unit});
+      Object.assign(signatures()[identity], copy(source), {slot_key:key,label});
+      setBox(signatures()[identity], {...box,x:box.x+8,y:box.y+8});
+      signersDirty = true;
+      populateCatalogs(); select('signature', identity); resetHistory(); markDirty();
+      return;
+    }
     if (selectedKind !== 'field' || !selectedKey) return;
     const before = configurationHash(configuration);
     const source = fields()[selectedKey];
@@ -1627,11 +1657,28 @@
     refreshDirtyState();
     return data;
   }
+  let editingSigner = -1;
+  function editSigner(index) {
+    if (published || index < 0) return;
+    editingSigner = index; renderSigners();
+    openMobileSheet('fields', $('cal-mobile-fields'));
+    $('document-signers').open = true;
+    const row = $('document-signer-list').querySelector(`[data-signer-label="${index}"]`);
+    row?.scrollIntoView({block:'nearest'}); row?.focus();
+  }
+  function signerIdentityMarkup(rule, index) {
+    if (!rule.identity_fields) return '<p class="help">Staff identity uses the selected staff account.</p>';
+    return [['name','Name field','text'],['phone','OTP phone field','phone'],['national_id','ID field','national_id']].map(([kind,label,type]) => {
+      const selected = rule.identity_fields[kind];
+      const options = contextKeys.filter(item => item.attached && (item.type === type || item.key === selected));
+      return `<label>${label}<select data-signer-identity="${kind}" data-signer-index="${index}" ${published ? 'disabled' : ''}>${kind === 'national_id' ? `<option value="" ${selected === null ? 'selected' : ''}>No ID link</option>` : ''}${options.map(item => `<option value="${escapeHtml(item.key)}" ${item.key === selected ? 'selected' : ''}>${escapeHtml(item.label || item.key)}</option>`).join('')}</select></label>`;
+    }).join('') + '<p class="help">Place linked fields on the PDF to collect them in the form. OTP uses the saved phone.</p>';
+  }
   function renderSigners() {
     const list = $('document-signer-list'); if(!list) return;
     const displayLabel = rule => ({'Borrower (legacy compatibility role)':'Borrower','Officer (legacy role)':'Officer'}[rule.label] || rule.label || (rule.role === 'customer' ? 'Borrower' : rule.role));
     const noRequiredSigners = !signerRules.some(rule => rule.required !== false);
-    list.innerHTML = (noRequiredSigners ? '<p class="help" role="status">No signatures required. Add signers only if this document needs them.</p>' : '') + signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(displayLabel(rule))}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(displayLabel(rule))}" ${published ? 'disabled' : ''}>×</button></div>`).join('');
+    list.innerHTML = (noRequiredSigners ? '<p class="help" role="status">No signatures required. Add signers only if this document needs them.</p>' : '') + signerRules.map((rule,index) => `<div class="document-signer-row"><input aria-label="Signer label" data-signer-label="${index}" value="${escapeHtml(displayLabel(rule))}" maxlength="120" ${published ? 'disabled' : ''}><label><input type="checkbox" data-signer-required="${index}" ${rule.required !== false ? 'checked' : ''} ${published ? 'disabled' : ''}>Required</label><button type="button" class="cal-button" data-signer-edit="${index}" aria-label="Edit ${escapeHtml(displayLabel(rule))}" aria-expanded="${editingSigner === index}" ${published ? 'disabled' : ''}>Edit</button><button type="button" class="cal-button cal-button-icon" data-signer-remove="${index}" aria-label="Remove ${escapeHtml(displayLabel(rule))}" ${published ? 'disabled' : ''}>×</button><div class="document-signer-identity" ${editingSigner === index ? '' : 'hidden'}>${signerIdentityMarkup(rule,index)}</div></div>`).join('');
     $('document-signer-role').innerHTML = signerRoles.filter(([role]) => role !== 'customer').map(([role,label]) => `<option value="${escapeHtml(role)}">${escapeHtml(label)}</option>`).join('');
     $('document-signer-add').disabled = published || !$('document-signer-role').options.length;
     $('document-signer-pack').disabled = published;
@@ -1655,6 +1702,10 @@
     event.target.value='';renderSigners();signerChanged();
   });
   $('document-signer-list')?.addEventListener('change',event => {
+    if(event.target.hasAttribute('data-signer-identity')) {
+      const rule = signerRules[Number(event.target.dataset.signerIndex)];
+      rule.identity_fields[event.target.dataset.signerIdentity] = event.target.value || null;
+    }
     if(event.target.hasAttribute('data-signer-label')) signerRules[Number(event.target.dataset.signerLabel)].label=event.target.value;
     if(event.target.hasAttribute('data-signer-required')) {
       const rule=signerRules[Number(event.target.dataset.signerRequired)];rule.required=event.target.checked;
@@ -1663,6 +1714,8 @@
     signerChanged();
   });
   $('document-signer-list')?.addEventListener('click',event => {
+    const edit = event.target.closest('[data-signer-edit]');
+    if (edit) { editSigner(Number(edit.dataset.signerEdit)); return; }
     const button=event.target.closest('[data-signer-remove]');if(!button) return;
     const rule=signerRules[Number(button.dataset.signerRemove)];
     if(!window.confirm(`Remove ${rule.label}? Their signing fields will also be removed from this draft.`)) return;

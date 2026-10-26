@@ -48,7 +48,7 @@ jobs:
         run: python scripts/check_dependency_vulnerabilities.py
 
       - name: Run narrow Python correctness lint
-        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker ui_review
+        run: ruff check config core origination scripts credit_assessments hb_operations payments portal_recognition requisitions tat_recognition qa_tracker ui_review staff_auth
 
       - name: Check migrations
         env:
@@ -66,7 +66,7 @@ jobs:
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
-          python -m compileall config core origination ui_review
+          python -m compileall config core origination ui_review staff_auth
           python manage.py check
           python manage.py collectstatic --noinput
 
@@ -114,7 +114,7 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: |
           coverage erase
-          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker,ui_review manage.py test
+          coverage run --branch --source=core,origination,credit_assessments,hb_operations,payments,portal_recognition,requisitions,tat_recognition,qa_tracker,ui_review,staff_auth manage.py test
           coverage json -o coverage.json
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
@@ -151,6 +151,111 @@ jobs:
             node --check "/tmp/${script%.gs}.js"
           done
 
+  browser-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.3"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            browser/package-lock.json
+      - name: Install isolated browser and existing test tooling
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix browser ci
+          npx playwright install --with-deps chromium
+      - name: Verify exact graph, components, types and source review
+        run: |
+          npm --prefix browser run check:dependencies
+          node browser/scripts/check-context.cjs
+          npm --prefix browser run typecheck
+          npm --prefix browser run lint
+          npm --prefix browser audit
+          python scripts/check_ui_standard.py
+          python -m unittest scripts.tests.test_ads_browser_preview scripts.tests.test_ui_standard
+      - name: Build and exercise synthetic ADS access pages
+        run: |
+          npm --prefix browser run build
+          python scripts/serve_ads_browser_preview.py &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time
+          from urllib.request import urlopen
+          for attempt in range(40):
+              try:
+                  with urlopen('http://127.0.0.1:8766/', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit('ADS preview did not start')
+          PY
+          node scripts/test_ads_browser_preview.js
+      - name: Retain unapproved synthetic ADS review evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ads-access-preview-unapproved
+          path: test-results/ads-browser-preview/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Install the existing Django backend for closed transport tests
+        run: pip install -r requirements.txt
+      - name: Build and exercise the closed React to native Django boundary
+        env:
+          DEBUG: "True"
+          DJANGO_SECRET_KEY: ci-closed-browser-tests-only-not-a-production-secret
+          DATABASE_URL: "sqlite:///:memory:"
+          GOOGLE_SERVICE_ACCOUNT_JSON: ""
+          GOOGLE_APPLICATION_CREDENTIALS: ""
+          SENTRY_DSN: ""
+          RUN_STAFF_BROWSER_E2E: "1"
+        run: |
+          node browser/scripts/build.cjs --authentication
+          node browser/scripts/build.cjs --authentication --development
+          python manage.py test staff_auth.tests_transport --settings=staff_auth.transport_test_settings --noinput
+          node browser/scripts/build.cjs --complaints
+          node browser/scripts/build.cjs --complaints --development
+          python manage.py test core.tests_browser_complaints staff_auth.tests_complaints_transport --settings=staff_auth.transport_test_settings --noinput
+          node scripts/test_workspace_navigation.js
+          node scripts/test_workspace_recovery.js
+          node browser/scripts/build.cjs --complaints-operations
+          node browser/scripts/build.cjs --complaints-operations --development
+          python manage.py test core.tests_browser_complaint_operations staff_auth.tests_complaints_operations_transport --settings=staff_auth.transport_test_settings --noinput
+      - name: Build and exercise the persistent synthetic Complaints demo
+        run: |
+          node browser/scripts/build.cjs --complaints-demo
+          node browser/scripts/build.cjs --complaints-demo --development
+          python -m unittest scripts.tests.test_complaints_demo scripts.tests.test_complaints_demo_sandbox
+          python scripts/serve_complaints_demo.py &
+          curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8767/ > /dev/null
+          python scripts/serve_complaints_demo.py --development --port 8768 &
+          curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8768/ > /dev/null
+          node scripts/test_complaints_demo.js
+          node scripts/test_complaints_demo.js --development
+      - name: Retain proof-free closed transport evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staff-browser-native-transport-unapproved
+          path: |
+            test-results/staff-browser-transport/
+            test-results/complaints-browser-transport/
+            test-results/complaints-browser-operations/
+            test-results/complaints-local-demo/production/
+            test-results/complaints-local-demo/development/
+          retention-days: 14
+          if-no-files-found: warn
+
   postgres:
     runs-on: ubuntu-latest
     services:
@@ -184,4 +289,4 @@ jobs:
         run: |
           python manage.py migrate --noinput
           python manage.py makemigrations --check --dry-run
-          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review --noinput --verbosity 1
+          python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review staff_auth --noinput --verbosity 1

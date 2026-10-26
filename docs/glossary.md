@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 03-August-2026
+Last reviewed: 20-October-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -9,6 +9,116 @@ Mini Apps.  The code catalogues remain authoritative: role validation lives in
 respective service modules.
 
 ## Canonical staff access
+
+**Browser security state:** Shared, expiring authentication limits, exclusive
+lock ownership and used-code markers. This state prevents competing workers
+from treating the same allowance as unused; it never grants workflow access.
+The PostgreSQL-only implementation decision is ADR 0074.
+
+**Browser MFA assurance:** A server-owned, expiring record that the existing
+Django user completed company password and allauth TOTP/recovery authentication.
+It is not a workflow grant or an alternative to owning-action authorization.
+P1a is dormant and mounts no production company-login or business routes;
+Telegram signed-launch access remains unchanged. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060.
+
+**Browser admission:** Explicit opt-in and current browser-only revocation
+generation for an existing Django staff identity. The active technical Superuser
+manages it through the audited lifecycle service; it supplies no workflow grant.
+Browser suspension/revocation preserves Telegram and shared Django sessions.
+P1b.1 adds backend controls, not usable login. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` and ADR 0061.
+
+**Company browser boundary:** The separate cookie/CSRF JSON authentication
+adapter in `staff_auth/browser_api.py`. Its server-owned channel context and
+durable login-audit receipt augment MFA assurance. Future browser business APIs
+must use `require_company_browser_user` plus owning-workflow authorization;
+neither password-only enrollment state nor a generic Django cookie qualifies.
+P1b.2a has no production routes and remains disabled. See
+`codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` and ADR 0062.
+
+**Pending enrollment secret:** allauth's temporary TOTP seed, wrapped per browser
+request as expiring dedicated-key ciphertext bound to user/admission/revision.
+Storage protection is not permission to enroll; no production enrollment API is exposed.
+
+**Browser TOTP use claim:** An expiring shared database record reserving one
+native-validated TOTP in the closed company-browser adapter. Its factor-seed
+HMAC covers the native-normalized code and factor identity; the table retains
+no plaintext code, seed or employee identifier. A claim prevents reuse across
+independent native worker caches; it is not MFA assurance or workflow authority.
+Live claims must not be evicted. Preview-first expiry cleanup and migration
+rollback rules are in ADR 0064 and
+`codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`. Native shared
+rate-limit caching remains an operational prerequisite.
+
+P1b.2b.4 (ADR 0069) applies native proxy/IP policy to browser database limits
+and protects native cache keys through Django's key hook. Throttling is a retry
+response, never a bad-password/code diagnosis. E007/E008 require a reviewed
+shared cache and the privacy hook on activation; the default remains local,
+E006 remains blocking and shared-worker/M1 evidence is still required.
+
+**Closed browser enrollment:** Dormant P1b.2b.1 native TOTP setup for an existing,
+explicitly admitted password-only company-browser session, including fresh
+password recheck, encrypted pending/permanent seeds, exact factor receipts and
+transactional audit. Three relative handlers are test-only mounted, not production
+endpoints. Setup never grants browser MFA assurance or business authority;
+explicit logout plus a new password/MFA login follows. See ADR 0063 and
+`codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md`.
+
+**Recovery-code handoff:** One-time native unused-code disclosure during current
+closed enrollment. The native viewed marker and nonsecret compliance audit commit
+together; retries never re-show/regenerate codes. Lost response means uncertain
+delivery and a separate verified support decision, not authorization to retry
+disclosure. A working TOTP authenticator remains usable for normal login.
+
+**Closed staff initial setup:** The dormant P1b.2b.3 path from an explicit
+Superuser preparation of the exact existing admitted non-Admin account through
+native mailbox verification and its first usable Django password. It retains
+encrypted, expiring proof and session/request/audit bindings, creates no user,
+does not reset usable credentials, and grants no login, MFA or workflow access.
+Delivery/export is absent. First-password setting changes the account's shared
+Django session hash; signed Telegram identity and grants survive. See ADR 0065
+and `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`.
+
+**React browser client:** The separate `browser/` React/ADS workspace, installed
+and built locally under ADR 0066. P1c.2 applies ADS components, layout primitives,
+typography, typed tokens and full recommended lint rules across browser pages.
+Custom CSS/native selectors/global overrides are removed; the synthetic
+read-only field exception is line-scoped. The current access pages use fixed
+demo values and no auth/business API. Exact dependencies, notices,
+asset exclusions and compatibility checks govern changes. Future real transport
+shares Django identity, grants and data; existing Telegram pages and their
+Design Lab migration hold remain unchanged. See `browser/DEPENDENCIES.md` and
+`BROWSER_REACT_ADS_DECISION.md` section 10 for the current P1c.4 composition:
+focused forms, persistent feedback, Navigation System workspace and a separate
+review entry. `browser/DESIGN.md` maps decisions to official guidance; technical
+checks do not establish full design conformance.
+P1c.5 adds a separate dormant native sign-in build, exercised only by isolated
+React-to-Django tests. It uses fixed same-origin cookie/CSRF, automatic stage
+resume, autofill and inline recovery; the demo stays fixed-value/disconnected.
+P1c.6 / ADR 0068 adds guided existing-account invitation, first-password, local
+QR/manual-key enrollment and one-time recovery handoff. Actual delivery/support
+and M1 remain open. Decision section 12 records current evidence and limits.
+
+**Browser dependency decision:** The bounded local build decision under the
+user's “resolve it and proceed” instruction. It requires exact graph/archive
+binding, one explicit legacy context React-peer exception, the fixed development
+selector parser, readable notices and excluded branding/font/image assets.
+It does not approve every ADS material, production distribution or operational
+M1. See ADR 0066 and BROWSER_REACT_ADS_DECISION.md section 7.
+
+**Browser access preview:** A first-party synthetic access-page wireframe served
+only on loopback, independently of Django. Fixed demo values and in-memory
+navigation illustrate proposed flows without authentication, proof delivery,
+credentials, workflow grants or persistent storage. It is not the installed
+React/ADS client or acceptance of D13/M1. See
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` section 6.
+
+**Browser dependency review snapshot:** D13a's proposed exact manifest, npm
+review-only lock and integrity-checked archive/licence/asset metadata. It is
+evidence for a human dependency/licence/build decision, not an installed frontend,
+production lockfile, legal clearance or new authority. Offline snapshot binding
+and synthetic safety tests do not approve installation.
 
 **HB deposit hold:** The Portal's pre-visit HB financial gate: an unrecorded,
 zero or below-KES-5,000 cumulative total keeps the case visible but disabled in
@@ -60,7 +170,7 @@ does not resolve the case or restart its SLA.
 
 | Term | Meaning |
 |---|---|
-| `User` | Django's canonical staff account. It is active for Telegram-only staff, with an unusable password unless Django Admin login is explicitly granted. |
+| `User` | Django's canonical staff account. Telegram-only staff normally have an unusable password; separately approved Admin or future company-browser provisioning may establish a password without creating a second staff identity or business grants. |
 | `UserProfile` | One-to-one Telegram identity record: immutable bound `telegram_id`, mutable `telegram_username`, phone, and Telegram metadata. |
 | `AccessGrant` | A user-specific workflow/role/scope assignment. It may restrict branch, product, or group configuration. It does not itself invent a capability. |
 | Capability | A stable code-controlled permission such as `portal.jbl_visit.write`. Policies decide which roles receive existing capabilities. |

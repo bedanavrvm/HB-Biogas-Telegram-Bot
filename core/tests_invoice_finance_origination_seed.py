@@ -121,7 +121,6 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
             {item['role'] for item in definition.signer_rules},
             {'borrower', 'invoice_payer_representative', 'bro_1', 'management_approver'},
         )
-        self.assertEqual(definition.document_assignments.count(), 0)
         self.assertEqual(template.status, template.STATUS_READY)
         self.assertEqual(template.drive_file_id, 'drive-file')
         self.assertIsNone(template.published_configuration_revision)

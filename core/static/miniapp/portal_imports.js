@@ -9,6 +9,8 @@
   let activeReviewBatchId = '';
   let activeReviewRows = [];
   let activeReviewRevision = 0;
+  let activeProcessingChunkSize = 400;
+  let committingReview = false;
 
   function fieldReview(row, candidate) {
     if (!candidate) return '';
@@ -168,6 +170,7 @@
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load import review data.');
       const batch = result.data.batch || {};
       activeReviewRevision = Number(batch.portal_revision || 1);
+      activeProcessingChunkSize = Math.max(1, Number(batch.processing_chunk_size || 400));
       activeReviewRows = Array.isArray(batch.review_rows) ? batch.review_rows : [];
       const sourceTable = batch.source_table || {};
       const columns = Array.isArray(sourceTable.headers) ? sourceTable.headers : [];
@@ -226,7 +229,8 @@
   async function commitReview() {
     const target = node('portal-import-review');
     const button = node('portal-import-commit');
-    if (!target || !activeReviewBatchId) return;
+    if (!target || !activeReviewBatchId || committingReview) return;
+    const batchId = activeReviewBatchId;
     const rows = activeReviewRows.map((row, index) => {
       const element = target.querySelector(`[data-sysup-index="${index}"]`);
       const farmerId = element?.querySelector('.portal-sysup-match')?.value || '';
@@ -248,16 +252,40 @@
       };
     });
     setLoading(button, true, 'Committing');
+    committingReview = true;
     try {
-      const result = await api.postJson(`/imports/${encodeURIComponent(activeReviewBatchId)}/commit/`, { rows, portal_revision: activeReviewRevision }, tg);
-      if (!result.ok || !result.data?.ok) throw new Error(result.data?.result?.message || result.data?.error || 'Some rows could not be committed.');
-      feedback(result.data.result?.message || 'SysUp rows committed.', 'success');
+      let pending = rows.filter(row => row.approved);
+      let revision = activeReviewRevision;
+      let committed = 0;
+      do {
+        const selected = pending.length ? pending.slice(0, activeProcessingChunkSize) : rows;
+        const result = await api.postJson(`/imports/${encodeURIComponent(batchId)}/commit/`, { rows: selected, portal_revision: revision }, tg);
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.result?.message || result.data?.error || 'Some rows could not be committed.');
+        committed += Number(result.data.result?.committed || 0);
+        revision = Number(result.data.batch?.portal_revision || revision + 1);
+        if (activeReviewBatchId === batchId) activeReviewRevision = revision;
+        const remaining = new Set((result.data.review_rows || []).map(row => row.row_fingerprint));
+        if (activeReviewBatchId === batchId && importsScreenIsActive()) {
+          activeReviewRows.forEach((row, index) => {
+            if (remaining.has(row.row_fingerprint)) return;
+            const element = target.querySelector(`[data-sysup-index="${index}"]`);
+            const checkbox = element?.querySelector('.portal-sysup-approve');
+            if (checkbox) { checkbox.checked = false; checkbox.disabled = true; }
+          });
+        }
+        const previousCount = pending.length;
+        pending = pending.filter(row => remaining.has(row.row_fingerprint));
+        if (result.data.result?.errors?.length) throw new Error(result.data.result.message || 'Some selected rows need review.');
+        if (pending.length && pending.length >= previousCount) throw new Error('Some selected rows need review. Refresh the review before continuing.');
+        feedback(`${committed} SysUp rows committed.${pending.length ? ` Processing ${pending.length} remaining selected rows.` : ''}`, 'success');
+      } while (pending.length && importsScreenIsActive() && activeReviewBatchId === batchId);
       await load({ silent: true });
-      await review(activeReviewBatchId);
+      if (importsScreenIsActive() && activeReviewBatchId === batchId) await review(batchId);
     } catch (error) {
       feedback(error.message || 'SysUp rows could not be committed.', 'error');
     } finally {
       setLoading(button, false);
+      committingReview = false;
     }
   }
 

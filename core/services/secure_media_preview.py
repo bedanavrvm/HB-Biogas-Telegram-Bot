@@ -126,4 +126,4 @@ def _pdf_preview_html(
   figcaption {{ padding: 7px 10px; color: #667085; font-size: 12px; }}
   img {{ display: block; width: 100%; height: auto; }}
   .notice {{ max-width: 980px; margin: 0 auto 12px; padding: 8px 10px; border-radius: 6px; background: #fff4e5; color: #7a4d00; }}
-</style></head><body>{f"<header>{html_escape(filename)}</header>" if show_filename else ""}{continuation}{image_markup}</body></html>'''.encode('utf-8')
+</style></head><body data-total-pages="{total_pages}">{f"<header>{html_escape(filename)}</header>" if show_filename else ""}{continuation}{image_markup}</body></html>'''.encode('utf-8')

@@ -45,6 +45,9 @@ SORT_FIELDS = {
 }
 
 REPORT_SORT_FIELDS = {
+    'complaint_id': 'complaint_control__reference_number',
+    'customer_name': 'customer_name',
+    'complaint_category': 'complaint_category',
     'date_reported': 'report_date',
     'status': 'complaint_status',
     'branch_region': 'branch_region',
@@ -257,6 +260,13 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'resolution_history_count': len(resolution_history_entries(case)),
         'resolution_hours': case.complaint_timing['resolution_hours'],
         'hb_response_hours': case.complaint_timing['hb_response_hours'],
+        'target_hours': control.sla_target_hours,
+        'target_outcome': (
+            'not_resolved' if case.complaint_status != 'Closed' else
+            'not_recorded' if case.complaint_timing['resolution_hours'] is None else
+            'on_time' if case.complaint_timing['on_time'] is True else
+            'late' if case.complaint_timing['on_time'] is False else 'no_target'
+        ),
     }
 
 
@@ -486,6 +496,12 @@ def complaint_report_summary(
     return {
         **metrics,
         'card_timing': card_timing,
+        'card_coverage': {
+            'resolution': {'eligible': metrics['resolved'], 'contributing': card_timing['resolution_count']},
+            'first_response': {'eligible': metrics['total'], 'contributing': card_timing['response_count']},
+            'on_time': {'eligible': card_timing['resolution_count'],
+                        'contributing': card_timing['on_time'] + card_timing['late']},
+        },
         **_timing_summary(base_queryset, filters or {}, granularity),
         'by_branch': _source_breakdown(
             graph_queryset, canonical='complaint_control__branch_ref__name', legacy='branch_region',

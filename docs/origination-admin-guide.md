@@ -1,5 +1,29 @@
 # Loan Origination Mini App: Django Admin Guide
 
+## Placement-only filling and signer editing - 23 October 2026
+
+An unplaced field does not appear while filling a draft or correction. This
+includes applicant/guarantor IDs, OTP phone fields and lending inputs. Place a
+linked phone/name on the PDF when the form must collect it for signing. Earlier
+submitted packets and signed bytes retain their captured rules.
+
+Use **Edit** beside a signature, or beside its person in **Signers**, to edit the
+label, required status and linked name, OTP phone and ID fields. Choose **No ID link** to omit that signer's ID link. **Duplicate signature** adds another
+slot for the same person; the person supplies one verified capture for all slots.
+For a published document, create its editable successor before changing it.
+
+Published alignment warnings do not block attaching a document to a product.
+Signing still needs valid required signature placements and saved phone values.
+Changing a test-deletion option displays a refreshed impact for confirmation.
+
+Product editing uses the current guided workspace and document eligibility.
+The old assignment and field-review models, their screens and the old packet demo
+seed are retired. The migration stops if either legacy table still has records;
+reconcile and retain them before rollout. The complete model inventory, warning
+fields, OTP relationships and rollback are in [the audit](origination-model-audit.md).
+This section supersedes older assignment/version-policy authoring instructions
+below; those sections describe earlier releases.
+
 ## Compact applications and signature styles - 14 October 2026
 
 Previous/Next arrows now live in the section bar. Its title opens the section
@@ -650,32 +674,6 @@ Limit the preview or publication to one configured group when appropriate:
 
 The final command changes a real Telegram message. Run it only for an explicitly
 approved group.
-
-## Test with the synthetic demo packet
-
-The seed command creates no application or customer data. It creates one fully
-published synthetic product, a two-field main LAF, and a two-field guarantor
-supporting document. The apply mode uploads synthetic PDFs to the configured
-Drive folder.
-
-Preview the operation:
-
-```powershell
-.\.venv\Scripts\python.exe manage.py seed_origination_packet_demo --actor <superuser-username>
-```
-
-Apply it:
-
-```powershell
-.\.venv\Scripts\python.exe manage.py seed_origination_packet_demo --actor <superuser-username> --apply
-```
-
-Then open the Mini App, create an **Origination packet demo** application,
-complete and preview the main LAF, select/open the guarantor document, complete
-its fields, and preview the packet.
-
-The command refuses an inactive/non-Superuser actor and a conflicting partial
-demo setup. Re-running it against the complete published demo is safe.
 
 ### Prepare the reviewed Invoice Finance LAF
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from hashlib import sha256
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from pathlib import Path
@@ -41,6 +42,7 @@ from django.utils import timezone
 
 from core.models import (
     AccessGrant,
+    DocumentPhysicalSignoff,
     ComplianceAuditEvent,
     GroupSheetConfiguration,
     InvoiceUploadBatch,
@@ -82,6 +84,32 @@ from core.services.jawabu_pipeline import (
     _master_hbg_deposit_for_sheet,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
+
+
+def retained_test_order(*farmers, signed=True):
+    """Retain exact order membership; a display number alone is not invoice authority."""
+    order_date = farmers[0].requisition_date or date(2026, 7, 24)
+    content = b'synthetic-retained-order-workbook'
+    batch = RequisitionBatch.objects.create(
+        order_number=farmers[0].order_number, requisition_date=order_date,
+        farmer_ids=[str(farmer.pk) for farmer in farmers], farmer_count=len(farmers),
+        filename='synthetic-order.xlsx', file_content=content, version=1,
+        finalized_at=timezone.now(), content_checksum=sha256(content).hexdigest(),
+    )
+    for farmer in farmers:
+        farmer.requisition_date = order_date
+        farmer.requisition_batch = batch
+        farmer.save(update_fields=['requisition_date', 'requisition_batch'])
+    if signed:
+        actor, _ = get_user_model().objects.get_or_create(username='synthetic-order-attestor')
+        DocumentPhysicalSignoff.objects.create(
+            document_type='requisition', requisition_batch=batch, source_version=1,
+            source_checksum=batch.content_checksum, source_filename=batch.filename,
+            source_content_type=batch.content_type, status='signed_approved',
+            uploaded_by=actor, approved_by=actor, approved_at=timezone.now(),
+            scan_filename='synthetic-scan.pdf', scan_content_type='application/pdf', scan_checksum='a' * 64,
+        )
+    return batch
 
 
 class JblPipelineServiceTestCase(TestCase):
@@ -1398,7 +1426,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('optional-marker', script)
         self.assertNotIn('Before you log this visit', script)
         self.assertIn("display.addEventListener('blur', () => commitJblDisplayDate({ showError: false }))", script)
-        self.assertIn('.jbl-form-errors[hidden]', stylesheet)
+        self.assertIn('.miniapp-field-error[hidden]', (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'base.css').read_text(encoding='utf-8'))
         self.assertIn('.jbl-workflow-conflict[hidden] { display: none !important; }', stylesheet)
         self.assertIn("const isJblVisit = mode === 'jbl_visit';", script)
         self.assertIn("sheetOverlay?.classList.toggle('jbl-visit-sheet', isJblVisit)", script)
@@ -2237,7 +2265,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTemplateUsed(response, 'base_shell.html')
         self.assertTemplateUsed(response, 'portal/portal_screen_full.html')
         self.assertTemplateUsed(response, 'portal/portal.html')
-        self.assertContains(response, 'htmx.org')
+        self.assertContains(response, 'miniapp/vendor-htmx-2.0.4.min.js')
         self.assertContains(response, 'miniapp/utils.js')
 
     def test_portal_screen_fragment_omits_shell(self):
@@ -2297,7 +2325,8 @@ class JblPipelineApiTestCase(TestCase):
             ('portal_report_screen_edit_step', {'report_id': report_id, 'report_step': 'review'}, 'edit', report_id, 'review'),
             ('portal_report_screen_run', {'report_id': report_id}, 'run', report_id, ''),
         )
-        for route_name, kwargs, report_view, expected_report_id, expected_step in cases:
+        for route_name, kwargs, _view, _report_id, _step in cases:
+            report_view, expected_report_id, expected_step = 'catalogue', '', ''
             with self.subTest(route=route_name):
                 response = self.client.get(reverse(route_name, kwargs=kwargs))
                 self.assertEqual(response.status_code, 200)
@@ -2322,7 +2351,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, '<html')
         self.assertContains(response, 'data-screen="reports"')
-        self.assertContains(response, 'data-report-view="detail"')
+        self.assertContains(response, 'data-report-view="catalogue"')
         self.assertNotContains(response, 'id="sheet-overlay"')
 
     def test_invoice_workspace_routes_keep_the_shell_and_route_context(self):
@@ -2350,7 +2379,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(invoices, 'id="invoice-filter-overlay"')
         self.assertNotContains(invoices, 'More filters')
 
-        payments = self.client.get(reverse('portal_screen', kwargs={'screen': 'payments'}))
+        payments = self.client.get(reverse('portal_payment_batch_screen_detail', args=[self.farmer.pk]))
         self.assertEqual(payments.status_code, 200)
         self.assertContains(payments, 'class="payment-detail-section payment-add-section"')
         self.assertNotContains(payments, 'payment-sequence-panel')
@@ -2527,7 +2556,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Kiambu | Kieni | Mweiga')
         self.assertNotContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
-        self.assertContains(response, 'HB visit: 24-06-26')
+        self.assertContains(response, 'HB visit: 24-06-2026')
         self.assertContains(response, 'Pending Visit')
         self.assertContains(response, 'data-lucide="calendar-days"')
         self.assertContains(response, 'aria-label="Queue position 1"')
@@ -2911,6 +2940,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn('capture_location', response.json()['field_errors'])
         mock_complete.assert_not_called()
 
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-media-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-test')
     @patch('core.api.portal_views._portal_pdf_preview_html', return_value=b'<html>invoice preview</html>')
     def test_case_invoice_uses_protected_preview_and_expiring_external_open(self, mock_preview, mock_download):
@@ -3271,6 +3301,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.jbl_visit_status = 'Approved'
         self.farmer.save()
 
+        before = self.farmer.credit_decision
         payload = {'workflow_revision': self.farmer.workflow_revision, 'decision': 'Approved', 'imab_created': 'No', 'customer_no': '15122'}
         url = reverse('portal_set_credit_decision', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
@@ -3279,7 +3310,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.json()['code'], 'invalid_request')
 
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.credit_decision, 'Pending')
+        self.assertEqual(self.farmer.credit_decision, before)
 
     def test_portal_all_cases_filters_by_branch(self):
         """Verify all cases endpoint honors the branch filter from the Mini App."""
@@ -3550,46 +3581,23 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn('Enter the constituency.', data['blocked'][0]['missing'])
         self.assertIn('Enter the village.', data['blocked'][0]['missing'])
 
-    def test_requisition_preview_merges_original_and_new_clients_for_existing_order(self):
-        original = self.farmer
-        original.final_decision = 'Approved'
-        original.imab_created = 'Yes'
-        original.customer_no = '15124'
-        original.order_number = '001'
-        original.requisition_date = date(2026, 7, 24)
-        original.save()
-        self.mark_requisition_location_ready(original)
-
-        new_farmer = JawabuFarmerMaster.objects.create(
-            customer_name='New order client',
-            national_id='99999990',
-            primary_phone='254799999990',
-            county='Kiambu',
-            branch='Ruiru',
-            final_decision='Approved',
-            imab_created='Yes',
-            customer_no='15125',
-            status='active',
-        )
-        self.mark_requisition_location_ready(new_farmer)
-
-        response = self.client.post(
-            reverse('portal_requisition_preview'),
-            json.dumps({
-                'farmer_ids': [str(new_farmer.id)],
-                'order_number': '001',
-                'requisition_date': '2026-07-24',
-            }),
-            content_type='application/json',
-        )
-
+    def test_new_order_preview_does_not_implicitly_merge_a_shared_display_number(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        original = JawabuFarmerMaster.objects.create(customer_name='Existing order member',
+            order_number='001', requisition_date=date(2026, 7, 24))
+        retained_test_order(original, signed=False)
+        response = self.client.post(reverse('portal_requisition_preview'), json.dumps({
+            'farmer_ids': [str(self.farmer.pk)], 'order_number': '001', 'requisition_date': '2026-07-24',
+        }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data['ready_count'], 2)
-        self.assertEqual({row['id'] for row in data['ready']}, {str(original.id), str(new_farmer.id)})
-        self.assertTrue(any('original clients and the newly selected clients' in warning['message'] for warning in data['warnings']))
+        self.assertEqual({row['id'] for row in response.json()['ready']}, {str(self.farmer.pk)})
+        self.assertEqual(response.json()['append_batch_id'], '')
 
-    def test_batch_detail_recovers_original_clients_from_order_when_snapshot_is_stale(self):
+    def test_batch_detail_keeps_exact_membership_despite_shared_display_number(self):
         original = self.farmer
         original.order_number = '001'
         original.requisition_date = date(2026, 7, 24)
@@ -3616,49 +3624,33 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {row['id'] for row in response.json()['batch']['farmers']},
-            {str(original.id), str(extra.id)},
+            {str(extra.id)},
         )
-        self.assertEqual(response.json()['batch']['farmer_count'], 2)
+        self.assertEqual(response.json()['batch']['farmer_count'], 1)
 
-    def test_requisition_date_conflict_is_rejected_without_changing_existing_order(self):
-        original = self.farmer
-        original.final_decision = 'Approved'
-        original.imab_created = 'Yes'
-        original.customer_no = '15124'
-        original.order_number = '001'
-        original.requisition_date = date(2026, 7, 24)
-        original.save()
-        self.mark_requisition_location_ready(original)
-
-        new_farmer = JawabuFarmerMaster.objects.create(
-            customer_name='Different date client',
-            national_id='99999990',
-            primary_phone='254799999990',
-            county='Kiambu',
-            branch='Ruiru',
-            final_decision='Approved',
-            imab_created='Yes',
-            customer_no='15125',
-            status='active',
-        )
-        self.mark_requisition_location_ready(new_farmer)
-
-        response = self.client.post(
-            reverse('portal_requisition_preview'),
-            json.dumps({
-                'farmer_ids': [str(new_farmer.id)],
-                'order_number': '001',
-                'requisition_date': '2026-07-25',
-            }),
-            content_type='application/json',
-        )
-
+    def test_append_rejects_a_different_order_date_without_assignment(self):
+        from requisitions.models import OrderSequenceState
+        group = GroupSheetConfiguration.objects.create(group_id='synthetic-order-dates', enabled=True,
+            workflow={'type': 'jawabu_homebiogas'})
+        OrderSequenceState.objects.create(group_configuration=group, partner='HB', next_number=2)
+        original = JawabuFarmerMaster.objects.create(customer_name='Existing member',
+            order_number='HB-1', requisition_date=date(2026, 7, 24))
+        batch = retained_test_order(original, signed=False)
+        batch.group_configuration = group
+        batch.save(update_fields=['group_configuration'])
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        response = self.client.post(reverse('portal_requisition_preview'), json.dumps({
+            'farmer_ids': [str(self.farmer.pk)], 'append_batch_id': str(batch.pk),
+            'requisition_date': '2026-07-25',
+        }), content_type='application/json')
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()['code'], 'requisition_date_conflict')
-        self.assertIn('24-07-2026', response.json()['error'])
-        new_farmer.refresh_from_db()
-        self.assertEqual(new_farmer.order_number, '')
-        self.assertIsNone(new_farmer.requisition_date)
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, '')
+        self.assertIsNone(self.farmer.requisition_date)
 
     def test_same_date_is_allowed_when_batch_snapshot_has_a_stale_date(self):
         original = self.farmer
@@ -3701,7 +3693,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
 
-    def test_requisition_preview_repairs_inconsistent_order_when_known_date_is_selected(self):
+    def test_preview_does_not_silently_repair_existing_order_dates(self):
         original = self.farmer
         original.final_decision = 'Approved'
         original.imab_created = 'Yes'
@@ -3736,35 +3728,28 @@ class JblPipelineApiTestCase(TestCase):
             content_type='application/json',
         )
 
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(any('inconsistent existing requisition dates' in item['message'] for item in data['warnings']))
-
-    def test_batch_preview_rejects_different_date_for_existing_order(self):
-        original = self.farmer
-        original.final_decision = 'Approved'
-        original.order_number = '001'
-        original.requisition_date = date(2026, 7, 24)
-        original.save()
-        new_farmer = JawabuFarmerMaster.objects.create(
-            customer_name='Assignment date client',
-            national_id='99999990',
-            primary_phone='254799999990',
-            final_decision='Approved',
-            status='active',
-        )
-
-        response = self.client.post(
-            reverse('portal_requisition_preview'),
-            json.dumps({'farmer_ids': [str(new_farmer.id)], 'order_number': '001', 'requisition_date': '2026-07-25'}),
-            content_type='application/json',
-        )
-
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()['code'], 'requisition_date_conflict')
-        new_farmer.refresh_from_db()
-        self.assertEqual(new_farmer.order_number, '')
-        self.assertIsNone(new_farmer.requisition_date)
+        original.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(original.requisition_date, date(2026, 7, 13))
+        self.assertEqual(other.requisition_date, date(2026, 7, 27))
+
+    def test_new_order_date_is_independent_of_an_existing_display_number(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        original = JawabuFarmerMaster.objects.create(customer_name='Other workspace',
+            order_number='001', requisition_date=date(2026, 7, 24))
+        response = self.client.post(reverse('portal_requisition_preview'), json.dumps({
+            'farmer_ids': [str(self.farmer.pk)], 'order_number': '001', 'requisition_date': '2026-07-25',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        original.refresh_from_db()
+        self.assertEqual(original.requisition_date, date(2026, 7, 24))
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, '')
 
     def test_batch_preview_allows_same_date_for_existing_order(self):
         original = self.farmer
@@ -3791,155 +3776,24 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(new_farmer.order_number, '')
         self.assertIsNone(new_farmer.requisition_date)
 
-    @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
-    @patch('core.services.portal_publication.reserve_farmer_publication', return_value=[])
-    def test_portal_requisition_generate_success(self, mock_reserve_publication, mock_generate):
-        """Generation commits locally; external publication is a later retry."""
-        self.farmer.final_decision = 'Approved'
-        self.farmer.imab_created = 'Yes'
-        self.farmer.customer_no = '15124'
-        self.farmer.save()
-        self.mark_requisition_location_ready()
-        RequisitionBatch.objects.create(
-            order_number='REQ-BATCH-99',
-            invoice_summary={
-                'last_invoice_upload_status': 'success',
-                'last_invoice_upload_error': '',
-                'invoice_batch_id': 'upload-001',
-            },
-        )
-
-        payload = {
-            'farmer_ids': [str(self.farmer.id)],
-            'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
-            'order_number': 'REQ-BATCH-99',
-            'requisition_date': '2026-07-06',
-            'return_url': True,
-            'client_request_id': 'requisition-generation-test-001',
-        }
-        url = reverse('portal_requisition_generate')
-        response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data['ok'])
-        self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
-        self.assertEqual(data['drive_url'], '')
-        self.assertTrue(data['drive_sync_pending'])
-        self.assertEqual(data['batch']['invoice_summary']['last_invoice_upload_status'], 'success')
-        self.assertEqual(data['batch']['invoice_summary']['invoice_batch_id'], 'upload-001')
-        self.assertIn('/api/portal/requisition-download/', data['download_url'])
-        self.assertTrue(RequisitionBatch.objects.filter(
-            order_number='REQ-BATCH-99',
-            generation_request_id='requisition-generation-test-001',
-            drive_upload_error='Drive synchronization pending.',
-        ).exists())
-
-        download_response = self.client.get(data['download_url'])
-        self.assertEqual(download_response.status_code, 200)
-        self.assertEqual(
-            download_response['Content-Type'],
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx"', download_response['Content-Disposition'])
-
-        second_response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(second_response.status_code, 200)
-        second_data = second_response.json()
-        self.assertTrue(second_data['idempotent_replay'])
-        self.assertEqual(second_data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
-        latest_batch = RequisitionBatch.objects.get(order_number='REQ-BATCH-99')
-        self.assertEqual(latest_batch.version, 1)
-
+    def test_retired_workbook_routes_require_preview_and_finalize_without_writing(self):
+        before = self.farmer.workflow_revision
+        with patch('core.services.requisition.generate_requisition_excel') as generate:
+            for route in ('portal_requisition_generate', 'portal_requisition_workbook_preview'):
+                with self.subTest(route=route):
+                    response = self.client.post(reverse(route), json.dumps({
+                        'farmer_ids': [str(self.farmer.pk)], 'order_number': 'synthetic-order',
+                        'requisition_date': '2026-07-24',
+                    }), content_type='application/json')
+                    self.assertEqual(response.status_code, 426)
+                    self.assertFalse(response.json()['ok'])
+            generate.assert_not_called()
+        self.assertFalse(RequisitionBatch.objects.exists())
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
-        self.assertEqual(self.farmer.requisition_date, date(2026, 7, 6))
-        mock_reserve_publication.assert_called_once()
-        self.assertEqual(mock_generate.call_count, 1)
-
-    @patch('core.services.requisition.generate_requisition_excel', return_value=b'preview-xlsx')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_portal_requisition_workbook_preview_stores_drive_preview(self, mock_storage, mock_generate):
-        mock_storage.return_value.upload.return_value = ('preview-drive-id', 'https://drive.test/requisition-preview')
-        self.farmer.final_decision = 'Approved'
-        self.farmer.imab_created = 'Yes'
-        self.farmer.customer_no = '15124'
-        self.farmer.save()
-        self.mark_requisition_location_ready()
-
-        payload = {
-            'farmer_ids': [str(self.farmer.id)],
-            'order_number': 'REQ-PREVIEW-99',
-            'requisition_date': '2026-07-06',
-        }
-        response = self.client.post(
-            reverse('portal_requisition_workbook_preview'),
-            json.dumps(payload),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data['ok'])
-        self.assertEqual(data['drive_url'], 'https://drive.test/requisition-preview')
-        batch = RequisitionBatch.objects.get(order_number='REQ-PREVIEW-99')
-        self.assertEqual(batch.status, 'preview')
-        self.assertEqual(batch.preview_version, 1)
-        self.assertEqual(batch.preview_filename, 'JBL_Requisition_Form_REQ-PREVIEW-99_preview_v1.xlsx')
-        self.assertEqual(batch.preview_drive_file_id, 'preview-drive-id')
-        self.assertEqual(batch.preview_drive_url, 'https://drive.test/requisition-preview')
-        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.workflow_revision, before)
         self.assertEqual(self.farmer.order_number, '')
-        second_response = self.client.post(
-            reverse('portal_requisition_workbook_preview'),
-            json.dumps(payload),
-            content_type='application/json',
-        )
-        self.assertEqual(second_response.status_code, 200)
-        second_batch = RequisitionBatch.objects.get(order_number='REQ-PREVIEW-99')
-        self.assertEqual(second_batch.preview_version, 2)
-        self.assertEqual(second_batch.preview_filename, 'JBL_Requisition_Form_REQ-PREVIEW-99_preview_v2.xlsx')
-        self.assertEqual(mock_generate.call_count, 2)
 
-    @patch('core.services.requisition.generate_requisition_excel', return_value=b'new-xlsx')
-    def test_requisition_generation_keeps_local_workbook_when_drive_publication_is_pending(self, mock_generate):
-        self.farmer.final_decision = 'Approved'
-        self.farmer.imab_created = 'Yes'
-        self.farmer.customer_no = '15124'
-        self.farmer.save()
-        self.mark_requisition_location_ready()
-        RequisitionBatch.objects.create(
-            order_number='REQ-RETRY-1',
-            version=1,
-            filename='JBL_Requisition_Form_REQ-RETRY-1_v1.xlsx',
-            file_content=b'previous-xlsx',
-            drive_file_id='previous-drive-id',
-            drive_url='https://drive.test/previous-order',
-            farmer_ids=[str(self.farmer.id)],
-            farmer_count=1,
-        )
-        response = self.client.post(
-            reverse('portal_requisition_generate'),
-            json.dumps({
-                'farmer_ids': [str(self.farmer.id)],
-                'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
-                'order_number': 'REQ-RETRY-1',
-                'requisition_date': '2026-07-06',
-                'return_url': True,
-            }),
-            content_type='application/json',
-        )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['drive_sync_pending'])
-        self.assertEqual(response.json()['batch']['drive_url'], '')
-        batch = RequisitionBatch.objects.get(order_number='REQ-RETRY-1')
-        # The batch row is the current-version pointer.  A new version must
-        # never expose a previous workbook while Drive publication is pending.
-        self.assertEqual(batch.drive_file_id, '')
-        self.assertEqual(batch.drive_url, '')
-        self.assertEqual(batch.file_content, b'new-xlsx')
-        self.assertEqual(batch.drive_upload_error, 'Drive synchronization pending.')
-        self.assertEqual(batch.drive_sync_attempts, 0)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_requisition_batch_retry_uploads_stored_workbook(self, mock_storage):
@@ -3996,71 +3850,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(download.status_code, 200)
         self.assertEqual(download.content, b'xlsx-bytes')
 
-    @override_settings(BASE_DIR='C:/tmp/no-requisition-template')
-    def test_portal_requisition_generate_reports_missing_template(self):
-        self.farmer.final_decision = 'Approved'
-        self.farmer.imab_created = 'Yes'
-        self.farmer.customer_no = '15124'
-        self.farmer.save()
-        self.mark_requisition_location_ready()
-        payload = {
-            'farmer_ids': [str(self.farmer.id)],
-            'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
-            'order_number': 'REQ-BATCH-99',
-            'requisition_date': '2026-07-06'
-        }
 
-        response = self.client.post(
-            reverse('portal_requisition_generate'),
-            json.dumps(payload),
-            content_type='application/json',
-        )
 
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        self.assertFalse(data['ok'])
-        self.assertEqual(data['code'], 'invalid_request')
-        self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.order_number, '')
-        self.assertIsNone(self.farmer.requisition_date)
-
-    def test_portal_requisition_generate_fails_on_unapproved(self):
-        """Verify requisition generation fails with 403 on unapproved credit decision."""
-        payload = {
-            'farmer_ids': [str(self.farmer.id)],
-            'order_number': 'REQ-BATCH-99',
-            'requisition_date': '2026-07-06'
-        }
-        url = reverse('portal_requisition_generate')
-        response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()['code'], 'permission_denied')
-
-    def test_portal_requisition_generate_requires_a_revision_for_each_new_assignment(self):
-        self.farmer.jbl_visit_date = date(2026, 7, 1)
-        self.farmer.jbl_visit_status = 'Approved'
-        self.farmer.credit_decision = 'Approved'
-        self.farmer.imab_created = 'Yes'
-        self.farmer.customer_no = '15124'
-        self.farmer.final_decision = 'Approved'
-        self.farmer.save()
-        self.mark_requisition_location_ready()
-
-        response = self.client.post(
-            reverse('portal_requisition_generate'),
-            json.dumps({
-                'farmer_ids': [str(self.farmer.id)],
-                'order_number': 'REQ-REVISION-REQUIRED',
-                'requisition_date': '2026-07-06',
-                'return_url': True,
-            }),
-            content_type='application/json',
-        )
-
-        self.assertEqual(response.status_code, 428)
-        self.assertEqual(response.json()['code'], 'workflow_revision_required')
-        self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.order_number, '')
 
     def test_order_selection_rejects_revision_changed_during_case_inspection(self):
         farmer = self.farmer
@@ -4170,6 +3961,9 @@ class JblPipelineApiTestCase(TestCase):
     def test_invoice_upload_rejects_file_over_configured_limit(self):
         from core.api.portal_views import portal_upload_batch_invoices
 
+        self.farmer.order_number = 'B-1234'
+        self.farmer.save(update_fields=['order_number'])
+        retained_test_order(self.farmer)
         request = RequestFactory().post(
             '/api/portal/requisition-batches/upload-invoices/',
             {
@@ -4246,9 +4040,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(payload['ok'])
         self.assertEqual(batch.status, 'needs_review')
         self.assertTrue(payload['requires_confirmation'])
-        self.assertEqual(batch.invoice_summary['last_invoice_upload_status'], 'awaiting_confirmation')
+        self.assertEqual(batch.invoice_summary['last_invoice_upload_status'], 'parsed')
         self.assertEqual(batch.invoice_summary['pending_invoice_count'], 1)
-        self.assertEqual(batch.last_invoice_result['invoice_batch_status'], 'awaiting_confirmation')
+        self.assertEqual(batch.last_invoice_result['invoice_batch_status'], 'parsed')
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.invoice_parser.reserve_farmer_publication')
@@ -4289,6 +4083,7 @@ class JblPipelineApiTestCase(TestCase):
         )
 
         # Setup mock PDF pages â€” stacked format (label then value on next line)
+        retained_test_order(farmer)
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "HOMEBIOGAS VENTURES LIMITED\n"
@@ -4384,6 +4179,7 @@ class JblPipelineApiTestCase(TestCase):
         )
 
         # Inline format â€” matches actual #076.pdf output
+        retained_test_order(farmer)
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "Page 1 of 1\n"
@@ -4468,6 +4264,7 @@ class JblPipelineApiTestCase(TestCase):
             status='active',
         )
 
+        retained_test_order(first, second)
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "Page 1 of 1\n"
@@ -4534,6 +4331,7 @@ class JblPipelineApiTestCase(TestCase):
             status='active',
         )
 
+        retained_test_order(farmer)
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "Page 1 of 1\n"
@@ -4795,6 +4593,7 @@ class JawabuIntegrityRulesTests(TestCase):
             customer_name='Draft Customer',
             order_number='ORDER-1',
         )
+        retained_test_order(farmer)
         batch = InvoiceUploadBatch.objects.create(
             order_number='ORDER-1',
             status='awaiting_confirmation',

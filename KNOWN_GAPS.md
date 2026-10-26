@@ -1,5 +1,653 @@
 # Known Gaps and Verified Workarounds
 
+## Main integration and migration join - 26 October 2026
+
+Conflict resolution retains both Origination 0012 migrations; the new 0013
+operation-free join supplies one migration leaf. Normal approved deployment
+must include the joined history. The existing cleanup migration still stops
+on nonempty legacy authoring tables; reconcile that configuration under the
+old release instead of bypassing the guard. Reversing only the join uses
+`python manage.py migrate origination 0012_remove_legacy_authoring_models`;
+it does not remove the display-reference schema or recreate retired models.
+
+Unsigned document adoption and new application creation retain projection 2;
+historical signed bytes and independent workflow access remain protected.
+Execution evidence and unverified production/PostgreSQL/device gates are in
+the platform release checklist. No main merge or production action occurred.
+The combined affected suites pass 1,284 backend and 504 Chromium checks; 12
+PostgreSQL-only checks skip. Join reversal/reapplication preserves both 0012
+histories and synthetic application values/aliases.
+The documented bulk-import latency/held-counter and older test gaps remain open.
+
+## Continued Portal bulk tests - 26 October 2026
+
+The current Portal gate passes 999 checks, with six PostgreSQL-only skips.
+Impossible FarmUp dates and overlong canonical text values now block commit.
+Mixed invalid selections leave no partial customers/cases; valid selections,
+exact retries and cumulative monthly versions preserve canonical counts and
+held rows. An 80-entry BRO outage/lost-response test ends with 80 Sheet rows.
+The new 2,000-BRO/100-completed and 1,501-SysUp/60-completed journeys reconcile
+all final Sheet rows, signed documents, storage hashes and 7,766 operations.
+
+Two synchronous paths remain a production-size acceptance gap: a 2,000-row
+SysUp upload against existing cases took 47.2 seconds to stage, and the prior
+5,000-row FarmUp commit took 307.0 seconds. Internal 400-row matching slices do
+not release the upload request. Use resumable durable matching and bounded
+FarmUp commits before claiming reliable large-file processing under web-worker
+timeouts. These local timings are not production benchmarks.
+
+Monthly replacement receipts can overstate held work: a probe recognizes 200
+unchanged committed rows during validation but includes them in the subsequent
+550-held receipt, alongside 350 genuinely uncommitted rows. Canonical counts
+and preserved source versions are correct; the receipt count needs alignment.
+
+A supplemental 40-test legacy Jawabu group has 15 failures and one error.
+Running it with the committed FarmUp validator produces the identical failing
+test set; the new validation adds none. These remain unresolved and outside
+the passing Portal gate. Artifacts and exact scopes are in the existing audit.
+
+## Portal varied-data acceptance and remaining limits - 26 October 2026
+
+The expanded local run passes 995 backend checks (six PostgreSQL-only skips),
+271 Chromium checks and 858 requests across all 211 Portal route patterns.
+Volume evidence covers 5,000 imported cases/Sheet rows, 1,000 BRO-created cases,
+100 complete varied journeys and recovery of one whole 1,000-row SysUp source
+after interruption at 360 committed rows. Original driver failures and their
+independent postcondition checks are disclosed in the existing Portal audit.
+
+Fixed: HB Actions drawer group mismatch for HB Staff/IT, expected Portal
+exceptions becoming 500s, overlong BRO names and the SysUp upload-row ceiling.
+Files are retained whole; internal matching defaults to 400-row chunks, while
+approved writes keep the 20-row request budget. The existing upload-size guard
+still applies. The old `SYSUP_MAX_ROWS_PER_UPLOAD` setting is obsolete.
+
+Portal continuation runs while Imports is open; it is not a background approval
+worker. Committed progress survives interruption; remaining rows can be reviewed
+and resumed. Separate legacy token-review screens were not migrated to this
+Portal continuation loop. Sheet money remains whole-KES presentation: 4,999.99
+can display as 5,000, while canonical Portal eligibility correctly remains held.
+
+Large FarmUp commits still need bounded processing: the 5,000-row local run
+spent 307.0 seconds in one commit request. The in-process test client has no
+reverse-proxy/worker timeout, so successful reconciliation does not establish
+production readiness for that size. SysUp continuation does not change FarmUp.
+
+No deployment, migration or real provider write occurred. PostgreSQL races,
+production throughput/scheduling, real sharing/quotas and physical devices
+remain unverified. See `docs/portal-miniapp-audit-2026-10-26.md` for source-bound
+UI exceptions, exact datasets, artifacts and reproduction commands.
+
+## Portal audit remediation - 26 October 2026
+
+The reported Sheet alias, invoice-phone and Nairobi timestamp defects are fixed.
+The existing Case History route is restored; TAT creation field errors no longer
+echo submitted customer values. Current authorization and financial-finality
+rules are unchanged. Retired order tests now require 426/no-write behavior;
+current finalize tests retain local bytes, exact membership and version history.
+
+The isolated run executes 990 backend checks: 984 pass, six PostgreSQL-only
+checks skip, and none fail or error. All 269 Portal/FarmUp Chromium checks pass.
+The real-backend synthetic journey completes SysUp/FarmUp, visits, approvals,
+signed orders, PDF invoices, a mixed-mode signed payment and commissioning for
+HB and Eco-conserve. All 32 integration operations succeed against local
+Sheets/Drive substitutes, with no header repair or business-rule bypass.
+
+PostgreSQL row-lock races/schema upgrade, real Google/Telegram/email delivery,
+physical devices and production scheduling remain unverified. No production
+data, deployment, dependency or setting was changed, and no migration is needed.
+Before operational acceptance, run the six skipped checks under PostgreSQL and
+the provider/device checks listed in
+`docs/portal-miniapp-audit-2026-10-26.md`. Local logs, DBs, CSV projections and
+retained workbook/blob evidence are under ignored
+`test-results/portal-local-audit-2026-10-26/` and `test-results/portal-fixes-*`.
+
+## Origination alignment and model cleanup - 23 October 2026
+
+Implemented: strict placed-only filling (including no-layout drafts), signature
+Edit/identity links, repeated slots with one capture, published-warning attachment
+for Main/supporting PDFs, refreshed testing-deletion confirmation, and retirement
+of two legacy authoring models. Full inventory and operator actions:
+`docs/origination-model-audit.md`; UI evidence:
+`docs/ui-standard/reviews/2026-10-23-origination-placement.md`.
+
+Executed with synthetic data, isolated loopback PostgreSQL and mocked providers:
+
+- Focused projection/editor/deletion/product-deletion suites: 160 passed.
+- Final catalogue/setup/value-contract/advisory-publication suite, including
+  unfinished Main OTP mappings and supporting meanings: 176 passed.
+- Existing-client wire compatibility and strict field projection: 30 passed.
+- Final signer-editor suite: 22 passed, including explicit omission of an ID
+  link and continued editing of existing text-based phone links.
+- Migration guard/upgrade/rollback: 2 passed; both nonempty legacy tables refuse
+  removal, and application payload/frozen bytes survive the empty upgrade.
+- Mini App placement browsers: 6 passed at 320/430/1280px in light/dark.
+  Native authenticated Admin separately verifies Edit, save/reload (including
+  quoted labels), duplicate signature/date slots, one participant and immutable publication, with
+  390/1366px light/dark evidence. These are overlapping suites, not unique totals.
+- The broader run executed 657 tests: 655 passed, 2 failed on existing validation
+  wording assertions. Both reproduce on unchanged commit `0e9e6bd6`:
+  `LoanOriginationServiceTests.test_saved_repeatable_security_repairs_blank_containers_and_grouped_amounts`
+  expects “Year of purchase” but receives “number”; and
+  `OriginationSafeWorkflowTests.test_invalid_draft_patch_identifies_field_without_logging_submitted_value`
+  expects “amount” but receives “number”. Historical ownership/signing migrations
+  were also exercised in the earlier 682-test run; that run was not fully green.
+
+Legacy UI/assignment assertions were retired with their interfaces. Remaining
+workflow fixtures now declare the PDF placements they intend to fill. Reused
+test databases can lose migration-seeded policy/audit rows after transactional
+flushes; validation restored only isolated test fixtures, never production grants.
+Evidence logs are under ignored `test-results/origination-*` paths.
+The API keeps its existing projection wire format, so already-open Mini App
+clients receive the strict field list without a client protocol upgrade.
+
+No deployment, production row-count audit, live OTP/SMS/Drive check or physical
+Telegram-device check was performed. No new setting/dependency is required.
+Standard release migration/static collection is still required. Migration 0012
+locks and checks both legacy tables before removing anything and stops if they
+contain records; reconcile/retain those records under the old release first.
+Rollback recreates empty legacy tables/FK at Origination 0011 and requires the
+corresponding code release. Signed bytes and external files are not rewritten.
+
+## Specification 18 candidate - 23 October 2026
+
+The native browser Complaints UI, evidence gallery and reporting corrections
+are implemented with the existing recovery and PostgreSQL security boundary.
+Current native test results, source-bound visual comparisons, review and
+rollback are in `docs/runbooks/browser-channel-parity.md` and
+`docs/ui-standard/reviews/2026-10-23-complaints-spec18.md`.
+Production browser routes remain off/unmounted; physical devices, assistive
+technology and named operational/privacy acceptance remain outstanding.
+The runbook separately records existing environment-template, dependency
+namespace and strict Sheet-header test failures; whole-repository CI is not
+claimed green by this bounded change.
+
+## Browser operational acceptance - 23 October 2026
+
+The current extension covers settings, schedule and report-email recovery in
+one tab, superseding the exclusion in the historical 22 October entry below.
+Reload/tab closure still loses unsaved memory; never assume offline server save
+or automatic replay. PostgreSQL-only native security state is governed by ADR
+0074 and staff_auth migration 0004; production browser access stays gated.
+
+One authorized synthetic email was accepted by the configured provider; the
+mailbox owner confirmed Gmail receipt and successful Excel attachment opening.
+The complete live browser/delivery/support drill is not yet accepted. No real
+recipient address belongs in Git. Physical-device, assistive-technology and
+named privacy/support approval cannot be inferred from Playwright or code review.
+Current executed results and exact remaining acceptance are recorded in
+`docs/runbooks/browser-channel-parity.md`.
+
+## Closed Complaints recovery scope - 22 October 2026
+
+The recovery slice resumes the work paused for `ui.txt`. Complaint creation
+and case updates retain one tab-local unfinished task across same-account
+native reauthentication, with explicit same-request confirmation after a lost
+response. They do not promise an offline server save. Reload/closing the tab
+loses unsaved text/files; use Save draft for server-retained text and select
+attachments again after a reload. Explicit logout/discard and account/security
+changes clear tab memory. See docs/runbooks/browser-channel-parity.md.
+
+Unsaved preferences, scheduled-email editors and report-email tasks are outside
+this slice's recovery contract. They must not be described as offline/session
+safe. Real devices, retention/privacy acceptance, PostgreSQL/multiworker and
+M1/production integration remain unverified; production stays off/unmounted.
+
+The existing loopback review credentials were checked through actual native
+password plus recovery-code MFA. Failed attempts can trigger normal rate limits;
+refresh http://127.0.0.1:8769/_review/ for the running fixture's credentials and
+an unused recovery code. Do not disable authentication checks. Restart the
+foreground review helper to load new assets or reset its synthetic fixture.
+
+## Closed native operations candidate - 22 October 2026
+
+ADR 0073 adds a separate native browser candidate without expanding restricted
+v1 or connecting the simulator to real services. Current scope/commands/evidence
+and remaining acceptance are in docs/runbooks/browser-channel-parity.md.
+The report slice adds canonical outcome/timing views and exact chart-to-table/
+Excel selections. The continuity slice adds saved queue defaults, safe report
+URL restoration and bounded activity pagination. It is not full production
+parity: exhaustive offline/history/session-expiry draft paths, real providers,
+PostgreSQL/multiworker operation, actual devices/privacy/design review and M1
+remain open. Production routes stay unmounted and all browser flags default off.
+The latest native synthetic review is started with
+`scripts/start_complaints_local_review.ps1` at loopback 8769; the older simulator
+on 8767 is separate. Keep its foreground terminal open and wait for readiness.
+
+The `ui.txt` correction is applied only to the native operations entry. Restart
+the 8769 review host to see it; startup-pinned assets intentionally do not change
+mid-review. The UI correction alone did not complete offline/session-expiry/
+ambiguous-write recovery; the bounded recovery slice is recorded above.
+Native modal dialog and AG Grid composition
+exceptions, dependency review and screenshot evidence are documented in
+browser/DESIGN.md and docs/runbooks/browser-channel-parity.md. User approval,
+real devices/assistive technology and production acceptance remain unverified.
+
+## Local Complaints demo now accessible - 20 October 2026
+
+P2a.2 / ADR 0072 extends P2a.1's synthetic review workspace at
+http://127.0.0.1:8767/. It opens directly into demo cases without account setup.
+The standalone server and verified fixture SQLite store do not initialize Django,
+read deployment settings or touch operational/test databases. It remains available
+until its process stops; browser/README.md documents restart. It is no installed
+startup service, live staff admission or proof of company authentication.
+Officer creation/uploads, HB feedback/resolution, Manager reopen/completion,
+IT override and Portal-only denial now operate in a shared in-memory sandbox.
+Refresh retains demo changes; Reset demo or server restart clears entered values
+and uploads. These simulate built-in permissions, not deployment policy overrides.
+Reports/export, voice/maps, real Drive/Sheet/Telegram publication and production
+browser writes are not implemented by this demo. Native P2a remains read-only.
+Native P2a authorization remains separately exercised. M1/privacy/named readers,
+production topology, PostgreSQL and real devices remain open. Current evidence/
+rollback are in decision section 15 and the release checklist.
+
+## Closed Complaints browser connected; operational read pilot pending - 20 October 2026
+
+P2a / ADR 0070 now connects native company password/MFA to existing Complaint
+permissions and list/search/paging/detail/history in isolated synthetic tests.
+The user approved starting this development alongside M1 readiness. A separate
+React/ADS entry uses the existing dependency graph and current official design
+references; the fixed preview and Telegram UI remain independent.
+
+The candidate projection still includes personal free-text names/descriptions.
+It is not an approved live privacy projection. Notes/diffs, raw messages,
+phone/National ID, source identifiers, media/location and sync diagnostics are
+excluded. History response is capped at 100 entries; the existing owning detail
+service still materializes history before projection. Workspace discovery checks
+current authority per enabled database group; production scale needs review.
+No writes UI is supplied. Missing controls/references may be initialized by
+existing read services and daily capability usage records count requests.
+
+Production remains off/unmounted and E006 remains. Real delivery/support,
+reviewed shared cache/worker operation, PostgreSQL, production origin/static/CSP,
+devices/assistive review, named readers, privacy and M0/M1/M2 are still open.
+Current verification and rollback are in the release checklist. P3 writes and
+later workflows have not begun. Existing baseline audit findings below remain.
+
+## Browser abuse boundary hardened; shared cache still required - 20 October 2026
+
+P1b.2b.4 / ADR 0069 resolves spoofable forwarded-IP browser limits, native
+throttle misdiagnosis and native cache-key privacy in the configured application
+cache. Browser/setup network limits now follow native proxy/IP/IPv6 policy;
+native form/view limits return JSON 429 and failures return safe unavailable
+feedback without new assurance. Ordinary workflow keys and Telegram limits
+retain their existing behavior. No new frontend step or dependency/schema.
+
+The default cache is still process-local. E007/E008 now block attempted browser
+activation without a reviewed shared backend/privacy hook, while E006 remains.
+These checks are offline and do not certify service/client availability, shared
+worker state, atomic add, consistency, capacity/non-eviction or deployed proxy
+trust. Do not mount production routes or rotate/clear live security state to
+make a check pass. Shared-cache approval/operation, real delivery/support,
+PostgreSQL, production origin/static/CSP, devices and M0/M1 remain open before
+Complaints admission. See the current plan/release checklist for evidence.
+The existing environment-template checker still reports 119 omissions; the
+artifact audit reports 17 allowlist hash mismatches, all byte-identical to HEAD.
+Neither baseline is changed to make a check pass. Full CI is not claimed.
+
+## Guided browser onboarding is connected; readiness remains open - 20 October 2026
+
+P1c.6 / ADR 0068 connects native first-password and enrollment to short ADS
+screens. Invitation proof is erased from the fragment before authentication requests/render;
+verified setup and fresh QR drafts resume from their bound session. Recovery
+codes are shown once with explicit copy/save. Password creation continues to
+enrollment without another password prompt; fresh sign-in after saving codes
+remains native policy. Lost one-time disclosure is never replayed.
+
+This closes the local onboarding UI gap. Actual canonical-address invitation
+delivery/verified support, PostgreSQL/shared-cache, production origin/static/CSP,
+device/assistive and M0/M1 acceptance remain open before Complaints. The fixed
+preview stays separate and production auth disabled/unmounted. No real account,
+mail, grant, migration or deployment change. Current record: decision section 12.
+The 119 pre-existing environment-example parity omissions below remain.
+
+
+## Historical P1c.5 native sign-in handoff - 20 October 2026
+
+P1c.5 connects a separate React build to the existing native password/MFA/session
+boundary in isolated tests. It preserves usernames after errors, uses autofill
+and resumes interrupted MFA without repeating password entry. An expired owned
+cookie now permits a fresh sign-in without asking users to log out separately.
+The fixed-value preview at 8766 remains unchanged. There is no operational auth
+URL or newly admitted real staff; browser off/E006/routes remain closed.
+
+Initial-password/enrollment/recovery-code handoff UI and actual delivery/support
+are not completed onboarding. Keep those flows short and guided in the next
+bounded increment; never substitute simulated success or silently issue MFA
+assurance from setup. Production static/CSP/origin/shared-cache/PostgreSQL,
+device/assistive and M0/M1 acceptance remain open. See ADR 0067 and decision
+section 11 for current evidence and rollback.
+
+The repository's existing environment-example parity check also fails with
+119 missing declarations. Its checker, config/settings.py and .env.example
+match HEAD; P1c.5 introduces no deployment setting. This baseline documentation
+gap prevents claiming a clean full CI run and is outside this authentication slice.
+
+## Browser composition corrected; design acceptance remains explicit - 20 October 2026
+
+P1c.4 addresses the documentation-backed critique of earlier layouts. Use /
+for the staff presentation and /review.html for synthetic Page/Theme/Response
+selection on the loopback preview. Access forms retain one reading sequence;
+the workspace uses actual ADS navigation; persistent section feedback and flat
+surfaces replace popup/duplicated errors and nested sunken-on-raised groups.
+Theme startup now precedes controls, avoiding briefly light fields with dark text.
+
+Technical tests establish behavior/source binding and viewport fit. They do not
+prove design quality, human/device/assistive acceptance or full ADS conformance.
+Follow browser/AGENTS.md and DESIGN.md for current official references. Exact
+graph/notice/asset and verification evidence: decision section 10. Browser auth
+remains disconnected/off/E006/routes unmounted; operational M0/M1 remain open.
+
+## Historical browser laptop viewport overflow correction - 20 October 2026
+
+P1c.3 replaces P1c.2's narrow cards and stacked controls. At 1366x768 the previous
+sign-in page scrolled 26px; expanded controls caused 480px overflow despite spare
+horizontal space. Wide ADS grids, an adjacent control panel and compact token
+spacing now address the layout cause. Checks explicitly cover short desktop
+heights, all pages/form errors and expanded controls in both themes. See decision
+section 9 for final results and limits. Mobile/large text may scroll to preserve
+readability; no fixed-height/clipping workaround is used. The auth/operational
+limitations below remain unchanged.
+
+## Browser ADS adoption is implemented; operational access remains open - 20 October 2026
+
+P1c.2 supersedes the earlier custom browser-layout exceptions. All existing
+browser pages now use ADS layout/control/typography/navigation components and
+typed semantic tokens; the complete recommended lint sets block style drift.
+Use **Preview controls** at http://127.0.0.1:8766/ to inspect pages, themes and
+simulated responses. ADS typography uses its supplied system-font fallbacks;
+proprietary font files and Atlassian branding remain excluded.
+
+The pages still use fixed read-only demo values and simulated responses. This
+UI change supplies no real authentication or workflow access. Browser off/E006,
+unmounted production routes, native transport/CSRF/mail/recovery/cache/privacy,
+PostgreSQL, support and M0/M1 gates remain. Human/device/assistive review is not
+inferred from headless captures. Full evidence and rollback: decision section 8.
+Earlier sections retain their historical measurements and dependency limits.
+
+## Actual ADS local client still needs native transport and M1 - 20 October 2026
+
+The user's “resolve it and proceed” instruction now supports the bounded local
+`browser/` React/ADS installation and build (ADR 0066). Use its README and
+http://127.0.0.1:8766/ for actual ADS components. Earlier no-install/custom-only
+statements below are historical. The old forensic manifest remains unsuitable
+as an application manifest; only the separate exact workspace is accepted.
+
+One original legacy context React-peer mismatch remains an explicit tested local
+exception, never upstream support. The fixed development selector-parser override
+and supported linter give a zero-finding point-in-time audit; deprecated vendor
+stable/theme transitives remain maintenance concerns. Full notices accompany the
+52 bundled packages; no brand/font/image asset is imported. Toolchain/native/MPL
+redistribution requires its own distribution-specific notice/source package.
+
+The actual ADS demo uses fixed read-only values and memory only. It supplies no
+real session, proof delivery, password/MFA mutation, customer record or workflow
+grant. Browser authentication remains off/E006 blocking/routes unmounted.
+Production static/CSP/cookie/CSRF integration, interrupted setup/recovery,
+shared native cache/log privacy, PostgreSQL, human/device/assistive review,
+primary/backup ownership and M0/M1 remain open. Local inline theme styles and
+hashed import maps are not a production CSP decision. An uninitialized native
+feature-gate warning is observed without configuring a provider or sending data.
+
+79 production-browser checks/71 synthetic captures and exact peer/context/parser/
+type/lint/build checks pass. These do not certify full CI or real authentication.
+Commands, diagnostics, checklist and rollback: BROWSER_REACT_ADS_DECISION.md
+section 7. Previous environment-template/artifact/Python-audit gaps are unchanged.
+
+## Accessible local wireframe is not working browser authentication - 20 October 2026
+
+Run `python scripts/serve_browser_access_preview.py` and open
+http://127.0.0.1:8765/ on the same computer to review the proposed access pages.
+It is a first-party synthetic analysis artifact with read-only demo fields,
+simulated responses and no API, credentials, storage, customer records or grants.
+Refresh/Reset demo resets its memory; its one-time-view simulation is not a
+durable security control. Do not enter real credentials or publish this tool.
+
+The selected React/ADS client is still uninstalled. The declared React-16 peer
+conflict was reconfirmed; no compatibility exception, licence/asset/notice/build
+acceptance or M1 gate is waived. Local Node 26.7.0 is outside the review
+candidate's >=22 <25 range; the later frontend needs a reviewed runtime.
+Browser auth remains disabled and production URLs unmounted. Real proof delivery,
+interrupted setup/recovery, shared native cache/log privacy, PostgreSQL and
+support/staging acceptance remain separate. Section 6 of
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` records the candidate,
+source-bound synthetic evidence, diagnosed preview fixes and rollback.
+
+## Closed initial setup still needs delivery and operational acceptance - 20 October 2026
+
+P1b.2b.3 adds an audited existing-account preparation service and unmounted
+native mailbox/first-password handlers. Only exact active admitted non-Admin
+accounts with unusable passwords and unambiguous canonical addresses qualify.
+No usable password reset, new account, email-based identity merge, privilege or
+workflow grant is supported. Same-session/request proofs and audit receipts
+govern every credential write; no login or MFA assurance is issued by setup.
+
+No proof dispatch/export exists: synthetic tests decrypt their own proof to
+exercise the native backend. Actual mail delivery, safe link/log handling,
+uncertain dispatch/retry and support acceptance remain unimplemented. Never mark
+the address verified or print/send a capability through operator logs as a
+workaround. Existing usable-password address verification/recovery remains a
+separate verified-support boundary. Native callback/notification changes hold
+setup until reviewed.
+
+If setup expires or loses its anonymous session after mailbox verification but
+before the first password, normal preparation deliberately refuses to downgrade
+the now-verified native address. A separately reviewed resume/support procedure
+is required before operational admission; deleting or un-verifying that address
+is not a workaround.
+
+First-password setting changes the exact account's Django session-auth hash and
+can expire its existing Django cookies, including the Telegram session bridge.
+Signed Telegram identity and grants survive; a fresh valid signed launch can
+re-establish its session. Do not promise browser-only session revocation for a
+password mutation or force browser password/MFA into Telegram.
+
+Browser remains false, E006 blocking and routes unmounted. Migration
+`staff_auth.0003_staffbrowsersetupgrant` is additive with no backfill; no real
+preparation, password, provider, grant, merge or deployment action occurs.
+Evidence, schema reversal and merge/deploy/monitoring checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`. Remaining shared
+native cache/log privacy, PostgreSQL, frontend/D13, owners and M0/M1 gates are not
+waived; previous environment/artifact/dependency-audit findings remain separate.
+
+Final combined isolated verification: **187 tests, 178 passed and nine
+PostgreSQL-only skips**, including all 28 new SQLite cases. Two overlapping native
+configured-hasher journeys, all 44 governance/tool tests, narrow Ruff, relevant
+catalogue/static checks and isolated migration forward/reversal passed. The
+expanded run uses a process-only fast synthetic password hasher and a dedicated
+ignored local SQLite test database. Initial failed fixture assumptions and
+current commands/limits are disclosed in the phase document. These results do
+not certify full CI, PostgreSQL, live delivery, staging or M1.
+
+## Shared TOTP guard is a bounded browser prerequisite - 20 October 2026
+
+P1b.2b.2 adds shared one-use TOTP claims after native validation in the dormant
+browser adapter. It addresses code reuse across independent native caches on
+that adapter, not general allauth cache sharing or operational readiness. Generic
+and headed allauth routes remain unmounted. Never expose them as an alternative
+MFA entry point or clear unexpired replay claims to repair a failed login.
+
+The local missing `django-allauth[mfa]==65.20.0` dependency was restored using
+the existing pin. Native verification is retained; no dependency manifest,
+frontend, global cache, Telegram credential policy or business role changed.
+Migration `staff_auth.0002_stafftotpreplaystate` is additive, with no backfill.
+Production deployment/migrations remain unknown; no real claims were provisioned
+or cleared. Evidence, explicit reversal and the merge/deploy/monitoring checklist
+are in `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`.
+
+Controlled existing-staff provisioning, verified address/password setup,
+operational recovery/helpdesk, shared native rate-limit/cache topology,
+notifications, PostgreSQL races, staging/both-channel/support acceptance and M1
+remain open. Browser stays false and E006 blocking; React/ADS acceptance is still
+held. Existing environment-template, artifact and dependency-audit findings are
+not waived by this increment.
+
+Final combined isolated auth/Telegram/user-lifecycle run: **156 tests, 150 passed
+and six PostgreSQL-only skips**, including all 14 new SQLite cases. All **44
+governance/tool tests**, relevant static/catalogue checks and isolated SQLite
+migration forward/reversal passed. A separate restored-dependency baseline used
+the configured native password hasher (136 passed, four skipped); the final
+expanded rerun used a process-only fast synthetic hasher. These are scoped local
+results, not full CI or operational acceptance. Actual commands/limits are in
+the phase document.
+
+The pinned native TOTP cache key contains the submitted code. The synthetic
+formatted-code test observed `CacheKeyWarning` including that key when whitespace
+is submitted. The test captures this expected warning without printing even
+synthetic codes; runtime warning suppression is not added. Native cache key/log
+privacy must be reviewed and resolved with the remaining shared-cache design
+before any operational browser mount. The new shared table stores HMAC only.
+
+## Closed enrollment is not operational browser access - 19 October 2026
+
+P1b.2b.1 adds native TOTP setup/one-time recovery handoff behind current admission,
+fresh password recheck, encrypted storage and atomic audit. These are unmounted
+backend handlers, not provisioning, a finished client or staff onboarding. Setup
+does not grant MFA assurance; explicit logout and native password/MFA login follow.
+Recovery-code response loss cannot authorize redisclosure/regeneration. Expired/
+interrupted post-activation setup needs ordinary MFA login or separately verified
+support; no authenticated factor-management UI is introduced here.
+
+Browser stays off and E006 blocking. Controlled provisioning/address/password
+setup, operational recovery/helpdesk, shared native replay/abuse cache, accepted
+mail, PostgreSQL/staging/both-channel acceptance, support ownership and M1 remain
+open. The HTTP DB throttles do not solve cross-worker TOTP replay. React/ADS
+peer/licence/asset/build acceptance remains held; no frontend package installed.
+Production release/migrations are still unknown. No schema/dependency/env name,
+production route, real opt-in/reset, customer/provider write, merge or deployment.
+Actual tests, remaining limits and change-specific monitoring/rollback checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` sections 5–6. Historical
+phase counts below are not current-phase certification or production evidence.
+
+Final focused run: 140 tests, 136 passed, four PostgreSQL-only skips, including
+two new enrollment/handoff races not executed locally. All 23 new SQLite setup
+tests and 44 governance/tool tests pass, as do Node and relevant fast checks.
+The 119 environment-template omissions and 17 tracked-artifact hash mismatches
+remain. No full CI, shared-cache, real device, staging or production certification.
+
+## Browser dependency graph is review-only, not installable - 19 October 2026
+
+D13a collects exact frontend dependency/archive/licence evidence; it does not
+clear ADS standalone use or approve a frontend build. No packages, fonts or icons
+were installed and no browser route/flag was opened. Root manifests and existing
+Telegram/Django runtime are unchanged.
+
+Strict resolution without the forensic overrides fails because
+`@atlaskit/analytics-next@12.6.0` requires
+`@atlaskit/analytics-next-stable-react-context@1.0.1`, which declares React
+`^16.8.0`; proposed staff UI dependencies include React-18-only peers.
+`@atlaskit/browser-apis@1.2.0` also rejects React 19. Literal React 18 overrides
+permit a graph for archive inspection, **not a compatibility-approved install**.
+Do not use force/legacy-peer flags or relabel that graph as supported. Choose a
+maintained compatible set, or obtain an explicitly reviewed compatibility
+exception backed by actual source/runtime tests, before frontend installation.
+
+Pending licence/asset/notice acceptance, actual build/lint/browser behavior and
+operational MFA acceptance remain separate gates. Offline report consistency
+does not prove legal clearance, runtime privacy, security or compatibility.
+Evidence, executed checks and phase-specific merge/deploy checklist:
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`, section 5.
+
+Final D13a inventory: 529 unique artifacts / 546 locked entries, all inspected
+without remaining errors; 44 governance/tool tests and offline snapshot binding
+passed. There are 63 missing matched shipped licence/NOTICE-file indicators
+(four runtime), 53 nested-metadata indicators, six asset-bearing packages and
+13 development-only MPL-2.0 artifacts. Indicators overlap and are not proven
+licence violations. Preserve focused review of exact terms/notices, assets and
+distribution model; none is cleared by the tooling pass.
+
+## Browser JSON contract and React licence gate - 19 October 2026
+
+P1b.2a adds a dormant JSON password/MFA/session/logout adapter and protected
+pending-enrollment storage, not a usable standalone frontend or finished
+enrollment/recovery. `STAFF_BROWSER_AUTH_ENABLED` remains false, readiness
+remains blocking, and production auth/business routes are unmounted. Future
+business endpoints require the company-browser guard **and** owning-workflow
+authorization; a password-only or ordinary Django session is insufficient.
+
+The user selected React/ADS for new browser pages and exact licence review first.
+Five direct Atlaskit package declarations and tarball licences/integrities were
+inspected; no complete transitive/asset clearance exists. No frontend packages,
+assets or build are installed. Do not infer standalone permission for every ADS
+material, replace Telegram UI or bypass the Design Lab migration hold.
+
+Shared allauth replay cache, provisioning/email/password setup, operational
+enrollment/recovery, support/offboarding acceptance, reviewed React UI/build and
+real staging/both-channel acceptance still block activation. Initial DB-backed
+request throttling does not solve cross-worker TOTP replay protection. No new
+migration/env variable/dependency is added in this slice. Current verification
+and per-release checklist: `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`;
+licence/build gate: `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+No production release/inspection, merge, real opt-in/reset or provider write.
+
+Final focused run: **115 tests, 113 passed and two PostgreSQL-only concurrency
+skips**. All 17 new JSON/storage tests, existing native headed-login fixtures and
+Telegram/user lifecycle regressions pass. Also passed: 28 governance-script tests,
+Node tests, syntax, architecture, route inventory, migration graph, model/dependency
+checks and regenerated catalogue. Wider environment-template parity still has
+119 missing names; the artifact audit still reports 17 prior allowlist hash
+mismatches. No baselines were relaxed. These results do not establish full CI,
+PostgreSQL, React, staging, live-device or production readiness.
+
+## Browser lifecycle backend controls - 19 October 2026
+
+P1b.1 provides deliberate browser opt-in, suspension, browser-only revocation
+and audited factor reset, **not usable browser login/enrollment/recovery**.
+Keep `STAFF_BROWSER_AUTH_ENABLED=False`; activation checks remain blocking.
+Do not use `manage_staff_browser --apply` against real staff without the actual
+environment-specific authority and accepted support procedure. It defaults to
+read-only preview. No workflow grants, credentials or emails are provisioned.
+
+`staff_auth.0001_initial` adds one admission table without backfill; normal
+rollback retains it and its revocation state. The generated catalogue is now
+refreshed and verified (213 entries), resolving P1a's stale usage-map finding.
+Other previously diagnosed audit/environment/Ruff limitations remain separate.
+The wider catalogue test suite also reports an existing duplicate explicit
+`RequisitionBatch.order_number` index; its finance schema was not changed here.
+Current verification, PostgreSQL-only race tests, remaining operational controls
+and per-release checklist are in
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. No production release,
+migration, opt-in, reset, external write or merge was performed for this phase.
+
+Final focused normal-management-command result: **97 tests, 95 passed and two
+PostgreSQL-only concurrency skips** across `staff_auth`,
+`core.tests_telegram_authentication`, `core.tests_user_identity` and
+`core.tests_user_hard_delete`. Ten final no-database crypto/configuration checks
+also passed (nine overlap that run; one is the later generic-registration
+contract), and 28 governance script tests passed. An earlier programmatic runner
+missed the repository's test-mode argv marker and produced fixture-guard errors;
+that diagnostic is superseded by the normal-run result, not a production finding.
+
+## Dormant staff browser MFA verification - 19 October 2026
+
+P1a `staff_auth` is an integration foundation, **not a usable browser login**.
+Keep `STAFF_BROWSER_AUTH_ENABLED=False`. No production login/enrollment/recovery
+or business URL is mounted; activation is deliberately rejected by system and
+pre-migration production checks. Telegram signed-launch access remains unchanged.
+Do not mount allauth's generic URLs or use vendor Admin JSON edits to bypass
+unfinished account provisioning, MFA enrollment, audited recovery and revocation.
+
+Current technical contract, verification and change-specific release checklist:
+`codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`; decision: ADR
+0060. Pending enrollment secrets need explicit protection beyond stored-factor
+encryption; vendor replay/rate-limit cache must work across workers. Real
+PostgreSQL, operational support, mail, privacy and live-device acceptance remain
+required before browser admission.
+
+Final focused run: **53 tests passed** across `staff_auth`,
+`core.tests_telegram_authentication` and `core.tests_user_identity`; 28 governance
+script tests also passed. Django checks, migration drift/graph, model governance,
+architecture/write-route/UI checks and isolated vendor schema reversal passed.
+These are synthetic SQLite results, not production or PostgreSQL evidence.
+
+Broader checks are not fully green: environment parity reports 119 existing
+missing variables (same at HEAD; all three new variables documented), the
+dependency-audit exception expired on 2026-09-30, generated database catalogue
+usage references from earlier HB Deposits/Portal work are stale, 17 existing
+logo/screenshot artifact hashes disagree with their allowlist, and Ruff is
+not installed locally. No exception extension, artifact baseline update, unrelated configuration rewrite
+or catalogue regeneration was bundled into this phase. Full CI and production
+readiness are not established by the focused tests. No commit/merge/deployment
+or production migration was performed.
 ## Compact Origination review and named downloads - 22 October 2026
 
 Implemented compact numbered cards using TAT's queue type roles, two-column

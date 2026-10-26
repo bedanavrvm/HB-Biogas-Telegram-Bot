@@ -2590,7 +2590,7 @@ def sync_farmer_to_master_sheet(
                     moved_fields[header] = {'before': '', 'after': old_value}
 
         # Update pipeline fields
-        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
+        now_text = timezone.localtime().strftime('%d-%m-%Y %H:%M')
         changes = dict(moved_fields)
 
         from core.services.jawabu_case_reference import display_case_reference
@@ -3014,7 +3014,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             # fallback scan before a new key can be allocated.
             values = sheet.get_all_values()
         record_id = current_record_id or _next_internal_order_record_id(values or [], header_lookup, workflow)
-        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
+        now_text = timezone.localtime().strftime('%d-%m-%Y %H:%M')
         changes = {}
 
         def candidates(field_name, *fallback):

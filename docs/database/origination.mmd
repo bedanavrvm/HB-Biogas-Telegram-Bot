@@ -35,9 +35,6 @@ erDiagram
   core_originationdocumenttemplateevent {
     string id
   }
-  core_originationfieldreviewissue {
-    string id
-  }
   core_originationotpchallenge {
     string id
   }
@@ -45,9 +42,6 @@ erDiagram
     string id
   }
   core_originationproductdefinitionevent {
-    string id
-  }
-  core_originationproductdocumentassignment {
     string id
   }
   core_originationreportingvalue {
@@ -96,7 +90,6 @@ erDiagram
   core_originationproductdefinition ||--o{ core_loanoriginationapplication : contains
   core_loanoriginationapplication ||--o{ core_originationapplicationdocument : contains
   core_originationdocumenttemplate ||--o{ core_originationapplicationdocument : contains
-  core_originationproductdocumentassignment ||--o{ core_originationapplicationdocument : contains
   core_loanoriginationapplication ||--o{ core_originationapplicationevent : contains
   core_loanoriginationapplication ||--o{ core_originationcommercialexception : contains
   core_originationcorrectionrequest ||--o{ core_originationcorrectionitem : contains
@@ -108,13 +101,9 @@ erDiagram
   core_originationproductdefinition ||--o{ core_originationdocumenttemplate : contains
   core_originationtemplateconfigurationrevision ||--o{ core_originationdocumenttemplate : contains
   core_originationdocumenttemplate ||--o{ core_originationdocumenttemplateevent : contains
-  core_originationdatafield ||--o{ core_originationfieldreviewissue : contains
-  core_originationproductdefinition ||--o{ core_originationfieldreviewissue : contains
   core_originationsignersession ||--o{ core_originationotpchallenge : contains
   core_originationproductdefinition ||--o{ core_originationproductdefinition : contains
   core_originationproductdefinition ||--o{ core_originationproductdefinitionevent : contains
-  core_originationdocumenttemplate ||--o{ core_originationproductdocumentassignment : contains
-  core_originationproductdefinition ||--o{ core_originationproductdocumentassignment : contains
   core_loanoriginationapplication ||--o{ core_originationreportingvalue : contains
   core_originationdatafield ||--o{ core_originationreportingvalue : contains
   core_loanoriginationapplication ||--o{ core_originationrequirementevidence : contains

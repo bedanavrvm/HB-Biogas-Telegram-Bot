@@ -71,7 +71,6 @@ from core.services.access_policies import (
 from origination.models import (
     OriginationDataField,
     OriginationDataFieldEvent,
-    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
     OriginationDocumentTemplate,
@@ -86,7 +85,6 @@ from origination.models import (
     OriginationCorrectionRequest,
     OriginationRequirementEvidence,
     OriginationApplicationDocument,
-    OriginationProductDocumentAssignment,
     OriginationConsentPolicyVersion,
     OriginationSigningPackage,
     OriginationSigningAction,

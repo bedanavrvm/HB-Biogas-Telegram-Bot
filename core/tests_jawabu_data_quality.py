@@ -15,9 +15,9 @@ class JawabuDataQualityTests(TestCase):
     def setUp(self):
         OperationalProduct.objects.get_or_create(name='Biogas', defaults={'code': 'biogas', 'active': True})
 
-    def test_non_standard_national_id_is_a_review_issue_not_a_hard_import_error(self):
+    def test_invalid_national_id_is_a_review_issue_not_a_hard_import_error(self):
         farmer = JawabuFarmerMaster.objects.create(
-            customer_name='Quality Farmer', national_id='123456', primary_phone='254712345678', status='active',
+            customer_name='Quality Farmer', national_id='1234567890', primary_phone='254712345678', status='active',
         )
 
         errors = canonicalize_farmer(farmer, strict=True)
@@ -46,7 +46,7 @@ class JawabuDataQualityTests(TestCase):
 
     def test_audit_command_is_read_only_and_can_fail_strictly(self):
         JawabuFarmerMaster.objects.create(
-            customer_name='Needs Review', national_id='123456', primary_phone='254712345678', status='active',
+            customer_name='Needs Review', national_id='1234567890', primary_phone='254712345678', status='active',
         )
         output = io.StringIO()
 

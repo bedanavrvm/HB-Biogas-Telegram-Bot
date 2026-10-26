@@ -95,7 +95,10 @@ def validate_telegram_init_data(
     telegram_id = str(user_payload.get('id') or '').strip()
     if not telegram_id:
         raise TelegramAuthenticationError('Telegram Mini App user ID is missing.')
-    return pairs, identity_from_user_payload(user_payload)
+    identity = identity_from_user_payload(user_payload)
+    from core.services.channel_context import bind_verified_channel
+    bind_verified_channel('telegram', 'telegram_init_data')
+    return pairs, identity
 
 
 def resolve_user_by_telegram_id(telegram_id: str):

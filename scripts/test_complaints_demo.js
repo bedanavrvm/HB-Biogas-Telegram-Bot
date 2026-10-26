@@ -1,0 +1,147 @@
+'use strict';
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const { chromium } = require('playwright');
+
+async function main() {
+  const root = path.resolve(__dirname, '..');
+  const development = process.argv.includes('--development');
+  const origin = new URL(development ? 'http://127.0.0.1:8768' : 'http://127.0.0.1:8767');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'browser', development ? 'dist-complaints-demo-development' : 'dist-complaints-demo', 'build-manifest.json')));
+  assert.equal(manifest.localComplaintsDemo, true); assert.equal(manifest.closedAuthentication, false);
+  const output = path.join(root, 'test-results', 'complaints-local-demo', manifest.mode);
+  fs.mkdirSync(output, { recursive: true });
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, colorScheme: 'light', acceptDownloads: true });
+  await context.addCookies([{ name: 'sessionid', value: 'synthetic-cookie-must-not-authorize', url: origin.origin }]);
+  const page = await context.newPage(); page.setDefaultTimeout(12000);
+  const errors = [], captures = [], layouts = [], requests = [];
+  const assets = new Set(['/', ...manifest.files.map(file => '/' + file.name)]);
+  const base = '/demo-api/complaints/v1/', queue = base + 'groups/1/cases/';
+  let checks = 0;
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.protocol === 'blob:') return route.continue();
+    const demoRoute = /^(?:context\/|groups\/|sample-evidence\/|reset\/|evidence\/[a-f0-9-]{36}\/|groups\/\d+\/cases\/(?:[a-f0-9-]{36}\/(?:[a-z]+\/)?)?)$/.test(url.pathname.slice(base.length));
+    if (url.origin !== origin.origin || !['GET','POST'].includes(request.method()) || !(assets.has(url.pathname) || url.pathname.startsWith(base) && demoRoute)) { errors.push('Unexpected network request'); await route.abort(); return; }
+    if (url.pathname.startsWith(base)) assert.equal((await request.allHeaders()).cookie, undefined);
+    requests.push({ path: url.pathname, method: request.method() }); await route.continue();
+  });
+  page.on('pageerror', () => errors.push('Unhandled browser error'));
+  page.on('console', message => { if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) errors.push('Unexpected console error'); });
+  const heading = name => page.getByRole('heading', { name, exact: typeof name === 'string' }).waitFor();
+  const choose = async (label, option) => { await page.getByLabel(label, { exact: true }).click(); await page.getByRole('option', { name: option, exact: true }).click(); };
+  const search = async text => { await page.getByLabel('Search name or reference').fill(text); await page.getByRole('button', { name: 'Search', exact: true }).click(); };
+  const selectRole = async label => { await choose('Demo role', label); await page.getByLabel('Demo role', { exact: true }).waitFor(); };
+  const current = async () => page.evaluate(async ({base,reference}) => {
+    const headers = {'X-Demo-Role':'officer'};
+    const list = await (await fetch(base+'groups/1/cases/?status=all&q='+encodeURIComponent(reference), {credentials:'omit',headers})).json();
+    return (await (await fetch(base+'groups/1/cases/'+list.items[0].key+'/',{credentials:'omit',headers})).json()).case;
+  }, {base,reference:'CMP-11'});
+  const capture = async (name, fit=false) => {
+    const theme = name.includes('-dark-') ? 'dark' : 'light';
+    await page.waitForFunction(expected => document.documentElement.dataset.colorMode === expected, theme);
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))); await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); });
+    const layout = await page.getByRole('main').evaluate(element => ({ width: innerWidth, pageWidth: document.documentElement.scrollWidth, mainWidth: element.clientWidth, mainHeight: element.clientHeight, mainScrollHeight: element.scrollHeight }));
+    assert.ok(layout.pageWidth <= layout.width);
+    if (fit) { assert.ok(layout.mainWidth >= 1279); assert.ok(layout.mainScrollHeight <= layout.mainHeight + 1, name+' should fit the ordinary laptop viewport: '+JSON.stringify(layout)); }
+    layouts.push({name,...layout}); await page.screenshot({path:path.join(output,name),fullPage:true}); captures.push(name);
+  };
+  const action = async label => { await page.getByRole('button',{name:'Take action',exact:true}).click(); await choose('Action',label); };
+  try {
+    await page.goto(origin.origin); await heading(/Njoro/);
+    await page.getByRole('button',{name:'Reset demo',exact:true}).click(); await heading(/Njoro/);
+    // Reload dismisses the transient reset success so the normal queue can be measured.
+    await page.reload(); await heading(/Njoro/);
+    assert.equal(await page.locator('input[type=password]').count(),0); checks++;
+    await capture('officer-queue-light-1280.png',true); await page.emulateMedia({colorScheme:'dark'}); await capture('officer-queue-dark-1280.png',true);
+    await page.setViewportSize({width:390,height:844}); await capture('officer-queue-dark-mobile.png');
+    await page.getByRole('region',{name:'Case detail'}).scrollIntoViewIfNeeded(); await capture('officer-detail-dark-mobile.png');
+    await page.emulateMedia({colorScheme:'light'}); await capture('officer-detail-light-mobile.png');
+    await page.getByRole('heading',{name:'Complaints',exact:true}).scrollIntoViewIfNeeded(); await capture('officer-queue-light-mobile.png');
+    await page.setViewportSize({width:1280,height:720}); checks++;
+    await page.getByRole('button',{name:'Next',exact:true}).click(); await page.getByText('Page 2 of 2',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('region',{name:'Complaint queue'}).getByRole('button',{name:/^CMP-/}).count(),3); checks++;
+    await page.getByRole('button',{name:'Previous',exact:true}).click(); await heading(/Njoro/);
+    // Capture the two creation steps, using actual required inputs and selected files.
+    await page.getByRole('button',{name:'New complaint',exact:true}).click(); await heading('New complaint');
+    await capture('create-customer-light-1280.png',true);
+    await page.getByRole('button',{name:'Continue',exact:true}).click();
+    assert.equal(await page.getByRole('heading',{name:'Complaint and evidence',exact:true}).count(),0); checks++;
+    await page.getByRole('button',{name:'Fill sample customer',exact:true}).click();
+    await page.getByRole('button',{name:'Continue',exact:true}).click(); await heading('Complaint and evidence');
+    await capture('create-evidence-light-1280.png',true);
+    await page.emulateMedia({colorScheme:'dark'}); await capture('create-evidence-dark-1280.png',true);
+    await page.setViewportSize({width:390,height:844}); await capture('create-evidence-dark-mobile.png');
+    await page.getByRole('button',{name:'Choose files',exact:true}).scrollIntoViewIfNeeded(); await capture('create-upload-dark-mobile.png');
+    await page.emulateMedia({colorScheme:'light'}); await capture('create-upload-light-mobile.png');
+    await page.getByRole('heading',{name:'New complaint',exact:true}).scrollIntoViewIfNeeded(); await capture('create-evidence-light-mobile.png'); await page.setViewportSize({width:1280,height:720});
+    await page.getByLabel(/^Village or nearby landmark/).fill('Sample market junction');
+    await page.getByRole('button',{name:'Use sample image',exact:true}).click(); await page.getByText(/sample-inspection.png/).first().waitFor();
+    await page.getByRole('button',{name:'Back',exact:true}).click(); await heading('Customer details');
+    await page.getByRole('button',{name:'Continue',exact:true}).click(); await heading('Complaint and evidence');
+    assert.equal(await page.getByLabel(/^Village or nearby landmark/).inputValue(),'Sample market junction');
+    assert.equal(await page.getByRole('button',{name:'Remove sample-inspection.png',exact:true}).count(),1); checks++;
+    assert.ok(await page.getByRole('button',{name:'Choose files',exact:true}).evaluate(element => Boolean(element.compareDocumentPosition(document.querySelector('button[type=submit]')) & Node.DOCUMENT_POSITION_FOLLOWING))); checks++;
+    const pdf = Buffer.from('%PDF-1.4\n% Synthetic local inspection report\n%%EOF\n');
+    const chooserPromise=page.waitForEvent('filechooser'); await page.getByRole('button',{name:'Choose files',exact:true}).click();
+    await (await chooserPromise).setFiles({name:'sample-service-report.pdf',mimeType:'application/pdf',buffer:pdf}); checks++;
+    await page.getByRole('button',{name:'Record complaint',exact:true}).click(); await heading(/Sample Farmer.*Demo intake/);
+    let item = await current(); assert.equal(item.reference,'CMP-11'); assert.equal(item.status,'Pending'); assert.equal(item.evidence.length,2); assert.equal(item.history[0].updated_by,'Demo Officer'); checks++;
+    await page.getByRole('button',{name:'View image',exact:true}).click(); await page.getByRole('img',{name:/Uploaded evidence/}).waitFor();
+    assert.equal(await page.getByRole('img',{name:/Uploaded evidence/}).evaluate(image=>image.complete&&image.naturalWidth>0),true); await capture('created-with-image-light-1280.png'); checks++;
+    await page.getByRole('button',{name:'Close image',exact:true}).click();
+    const downloadPromise=page.waitForEvent('download'); await page.getByRole('button',{name:'Download PDF',exact:true}).click();
+    const download=await downloadPromise; assert.equal(download.suggestedFilename(),'sample-service-report.pdf'); checks++;
+    await page.getByRole('button',{name:'Take action',exact:true}).click();
+    await page.getByLabel('Action',{exact:true}).click();
+    assert.equal(await page.getByRole('option',{name:'Resolve complaint',exact:true}).count(),0); await page.keyboard.press('Escape');
+    await page.getByRole('button',{name:'Cancel',exact:true}).click(); checks++;
+    await page.getByLabel('Demo role',{exact:true}).fill('HB Resolver'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await heading(/Sample Farmer.*Demo intake/);
+    assert.equal(await page.getByRole('button',{name:'New complaint',exact:true}).count(),0); checks++;
+    await action('Add resolution comment'); await page.getByLabel(/^Resolution comment\s*\*?$/).fill('Technician booked for tomorrow; replacement connector reserved.');
+    await page.getByRole('button',{name:'Save comment',exact:true}).click(); await page.getByText('Technician booked for tomorrow; replacement connector reserved.',{exact:true}).waitFor();
+    item=await current(); assert.equal(item.status,'Pending'); assert.equal(item.history[0].updated_by,'Demo HB Resolver'); checks++;
+    await action('Upload evidence');
+    await page.locator('input[type=file]').setInputFiles({name:'invalid.jpg',mimeType:'image/jpeg',buffer:Buffer.from('not an image')});
+    await page.getByRole('button',{name:'Upload evidence',exact:true}).click(); await page.getByRole('alert').waitFor();
+    await capture('upload-error-light-1280.png'); await page.emulateMedia({colorScheme:'dark'}); await capture('upload-error-dark-1280.png');
+    await page.setViewportSize({width:390,height:844}); await capture('upload-error-dark-mobile.png'); await page.emulateMedia({colorScheme:'light'}); await capture('upload-error-light-mobile.png'); await page.setViewportSize({width:1280,height:720});
+    await page.getByRole('button',{name:'Remove invalid.jpg',exact:true}).click();
+    await page.getByRole('button',{name:'Use sample image',exact:true}).click(); await page.getByRole('button',{name:'Remove sample-inspection.png',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Upload evidence',exact:true}).click(); await heading(/Sample Farmer.*Demo intake/);
+    assert.equal((await current()).evidence.length,2); checks++;
+    await action('Resolve complaint'); await page.getByLabel(/^Resolution note\s*\*?$/).fill('Connector replaced and pressure test passed. Farmer confirmed normal operation.');
+    await page.getByRole('button',{name:'Resolve complaint',exact:true}).click(); await page.getByText(/CMP-11: Complaint resolved\./).waitFor();
+    item=await current(); assert.equal(item.status,'Resolved'); assert.equal(item.history[0].action,'resolved');
+    assert.equal(item.actions.some(action=>action.value==='comment'),false);
+    checks++;
+    await selectRole('Complaint Manager'); await heading(/Sample Farmer.*Demo intake/); await action('Reopen complaint');
+    await page.getByLabel(/^Reason for reopening\s*\*?$/).fill('Farmer reported the same fault during follow-up. Arrange another inspection.');
+    await page.getByRole('button',{name:'Reopen complaint',exact:true}).click(); await page.getByText(/Farmer reported the same fault during follow-up\./).waitFor();
+    item=await current(); assert.equal(item.status,'Pending'); assert.equal(item.history[0].updated_by,'Demo Manager'); checks++;
+    await search('CMP-3'); await heading(/Lanet/); await action('Complete missing details');
+    await page.getByRole('button',{name:'Fill sample identifiers',exact:true}).click(); await page.getByRole('button',{name:'Save missing details',exact:true}).click();
+    await page.getByText(/Missing customer identifiers completed\./).waitFor(); checks++;
+    await page.getByLabel('Demo role', {exact:true}).click(); await page.getByRole('option', {name:/Portal HB.*no Complaints access/}).click(); await heading('No Complaints workspace available');
+    assert.equal(await page.getByRole('button',{name:'Take action',exact:true}).count(),0); assert.equal(await page.getByRole('button',{name:'New complaint',exact:true}).count(),0); await capture('portal-denied-light-1280.png'); checks++;
+    await selectRole('IT Support'); await heading(/Lanet/);
+    assert.equal(await page.getByRole('button',{name:'New complaint',exact:true}).count(),1); await action('Resolve complaint'); await page.getByRole('button',{name:'Cancel',exact:true}).click(); checks++;
+    // Invalid body/credentials/foreign origins cannot use the local write adapter.
+    const denied=await page.evaluate(async base=>({ noHeader:(await fetch(base+'reset/',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},body:'{}'})).status, company:(await fetch(base+'context/',{credentials:'omit',headers:{Authorization:'invalid'}})).status }),base);
+    assert.deepEqual(denied,{noHeader:403,company:403}); checks++;
+    await page.getByRole('button',{name:'Reset demo',exact:true}).click(); await heading(/Njoro/);
+    await page.reload(); await heading(/Njoro/); await selectRole('HB Resolver'); await heading(/Njoro/); await capture('hb-queue-light-1280.png',true); checks++;
+    await page.getByRole('button',{name:'Exit demo',exact:true}).click(); await heading('Complaints demo'); await page.getByRole('button',{name:'Open demo',exact:true}).click(); await heading(/Njoro/); checks++;
+    const fail=route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"demo_unavailable"}'});
+    await page.route('**'+queue+'?*',fail); await page.getByRole('button',{name:'Refresh',exact:true}).click(); await page.getByRole('alert').waitFor(); await capture('queue-failure-light-1280.png');
+    await page.unroute('**'+queue+'?*',fail); await page.getByRole('button',{name:'Refresh',exact:true}).click(); await heading(/Njoro/); checks++;
+    assert.deepEqual(await page.evaluate(()=>[localStorage.length,sessionStorage.length]),[0,0]); assert.equal((await context.cookies()).length,1); assert.deepEqual(errors,[]); checks++;
+    const sources=[...manifest.sources,...['scripts/serve_complaints_demo.py','scripts/complaints_demo_sandbox.py','core/services/workflow_capabilities.py','core/services/complaint_cases.py','scripts/serve_ads_browser_preview.py','scripts/test_complaints_demo.js','scripts/tests/test_complaints_demo.py','scripts/tests/test_complaints_demo_sandbox.py'].map(source=>({path:source,sha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,source),'utf8').replace(/\r\n/g,'\n')).digest('hex')}))];
+    fs.writeFileSync(path.join(output,'report.json'),JSON.stringify({demoOnly:true,roleJourneys:true,nativeAuthentication:false,mode:manifest.mode,checks,captures,layouts,sources,requests,errors},null,2));
+    console.log(JSON.stringify({passed:true,mode:manifest.mode,checks,captures:captures.length}));
+  } finally { await browser.close(); }
+}
+main().catch(error=>{console.error(error.stack);process.exit(1)});

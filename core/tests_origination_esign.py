@@ -196,6 +196,26 @@ class OriginationVerifiedSigningTests(TestCase):
         with override_settings(AFRICASTALKING_USERNAME='not-sandbox'):
             self.assertFalse(esign_enabled())
 
+    def test_one_otp_reuses_capture_for_repeat_on_the_same_document(self):
+        self.package.participants_snapshot[0]['slots'].append({
+            'key': 'borrower_signature_copy', 'document_key': 'main', 'type': 'signature', 'required': True,
+        })
+        self.package.save(update_fields=['participants_snapshot'])
+        _session, token, _replayed = self._session()
+        record_consent_and_signature(raw_token=token, consent=True, access_mode='self_service',
+            ip_hash='signature-copy', request_id='copy-consent', reviewed_pages=[1, 2],
+            signature_capture={'method': 'typed', 'name': 'Synthetic Borrower'})
+        _challenge, code, _replayed = issue_otp(raw_token=token, request_id='copy-otp', ip_hash='signature-copy')
+        with patch('origination.services.origination_esign.transaction.on_commit'), patch(
+            'origination.services.origination_esign.render_verified_package', return_value=b'synthetic-signed-pdf',
+        ):
+            verify_otp(raw_token=token, code=code, request_id='copy-verify', ip_hash='signature-copy')
+        actions = self.package.actions.filter(mode='verified')
+        self.assertEqual(actions.count(), 3)
+        self.assertEqual(actions.filter(document_key='main').count(), 2)
+        self.assertEqual(len({action.metadata['capture_sha256'] for action in actions}), 1)
+        self.assertEqual(self.package.signer_sessions.count(), 1)
+
     def test_one_otp_completes_every_signature_slot_and_bad_attempt_persists(self):
         session, token, replayed = self._session()
         self.assertFalse(replayed)

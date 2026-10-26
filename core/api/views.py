@@ -1313,7 +1313,7 @@ def tat_tracker_create(request):
     if capability_error:
         return capability_error
     from core.services.tat_tracker import TatCreateValidationError, create_case
-    from core.services.miniapp_messages import miniapp_error_response
+    from core.services.miniapp_messages import miniapp_error_response, render_message
     from core.services.workflow_data_mode import WorkflowModeChanged
     try:
         data = create_case(group_config, user, payload)
@@ -1334,7 +1334,7 @@ def tat_tracker_create(request):
             status=exc.status,
             developer_message=f'{type(exc).__name__}:{exc.code}',
             exception=exc,
-            extra={'field_errors': exc.field_errors},
+            extra={'field_errors': {field: render_message(exc.code) for field in exc.field_errors}},
         )
     except ValueError as exc:
         return miniapp_error_response(

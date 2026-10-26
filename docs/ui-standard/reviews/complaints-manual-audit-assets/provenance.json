@@ -1,0 +1,293 @@
+{
+  "kind": "manual-ui-audit",
+  "testsRun": false,
+  "browser": "HeadlessChrome/155.0.0.0 on Windows",
+  "playwrightCli": "1.63.0",
+  "createdAt": "2026-10-23T14:53:55.658009+00:00",
+  "commit": "69d8d6107a4d0cd9cd8e7b4609fb81df61b002ab",
+  "buildManifestSha256": "f9075c8f867744a76c6a70d74cbaac84c29ca39292b025eea57b5b947587eae0",
+  "entry": "browser/dist-complaints-operations/complaints-operations.html",
+  "mode": "production",
+  "sourceDrift": [],
+  "sourceHashNormalization": "CRLF to LF, matching transport_test_urls.assets",
+  "sources": [
+    {
+      "path": "browser/src/auth-transport.ts",
+      "sha256": "d94fcaa3ba992323845f14eb9bec68c5524ba8360ecd14b6ba8b03f282a80e65"
+    },
+    {
+      "path": "browser/src/browser-interactions.tsx",
+      "sha256": "e01882b5d3f7f281b90c96dcb2cddfcdea4dbbe54b21310345c2c5a07202b0ba"
+    },
+    {
+      "path": "browser/src/complaints-date-control.tsx",
+      "sha256": "976a0ff92a93fc2bef3ede92b0d4eb1a686026802d973a1951b7033f62864a19"
+    },
+    {
+      "path": "browser/src/complaints-operations-history.tsx",
+      "sha256": "71fe70fd715e3190c5ee6d2da4567d3446f32afbbe83a061dcbdd813a33455aa"
+    },
+    {
+      "path": "browser/src/complaints-operations-index.tsx",
+      "sha256": "8b621ecdaae378defe7e1c3c0ed1e0096f98665fb82b24b8f42c30347206b389"
+    },
+    {
+      "path": "browser/src/complaints-operations-media.tsx",
+      "sha256": "8694f9589286f1ae6b921411886fad876fd43e17c87a24ebd17f8b0f6f41f7ef"
+    },
+    {
+      "path": "browser/src/complaints-operations-reports.tsx",
+      "sha256": "79907672091fc2afdefe9ec891756d5b6c4909e82865791e155201bd0024cdb8"
+    },
+    {
+      "path": "browser/src/complaints-operations-settings.tsx",
+      "sha256": "94a8a7d68a97d22245209707711c7c59c152b1d368e4111349e0bc91f5b38a6b"
+    },
+    {
+      "path": "browser/src/complaints-operations-transport.ts",
+      "sha256": "f643c241028719484cc67b4bd8a8783213d0f1cd07478a18cde4e8a2a73d9f21"
+    },
+    {
+      "path": "browser/src/complaints-operations-workspace.tsx",
+      "sha256": "22c32a3c271e8225fac13626a9fd27b65b3dd0a22bb6a51e0b8c5ed15eaa937a"
+    },
+    {
+      "path": "browser/src/complaints-operations.html",
+      "sha256": "32d7352341c00b497ec393d0765c7ead829a3de5308c508ca7b8f509d08d13b5"
+    },
+    {
+      "path": "browser/src/complaints-report-charts.tsx",
+      "sha256": "4995d709c657d6b2856fb87ef98d09eb3d5029df92063079721550d176a9ec40"
+    },
+    {
+      "path": "browser/src/complaints-report-filters.tsx",
+      "sha256": "573740c2b6f8f34db9f3f343c6433826427105b99d5daf79e144dfaa7703ba16"
+    },
+    {
+      "path": "browser/src/complaints-report-metrics.tsx",
+      "sha256": "047e5a050697503624c61e4f6c77cd26367baab6ee8151c053c4a135fdd223ad"
+    },
+    {
+      "path": "browser/src/complaints-report-table.tsx",
+      "sha256": "1d384c963a121e6c3f736d32c85149ed545132371e8715ad16e79f98f49d3292"
+    },
+    {
+      "path": "browser/src/complaints-transport.ts",
+      "sha256": "6a4572b3965a5e419ff9a8eac08ebe3a6c76c9394521d4333942ecd6332d5baf"
+    },
+    {
+      "path": "browser/src/complaints-ui.tsx",
+      "sha256": "2e9216c694c7bab49e48e8bf4426d5d53a51acfd7c34e3d5d0b58f02be0081e3"
+    },
+    {
+      "path": "browser/src/staff-access.tsx",
+      "sha256": "3afba68004e387b73b78407a1066af187270644ba9ea6ef5f6971dd7a8b5e454"
+    },
+    {
+      "path": "browser/src/workspace-navigation.ts",
+      "sha256": "c72092d094a4f562bd332a48fd31848190607875a2c3620ca136e845fe1ffe9e"
+    },
+    {
+      "path": "browser/src/workspace-recovery.ts",
+      "sha256": "135f38c8f8b095c99b8b8bf737d9369dc3fb5aa269d9678971fed3552dfa7e75"
+    },
+    {
+      "path": "browser/src/workspace-task.tsx",
+      "sha256": "49426153208db680c94ea4bae167519d28efae2e0d381fe830757886138b83e4"
+    }
+  ],
+  "viewports": [
+    {
+      "width": 320,
+      "height": 568
+    },
+    {
+      "width": 360,
+      "height": 800
+    },
+    {
+      "width": 390,
+      "height": 844
+    },
+    {
+      "width": 430,
+      "height": 932
+    },
+    {
+      "width": 667,
+      "height": 375
+    },
+    {
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1366,
+      "height": 768
+    },
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "states": [
+    "01-queue",
+    "02-detail",
+    "03-queue-filters",
+    "04-create",
+    "05-create-invalid",
+    "06-create-bottom",
+    "07-reports-overview",
+    "08-overview-charts",
+    "09-report-table",
+    "10-turnaround",
+    "11-open-followup",
+    "12-date-range",
+    "13-report-filters",
+    "14-export-menu",
+    "15-email",
+    "16-settings",
+    "17-schedule",
+    "18-sync",
+    "19-add-note",
+    "20-resolve",
+    "21-account",
+    "22-long-activity",
+    "23-reopen",
+    "24-schedule-discard",
+    "25-missing-details",
+    "26-gallery",
+    "27-photo-preview",
+    "28-pdf-preview",
+    "29-empty-queue",
+    "30-queue-error",
+    "31-create-offline",
+    "32-chart-options",
+    "33-columns",
+    "34-status-dropdown",
+    "35-turnaround-charts",
+    "36-first-response",
+    "37-open-charts",
+    "38-gallery-success",
+    "39-invalid-dates",
+    "40-calendar",
+    "41-pie-chart",
+    "42-file-selected",
+    "43-doughnut-chart",
+    "access-mfa",
+    "access-recovery",
+    "access-signin"
+  ],
+  "matrixScreenshotCount": 1012,
+  "targetedScreenshotCount": 11,
+  "findings": {
+    "P1": 5,
+    "P2": 30,
+    "P3": 4
+  },
+  "limitations": [
+    "CSS viewport resizing in Chrome, not physical devices",
+    "Synthetic private database copy",
+    "Preview responses are local synthetic payloads",
+    "No tests, successful workflow writes, production changes or provider acceptance",
+    "Root text enlargement is not browser zoom"
+  ],
+  "retainedScreenshots": [
+    {
+      "name": "01-queue-light-1920x1080.png",
+      "bytes": 75493,
+      "sha256": "ba12ef9d03a4951cea95515b04a737e7af42e515e325d882358949bb7db2a1cd"
+    },
+    {
+      "name": "07-reports-overview-light-320x568.png",
+      "bytes": 28802,
+      "sha256": "55a336bc5595ba8376b88200d62a7193062e7b14e99f93c5548cfb27b5ade6ae"
+    },
+    {
+      "name": "25-missing-details-light-390x844.png",
+      "bytes": 43809,
+      "sha256": "5f45c22cdd418175de22e747655d1158e371730caa4236942566be87d843ae6d"
+    },
+    {
+      "name": "30-queue-error-light-320x568.png",
+      "bytes": 22859,
+      "sha256": "9c6a009b7edb906422b5c9c74a5447dcf7796381ed48641a853e063929a159d4"
+    },
+    {
+      "name": "36-first-response-light-320x568.png",
+      "bytes": 21625,
+      "sha256": "4d69e1432027ffb43893e239d99ad7dd4b20c35a30195fe15cbf8e7315bdead1"
+    },
+    {
+      "name": "38-gallery-success-light-1024x768.png",
+      "bytes": 53944,
+      "sha256": "872bd45d1af2117bf6790146d8d0f79a42ac2ba5fa92bfbc13fc97fc427ea3a1"
+    },
+    {
+      "name": "39-invalid-dates-light-390x844.png",
+      "bytes": 34536,
+      "sha256": "00802698c1bee0635d26f54ba350248ac83d57364f7ce063524ee981c87e0d4a"
+    },
+    {
+      "name": "40-calendar-light-320x568.png",
+      "bytes": 25116,
+      "sha256": "094df0256f0bc0a39b58526ab1c6af655841446f8c1f512ca4800f11c56c147f"
+    },
+    {
+      "name": "42-file-selected-light-390x844.png",
+      "bytes": 34065,
+      "sha256": "16b2852ffd908eee8d33f7784e702bda7574cd6c56e78f2a337e579b9f513e1e"
+    },
+    {
+      "name": "access-signin-light-768x1024.png",
+      "bytes": 20692,
+      "sha256": "ce78874cd83c1260a417edc684113b75b9c9910179ab2d210db9c39257c0d4d3"
+    },
+    {
+      "name": "target-chart-menu-scrolled-390x844.png",
+      "bytes": 28466,
+      "sha256": "26be1161ca0aef94d32bfdb1067581b2804b550a1b8ea4f993d3a3b14aa99e56"
+    },
+    {
+      "name": "target-contact-after-activity-390x844.png",
+      "bytes": 35679,
+      "sha256": "f41438eb5b3a18472768f09d0cd06faa0f047f495dae316186032ac28ac133ca"
+    },
+    {
+      "name": "target-dependent-field-empty-390x844.png",
+      "bytes": 39070,
+      "sha256": "64030dde8ca78b9f40d6df2bdb863407e38df877814bdda0ce41dba2d5ae5312"
+    },
+    {
+      "name": "target-enlarged-text-create-390x844.png",
+      "bytes": 36260,
+      "sha256": "9270c7b4d8c22405dba8b4dffce13c36081baaf3e0b920190b835bea9f0716ca"
+    },
+    {
+      "name": "target-invalid-range-dismissed-390x844.png",
+      "bytes": 46285,
+      "sha256": "d0116a5d0cbbcf23d723be0b982ec35ede4cf79ce8366c8c537dfa7f1fd94561"
+    },
+    {
+      "name": "target-report-table-scroll-right-390x844.png",
+      "bytes": 19475,
+      "sha256": "f6d6638be3f460fc9ed1af7bc62b9b542af746a8226a78c60b69e6422c2e89c4"
+    }
+  ]
+}

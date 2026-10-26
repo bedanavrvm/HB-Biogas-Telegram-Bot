@@ -23,6 +23,7 @@ class ApplicationReferenceTests(TestCase):
         replay, replayed = create_application(**args, client_request_id='manage-create')
         self.assertTrue(replayed)
         self.assertEqual(replay.pk, first.pk)
+        self.assertEqual(first.schema_snapshot['form_projection_version'], 2)
         self.assertEqual(OriginationApplicationReferenceSequence.objects.get(pk=1).last_number, number)
         second, _ = create_application(**args, client_request_id='another-application')
         self.assertEqual(second.display_reference, f'ORG-{number + 1}')

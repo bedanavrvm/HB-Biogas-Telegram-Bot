@@ -209,8 +209,7 @@ def refresh_documents(*, application_id, actor, expected_revision, request_id, u
     for flag in ('acknowledgement_version', 'identity_copy_policy', 'document_completion_version'):
         if flag in application.schema_snapshot:
             main['schema'][flag] = application.schema_snapshot[flag]
-    if 'field_overlay_manifest' in main['snapshot']['configuration']:
-        main['schema']['form_projection_version'] = 1
+    main['schema']['form_projection_version'] = 2
     application.schema_snapshot = main['schema']
     application.template_configuration_snapshot = main['snapshot']['configuration']
     application.signer_rules_snapshot = main['signers']

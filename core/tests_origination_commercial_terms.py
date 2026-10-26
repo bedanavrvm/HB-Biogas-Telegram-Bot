@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from origination.models import LoanOriginationApplication, OriginationApplicationEvent, OriginationProductDefinition
-from core.models import Product, ProductFee, ProductVersion
+from core.models import ComplianceAuditChainState, Product, ProductFee, ProductVersion
 from origination.services.loan_origination import preview_context, save_application_fields, submit_for_review
 from origination.views import portal_origination_quote_preview
 from origination.services.origination_commercial_terms import (
@@ -26,6 +26,7 @@ from origination.services.origination_commercial_terms import (
 
 class OriginationCommercialTermsTests(TestCase):
     def setUp(self):
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         users = get_user_model()
         self.officer = users.objects.create_user(username='commercial-officer')
         self.superuser = users.objects.create_superuser(
@@ -64,10 +65,12 @@ class OriginationCommercialTermsTests(TestCase):
         return values
 
     def application(self, *, payload=None):
+        from origination.tests_form_projection import layout
         return LoanOriginationApplication.objects.create(
             reference_number=f'ORG-COMM-{LoanOriginationApplication.objects.count() + 1}',
             product_definition=self.definition, product_version=self.version,
             officer=self.officer, schema_snapshot=self.schema,
+            template_configuration_snapshot=layout(*(field['key'] for field in self.schema['fields'])),
             signer_rules_snapshot=self.definition.signer_rules,
             product_terms_snapshot={}, form_payload=payload or self.payload(),
         )
@@ -287,16 +290,15 @@ class OriginationCommercialTermsTests(TestCase):
 
         page = self.client.get(change_url)
 
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, 'Commercial Terms contract v1')
-        self.assertContains(page, 'Upgrade Commercial Terms')
+        self.assertRedirects(page, reverse('admin:origination_origination_setup_workspace', args=[definition.pk]),
+                             fetch_redirect_response=False)
 
         response = self.client.post(reverse(
             'admin:origination_originationproductdefinition_upgrade_commercial_terms',
             args=[definition.pk],
         ))
 
-        self.assertRedirects(response, change_url)
+        self.assertRedirects(response, change_url, fetch_redirect_response=False)
         definition.refresh_from_db()
         self.assertNotEqual(definition.form_schema, legacy_schema)
         self.assertTrue(commercial_contract_enabled(definition.form_schema))
@@ -320,7 +322,7 @@ class OriginationCommercialTermsTests(TestCase):
 
         self.assertRedirects(response, reverse(
             'admin:origination_originationproductdefinition_change', args=[definition.pk],
-        ))
+        ), fetch_redirect_response=False)
         definition.refresh_from_db()
         self.assertEqual(definition.form_schema, legacy_schema)
         self.assertFalse(definition.events.filter(action='commercial_contract_upgraded').exists())

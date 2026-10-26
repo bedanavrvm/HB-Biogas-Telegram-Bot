@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from pypdf import PdfReader, PdfWriter
 
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -21,7 +20,6 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from origination.admin import OriginationProductDefinitionForm
 from origination.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
@@ -29,12 +27,11 @@ from origination.models import (
     OriginationReviewerNotice,
     OriginationDataField,
     OriginationDocumentTemplate,
-    OriginationProductDocumentAssignment,
+    OriginationDocumentProductEligibility,
     OriginationProductDefinition,
     OriginationSigningAction,
     OriginationSigningActionInvalidation,
     OriginationSigningPackage,
-    OriginationTemplateConfigurationRevision,
 )
 from core.models import Product
 from origination.services.loan_origination import (
@@ -64,7 +61,6 @@ from origination.services.loan_origination import (
     validate_form_payload,
 )
 from origination.services.origination_documents import (
-    mark_document_previewed,
     mark_packet_previewed,
     save_document_fields,
     select_documents,
@@ -74,10 +70,6 @@ from origination.services.origination_documents import (
 )
 from origination.services.origination_consent import apply_consent_notice
 from origination.services.origination_final_review import final_review_signed_packet
-from origination.services.origination_templates import (
-    attach_shared_document_template,
-    attach_shared_supporting_template,
-)
 from origination.services.origination_signing import (
     _validated_signature_capture,
     _slot_overlay,
@@ -111,6 +103,11 @@ class LoanOriginationServiceTests(TestCase):
         self.audit_patch = patch('core.services.compliance_audit.record_event')
         self.audit_patch.start()
         self.addCleanup(self.audit_patch.stop)
+        from origination.tests_form_projection import layout
+        calibration = patch('origination.services.loan_origination._published_template_configuration',
+            side_effect=lambda definition: layout(*(field['key'] for field in definition.form_schema['fields'])))
+        calibration.start()
+        self.addCleanup(calibration.stop)
 
     def test_optional_second_guarantor_is_complete_or_empty(self):
         schema = {'fields': [
@@ -206,17 +203,6 @@ class LoanOriginationServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             definition.full_clean()
 
-    def test_duplicate_product_definition_is_a_form_error_not_an_admin_500(self):
-        form = OriginationProductDefinitionForm(data={
-            'product_key': self.product.product_key,
-            'name': self.product.name,
-            'form_schema': '{"fields":[{"key":"customer_name","type":"text","required":true}]}',
-            'signer_rules': '[{"role":"customer"}]',
-        })
-
-        self.assertFalse(form.is_valid())
-        self.assertIn('product_version', form.errors)
-        self.assertIn('Create editable next version', form.errors['product_version'][0])
 
     def test_supporting_document_rules_are_non_executable_and_field_scoped(self):
         validate_applicability_rule(
@@ -1046,12 +1032,13 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual([item['key'] for item in rule['slots']], ['pdf_signature'])
 
     def test_optional_supporting_document_is_separate_prefilled_and_revision_checked(self):
+        from origination.tests_form_projection import layout
         primary = OriginationDocumentTemplate.objects.create(
             product_definition=self.product,
             document_key='primary', document_role='primary', inclusion_mode='required',
             document_type=self.product.document_type, name='Primary LAF', version=1,
             status='active', source_filename='primary.pdf', source_sha256='1' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            source_byte_size=100, page_count=1, placement_config=layout('customer_name', 'consent'), created_by=self.officer,
         )
         support = OriginationDocumentTemplate.objects.create(
             product_definition=self.product,
@@ -1066,7 +1053,7 @@ class LoanOriginationServiceTests(TestCase):
             signer_rules=[{'role': 'guarantor'}], display_order=10,
             document_type='pilot-product-guarantor-consent', name='Guarantor consent', version=1,
             status='active', source_filename='guarantor.pdf', source_sha256='2' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            source_byte_size=100, page_count=1, placement_config=layout('customer_name', 'guarantor_name', 'guarantor_phone'), created_by=self.officer,
         )
         application, _ = create_application(
             product_key=self.product.product_key, officer=self.officer,
@@ -1573,265 +1560,6 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(reviewed.final_reviewed_by, alternate_reviewer)
         archive_mock.assert_not_called()
 
-    def test_shared_supporting_assignment_is_snapshotted_and_pinned(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='shared_guarantee', document_role='supporting',
-            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
-            version=3, status='active', source_filename='shared.pdf', source_sha256='9' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
-            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'text', 'required': True}]},
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.officer,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-        assignment = OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=template,
-            document_key='guarantee', name='Guarantee and undertaking',
-            inclusion_mode='required', display_order=20, created_by=self.officer,
-        )
-        application, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-assignment-create',
-        )
-        document = application.packet_documents.get(document_key='guarantee')
-        self.assertEqual(document.assignment, assignment)
-        self.assertEqual(document.template_snapshot['version'], 3)
-        self.assertEqual(document.template_snapshot['assignment_id'], str(assignment.pk))
-        self.assertEqual(document.template_snapshot['assignment_version_policy'], 'latest_compatible')
-
-        template.status = template.STATUS_RETIRED
-        template.save(update_fields=['status'])
-        successor = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='shared_guarantee', document_role='supporting',
-            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
-            version=4, status='active', source_filename='shared-v4.pdf', source_sha256='8' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
-            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'text', 'required': True}]},
-        )
-        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=successor, revision=1, configuration={}, is_published=True,
-            created_by=self.officer,
-        )
-        successor.published_configuration_revision = successor_revision
-        successor.save(update_fields=['published_configuration_revision'])
-        newer_application, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-assignment-newer',
-        )
-        self.assertEqual(
-            newer_application.packet_documents.get(document_key='guarantee').template_id,
-            successor.pk,
-        )
-        document.refresh_from_db()
-        self.assertEqual(document.template_id, template.pk)
-
-        assignment.version_policy = assignment.VERSION_PINNED
-        assignment.save(update_fields=['version_policy'])
-        pinned_application, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-assignment-pinned',
-        )
-        self.assertEqual(
-            pinned_application.packet_documents.get(document_key='guarantee').template_id,
-            template.pk,
-        )
-
-        assignment.version_policy = assignment.VERSION_LATEST_COMPATIBLE
-        assignment.save(update_fields=['version_policy'])
-        successor.status = successor.STATUS_RETIRED
-        successor.save(update_fields=['status'])
-        incompatible = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='shared_guarantee', document_role='supporting',
-            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
-            version=5, status='active', source_filename='shared-v5.pdf', source_sha256='7' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
-            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'money', 'required': True}]},
-        )
-        incompatible_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=incompatible, revision=1, configuration={}, is_published=True,
-            created_by=self.officer,
-        )
-        incompatible.published_configuration_revision = incompatible_revision
-        incompatible.save(update_fields=['published_configuration_revision'])
-        fallback_application, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-assignment-fallback',
-        )
-        self.assertEqual(
-            fallback_application.packet_documents.get(document_key='guarantee').template_id,
-            successor.pk,
-        )
-
-        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
-        self.product.save(update_fields=['lifecycle_status'])
-        with self.assertRaisesRegex(ValidationError, 'immutable'):
-            OriginationProductDocumentAssignment.objects.create(
-                product_definition=self.product, template=template,
-                document_key='late-guarantee', name='Late guarantee',
-                inclusion_mode='required', display_order=30, created_by=self.officer,
-            )
-
-    def test_packet_wizard_attach_uses_latest_compatible_global_template(self):
-        draft = OriginationProductDefinition.objects.create(
-            product_key='packet-wizard', name='Packet wizard product', version=1,
-            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
-            signer_rules=[], document_type='packet_wizard',
-            document_template_name='', document_template_version=1,
-            document_template_sha256='', is_active=False,
-        )
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='guarantor_form', document_role='supporting',
-            inclusion_mode='required', document_type='guarantor_form', name='Guarantor form',
-            version=1, status='active', source_filename='guarantor.pdf', source_sha256='6' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
-            form_schema={'fields': [{'key': 'customer_name', 'type': 'text', 'required': True}]},
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True, created_by=self.officer,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-
-        assignment = attach_shared_supporting_template(
-            product_definition=draft, template=template,
-            inclusion_mode='conditional_required', display_order=15,
-            officer_selectable=False, default_selected=False,
-            applicability_rule={'field': 'consent', 'operator': 'truthy'}, actor=self.officer,
-        )
-
-        self.assertEqual(assignment.product_definition, draft)
-        self.assertEqual(assignment.template, template)
-        self.assertEqual(assignment.version_policy, assignment.VERSION_LATEST_COMPATIBLE)
-        self.assertEqual(assignment.applicability_rule['field'], 'consent')
-        repeated = attach_shared_supporting_template(
-            product_definition=draft, template=template,
-            inclusion_mode='conditional_required', display_order=15,
-            officer_selectable=False, default_selected=False,
-            applicability_rule={'field': 'consent', 'operator': 'truthy'}, actor=self.officer,
-        )
-        self.assertEqual(repeated.pk, assignment.pk)
-        self.assertEqual(draft.document_assignments.count(), 1)
-
-    def test_reusable_primary_is_merged_snapshotted_and_keeps_document_requirements(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0,
-            document_type='generic_primary', name='Generic primary LAF', version=1,
-            status='active', source_filename='generic.pdf', source_sha256='5' * 64,
-            source_byte_size=100, page_count=2, placement_config={}, created_by=self.officer,
-            form_schema={
-                'identity_contract': 'applicant_v1',
-                'sections': [{'key': 'applicant', 'label': 'Applicant'}],
-                'fields': [
-                    {'key': 'applicant_first_name', 'type': 'text', 'required': True, 'section_key': 'applicant'},
-                    {'key': 'applicant_surname', 'type': 'text', 'required': True, 'section_key': 'applicant'},
-                    {'key': 'applicant_id_number', 'type': 'national_id', 'required': True, 'section_key': 'applicant'},
-                    {'key': 'applicant_phone', 'type': 'phone', 'required': True, 'section_key': 'applicant'},
-                    {'key': 'guarantor_1_name', 'type': 'text', 'required': True, 'section_key': 'applicant'},
-                ],
-                'evidence_requirements': [{
-                    'key': 'guarantor_1_id_copy', 'label': 'Guarantor 1 ID Copy',
-                    'type': 'document', 'workflow': 'loan_origination',
-                    'enforcement_stage': 'review', 'required': True, 'validation': {},
-                }, {
-                    'key': 'guarantor_2_id_copy', 'label': 'Guarantor 2 ID Copy',
-                    'type': 'document', 'workflow': 'loan_origination',
-                    'enforcement_stage': 'review', 'required': False,
-                    'validation': {'required_when': {'field': 'guarantor_2_name', 'operator': 'truthy'}},
-                }],
-            },
-            signer_rules=[{
-                'role': 'borrower', 'required': True,
-                'identity_fields': {
-                    'name': 'applicant_first_name', 'national_id': 'applicant_id_number',
-                    'phone': 'applicant_phone',
-                },
-                'slots': [{'key': 'borrower_signature', 'type': 'signature', 'required': True}],
-            }],
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.officer,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-
-        assignment = attach_shared_document_template(
-            product_definition=self.product, template=template,
-            inclusion_mode='optional', display_order=99, officer_selectable=True,
-            default_selected=True, applicability_rule={'field': 'consent', 'operator': 'truthy'},
-            actor=self.officer,
-        )
-        self.product.refresh_from_db()
-
-        self.assertEqual(assignment.document_key, 'primary')
-        self.assertEqual(assignment.display_order, 0)
-        self.assertEqual(assignment.inclusion_mode, 'required')
-        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
-        self.assertFalse(assignment.officer_selectable)
-        self.assertEqual(self.product.document_template_sha256, template.source_sha256)
-        self.assertIn(
-            'applicant_id_number',
-            {item['key'] for item in self.product.form_schema['fields']},
-        )
-
-        application, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-primary-create',
-        )
-        document = application.packet_documents.get(document_key='primary')
-        self.assertEqual(document.document_role, 'primary')
-        self.assertTrue(document.selected)
-        self.assertEqual(document.template_id, template.pk)
-        self.assertIn(
-            'guarantor_1_id_copy',
-            {item['key'] for item in application.product_terms_snapshot['requirements']},
-        )
-        from origination.services.loan_origination import _missing_application_requirements
-        self.assertEqual(
-            {item['key'] for item in _missing_application_requirements(application, stage='review')},
-            set(),  # New applications capture the optional identity-copy policy.
-        )
-        application.form_payload = {'guarantor_2_name': 'Synthetic Guarantor'}
-        self.assertEqual(
-            {item['key'] for item in _missing_application_requirements(application, stage='review')},
-            set(),
-        )
-        application.schema_snapshot.pop('identity_copy_policy')
-        application.status = 'ready_for_review'
-        self.assertEqual(
-            {item['key'] for item in _missing_application_requirements(application, stage='review')},
-            {'guarantor_1_id_copy', 'guarantor_2_id_copy'},
-        )  # Submitted legacy snapshots retain their captured requirements.
-
-        template.status = template.STATUS_RETIRED
-        template.save(update_fields=['status'])
-        successor = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0,
-            document_type='generic_primary', name='Generic primary LAF', version=2,
-            status='active', source_filename='generic-v2.pdf', source_sha256='4' * 64,
-            source_byte_size=100, page_count=2, placement_config={}, created_by=self.officer,
-            form_schema=template.form_schema, signer_rules=template.signer_rules,
-        )
-        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=successor, revision=1, configuration={'marker': 'v2'}, is_published=True,
-            created_by=self.officer,
-        )
-        successor.published_configuration_revision = successor_revision
-        successor.save(update_fields=['published_configuration_revision'])
-
-        newer, _ = create_application(
-            product_key=self.product.product_key, officer=self.officer,
-            branch='Synthetic Branch', client_request_id='shared-primary-v2-create',
-        )
-        self.assertEqual(newer.packet_documents.get(document_key='primary').template_id, template.pk)
-        self.assertEqual(newer.template_configuration_snapshot, {})
-        application.refresh_from_db()
-        self.assertEqual(application.packet_documents.get(document_key='primary').template_id, template.pk)
 
     def test_generic_laf_net_income_fields_are_independent_manual_values(self):
         from origination.services.generic_jawabu_laf_seed import FIELD_SPECS
@@ -1874,7 +1602,7 @@ class LoanOriginationServiceTests(TestCase):
             1,
         )
         self.assertFalse(
-            OriginationProductDocumentAssignment.objects.filter(template=first['template']).exists(),
+            OriginationDocumentProductEligibility.objects.filter(template=first['template']).exists(),
         )
         schema = first['template'].form_schema
         field_keys = [item['key'] for item in schema['fields']]
@@ -1974,61 +1702,6 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertContains(response, 'Generic Jawabu LAF - reviewed two-page field set')
         self.assertContains(response, 'No JSON or code entry is required')
 
-    def test_published_reusable_document_prominently_creates_an_editable_version(self):
-        configuration = {
-            'document_type': 'admin_editable_family',
-            'version': 1,
-            'field_overlay_manifest': {'fields': {
-                'consent': {
-                    'context_key': 'consent', 'page_number': 1, 'units': 'pt',
-                    'box': {'x': 20, 'y': 700, 'width': 120, 'height': 16},
-                },
-            }},
-            'signature_overlay_manifest': {'slots': {}},
-        }
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='admin_editable_family',
-            name='Admin editable family', version=1, status='active',
-            source_filename='admin-editable.pdf', source_sha256='d' * 64,
-            source_byte_size=100, page_count=1, placement_config=configuration,
-            drive_file_id='drive-admin-editable',
-            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
-            signer_rules=[], created_by=self.actor,
-        )
-        published = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration=configuration,
-            is_published=True, created_by=self.actor, published_at=timezone.now(),
-        )
-        template.published_configuration_revision = published
-        template.save(update_fields=['published_configuration_revision'])
-        change_url = reverse(
-            'admin:origination_originationdocumenttemplate_change', args=[template.pk],
-        )
-
-        page = self.client.get(change_url)
-
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, 'Published reusable document')
-        self.assertContains(page, 'Create editable version')
-        self.assertContains(page, 'Upload replacement PDF instead')
-        self.assertContains(page, 'Preview published mapping')
-
-        response = self.client.post(reverse(
-            'admin:origination_originationdocumenttemplate_create_editable_version',
-            args=[template.pk],
-        ))
-
-        successor = OriginationDocumentTemplate.objects.get(
-            document_type=template.document_type, version=2,
-        )
-        self.assertRedirects(
-            response,
-            reverse('admin:origination_originationdocumenttemplate_calibrate', args=[successor.pk]),
-            fetch_redirect_response=False,
-        )
-        self.assertEqual(successor.status, successor.STATUS_READY)
-        self.assertEqual(successor.drive_file_id, template.drive_file_id)
 
     @patch('origination.services.origination_templates.upload_template_record')
     def test_admin_upload_applies_generic_laf_contract_and_versions_its_family(self, upload_mock):
@@ -2136,292 +1809,3 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
             document_template_version=1, document_template_sha256='', is_active=False,
         )
         self.client.force_login(self.actor)
-
-    def test_draft_product_has_a_single_guided_supporting_document_entrypoint(self):
-        response = self.client.get(reverse(
-            'admin:origination_originationproductdefinition_supporting_document_setup', args=[self.product.pk],
-        ))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Add a supporting document')
-        self.assertContains(response, 'Use a published reusable document')
-        self.assertContains(response, 'Create a reusable document')
-        self.assertContains(response, 'origination-product-builder')
-
-    def test_packet_card_can_add_and_remove_a_reusable_document(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='packet_guarantor', document_role='supporting',
-            inclusion_mode='required', document_type='packet_guarantor', name='Packet guarantor form',
-            version=1, status='active', source_filename='guarantor.pdf', source_sha256='4' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema={'fields': [{'key': 'guarantor_name', 'type': 'text', 'required': True}]},
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True, created_by=self.actor,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-        add_url = reverse(
-            'admin:origination_originationproductdefinition_packet_add_shared', args=[self.product.pk],
-        )
-
-        response = self.client.post(add_url, {'template_id': template.pk})
-
-        self.assertEqual(response.status_code, 200)
-        assignment = OriginationProductDocumentAssignment.objects.get(product_definition=self.product)
-        self.assertEqual(response.json()['assignment_id'], str(assignment.pk))
-        remove_url = reverse(
-            'admin:origination_originationproductdefinition_packet_remove_shared',
-            args=[self.product.pk, assignment.pk],
-        )
-        response = self.client.post(remove_url)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['removed'])
-        self.assertFalse(OriginationProductDocumentAssignment.objects.filter(pk=assignment.pk).exists())
-        self.assertTrue(OriginationDocumentTemplate.objects.filter(pk=template.pk).exists())
-
-    def test_packet_card_can_assign_a_reusable_primary_and_merge_its_contract(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='generic_admin_primary',
-            name='Generic Admin Primary', version=1, status='active',
-            source_filename='generic.pdf', source_sha256='3' * 64,
-            source_byte_size=100, page_count=2, placement_config={}, created_by=self.actor,
-            form_schema={
-                'sections': [{'key': 'applicant', 'label': 'Applicant'}],
-                'fields': [{'key': 'applicant_name', 'type': 'text', 'required': True, 'section_key': 'applicant'}],
-            },
-            signer_rules=[],
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-
-        response = self.client.post(reverse(
-            'admin:origination_originationproductdefinition_packet_add_shared', args=[self.product.pk],
-        ), {'template_id': template.pk})
-
-        self.assertEqual(response.status_code, 200)
-        assignment = self.product.document_assignments.get()
-        self.assertEqual(assignment.document_key, 'primary')
-        self.assertEqual(assignment.display_order, 0)
-        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.document_template_sha256, template.source_sha256)
-        self.assertIn('applicant_name', {item['key'] for item in self.product.form_schema['fields']})
-
-    def test_ajax_publish_returns_the_real_validation_error_instead_of_hiding_it(self):
-        from origination.services.origination_templates import OriginationTemplateError
-
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='publish_error_primary',
-            name='Publish error primary', version=1, status='active',
-            source_filename='publish-error.pdf', source_sha256='8' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema=self.product.form_schema, signer_rules=self.product.signer_rules,
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-        OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=template,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary', name=template.name, inclusion_mode='required',
-            display_order=0, created_by=self.actor,
-        )
-        url = reverse(
-            'admin:origination_originationproductdefinition_publish_assigned_primary',
-            args=[self.product.pk],
-        )
-
-        with patch(
-            'origination.services.origination_templates.publish_product_template',
-            side_effect=OriginationTemplateError('Required field loan_amount is not calibrated.'),
-        ):
-            response = self.client.post(
-                url, {'request_id': 'publish-validation-error'},
-                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-            )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json(),
-            {'ok': False, 'error': 'Required field loan_amount is not calibrated.'},
-        )
-        self.product.refresh_from_db()
-        self.assertFalse(self.product.is_active)
-        self.assertEqual(self.product.lifecycle_status, self.product.STATUS_DRAFT)
-
-    def test_ajax_publish_confirms_active_state_and_redirects_to_product_list(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='publish_success_primary',
-            name='Publish success primary', version=1, status='active',
-            source_filename='publish-success.pdf', source_sha256='7' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema=self.product.form_schema, signer_rules=self.product.signer_rules,
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-        OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=template,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary', name=template.name, inclusion_mode='required',
-            display_order=0, created_by=self.actor,
-        )
-        url = reverse(
-            'admin:origination_originationproductdefinition_publish_assigned_primary',
-            args=[self.product.pk],
-        )
-
-        def publish_success(**_kwargs):
-            self.product.is_active = True
-            self.product.lifecycle_status = self.product.STATUS_PUBLISHED
-            self.product.save(update_fields=['is_active', 'lifecycle_status', 'updated_at'])
-            return self.product, template, revision
-
-        with patch(
-            'origination.services.origination_templates.publish_product_template',
-            side_effect=publish_success,
-        ):
-            response = self.client.post(
-                url, {'request_id': 'publish-success'},
-                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-            )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload['ok'])
-        self.assertTrue(payload['is_active'])
-        self.assertEqual(payload['lifecycle_status'], self.product.STATUS_PUBLISHED)
-        self.assertEqual(
-            payload['redirect_url'],
-            reverse('admin:origination_originationproductdefinition_changelist'),
-        )
-
-    def test_product_can_be_created_from_published_reusable_primary_without_upload(self):
-        template = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='library_primary',
-            name='Library primary', version=1, status='active',
-            source_filename='library.pdf', source_sha256='9' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema={
-                'sections': [{'key': 'application', 'label': 'Application'}],
-                'fields': [{
-                    'key': 'application_note', 'type': 'text', 'required': True,
-                    'section_key': 'application',
-                }],
-            },
-            signer_rules=[],
-        )
-        revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=template, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        template.published_configuration_revision = revision
-        template.save(update_fields=['published_configuration_revision'])
-
-        response = self.client.post(reverse('admin:origination_originationproductdefinition_add'), {
-            'product_version': '',
-            'product_key': 'library-created-product',
-            'name': 'Library-created product',
-            'main_laf_source': 'library',
-            'reusable_primary_template': str(template.pk),
-            'laf_pdf': '',
-            'form_schema': json.dumps({'sections': [], 'fields': []}),
-            'signer_rules': '[{"role":"borrower"}]',
-            '_save': 'Save',
-        })
-
-        self.assertEqual(response.status_code, 302)
-        product = OriginationProductDefinition.objects.get(product_key='library-created-product')
-        assignment = product.document_assignments.get(document_key='primary')
-        self.assertEqual(assignment.template, template)
-        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
-        self.assertFalse(product.document_templates.exists())
-        self.assertIn('application_note', {item['key'] for item in product.form_schema['fields']})
-
-    def test_configure_later_draft_is_saved_and_flagged_as_missing_main_laf(self):
-        response = self.client.post(reverse('admin:origination_originationproductdefinition_add'), {
-            'product_version': '',
-            'product_key': 'configure-later-product',
-            'name': 'Configure later product',
-            'main_laf_source': 'later',
-            'reusable_primary_template': '',
-            'laf_pdf': '',
-            'form_schema': json.dumps({
-                'sections': [{'key': 'application', 'label': 'Application'}],
-                'fields': [{
-                    'key': 'application_note', 'type': 'text', 'required': True,
-                    'section_key': 'application',
-                }],
-            }),
-            'signer_rules': '[{"role":"borrower"}]',
-            '_save': 'Save',
-        })
-
-        self.assertEqual(response.status_code, 302)
-        product = OriginationProductDefinition.objects.get(product_key='configure-later-product')
-        model_admin = admin.site._registry[OriginationProductDefinition]
-        self.assertEqual(model_admin.template_readiness(product), 'Main LAF missing')
-
-    def test_pinned_primary_upgrade_is_explicit_and_audited(self):
-        baseline = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='upgrade_primary',
-            name='Upgrade primary', version=1, status='retired',
-            source_filename='v1.pdf', source_sha256='a' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
-            signer_rules=[],
-        )
-        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=baseline, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        baseline.published_configuration_revision = baseline_revision
-        baseline.save(update_fields=['published_configuration_revision'])
-        successor = OriginationDocumentTemplate.objects.create(
-            product_definition=None, document_key='primary', document_role='primary',
-            inclusion_mode='required', display_order=0, document_type='upgrade_primary',
-            name='Upgrade primary', version=2, status='active',
-            source_filename='v2.pdf', source_sha256='b' * 64,
-            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
-            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
-            signer_rules=[],
-        )
-        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
-            template=successor, revision=1, configuration={}, is_published=True,
-            created_by=self.actor,
-        )
-        successor.published_configuration_revision = successor_revision
-        successor.save(update_fields=['published_configuration_revision'])
-        assignment = OriginationProductDocumentAssignment.objects.create(
-            product_definition=self.product, template=baseline,
-            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
-            document_key='primary', name='Upgrade primary', inclusion_mode='required',
-            display_order=0, created_by=self.actor,
-        )
-
-        response = self.client.post(reverse(
-            'admin:origination_originationproductdefinition_packet_upgrade_primary',
-            args=[self.product.pk, assignment.pk],
-        ))
-
-        self.assertEqual(response.status_code, 200)
-        assignment.refresh_from_db()
-        self.assertEqual(assignment.template, successor)
-        self.assertTrue(self.product.events.filter(action='shared_primary_upgraded').exists())

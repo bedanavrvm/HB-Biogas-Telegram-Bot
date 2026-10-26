@@ -2,6 +2,7 @@
 import io
 import random
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -138,7 +139,7 @@ class VisitDocumentTests(SimpleTestCase):
     def test_complete_submission_chains_its_revisions_and_partial_storage_does_not_log(
         self, log_visit, upload, _render, _evidence, _preflight,
     ):
-        farmer = SimpleNamespace(refresh_from_db=Mock())
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
         upload.return_value = (True, '', {'stored_count': 3, 'errors': [], 'workflow_revision': 4})
         kwargs = dict(visit_date=date(2026, 9, 1), officer='Synthetic officer',
                       visit_status='Visited, Awaiting Credit Analysis', expected_revision=1)
@@ -158,7 +159,8 @@ class VisitDocumentTests(SimpleTestCase):
     @patch('core.services.jawabu_approvals.visit_evidence_status', return_value={'LAF': 1, 'JBL_VISIT_PHOTO': 1})
     @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
     def test_missing_id_prevents_forwarding_without_any_upload(self, upload, _evidence, _preflight):
-        ok, _, result = complete_jbl_visit(SimpleNamespace(), categorized_files={},
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
+        ok, _, result = complete_jbl_visit(farmer, categorized_files={},
             visit_date=date(2026, 9, 1), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis')
         self.assertFalse(ok)
         self.assertEqual(result['missing_evidence'], ['CLIENT_ID'])
@@ -167,7 +169,8 @@ class VisitDocumentTests(SimpleTestCase):
     @patch('core.services.jawabu_pipeline.preflight_jbl_visit_completion', return_value=(True, '', True))
     @patch('core.services.jbl_visit_documents.render_document')
     def test_committed_retry_does_not_require_recapture_or_repeat_rendering(self, renderer, _preflight):
-        ok, _, result = complete_jbl_visit(SimpleNamespace(refresh_from_db=Mock()), categorized_files={},
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
+        ok, _, result = complete_jbl_visit(farmer, categorized_files={},
             visit_date=date(2026, 9, 1), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis')
         self.assertTrue(ok)
         self.assertTrue(result['already_completed'])

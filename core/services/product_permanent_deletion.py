@@ -15,7 +15,7 @@ from core.services.product_deletion import (
 )
 from origination.models import (
     LoanOriginationApplication, OriginationApplicationDocument, OriginationCommercialException,
-    OriginationDocumentTemplate, OriginationProductDefinition, OriginationProductDocumentAssignment, OriginationSigningPackage,
+    OriginationDocumentTemplate, OriginationProductDefinition, OriginationSigningPackage,
 )
 from origination.services.origination_god_mode import _purge_application
 
@@ -68,11 +68,6 @@ def _plan(products):
         blockers.append('An unselected product definition retains a history link to selected configuration.')
     if ProductVersion.objects.filter(supersedes_id__in=versions).exclude(pk__in=versions).exists():
         blockers.append('An unselected product version retains a history link to selected terms.')
-    assignments = OriginationProductDocumentAssignment.objects.filter(
-        product_definition_id__in=definitions,
-    ).values_list('pk', flat=True)
-    if OriginationApplicationDocument.objects.filter(assignment_id__in=assignments).exclude(application_id__in=applications).exists():
-        blockers.append('An unselected application still uses a selected document assignment.')
     if OriginationCommercialException.objects.filter(product_version_id__in=versions).exclude(application_id__in=applications).exists():
         blockers.append('An unselected application uses a selected commercial exception.')
     actual = {r.get_accessor_name() for r in LoanOriginationApplication._meta.related_objects}
@@ -128,9 +123,6 @@ def delete_selected_products_permanently(*, product_ids, actor, request_id: str)
     list(OriginationProductDefinition.objects.select_for_update(of=('self',)).filter(pk__in=plan['definitions']).order_by('pk'))
     list(LoanOriginationApplication.objects.select_for_update(of=('self',)).filter(pk__in=plan['applications']).order_by('pk'))
     list(OriginationDocumentTemplate.objects.select_for_update(of=('self',)).filter(
-        product_definition_id__in=plan['definitions'],
-    ).order_by('pk'))
-    list(OriginationProductDocumentAssignment.objects.select_for_update(of=('self',)).filter(
         product_definition_id__in=plan['definitions'],
     ).order_by('pk'))
     plan = _plan(products)

@@ -1,0 +1,2464 @@
+{
+  "schema_version": 1,
+  "scope": "Exact local React/ADS and AG Grid Community browser build; production release remains gated.",
+  "authorization": "User: fix ui.txt before the next slice; use AG Grid tables. Local UI correction only.",
+  "base_report": "codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json",
+  "base_report_sha256": "0fd4c7b39f6f2d18dbb85ba960ac8eaef1b1adcab82b5b448b9743783f1572bb",
+  "lock_sha256": "1a4d67def48e94aa51bcfa81d35798b6b7e959d88c6a7481e9b472fadd9eaa8c",
+  "summary": {
+    "lock_entries": 597,
+    "unique_artifacts": 583,
+    "reused_inspections": 529,
+    "new_inspections": 54
+  },
+  "new_artifacts": [
+    {
+      "path": "node_modules/@atlaskit/avatar",
+      "name": "@atlaskit/avatar",
+      "version": "30.0.5",
+      "resolved": "https://registry.npmjs.org/@atlaskit/avatar/-/avatar-30.0.5.tgz",
+      "integrity": "sha512-EO53A4ItJZBvgEHofcFgb4h6UNW7IRJ747FyHhnxkcRonCf67W8O+uyIw2cfWImlA39WKQNieLK5HLbBXjpa/w==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "5de845b19058622415446e0e310257939e0e4874e00f0a25d8bbd5bfc7eb9de8",
+        "archive_bytes": 56830,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/Avatar/package.json",
+          "package/AvatarItem/package.json",
+          "package/Skeleton/package.json",
+          "package/avatar-content/package.json",
+          "package/avatar-context/package.json",
+          "package/avatar-item/package.json",
+          "package/avatar-radius/package.json",
+          "package/avatar-sizes/package.json",
+          "package/avatar/package.json",
+          "package/constants/default/package.json",
+          "package/get-appearance/package.json",
+          "package/presence/package.json",
+          "package/skeleton/package.json",
+          "package/status/package.json",
+          "package/types/package.json",
+          "package/use-avatar-context/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/badge",
+      "name": "@atlaskit/badge",
+      "version": "22.0.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/badge/-/badge-22.0.0.tgz",
+      "integrity": "sha512-KPIxx69KuKHAjWDT1ePVrAmUChpm8DfmEuPulPQR1qhzngoUswzbu+4nEmqGneKfrDMlNnMDYAuRkqYvYasd9w==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b1bd01581ca469c0b468955ef9715c04202d5a6f44035876c0a862c11dc9235f",
+        "archive_bytes": 24000,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/badge-new/package.json",
+          "package/badge/package.json",
+          "package/new/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/logo",
+      "name": "@atlaskit/logo",
+      "version": "23.3.1",
+      "resolved": "https://registry.npmjs.org/@atlaskit/logo/-/logo-23.3.1.tgz",
+      "integrity": "sha512-wncsBzNBKdw4IDwu4eS7ouOlyn3qUenKAny+NHNbz3hJYlrIgacea384F/Z9r9iuNwSbHzSYWuktiwhl9vyQwA==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "950533b9cfe06d8cfd9f785e1b5502bfaf2278baf3d8741dd13dd2264729889d",
+        "archive_bytes": 368927,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/Wrapper/package.json",
+          "package/admin/icon/package.json",
+          "package/admin/logo/package.json",
+          "package/align/icon/package.json",
+          "package/align/logo/package.json",
+          "package/analytics/icon/package.json",
+          "package/analytics/logo/package.json",
+          "package/artifacts/icon/package.json",
+          "package/artifacts/logo/package.json",
+          "package/assets/icon/package.json",
+          "package/assets/logo/package.json",
+          "package/atlas-icon/package.json",
+          "package/atlassian-access/icon/package.json",
+          "package/atlassian-access/logo/package.json",
+          "package/atlassian-icon/package.json",
+          "package/atlassian-marketplace/icon/package.json",
+          "package/atlassian-marketplace/logo/package.json",
+          "package/atlassian/logo/package.json",
+          "package/bamboo/icon/package.json",
+          "package/bamboo/logo/package.json",
+          "package/bitbucket-data-center/icon/package.json",
+          "package/bitbucket-data-center/logo/package.json",
+          "package/bitbucket-icon/package.json",
+          "package/bitbucket/icon/package.json",
+          "package/bitbucket/logo/package.json",
+          "package/chat/icon/package.json",
+          "package/chat/logo/package.json",
+          "package/code-search/icon/package.json",
+          "package/company-hub/icon/package.json",
+          "package/company-hub/logo/package.json",
+          "package/compass/icon/package.json",
+          "package/compass/logo/package.json",
+          "package/confluence-data-center/icon/package.json",
+          "package/confluence-data-center/logo/package.json",
+          "package/confluence-icon/package.json",
+          "package/confluence/icon/package.json",
+          "package/confluence/logo/package.json",
+          "package/constants/package.json",
+          "package/crowd/icon/package.json",
+          "package/crowd/logo/package.json",
+          "package/custom-link/icon/package.json",
+          "package/customer-service-management/icon/package.json",
+          "package/customer-service-management/logo/package.json",
+          "package/dx/icon/package.json",
+          "package/feedback/icon/package.json",
+          "package/feedback/logo/package.json",
+          "package/focus/icon/package.json",
+          "package/focus/logo/package.json",
+          "package/goals/icon/package.json",
+          "package/goals/logo/package.json",
+          "package/guard-detect/icon/package.json",
+          "package/guard-detect/logo/package.json",
+          "package/guard/icon/package.json",
+          "package/guard/logo/package.json",
+          "package/home/icon/package.json",
+          "package/home/logo/package.json",
+          "package/hub/icon/package.json",
+          "package/hub/logo/package.json",
+          "package/insights/icon/package.json",
+          "package/insights/logo/package.json",
+          "package/jira-coding-agent/icon/package.json",
+          "package/jira-data-center/icon/package.json",
+          "package/jira-data-center/logo/package.json",
+          "package/jira-icon/package.json",
+          "package/jira-product-discovery/icon/package.json",
+          "package/jira-product-discovery/logo/package.json",
+          "package/jira-service-management-data-center/icon/package.json",
+          "package/jira-service-management-data-center/logo/package.json",
+          "package/jira-service-management-icon/package.json",
+          "package/jira-service-management/icon/package.json",
+          "package/jira-service-management/logo/package.json",
+          "package/jira-software-icon/package.json",
+          "package/jira-software/logo/package.json",
+          "package/jira-work-management/icon/package.json",
+          "package/jira-work-management/logo/package.json",
+          "package/jira/icon/package.json",
+          "package/jira/logo/package.json",
+          "package/logo/package.json",
+          "package/loom-attribution/logo/package.json",
+          "package/loom-internal/icon/package.json",
+          "package/loom-internal/logo/package.json",
+          "package/loom/icon/package.json",
+          "package/loom/logo/package.json",
+          "package/more-atlassian-apps/icon/package.json",
+          "package/opsgenie-icon/package.json",
+          "package/opsgenie/icon/package.json",
+          "package/opsgenie/logo/package.json",
+          "package/projects/icon/package.json",
+          "package/projects/logo/package.json",
+          "package/raw-icons/package.json",
+          "package/rovo-dev-agent/icon/package.json",
+          "package/rovo-dev-agent/logo/package.json",
+          "package/rovo-dev/icon/package.json",
+          "package/rovo-dev/logo/package.json",
+          "package/rovo-hex/icon/package.json",
+          "package/rovo-hex/logo/package.json",
+          "package/rovo/icon/package.json",
+          "package/rovo/logo/package.json",
+          "package/search/icon/package.json",
+          "package/search/logo/package.json",
+          "package/statuspage-icon/package.json",
+          "package/statuspage/icon/package.json",
+          "package/statuspage/logo/package.json",
+          "package/studio/icon/package.json",
+          "package/studio/logo/package.json",
+          "package/talent/icon/package.json",
+          "package/talent/logo/package.json",
+          "package/teams/icon/package.json",
+          "package/teams/logo/package.json",
+          "package/trello-icon/package.json",
+          "package/trello/icon/package.json",
+          "package/trello/logo/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/lozenge",
+      "name": "@atlaskit/lozenge",
+      "version": "17.0.6",
+      "resolved": "https://registry.npmjs.org/@atlaskit/lozenge/-/lozenge-17.0.6.tgz",
+      "integrity": "sha512-+qdL3FGT4CrTeWRjJi0lspPUru5xQmi2zwBoFzU1NJqxNsF9hpgPkm0aEZKuqF7i0MD2LUztoFE7ZDgPfLYU5A==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "1bb39b1567362762f4bcbf9f5ada52a11d916047d4b3b44a2f59a3eb3ca82257",
+        "archive_bytes": 37064,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/lozenge-dropdown-trigger/package.json",
+          "package/lozenge/package.json",
+          "package/new/lozenge/package.json",
+          "package/new/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/navigation-system",
+      "name": "@atlaskit/navigation-system",
+      "version": "11.3.1",
+      "resolved": "https://registry.npmjs.org/@atlaskit/navigation-system/-/navigation-system-11.3.1.tgz",
+      "integrity": "sha512-hPGrl1+c8f28EcbJNq1uLMD++xfQGjjIjpOrCZDD3tyo36AAyZifNHab5t8Egi76V/v6rivriytnVQVkKE0MCA==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "2b13f783cd0dbabda35b2604a4228e38c5e4be246bfa86b64c20717a54c0a120",
+        "archive_bytes": 1039442,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "e8a70b7b1d4380537f5b5b69c21132e1829a476a6e744f072fbf1ae487b3d13b"
+          }
+        ],
+        "assets": [
+          {
+            "path": "package/constellation/layout/images/layout-anatomy-dark.png",
+            "bytes": 97342
+          },
+          {
+            "path": "package/constellation/layout/images/layout-anatomy-light.png",
+            "bytes": 41275
+          },
+          {
+            "path": "package/constellation/layout/images/layout-do-dark.png",
+            "bytes": 117992
+          },
+          {
+            "path": "package/constellation/layout/images/layout-do-light.png",
+            "bytes": 109783
+          },
+          {
+            "path": "package/constellation/layout/images/layout-dont-dark.png",
+            "bytes": 112844
+          },
+          {
+            "path": "package/constellation/layout/images/layout-dont-light.png",
+            "bytes": 110789
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-dark.png",
+            "bytes": 12902
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-light.png",
+            "bytes": 31750
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-sideNav-dark.png",
+            "bytes": 12191
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-sideNav-light.png",
+            "bytes": 12230
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-topNav-1-dark.png",
+            "bytes": 6582
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-topNav-1-light.png",
+            "bytes": 6510
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-topNav-2-dark.png",
+            "bytes": 6612
+          },
+          {
+            "path": "package/constellation/layout/images/layout-example-topNav-2-light.png",
+            "bytes": 6525
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-anatomy-dark.png",
+            "bytes": 30596
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-anatomy-light.png",
+            "bytes": 30612
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-do-1-dark.png",
+            "bytes": 9613
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-do-1-light.png",
+            "bytes": 9597
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-do-2-dark.png",
+            "bytes": 27438
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-do-2-light.png",
+            "bytes": 27705
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-dont-1-dark.png",
+            "bytes": 9501
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-dont-1-light.png",
+            "bytes": 9330
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-dont-2-dark.png",
+            "bytes": 29844
+          },
+          {
+            "path": "package/constellation/top-nav-items/images/topNavItems-dont-2-light.png",
+            "bytes": 30980
+          }
+        ],
+        "nested_package_metadata": [
+          "package/experimental/ribbon/package.json",
+          "package/fhs-rollout/package.json",
+          "package/layout/aside/package.json",
+          "package/layout/banner/package.json",
+          "package/layout/chat-panel/package.json",
+          "package/layout/layout-sizing/package.json",
+          "package/layout/main/package.json",
+          "package/layout/panel-splitter/package.json",
+          "package/layout/panel/package.json",
+          "package/layout/root/package.json",
+          "package/layout/side-nav/package.json",
+          "package/layout/skip-links/package.json",
+          "package/layout/top-nav/package.json",
+          "package/legacy/css-variables/package.json",
+          "package/theming/color-utils/parse-hex/package.json",
+          "package/theming/color-utils/parse-hsl/package.json",
+          "package/theming/color-utils/parse-rgb/package.json",
+          "package/theming/color-utils/parse-user-color/package.json",
+          "package/theming/top-nav-button/package.json",
+          "package/theming/use-has-custom-theme/package.json",
+          "package/theming/use-legacy-search-theme/package.json",
+          "package/top-nav-items/create-button/package.json",
+          "package/top-nav-items/custom-title/package.json",
+          "package/top-nav-items/help/package.json",
+          "package/top-nav-items/log-in/package.json",
+          "package/top-nav-items/notifications/package.json",
+          "package/top-nav-items/package.json",
+          "package/top-nav-items/profile/package.json",
+          "package/top-nav-items/settings/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review",
+          "shipped_assets_require_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0",
+          "react-dom": "^18.2.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/platform-feature-flags-react",
+      "name": "@atlaskit/platform-feature-flags-react",
+      "version": "1.2.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/platform-feature-flags-react/-/platform-feature-flags-react-1.2.0.tgz",
+      "integrity": "sha512-Vav/2EbQdUd9tmwRjdVls3zvB+LuxDO9M8xQicVBxEHbxb3zUpfdBx2B4SMfyv1wIvKzDQiEgmcgIPu4VAJdqA==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "66d6c59f58fc2755008ef4b8e7f85141e017f19248f738c959aea1b04c426b9a",
+        "archive_bytes": 10551,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "29b4010b831e036f22945aaabbfbcb9ec0542088bd9cdbffbc29c5a58e603aa5"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/component-with-condition/package.json",
+          "package/component-with-fg/package.json",
+          "package/conditional-hooks-factory/conditional-hooks-factory/package.json",
+          "package/conditional-hooks-factory/package.json",
+          "package/do-not-use-this-in-production-ever-reset-conditional-hooks-factory-cache/package.json",
+          "package/function-union-with-condition/package.json",
+          "package/function-with-condition/function-with-condition/package.json",
+          "package/function-with-condition/package.json",
+          "package/function-with-fg/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/pragmatic-drag-and-drop",
+      "name": "@atlaskit/pragmatic-drag-and-drop",
+      "version": "4.0.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/pragmatic-drag-and-drop/-/pragmatic-drag-and-drop-4.0.0.tgz",
+      "integrity": "sha512-pyDo2B5NiaExoKGmgeXKGNUL4aR4UzzSZm8QWWjYTEyBLVqSqKyKUwtVxMw2YEkakagOGFONUdHM32LAH2nPug==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "388033b2252ca3c39416cb8476ec809c812567f2e02915c0347ebb8b1e778d63",
+        "archive_bytes": 82490,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "c430b34eed4803d6fc5961a2727e5028717e0ef16b606651ab13794aa5712a5f"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/adapter/drop-target-for-external/package.json",
+          "package/adapter/drop-target-for-text-selection/package.json",
+          "package/adapter/element-adapter/package.json",
+          "package/adapter/external-adapter-types/package.json",
+          "package/adapter/monitor-for-external/package.json",
+          "package/adapter/monitor-for-text-selection/package.json",
+          "package/adapter/text-selection-adapter-types/package.json",
+          "package/combine/package.json",
+          "package/element/adapter/package.json",
+          "package/element/block-dragging-to-iframes/package.json",
+          "package/element/disable-native-drag-preview/package.json",
+          "package/element/pointer-outside-of-preview/package.json",
+          "package/element/set-custom-native-drag-preview/package.json",
+          "package/external/adapter/package.json",
+          "package/external/file/package.json",
+          "package/get-element-from-point-without-honey-pot/package.json",
+          "package/internal-types/package.json",
+          "package/prevent-unhandled/package.json",
+          "package/reorder/package.json",
+          "package/types/package.json",
+          "package/utils/block-dragging-to-iframes/package.json",
+          "package/utils/center-under-pointer/package.json",
+          "package/utils/combine/package.json",
+          "package/utils/contains-files/package.json",
+          "package/utils/contains-html/package.json",
+          "package/utils/contains-text/package.json",
+          "package/utils/contains-ur-ls/package.json",
+          "package/utils/disable-native-drag-preview/package.json",
+          "package/utils/format-urls-for-external/package.json",
+          "package/utils/get-files/package.json",
+          "package/utils/get-html/package.json",
+          "package/utils/get-text/package.json",
+          "package/utils/get-ur-ls/package.json",
+          "package/utils/once/package.json",
+          "package/utils/pointer-outside-of-preview/package.json",
+          "package/utils/preserve-offset-on-source/package.json",
+          "package/utils/prevent-unhandled/package.json",
+          "package/utils/reorder/package.json",
+          "package/utils/scroll-just-enough-into-view/package.json",
+          "package/utils/set-custom-native-drag-preview/package.json",
+          "package/utils/some/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/pragmatic-drag-and-drop-hitbox",
+      "name": "@atlaskit/pragmatic-drag-and-drop-hitbox",
+      "version": "3.0.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/pragmatic-drag-and-drop-hitbox/-/pragmatic-drag-and-drop-hitbox-3.0.0.tgz",
+      "integrity": "sha512-AGLp1ewjm07eRN2NL62awllSM19FrWVZMQYfZA/jugQlpaeoTr5ah2DE7zfiEt7yrg34htoKQVM+y6SGIQYs2A==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "46daba7fba4d3969786f2838f4d352aebf37a06ba730bd4e997931ac6215baaf",
+        "archive_bytes": 232451,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "c430b34eed4803d6fc5961a2727e5028717e0ef16b606651ab13794aa5712a5f"
+          }
+        ],
+        "assets": [
+          {
+            "path": "package/constellation/index/images/tree-hitbox.jpg",
+            "bytes": 298713
+          }
+        ],
+        "nested_package_metadata": [
+          "package/closest-edge/attach-closest-edge/package.json",
+          "package/closest-edge/extract-closest-edge/package.json",
+          "package/closest-edge/package.json",
+          "package/list-item/attach-instruction/package.json",
+          "package/list-item/extract-instruction/package.json",
+          "package/list-item/package.json",
+          "package/tree-item/attach-instruction/package.json",
+          "package/tree-item/extract-instruction/package.json",
+          "package/tree-item/package.json",
+          "package/types/package.json",
+          "package/util/get-reorder-destination-index/package.json",
+          "package/util/reorder-with-edge/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review",
+          "shipped_assets_require_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/pragmatic-drag-and-drop-react-drop-indicator",
+      "name": "@atlaskit/pragmatic-drag-and-drop-react-drop-indicator",
+      "version": "4.2.4",
+      "resolved": "https://registry.npmjs.org/@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/-/pragmatic-drag-and-drop-react-drop-indicator-4.2.4.tgz",
+      "integrity": "sha512-jCo1gHLIXaS/GWIlU4qQHAgLQnyEVlnbAuJ+ziRy25aqGurvqrz22Y1tGz7/i5ecDdQpDMDElxOC5kFOhOR6kQ==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "c09287a3e3bef7da988e3228f3abeac8a810e6dc6a4540a454f4c6dc85b33478",
+        "archive_bytes": 19606,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "c430b34eed4803d6fc5961a2727e5028717e0ef16b606651ab13794aa5712a5f"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/border/package.json",
+          "package/box/package.json",
+          "package/group/package.json",
+          "package/list-item/package.json",
+          "package/tree-item/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/react-select",
+      "name": "@atlaskit/react-select",
+      "version": "4.12.6",
+      "resolved": "https://registry.npmjs.org/@atlaskit/react-select/-/react-select-4.12.6.tgz",
+      "integrity": "sha512-VdT9rtiMCfoKjsTqVFsSFXfNcNpDVJcxfDCqngzsWYld8X0xROFtFn5h/l8r4QvaH6E4au5n+R3/g/ETPgQAcg==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "48cbee2a2290bc940ffbcff395261d428f3ad2c0927b810bd21cc1fd1fd3ba9a",
+        "archive_bytes": 152891,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "29b4010b831e036f22945aaabbfbcb9ec0542088bd9cdbffbc29c5a58e603aa5"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/accessibility/package.json",
+          "package/async-creatable/package.json",
+          "package/async/default/package.json",
+          "package/async/package.json",
+          "package/base/package.json",
+          "package/clear-indicator/package.json",
+          "package/components/package.json",
+          "package/control/package.json",
+          "package/creatable/default/package.json",
+          "package/creatable/package.json",
+          "package/dropdown-indicator/package.json",
+          "package/filters/package.json",
+          "package/group-heading/package.json",
+          "package/group/package.json",
+          "package/indicators-container/package.json",
+          "package/input/package.json",
+          "package/loading-indicator/package.json",
+          "package/menu-list/package.json",
+          "package/menu-portal/package.json",
+          "package/menu/package.json",
+          "package/multi-value-remove/package.json",
+          "package/multi-value/package.json",
+          "package/option/package.json",
+          "package/placeholder/package.json",
+          "package/select-container/package.json",
+          "package/single-value/package.json",
+          "package/state-manager/package.json",
+          "package/styles/package.json",
+          "package/types/package.json",
+          "package/use-async/package.json",
+          "package/use-creatable/package.json",
+          "package/use-state-manager/package.json",
+          "package/value-container/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0",
+          "react-dom": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/section-message",
+      "name": "@atlaskit/section-message",
+      "version": "10.2.6",
+      "resolved": "https://registry.npmjs.org/@atlaskit/section-message/-/section-message-10.2.6.tgz",
+      "integrity": "sha512-UkN2QpQCp4hNvx2LXjisRXeLVX1yRlPz0t6jcBT5HciniTefmgPrHSQ/Fuzvol5Ch6iKa2Mx55esyT63nXK+hg==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "848c86000b50f77f9c88307c39afc4a1897118636957520d9ac81b828661359d",
+        "archive_bytes": 23311,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/message-action/package.json",
+          "package/message/package.json",
+          "package/section-message-action/package.json",
+          "package/section-message/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/select",
+      "name": "@atlaskit/select",
+      "version": "23.1.3",
+      "resolved": "https://registry.npmjs.org/@atlaskit/select/-/select-23.1.3.tgz",
+      "integrity": "sha512-+6ExzBfxmTeKG1bqzrlwD2hudw32AxcVeEV0VGb/VzTvo5qgHsF9h9gs87ILBRR2uEn/C0mt+nTAx0ddrHOzhw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "96a8e747d2e9903bb7ee98ca5761d146e87882c3c6df30af1169ceb08467796f",
+        "archive_bytes": 88855,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/AsyncCreatableSelect/package.json",
+          "package/AsyncSelect/package.json",
+          "package/CreatableSelect/package.json",
+          "package/Select/package.json",
+          "package/async-creatable-select/package.json",
+          "package/async-select/package.json",
+          "package/checkbox-option/package.json",
+          "package/checkbox-select/package.json",
+          "package/country-select/package.json",
+          "package/creatable-select/package.json",
+          "package/default/package.json",
+          "package/grouped-options-announcement/package.json",
+          "package/input-options/package.json",
+          "package/popup-select/package.json",
+          "package/radio-option/package.json",
+          "package/radio-select/package.json",
+          "package/react-select/package.json",
+          "package/select-without-analytics/package.json",
+          "package/select/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0",
+          "react-dom": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/side-nav-items",
+      "name": "@atlaskit/side-nav-items",
+      "version": "2.5.8",
+      "resolved": "https://registry.npmjs.org/@atlaskit/side-nav-items/-/side-nav-items-2.5.8.tgz",
+      "integrity": "sha512-JcUSlpnAWPsppsPQRE0/WI93c8c0C0pj6x9AkSeNcN11xCG0YItCEXn3DaMo72nkOXyqZy3mhqf88Zf/hq4K7g==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "94f5bad7504ab2db0ff2d0e15304571ba128ba8bf0bf8dbc251ba4aedd9f8c26",
+        "archive_bytes": 67323,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "29b4010b831e036f22945aaabbfbcb9ec0542088bd9cdbffbc29c5a58e603aa5"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/button-menu-item/package.json",
+          "package/container-avatar/package.json",
+          "package/drag-and-drop/drag-handle/package.json",
+          "package/drag-and-drop/drag-preview/package.json",
+          "package/drag-and-drop/drop-indicator/package.json",
+          "package/drag-and-drop/group-drop-indicator/package.json",
+          "package/drag-and-drop/hitbox/package.json",
+          "package/drag-and-drop/use-menu-item-drag-and-drop/package.json",
+          "package/expandable-menu-item/package.json",
+          "package/flyout-menu-item/package.json",
+          "package/link-menu-item/package.json",
+          "package/menu-list-item/package.json",
+          "package/menu-list/package.json",
+          "package/menu-section/package.json",
+          "package/skeleton/package.json",
+          "package/top-level-spacer/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0",
+          "react-dom": "^18.2.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/tag",
+      "name": "@atlaskit/tag",
+      "version": "17.0.3",
+      "resolved": "https://registry.npmjs.org/@atlaskit/tag/-/tag-17.0.3.tgz",
+      "integrity": "sha512-5AxcBGSndtsSoaSqkMElkXNcG/e0RYoH9LsiEGCl4tcRgdnnjCsInKeSwvz4O9VRlXBnGrL6eu7viyaDpE8epw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "fd6a55af0fd3cef1ef966f1268f9f243c5cc8d60d7adf9c28f38f5b4302376f1",
+        "archive_bytes": 60424,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/avatar-tag/package.json",
+          "package/color-mapping/package.json",
+          "package/new/package.json",
+          "package/removable-tag/package.json",
+          "package/simple-tag/package.json",
+          "package/tag-dropdown-trigger/package.json",
+          "package/tag-new/package.json",
+          "package/tag-new/types/package.json",
+          "package/tag/simple/package.json",
+          "package/tag/types/package.json",
+          "package/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/teams-avatar",
+      "name": "@atlaskit/teams-avatar",
+      "version": "4.1.9",
+      "resolved": "https://registry.npmjs.org/@atlaskit/teams-avatar/-/teams-avatar-4.1.9.tgz",
+      "integrity": "sha512-1huGRYm6wyeGx+NYVZQcr82oZeY9ziSgsg1qP3Pyy5LUjXscysxbwpUTiLrw7CaHtlSJkU8HGzjNwN+HOteWgg==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b8e9df4c14f71aa9354e6857313a1c0a54d9afeddb11acf6da7c4150711c1d6b",
+        "archive_bytes": 10482,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.md",
+            "bytes": 558,
+            "sha256": "29b4010b831e036f22945aaabbfbcb9ec0542088bd9cdbffbc29c5a58e603aa5"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/index/package.json",
+          "package/teams-avatar/package.json",
+          "package/unsafe-url-is-refreshed-team-avatar/package.json",
+          "package/utils/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.2.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@cacheable/memory",
+      "name": "@cacheable/memory",
+      "version": "2.2.0",
+      "resolved": "https://registry.npmjs.org/@cacheable/memory/-/memory-2.2.0.tgz",
+      "integrity": "sha512-CTLKqLItRCEixEAewD3/j9DB3/o96gpTPD4eJ1v+DGOlxZRZncRQkGYqqnAGCscYd6RNeXfGeiuCphsPtqyIfQ==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "9dffad84622ba74be37dcec88ba7537cc9d168551e349588757add056f5289b9",
+        "archive_bytes": 25442,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1053,
+            "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@cacheable/utils",
+      "name": "@cacheable/utils",
+      "version": "2.5.0",
+      "resolved": "https://registry.npmjs.org/@cacheable/utils/-/utils-2.5.0.tgz",
+      "integrity": "sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "243841e7a895205b7984be00bfd162aab703423d878a4837367e617033689a02",
+        "archive_bytes": 53414,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1053,
+            "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@eslint/config-array",
+      "name": "@eslint/config-array",
+      "version": "0.23.5",
+      "resolved": "https://registry.npmjs.org/@eslint/config-array/-/config-array-0.23.5.tgz",
+      "integrity": "sha512-Y3kKLvC1dvTOT+oGlqNQ1XLqK6D1HU2YXPc52NmAlJZbMMWDzGYXMiPRJ8TYD39muD/OTjlZmNJ4ib7dvSrMBA==",
+      "lock_license": "Apache-2.0",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "e94ae1cfacadb9b669cd7e4c862fe9b4f844d32e2c1b783a966617f912a5d0f8",
+        "archive_bytes": 75502,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 11357,
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@eslint/config-helpers",
+      "name": "@eslint/config-helpers",
+      "version": "0.7.0",
+      "resolved": "https://registry.npmjs.org/@eslint/config-helpers/-/config-helpers-0.7.0.tgz",
+      "integrity": "sha512-DObd/KKUsU+FaFv4PLxSRenpXfQWmPXXP3pPZ6/K1PCrMu2vQpMDMuQe/BqYeoLcz8ro0bVDF1RxOJgfVEdhUw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "a4186192e9463523090de29e3e5256f6963ccdd126216219c56a17b6ca9f17ca",
+        "archive_bytes": 14401,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 11357,
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@eslint/core",
+      "name": "@eslint/core",
+      "version": "1.2.1",
+      "resolved": "https://registry.npmjs.org/@eslint/core/-/core-1.2.1.tgz",
+      "integrity": "sha512-MwcE1P+AZ4C6DWlpin/OmOA54mmIZ/+xZuJiQd4SyB29oAJjN30UW9wkKNptW2ctp4cEsvhlLY/CsQ1uoHDloQ==",
+      "lock_license": "Apache-2.0",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "77278a566a21ac718a07dbdd54a6138946ec19436359247edf446cbe99f20fe6",
+        "archive_bytes": 22326,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 11357,
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@eslint/object-schema",
+      "name": "@eslint/object-schema",
+      "version": "3.0.5",
+      "resolved": "https://registry.npmjs.org/@eslint/object-schema/-/object-schema-3.0.5.tgz",
+      "integrity": "sha512-vqTaUEgxzm+YDSdElad6PiRoX4t8VGDjCtt05zn4nU810UIx/uNEV7/lZJ6KwFThKZOzOxzXy48da+No7HZaMw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "2dc9c1afb534793f6beba1c23b27e5a84a5a0677ae9b300b2b46b8a99a3725d9",
+        "archive_bytes": 12709,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 11357,
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@eslint/plugin-kit",
+      "name": "@eslint/plugin-kit",
+      "version": "0.7.3",
+      "resolved": "https://registry.npmjs.org/@eslint/plugin-kit/-/plugin-kit-0.7.3.tgz",
+      "integrity": "sha512-IkO+/KEUvwbVpiURZg+P7zF74z5Jxe0UgJxVni+RtoHQ6IZieXaO02kmadomap/q+l6bc/jdPGGqTjhuZnuz1Q==",
+      "lock_license": "Apache-2.0",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "8bd10d0644bb4e2c62424eb4e213888121affbc644339912f2869858f079a2b5",
+        "archive_bytes": 24453,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 11357,
+            "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@floating-ui/core",
+      "name": "@floating-ui/core",
+      "version": "1.8.0",
+      "resolved": "https://registry.npmjs.org/@floating-ui/core/-/core-1.8.0.tgz",
+      "integrity": "sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "c86371bdb19948a71591d36f23ec33d2b54e06503bd5c2e00a2dbbfa389622fd",
+        "archive_bytes": 45136,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1089,
+            "sha256": "0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@floating-ui/dom",
+      "name": "@floating-ui/dom",
+      "version": "1.8.0",
+      "resolved": "https://registry.npmjs.org/@floating-ui/dom/-/dom-1.8.0.tgz",
+      "integrity": "sha512-yXSrzeHZBTZadLOlfyhCkJHNeLJnHRnRInwdZ40L7ZiaAtrBwoYlsDrX3v5zB1Utk7CLfzcOVnVVWoXEky7Ceg==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b9511cc8fd8898c7c67143ff8dd93a3d427108632c801a546ae72ab1df3cd6a5",
+        "archive_bytes": 35146,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1089,
+            "sha256": "0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@floating-ui/utils",
+      "name": "@floating-ui/utils",
+      "version": "0.2.12",
+      "resolved": "https://registry.npmjs.org/@floating-ui/utils/-/utils-0.2.12.tgz",
+      "integrity": "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "fe0800a3de3d9c819bf63e525bf26080ce692969dda400c715780141a187928f",
+        "archive_bytes": 9863,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1089,
+            "sha256": "0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/dom/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@keyv/bigmap",
+      "name": "@keyv/bigmap",
+      "version": "1.3.1",
+      "resolved": "https://registry.npmjs.org/@keyv/bigmap/-/bigmap-1.3.1.tgz",
+      "integrity": "sha512-WbzE9sdmQtKy8vrNPa9BRnwZh5UF4s1KTmSK0KUVLo3eff5BlQNNWDnFOouNpKfPKDnms9xynJjsMYjMaT/aFQ==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "054607db65aa02c4f2d82d81a9a5c4d0d00386e2af77135893ea067a834ffb79",
+        "archive_bytes": 9505,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1062,
+            "sha256": "f18cad8d98d4454ad42c33f1950d642cd3b939f2ccd3c36710fa8f50842cacc0"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "keyv": "^5.6.0"
+        },
+        "engines": {
+          "node": ">= 18"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@keyv/serialize",
+      "name": "@keyv/serialize",
+      "version": "1.1.1",
+      "resolved": "https://registry.npmjs.org/@keyv/serialize/-/serialize-1.1.1.tgz",
+      "integrity": "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "5730adf7d1edef7c84a7ce658c3a2915386529b4d795523265c30a2e94f91366",
+        "archive_bytes": 2937,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1108,
+            "sha256": "1f7dca26d2d328c3dbb9b6fe3b15ec3cda08ffe2288e47b73d617454b256f959"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@types/esrecurse",
+      "name": "@types/esrecurse",
+      "version": "4.3.1",
+      "resolved": "https://registry.npmjs.org/@types/esrecurse/-/esrecurse-4.3.1.tgz",
+      "integrity": "sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "cc338c6515fd66a157e553423d0b3d887d06763479fbc6c7fd9db64dc75aa1bf",
+        "archive_bytes": 2028,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "esrecurse/LICENSE",
+            "bytes": 1141,
+            "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/@typescript-eslint/parser",
+      "name": "@typescript-eslint/parser",
+      "version": "8.72.0",
+      "resolved": "https://registry.npmjs.org/@typescript-eslint/parser/-/parser-8.72.0.tgz",
+      "integrity": "sha512-0O+x3ynciD6zuXb1CKSu165haQV6ey53DKhHHUnujP7U+XlltJG+/keT0Xhd1HXCze+IHf7Tvt39ovyepX/LNw==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "df833ac128d5becfd9e56f81ba515c6014a9c9ffe9f51ef67e1acc384daae0e2",
+        "archive_bytes": 5252,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1097,
+            "sha256": "2eb5c7a0bba9deb77a98c81bf6b9d3fb1c67118eebf968b6b1a787b3f8928ee0"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0",
+          "typescript": ">=4.8.4 <6.1.0"
+        },
+        "engines": {
+          "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+        }
+      }
+    },
+    {
+      "path": "node_modules/cacheable",
+      "name": "cacheable",
+      "version": "2.5.0",
+      "resolved": "https://registry.npmjs.org/cacheable/-/cacheable-2.5.0.tgz",
+      "integrity": "sha512-60cyAOytib/OzBw1JNSoSV/boK1AtHryDIjvVBk7XbN4ugfkM3+Sry7fEjNgPMGgOjuaZPAp8ruZ0Cxafwyq9g==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "69a2c0e6d81c1a38c601bf34bf0935998823043a219a01401455d23e29377bab",
+        "archive_bytes": 50255,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1053,
+            "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/detect-node-es",
+      "name": "detect-node-es",
+      "version": "1.1.0",
+      "resolved": "https://registry.npmjs.org/detect-node-es/-/detect-node-es-1.1.0.tgz",
+      "integrity": "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "bc0bc6ee6c25bfd3db4e44dbaa210011dc5a1937a381bbbd92ad857bf5183678",
+        "archive_bytes": 1854,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1068,
+            "sha256": "54b32293ea560d22cd9b62af9b2cda1a030d910a48c6601d227c5ff2338d95f8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/eslint",
+      "name": "eslint",
+      "version": "10.13.0",
+      "resolved": "https://registry.npmjs.org/eslint/-/eslint-10.13.0.tgz",
+      "integrity": "sha512-UohDjD4zSzEwhf58M3O7vc/ycc8O1I7dNlhtD0WxE8Px8EHNJKtUwzBqrzeGhisRuv2ag4sAYswszCJRgKXYUg==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "05da899bc1602385a199570db5ad7cff488010fb103e659994065eed38f479f3",
+        "archive_bytes": 629155,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1094,
+            "sha256": "3b6be04f862a077a4b97929dbf247299360824d9365f8603c263769303ace18c"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "jiti": "*"
+        },
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/eslint/node_modules/eslint-scope",
+      "name": "eslint-scope",
+      "version": "9.1.2",
+      "resolved": "https://registry.npmjs.org/eslint-scope/-/eslint-scope-9.1.2.tgz",
+      "integrity": "sha512-xS90H51cKw0jltxmvmHy2Iai1LIqrfbw57b79w/J7MfvDfkIkFZ+kj6zC3BjtUwh150HsSSdxXZcsuv72miDFQ==",
+      "lock_license": "BSD-2-Clause",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "16b004c4e056634c6b96c44821d453c268359d781a5db3652bddb191b3195dc3",
+        "archive_bytes": 36931,
+        "declared_license": "BSD-2-Clause",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1390,
+            "sha256": "d3a724e2ed749f172ff70b62a1d0631b7d4b0ea273782365a3464d4e2d6b6dbd"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/espree",
+      "name": "espree",
+      "version": "11.2.0",
+      "resolved": "https://registry.npmjs.org/espree/-/espree-11.2.0.tgz",
+      "integrity": "sha512-7p3DrVEIopW1B1avAGLuCSh1jubc01H2JHc8B4qqGblmg5gI9yumBgACjWo4JlIc04ufug4xJ3SQI8HkS/Rgzw==",
+      "lock_license": "BSD-2-Clause",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "149c997f9e5e274feff3217785f0947507dd65d273a5274ea7ff620598bf91fd",
+        "archive_bytes": 24865,
+        "declared_license": "BSD-2-Clause",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1322,
+            "sha256": "26c95937762a3dc17a3934a0a2773c70259ba4bf28dab713c225e4af8eb9d349"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": "^20.19.0 || ^22.13.0 || >=24"
+        }
+      }
+    },
+    {
+      "path": "node_modules/file-entry-cache",
+      "name": "file-entry-cache",
+      "version": "11.1.5",
+      "resolved": "https://registry.npmjs.org/file-entry-cache/-/file-entry-cache-11.1.5.tgz",
+      "integrity": "sha512-+PFTHITI08JIGhnNpGNI8T8inUpgZfk3GNEqfT9R2zZV2iFXg3CvqzSl/uEhs7TSGujYRELEANyDvS8Fj7+S7Q==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "941235c20a7060285e2d85777a03864d194b2f4bbe54b9730c8b026a62e2ace9",
+        "archive_bytes": 20125,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1053,
+            "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/flat-cache",
+      "name": "flat-cache",
+      "version": "6.1.23",
+      "resolved": "https://registry.npmjs.org/flat-cache/-/flat-cache-6.1.23.tgz",
+      "integrity": "sha512-f++BY9pTk+983xK1FLzlLpmM0i0z+jHmx3QESGkURMXujQZz1k5wzwX6hjnQ8goaD0B+sYnDK1yZ6MTyZfUaqA==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "e1abb7dc35422099057cc42348a136336f4ca5ab88b118404d16d39122f77105",
+        "archive_bytes": 12500,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1053,
+            "sha256": "465e8da349d50d8512e4a0e9b26d2bee50392c394f17edaa3be6e0df7c2b27ad"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/focus-lock",
+      "name": "focus-lock",
+      "version": "1.3.6",
+      "resolved": "https://registry.npmjs.org/focus-lock/-/focus-lock-1.3.6.tgz",
+      "integrity": "sha512-Ik/6OCk9RQQ0T5Xw+hKNLWrjSMtv51dD4GRmJjbD5a58TIEpI5a5iXagKVl3Z5UuyslMCA8Xwnu76jQob62Yhg==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b9fe39784e1f55fb1fcd4d4e7d0b614f5de1501cef42573ac6af881651939247",
+        "archive_bytes": 27270,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1071,
+            "sha256": "30f0cfddf483d1128e3610205020f2041a6c5e837aa999e0aa82e5576187d4a9"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/constants/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {
+          "node": ">=10"
+        }
+      }
+    },
+    {
+      "path": "node_modules/hashery",
+      "name": "hashery",
+      "version": "1.5.1",
+      "resolved": "https://registry.npmjs.org/hashery/-/hashery-1.5.1.tgz",
+      "integrity": "sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "9a174c770b98d20b26e16a6563b37f79d53d3bcef6dadcf08507dd4993158d0f",
+        "archive_bytes": 67625,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1067,
+            "sha256": "2eef776efe4bae7fcd2d8162ecadf2b0873aae20afac343a936ddb0de3d79253"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": ">=20"
+        }
+      }
+    },
+    {
+      "path": "node_modules/hookified",
+      "name": "hookified",
+      "version": "1.15.1",
+      "resolved": "https://registry.npmjs.org/hookified/-/hookified-1.15.1.tgz",
+      "integrity": "sha512-MvG/clsADq1GPM2KGo2nyfaWVyn9naPiXrqIe4jYjXNZQt238kWyOGrsyc/DmRAQ+Re6yeo6yX/yoNCG5KAEVg==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "7f96a9aa7ee1230008083deecaf2b512f9d2b9b8c08efe1a3252fccd09edca70",
+        "archive_bytes": 32237,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1052,
+            "sha256": "3902e57e73412bd91ba81a47fa2cef45e1729c152c835114c1692cc5e685ddbe"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/keyv",
+      "name": "keyv",
+      "version": "5.6.0",
+      "resolved": "https://registry.npmjs.org/keyv/-/keyv-5.6.0.tgz",
+      "integrity": "sha512-CYDD3SOtsHtyXeEORYRx2qBtpDJFjRTGXUtmNEMGyzYOKj1TE3tycdlho7kA1Ufx9OYWZzg52QFBGALTirzDSw==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "db982b7c83daadc135266141d1cb542443f26d42c72f25ee2d45644fc631e7e0",
+        "archive_bytes": 25027,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1108,
+            "sha256": "1f7dca26d2d328c3dbb9b6fe3b15ec3cda08ffe2288e47b73d617454b256f959"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/postcss-selector-parser",
+      "name": "postcss-selector-parser",
+      "version": "7.1.6",
+      "resolved": "https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-7.1.6.tgz",
+      "integrity": "sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "48c903f98c5591d8d26f16f389d5cb3435459474c645209a79f6241bf4b657b6",
+        "archive_bytes": 46652,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE-MIT",
+            "bytes": 1092,
+            "sha256": "2998094b38f7ace25f141fb36f334d8338f65a1812978d618b1161f4d77ae10e"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": ">=4"
+        }
+      }
+    },
+    {
+      "path": "node_modules/qified",
+      "name": "qified",
+      "version": "0.10.1",
+      "resolved": "https://registry.npmjs.org/qified/-/qified-0.10.1.tgz",
+      "integrity": "sha512-+Owyggi9IxT1ePKGafcI87ubSmxol6smwJ+RAHDQlx9+9cPwFWDiKFFCPuWhr9ignlGpZ9vDQLw67N4dcTVFEA==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "5acca41a42576ff888cf16cbcf505efbe3b0d4f55232edf3a931298a4b5ca662",
+        "archive_bytes": 21247,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1052,
+            "sha256": "3902e57e73412bd91ba81a47fa2cef45e1729c152c835114c1692cc5e685ddbe"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {
+          "node": ">=20"
+        }
+      }
+    },
+    {
+      "path": "node_modules/qified/node_modules/hookified",
+      "name": "hookified",
+      "version": "2.2.0",
+      "resolved": "https://registry.npmjs.org/hookified/-/hookified-2.2.0.tgz",
+      "integrity": "sha512-p/LgFzRN5FeoD3DLS6bkUapeye6E4SI6yJs6KetENd18S+FBthqYq2amJUWpt5z0EQwwHemidjY5OqJGEKm5uA==",
+      "lock_license": "MIT",
+      "dev_only": true,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "01aa4e32fec989b18ab2b7a6b593ec968efdd4db287d7fef94813678bc2b1564",
+        "archive_bytes": 59568,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1052,
+            "sha256": "3902e57e73412bd91ba81a47fa2cef45e1729c152c835114c1692cc5e685ddbe"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/react-clientside-effect",
+      "name": "react-clientside-effect",
+      "version": "1.2.8",
+      "resolved": "https://registry.npmjs.org/react-clientside-effect/-/react-clientside-effect-1.2.8.tgz",
+      "integrity": "sha512-ma2FePH0z3px2+WOu6h+YycZcEvFmmxIlAb62cF52bG86eMySciO/EQZeQMXd07kPCYB0a1dWDT5J+KE9mCDUw==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "be654a1419a9541e9291c3f90f700105c6faf6772f8844b1ca9756807c4fb9a9",
+        "archive_bytes": 5022,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1079,
+            "sha256": "65a1f00f35ea469048896fbfec3c5faed7d3fe7c7e0be2a0478470b59d9e1439"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/react-focus-lock",
+      "name": "react-focus-lock",
+      "version": "2.13.7",
+      "resolved": "https://registry.npmjs.org/react-focus-lock/-/react-focus-lock-2.13.7.tgz",
+      "integrity": "sha512-20lpZHEQrXPb+pp1tzd4ULL6DyO5D2KnR0G69tTDdydrmNhU7pdFmbQUYVyHUgp+xN29IuFR0PVuhOmvaZL9Og==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "73330fc461ba7fd211ef553612ecd9a5df1717f14ab10cf7b5124fab89dd3f92",
+        "archive_bytes": 22232,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1062,
+            "sha256": "f3b3ff0eb35b71c73d0b85c0c0cfc83dbf735695de4fe46a44cbdf0ef1966634"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/UI/package.json",
+          "package/sidecar/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "@types/react": "*",
+          "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/react-magnetic-di",
+      "name": "react-magnetic-di",
+      "version": "3.2.5",
+      "resolved": "https://registry.npmjs.org/react-magnetic-di/-/react-magnetic-di-3.2.5.tgz",
+      "integrity": "sha512-Ys0noNfKOlnU7nPk7j8V/OxvXe66XMnXwtie8phGsHbPLOHzua82C5aWW1UUzMCWR9F4kBej8VErFq2TndFDkw==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "ed0ffccf6d652a978eff7b1a61bdfc17b5a63447ef47700f22b8659eaed4f789",
+        "archive_bytes": 32690,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1073,
+            "sha256": "bfe2dec8b35ecda433b2fc7713dce759c763a5ad07c5b75bacb34d3b69f7268a"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/babel-plugin/package.json",
+          "package/eslint-plugin/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "prop-types": "^15.0.0",
+          "react": "^16.9.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+        },
+        "engines": {
+          "node": ">=20.0.0"
+        }
+      }
+    },
+    {
+      "path": "node_modules/shallow-equal",
+      "name": "shallow-equal",
+      "version": "3.1.0",
+      "resolved": "https://registry.npmjs.org/shallow-equal/-/shallow-equal-3.1.0.tgz",
+      "integrity": "sha512-pfVOw8QZIXpMbhBWvzBISicvToTiM5WBF1EeAUZDDSb5Dt29yl4AYbyywbJFSEsRUMr7gJaxqCdr4L3tQf9wVg==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "ddef2bfc9f8f33e705ef33724b467407a2879434e4fbaad8357043e4cdd35e74",
+        "archive_bytes": 3688,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1102,
+            "sha256": "365b05a2f3580cb1d517bd53527cccbcbc07264eb142a1614d2b48a9d4f5eac4"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/use-callback-ref",
+      "name": "use-callback-ref",
+      "version": "1.3.3",
+      "resolved": "https://registry.npmjs.org/use-callback-ref/-/use-callback-ref-1.3.3.tgz",
+      "integrity": "sha512-jQL3lRnocaFtu3V00JToYz/4QkNWswxijDaCVNZRiRTO3HQDLsdu1ZtmIUvV4yPp+rvWm5j0y0TG/S61cuijTg==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "f1c0efff7a48011a8ad317c555fd043ef6e427c78b00ca2d438682958d880600",
+        "archive_bytes": 9288,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1071,
+            "sha256": "30f0cfddf483d1128e3610205020f2041a6c5e837aa999e0aa82e5576187d4a9"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "@types/react": "*",
+          "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc"
+        },
+        "engines": {
+          "node": ">=10"
+        }
+      }
+    },
+    {
+      "path": "node_modules/use-isomorphic-layout-effect",
+      "name": "use-isomorphic-layout-effect",
+      "version": "1.2.1",
+      "resolved": "https://registry.npmjs.org/use-isomorphic-layout-effect/-/use-isomorphic-layout-effect-1.2.1.tgz",
+      "integrity": "sha512-tpZZ+EX0gaghDAiFR37hj5MgY6ZN55kLiPkJsKxBMZ6GZdOSPJXiOzPM984oPYZ5AnehYx5WQp1+ME8I/P/pRA==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "331c0a474c75659a60904212a5e4468e02756689ae38d15e06896d6e6b4050d4",
+        "archive_bytes": 2864,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1070,
+            "sha256": "82fb62378a03a80df2a21d491d70cc8928912e35a8e8378fb0fcbe6e5493aec5"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/use-sidecar",
+      "name": "use-sidecar",
+      "version": "1.1.3",
+      "resolved": "https://registry.npmjs.org/use-sidecar/-/use-sidecar-1.1.3.tgz",
+      "integrity": "sha512-Fedw0aZvkhynoPYlA5WXrMCAMm+nSWdZt6lzJQ7Ok8S6Q+VsHmHpRWndVRJ8Be0ZbkfPc5LRYH+5XrzXcEeLRQ==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "06e3040fe38ac958402bbda2cd640b556786048b6bd3d97900eec1d80702c0f8",
+        "archive_bytes": 11241,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 1071,
+            "sha256": "30f0cfddf483d1128e3610205020f2041a6c5e837aa999e0aa82e5576187d4a9"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {
+          "@types/react": "*",
+          "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc"
+        },
+        "engines": {
+          "node": ">=10"
+        }
+      }
+    },
+    {
+      "path": "node_modules/@atlaskit/tabs",
+      "name": "@atlaskit/tabs",
+      "version": "21.3.0",
+      "resolved": "https://registry.npmjs.org/@atlaskit/tabs/-/tabs-21.3.0.tgz",
+      "integrity": "sha512-ayBuxliWMcEVv9dwceznk3U1U08YmyW/RQT2gThEhjn9s0BjM9Jas7WRACMSouwft3tXGHMbGOf4pirire0yVw==",
+      "lock_license": "Apache-2.0",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "592dbd324b26853258a3df38eace132191cd5b7d01f6b6d4744057cd30fc1481",
+        "archive_bytes": 33355,
+        "declared_license": "Apache-2.0",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE",
+            "bytes": 558,
+            "sha256": "10c2833305d17f4bd40203cdfc8125c36d58bd1cb5fb51fd1b3f62b59029b4e8"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/tab-list/package.json",
+          "package/tab-panel/package.json",
+          "package/tab/package.json",
+          "package/tabs/package.json",
+          "package/types/package.json",
+          "package/use-tab-panel/package.json",
+          "package/use-tab/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {
+          "react": "^18.2.0 || ^19.0.0"
+        },
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-charts-types",
+      "name": "ag-charts-types",
+      "version": "14.1.0",
+      "resolved": "https://registry.npmjs.org/ag-charts-types/-/ag-charts-types-14.1.0.tgz",
+      "integrity": "sha512-mmzkng88c0l+Z9PvCMowMilhVeNgDU/iMuMemcOQD4BG/qO4vbkxWvyQO0iqju8Dx7YOY81PNzC/RmElQNiVkA==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "b491df0fcbc059033f3f0a5e9197273c178cb873dc2372568d5341b547839b6b",
+        "archive_bytes": 99553,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-grid-community",
+      "name": "ag-grid-community",
+      "version": "36.1.0",
+      "resolved": "https://registry.npmjs.org/ag-grid-community/-/ag-grid-community-36.1.0.tgz",
+      "integrity": "sha512-WnvSQ4csRs8gv/b1B0lPHykQXvUJVgi2u5mpY0Aa6dv3pvhDVVqCT8dwUyOeCog4JNPptaXGrOrZ8qP2XoJzVA==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "a39fe805a8d6080c648f705110fa40e9acd3ab5c53aa10578fce65fa70e169cd",
+        "archive_bytes": 4667642,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/dist/package.json",
+          "package/dist/package/package.json",
+          "package/dist/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    },
+    {
+      "path": "node_modules/ag-stack",
+      "name": "ag-stack",
+      "version": "36.1.0",
+      "resolved": "https://registry.npmjs.org/ag-stack/-/ag-stack-36.1.0.tgz",
+      "integrity": "sha512-Kmkf5iRZmyduNx2KtW450j6GbCdJ4ejacSpb1AWl0yrdquRmScLRc1SlLolx6lyCbTBSJGo4tRraKbBzre+GlQ==",
+      "lock_license": "MIT",
+      "dev_only": false,
+      "optional": false,
+      "os": [],
+      "cpu": [],
+      "lock_install_script": false,
+      "inspection": {
+        "archive_sha256": "e2290f1bdbc809bbdbbabe65415310d14808d4bf0503c2b3dc38332293e20d07",
+        "archive_bytes": 494926,
+        "declared_license": "MIT",
+        "legacy_licenses": null,
+        "license_files": [
+          {
+            "path": "package/LICENSE.txt",
+            "bytes": 1077,
+            "sha256": "31636f0472dda16bba11a7b78204e1f677b77452092e185a65cddd45b6c9fb29"
+          }
+        ],
+        "assets": [],
+        "nested_package_metadata": [
+          "package/dist/package.json",
+          "package/dist/package/package.json",
+          "package/dist/types/package.json"
+        ],
+        "native_files": [],
+        "bundled_dependencies": [],
+        "lifecycle_scripts": {},
+        "flags": [
+          "nested_package_metadata_requires_review"
+        ],
+        "peer_dependencies": {},
+        "engines": {}
+      }
+    }
+  ],
+  "peer_exception": {
+    "package": "@atlaskit/analytics-next-stable-react-context",
+    "version": "1.0.1",
+    "original_peer": "^16.8.0",
+    "resolved_react": "18.3.1",
+    "scope": "Local build validation; explicit original-peer accounting and StrictMode component/context tests required.",
+    "upstream_support_claim": false
+  },
+  "asset_policy": "Identified OSS code and generic component glyphs only. No Atlassian branding, proprietary fonts, illustrations or copied asset directories.",
+  "missing_license_file_policy": "Runtime notices use shipped declarations and retained full terms/official upstream notices. Dev tooling is local only and not shipped; redistribution requires its own complete notice/source package."
+}

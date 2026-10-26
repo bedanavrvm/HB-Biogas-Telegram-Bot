@@ -196,21 +196,30 @@ class CanonicalTelegramAuthenticationTests(TestCase):
 
         baseline = {name: True for _surface, name in MINIAPP_AUTH_SETTINGS}
         baseline.update({name: 86400 for _surface, name in TELEGRAM_AUTH_AGE_SETTINGS})
-        for expected_index, (_surface, setting_name) in enumerate(
-            MINIAPP_AUTH_SETTINGS, start=1,
-        ):
+        # IDs are stable public deployment diagnostics, not list positions.
+        # Origination was added later as E030/E031 without renumbering others.
+        auth_ids = {
+            'origination': 'core.E030', 'portal': 'core.E001',
+            'complaint-cases': 'core.E002', 'tat-tracker': 'core.E003',
+            'spin': 'core.E004', 'order-approval': 'core.E005',
+        }
+        age_ids = {
+            'origination': 'core.E031', 'shared': 'core.E006',
+            'portal': 'core.E007', 'complaint-cases': 'core.E008',
+            'tat-tracker': 'core.E009', 'spin': 'core.E010',
+            'order-approval': 'core.E011',
+        }
+        for surface, setting_name in MINIAPP_AUTH_SETTINGS:
             configured = {**baseline, 'DEBUG': False, setting_name: False}
             with self.subTest(setting=setting_name), self.settings(**configured):
                 self.assertIn(
-                    f'core.E{expected_index:03d}',
+                    auth_ids[surface],
                     {issue.id for issue in portal_authentication_check(None)},
                 )
-        for expected_index, (_surface, setting_name) in enumerate(
-            TELEGRAM_AUTH_AGE_SETTINGS, start=6,
-        ):
+        for surface, setting_name in TELEGRAM_AUTH_AGE_SETTINGS:
             configured = {**baseline, 'DEBUG': False, setting_name: 0}
             with self.subTest(setting=setting_name), self.settings(**configured):
                 self.assertIn(
-                    f'core.E{expected_index:03d}',
+                    age_ids[surface],
                     {issue.id for issue in portal_authentication_check(None)},
                 )

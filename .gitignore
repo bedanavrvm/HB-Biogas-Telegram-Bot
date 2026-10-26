@@ -39,6 +39,9 @@ Thumbs.db
 # Credentials and private key material
 credentials.json
 *.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_CANDIDATE.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW_LOCK.json
+!codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json
 !docs/database/catalog.json
 !docs/ui-standard/registry.json
 !scripts/architecture_boundaries_baseline.json
@@ -46,6 +49,10 @@ credentials.json
 !scripts/coverage_baseline.json
 !package.json
 !package-lock.json
+!browser/package.json
+!browser/package-lock.json
+!browser/tsconfig.json
+!browser/dependency-review.json
 !origination/reference_data/countries.json
 !origination/assets/signature_fonts/manifest.json
 *.pem
@@ -81,6 +88,16 @@ artifacts/
 test-results/
 playwright-report/
 node_modules/
+browser/.parcel-cache/
+browser/dist-development/
+browser/dist-authentication/
+browser/dist-authentication-development/
+browser/dist-complaints/
+browser/dist-complaints-development/
+browser/dist-complaints-demo/
+browser/dist-complaints-demo-development/
+browser/dist-complaints-operations/
+browser/dist-complaints-operations-development/
 coverage.json
 coverage-subsystems.json
 .coverage

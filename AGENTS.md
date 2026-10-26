@@ -26,6 +26,11 @@ Changes can affect operational data, customer records, approvals, financial valu
 
 ## Quick reference (read this first)
 
+For browser authentication cache, concurrency or release-readiness work, read
+ADR 0074 and `docs/runbooks/browser-channel-parity.md`: the approved route is
+PostgreSQL-only native security state. Keep production browser access disabled;
+verify the checked-in migration and independent-worker tests before acceptance.
+
 If you read nothing else, follow these:
 
 1. **Never commit secrets or customer data** — tokens, service-account JSON, phone numbers, IDs, photos, spreadsheets. See [Security and privacy rules](#security-and-privacy-rules).
@@ -40,7 +45,7 @@ If you read nothing else, follow these:
 10. Unsure which workflow owns something? Check the [Workflow ownership guide](#workflow-ownership-guide) before guessing.
 11. **New persistent models require a bounded-domain app and database-catalogue metadata.** Do not add new models to the legacy `core` app. Use the predictable `<domain>_<entity>_<role>` table convention and declare purpose, lifecycle, retention, source-of-truth status, PostgreSQL table/column comments, intentional reverse relationship names, and a reason for every explicit index. Never change production schema outside a checked-in Django migration.
 12. **Mini App roles are independent.** Resolve every role and capability within its own workflow (`tat_tracker`, `complaint_cases`, `jawabu_portal`, or `loan_origination`). A BM, CA, officer, HB or IT grant in one Mini App supplies no authority in another. TAT BM stage changes belong to TAT; they must not change Origination roles, signers or application requirements. Ship approved built-in permission additions in checked-in deployment migrations rather than requiring a separate staff shell command.
-13. **UI review:** Before changing Mini App appearance or interaction, read `docs/ui-standard/README.md` and the component index. Reuse an approved source-bound pattern or submit a lab candidate with real-shell screenshots and behaviour evidence. Record intentional/nonvisual exceptions in the UI source ratchet. Candidate tokens are lab-only; Phase 6 migration requires separate explicit user approval. Never infer approval from generated screenshots or update baselines merely to pass CI.
+13. **UI review:** Before changing Mini App appearance or interaction, read `docs/ui-standard/README.md` and the component index. Reuse an approved source-bound pattern or submit a lab candidate with real-shell screenshots and behaviour evidence. Record intentional/nonvisual exceptions in the UI source ratchet. Candidate tokens are lab-only; Phase 6 migration requires separate explicit user approval. Never infer approval from generated screenshots or update baselines merely to pass CI. Standalone browser work also follows `browser/AGENTS.md`: always consult current official Atlassian usage/design docs and record the applied references; imports, lint and viewport fit alone do not establish design quality or full adoption.
 
 ---
 
@@ -75,6 +80,17 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under the owning app; legacy workflows use `core`, and Loan Origination uses `origination`. |
 | **Mini App record reference** | A versioned, allowlisted workflow/entity/UUID reference for future explicit interlinkage. It contains no customer identity or access token, grants no authority, and resolves only through the owning workflow's current authorization. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
+| **Browser MFA assurance** | Server-owned proof that the existing Django user completed company password plus allauth TOTP/recovery authentication. It never grants workflow authority. P1a `staff_auth` is dormant, has no production login/enrollment/business URLs, and must stay disabled; Telegram signed-launch access is unchanged. |
+| **Browser TOTP use claim** | P1b.2b.2's expiring shared database claim after native TOTP validation in the closed browser adapter. It prevents reuse across independent worker caches, retains only a factor-seed HMAC and expiry, and grants no assurance or workflow authority. Never clear live claims; read ADR 0064. Native shared rate-limit cache and operational M1 acceptance remain separate gates. |
+| **Browser admission** | Explicit existing-staff browser-channel opt-in and revocation generation in `staff_auth.StaffBrowserAdmission`. Audited active-Superuser authorize/suspend/revoke/reset actions never change Telegram, shared sessions, passwords or workflow grants. P1b.1 is backend-only and remains globally disabled; see ADR 0061 and `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. |
+| **Company browser boundary** | Dormant cookie/CSRF JSON password/MFA/state/logout handlers in `staff_auth/browser_api.py`. Future business endpoints must require `require_company_browser_user` plus their own workflow authorization, not identity assurance alone. A password-only enrollment session is never business access. No production auth routes are mounted; see ADR 0062 and `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`. |
+| **React browser client** | The separate React/Atlassian Design System workspace in `browser/`, locally built under ADR 0066. P1c.4's fixed-value preview and separate review controls remain disconnected. P1c.5 adds a separately built dormant native sign-in client under ADR 0067, tested only against isolated Django/allauth sessions. Short password/code steps, autofill, automatic resume and inline recovery are required. P1c.6 adds guided initial-password, local QR enrollment and one-time recovery handoff under ADR 0068. P2a / ADR 0070 adds a separate closed Complaints read workspace with existing owning-workflow authority and synthetic native-session tests alongside remaining M1 work; real admission still requires M1/privacy/named-reader acceptance. Technical checks do not certify full design conformance or operational delivery. Production stays off/unmounted; no Telegram migration. See `browser/DESIGN.md`, `browser/DEPENDENCIES.md` and decision section 13. |
+| **Local Complaints demo** | P2a.2 / ADR 0072 extends ADR 0071's no-account React/ADS review at loopback 8767 with Officer/Manager creation/uploads, HB feedback/resolution, Manager reopen/completion, scoped IT and Portal-only denial. Built-in Complaint capabilities are read from the checked-in catalogue. The standalone server verifies assets and an immutable dedicated v2 SQLite seed; entered values, history and file bytes stay in bounded process memory until reset/restart. Same-origin demo POSTs never initialize Django, read deployment settings, grant company assurance, open operational databases or enable real staff access. Native P2a remains read-only. Walkthrough/restart: browser/README.md; M1/production/P3 and Telegram migration remain gated. |
+| **Browser dependency decision** | ADR 0066's bounded local React/ADS build approval under the user's “resolve it and proceed” instruction. Exact lock/archive binding, one legacy context React-peer exception, fixed selector-parser security override, readable notices and excluded brand/font/image assets are mandatory. This does not accept production distribution, every ADS material or M1. |
+| **Browser access preview** | First-party synthetic access-page wireframe under `codebase-analysis-docs/assets/browser-access-preview/`, served only on loopback by `scripts/serve_browser_access_preview.py`. Fixed demo values and in-memory navigation never authenticate, send proof or grant workflow access. It is a review artifact, not the React/ADS client, dependency approval or production mount. |
+| **Closed browser enrollment** | P1b.2b.1's dormant, CSRF-protected native TOTP setup and one-time recovery-code handoff for an existing admitted password-only browser session. Fresh native password recheck, current admission, encrypted seeds and transactional audit are mandatory. Setup never issues MFA assurance, replaces factors or grants workflow access; explicit logout and fresh password/MFA login follow. Routes remain unmounted and browser off; see ADR 0063 and `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md`. |
+| **Closed staff initial setup** | P1b.2b.3's dormant preparation, native mailbox-proof and first-password backend for the exact existing active, browser-admitted non-Admin account with an unusable password. It never creates an account, resets usable credentials, sends/exports proof or grants login/MFA/workflow authority. First-password setting changes that account's Django session hash; Telegram signed-launch identity/grants remain. Read ADR 0065 and `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`; transport/frontend/M1 are still required. |
+| **Browser dependency review snapshot** | D13a's exact forensic manifest, review-only npm lock and integrity-checked archive/licence/asset metadata under `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_*`. React overrides mask a confirmed original-peer conflict; this is not an installation-ready stack, production manifest, legal clearance or dependency approval. The offline inspector/checker never executes candidate code; resolve findings and obtain scope acceptance before installation. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Scheduled Portal report** | An approved group/branch/product-scoped email report for one completed Nairobi period; current backlog and financial snapshot bases remain distinct from period activity. |
@@ -147,6 +163,25 @@ Many root-level Markdown documents describe earlier versions of the project. The
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues: read `docs/agents/issue-tracker.md` before publishing specs,
+creating tickets, triaging work, or managing issue dependencies.
+
+### Triage labels
+
+Use the five canonical triage roles in `docs/agents/triage-labels.md` before
+applying or creating triage labels.
+
+### Domain docs
+
+Single shared documentation layout: read `docs/agents/domain.md` before domain
+exploration, terminology changes, or architecture decisions.
+
+---
+
 ## Repository map
 
 ### Main entry points
@@ -154,6 +189,16 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `manage.py` — Django management entry point
 - `config/settings.py` — application settings and environment variables
 - `config/urls.py` — project-level URL routing
+- `staff_auth/` — dormant company-browser password/MFA integration, encrypted vendor secrets and admission checks; see `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` and ADR 0060. Do not mount vendor account URLs or treat raw Admin edits as provisioning/recovery.
+- `scripts/serve_browser_access_preview.py` — historical loopback-only custom access wireframe. No Django, real credentials, API, cookie or persistent storage. See decision section 6; current actual React/ADS demo is in `browser/` and section 7. Neither opens M1.
+- `browser/` — separate, pinned React/ADS local access demo. P1c.4 uses focused single-column forms, persistent SectionMessage feedback, flat surfaces, the Navigation System workspace and a separate Select-based review entry. Follow `browser/AGENTS.md` and current official docs before changing patterns. Typed cssMap/tokens and full recommended lint remain; natural mobile/large-text scroll is preserved. The supported Parcel/Compiled build binds sources/modules/notices. `scripts/serve_ads_browser_preview.py` serves hashed assets on loopback; see ADR 0066, `browser/README.md` and decision section 10. Root Telegram manifests/assets and dormant auth remain separate.
+- `staff_auth/lifecycle.py` — P1b.1 explicit browser opt-in, suspension, browser-only revision revocation and audited MFA reset; `manage_staff_browser` previews by default. No automatic staff enrollment, new workflow grants, real reset or production application is authorized by implementing this service. Migration `staff_auth.0001_initial` is additive; normal rollback preserves state. See `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` and ADR 0061.
+- `browser/src/access.html`, `auth-transport.ts` and `staff-access.tsx` — P1c.5 separately built dormant native sign-in client under ADR 0067. Fixed same-origin cookie/CSRF, automatic stage resume, autofill, retained usernames and inline recovery; no credential persistence or automatic replay. Never serve it as the fixed-value demo. P1c.6 adds guided first-password/QR enrollment/recovery under ADR 0068; proof is masked in captures. Production mounting and actual delivery/support remain separate; see decision section 12.
+- `staff_auth/transport_test_urls.py`, `transport_test_settings.py`, `tests_transport.py` and `scripts/test_staff_browser_transport.js` — opt-in isolated full-schema/loopback React-to-native-auth tests. Test guards, ephemeral synthetic proof over stdin and proof-free evidence are mandatory. Test probes are not business endpoints; no real staff/provider/database may be used. Production URLs/settings/E006 stay unchanged. Password login may clear only its own stale browser cookie to start a fresh password/MFA attempt; ordinary Admin/other-channel cookies remain protected.
+- `staff_auth/enrollment.py` and `enrollment_state.py` — closed backend native TOTP setup/recovery handoff and nonprivileged progress. Never treat setup as MFA login, re-show/regenerate lost recovery codes, or mount routes before remaining operational/M1 gates. See ADR 0063 and `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md`.
+- `staff_auth/replay.py` — P1b.2b.2 shared one-use claim after native browser TOTP validation; never a replacement verifier or global cache backend. `staff_auth.0002_stafftotpreplaystate` is additive; preserve live claims during rollback. `purge_staff_totp_replays` previews one expired-only batch unless `--apply` is supplied. See ADR 0064 and `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`; browser remains off and routes unmounted.
+- `staff_auth/initial_setup.py` and `setup_api.py` — P1b.2b.3 exact existing-account preparation and three unmounted CSRF setup handlers using native email/password primitives. `prepare_staff_browser_setup` previews; apply needs a current active Superuser, revision/snapshot/request/reason. Never export proof or reset existing usable/Admin credentials. Migration `staff_auth.0003_staffbrowsersetupgrant` is additive; `purge_staff_browser_setups` removes expired grants only on explicit apply. No delivery/UI is supplied; see ADR 0065 and `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md`.
+- `staff_auth/abuse.py`, `cache_keys.py` and `checks.py` — P1b.2b.4 browser-only native proxy/IP policy, safe throttle/failure feedback and HMAC native cache keys via Django's key hook. Ordinary workflow cache keys and Telegram limits are unchanged. E007/E008 require a reviewed shared backend/privacy hook on activation; the default remains local and E006 remains blocking. No shared cache service/client is provisioned; capacity, topology, concurrency, rollback/live-window and M1 acceptance remain required. See ADR 0069 and the current STAFF_BROWSER_REPLAY_GUARD.md addendum.
 - `core/api/urls.py` — canonical `/api/` workflow and API route definitions
 - `core/api/browser_urls.py` — intentional root browser/Mini App entry points
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
@@ -390,6 +435,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | Variable | Purpose | Sensitive? |
 |---|---|---|
 | `DJANGO_SECRET_KEY` | Django cryptographic signing key | Yes |
+| `STAFF_BROWSER_AUTH_ENABLED` | P1a browser-MFA foundation admission; keep `False`, activation deliberately fails until operational flows are accepted | No |
+| `STAFF_MFA_ENCRYPTION_KEYS` | Dedicated newest-first Fernet keys in the deployment secret store; never reuse `DJANGO_SECRET_KEY`; retain old decrypt keys while needed | Yes |
+| `STAFF_BROWSER_SESSION_AGE_SECONDS` | Proposed browser assurance age, default eight hours; no authority or effect on Telegram signed-launch age | No |
 | `DEBUG` | Django debug mode toggle (must be `False` in production) | No |
 | `ALLOWED_HOSTS` | Django allowed host list | No |
 | `DATABASE_URL` | PostgreSQL connection string (production) / SQLite for local dev | Yes |
@@ -1270,7 +1318,8 @@ the existing choice unsuitable and obtaining explicit approval:
 | Decision | Repository position |
 |---|---|
 | Mini App delivery | Telegram Bot API plus Django-rendered Telegram Mini Apps |
-| Frontend interaction | Server-rendered HTML, htmx, Alpine.js, and small shared JavaScript utilities; no SPA/build server |
+| Additional browser authentication | Existing Django users plus user-selected allauth TOTP/recovery, browser-first. P1a/P1b remain disabled; P1b.2a JSON/storage and P1b.2b.1 closed native enrollment/recovery handoff are not an operational product. Setup never grants assurance; explicit fresh password/MFA login follows. Production routes remain unmounted. Provisioning, shared replay cache, support, reviewed UI and M1 acceptance precede activation. No forced Telegram password/MFA cutover. |
+| Frontend interaction | Existing Telegram UI stays server-rendered HTML/htmx/Alpine/shared JavaScript. Separate React + ADS supplies the local synthetic preview (ADR 0066) and a separately built dormant native sign-in client tested only against isolated Django/allauth sessions (ADR 0067). Exact dependency/notice/asset and source-review controls govern both. Guided onboarding is present in the closed client (ADR 0068); actual delivery/support, production transport/static integration and operational M1 remain open. No Telegram SPA rewrite or Design Lab migration approval. |
 | Workflow authority | Django/PostgreSQL owns state; Sheets and Drive are synchronized operational views/files |
 | PDF rendering | Use the existing server-side WeasyPrint path where a PDF is explicitly required; never rely on mobile `window.print()` |
 | Portal PDF preview | `pypdfium2==5.12.1` rasterizes authorized PDFs into Portal-owned page images because Android Telegram WebView blocks protected PDF blobs and embedded Google viewer responses; `pypdf` cannot render pages and PyMuPDF's AGPL licence is unsuitable. |
@@ -1411,6 +1460,17 @@ At the end of a coding task, report:
 6. Remaining risks or unresolved issues
 
 Be explicit when a test or external integration could not be executed. Never claim a production integration works based only on mocked tests.
+
+For the platform-independence work, deliver one bounded phase at a time in the
+user-specified order: Complaints, TAT, Origination, then Portal. Every phase
+handoff and every proposed or completed merge/deployment must include a
+change-specific checklist of additions, affected workflows, migrations,
+configuration/dependencies, verification, Telegram compatibility, items to
+monitor, rollback and unresolved gates. Start from
+`codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md`;
+complete only applicable items and mark unknown/not-run items explicitly.
+A separate Git branch or approval to implement is not permission to merge,
+deploy, change production grants or bypass the plan's identity prerequisites.
 
 ---
 

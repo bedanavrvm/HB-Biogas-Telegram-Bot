@@ -245,10 +245,13 @@ class MainLafSeedTests(TestCase):
             },
         )
         values = {'applicant_id_number': applicant_id, **(payload or {})}
+        from origination.tests_form_projection import layout
         return LoanOriginationApplication.objects.create(
             reference_number=reference, product_definition=definition,
             product_version=self.product.versions.get(version=1), officer=self.actor,
             branch='EMBU', form_payload=values,
+            schema_snapshot={'fields': [{'key': key, 'type': 'text'} for key in values]},
+            template_configuration_snapshot=layout(*values),
             product_terms_snapshot={'requirements': requirements or []},
         )
 

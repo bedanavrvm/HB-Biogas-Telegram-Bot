@@ -84,11 +84,13 @@ class MiniAppWritePolicyTests(TestCase):
             HTTP_IDEMPOTENCY_KEY=key,
         )
 
-    def test_tat_update_accepts_header_retry_key(self):
+    def test_tat_create_accepts_header_retry_key(self):
+        from core.models import TatTrackerCase
+        TatTrackerCase.objects.create(group_id='group-1', case_id='TAT-1')
         request = self._json_request('/api/tat-tracker/create/', {'group_id': 'group-1'})
-        with patch('core.api.views._tat_context', return_value=('group-1', object(), {}, {'user_id': '1'}, None)), \
+        with patch('core.api.views._tat_context', return_value=('group-1', SimpleNamespace(group_id='group-1'), {}, {'user_id': '1'}, None)), \
                 patch('core.api.views._tat_capability_error', return_value=None), \
-                patch('core.services.tat_tracker.create_case', return_value={'case_id': 'TAT-1'}) as create_case, \
+                patch('core.services.tat_tracker.create_case', return_value={'summary': {'case_id': 'TAT-1'}}) as create_case, \
                 patch('core.api.views._send_tat_next_role_alert'):
             response = tat_tracker_create(request)
 

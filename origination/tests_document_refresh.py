@@ -63,6 +63,7 @@ class UnsignedDocumentUpdateTests(TestCase):
         self.assertEqual(saved.packet_documents.get(document_key='refresh_support').template_id, support.pk)
         self.assertEqual(saved.revision, self.app.revision + 1)
         self.assertEqual(saved.status, 'draft')
+        self.assertEqual(saved.schema_snapshot['form_projection_version'], 2)
         self.assertEqual(saved.events.filter(action='documents_refreshed').count(), 1)
 
     def package(self, suffix='one', **kwargs):

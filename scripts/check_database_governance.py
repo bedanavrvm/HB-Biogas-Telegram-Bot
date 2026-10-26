@@ -29,6 +29,7 @@ BOUNDED_DOMAIN_APPS = {
     'origination', 'tat', 'complaints', 'jawabu', 'catalog', 'access',
     'integration', 'audit', 'platform', 'spin', 'order_approval',
     'ui_review',
+    'staff_auth',
 }
 
 

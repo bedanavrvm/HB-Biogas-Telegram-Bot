@@ -1378,13 +1378,16 @@ def stage_portal_import(
             else:
                 from core.services.system_export import create_system_export_review_batch
 
-                batch, _stats = create_system_export_review_batch(
-                    group_id=group_configuration.group_id,
-                    telegram_message_id='',
-                    sender=str(getattr(actor, 'get_full_name', lambda: '')() or getattr(actor, 'username', '') or ''),
-                    source_filename=safe_name,
-                    content=payload,
-                )
+                try:
+                    batch, _stats = create_system_export_review_batch(
+                        group_id=group_configuration.group_id,
+                        telegram_message_id='',
+                        sender=str(getattr(actor, 'get_full_name', lambda: '')() or getattr(actor, 'username', '') or ''),
+                        source_filename=safe_name,
+                        content=payload,
+                    )
+                except ValueError as exc:
+                    raise PortalImportError(str(exc)) from exc
             batch.created_by = actor
             batch.upload_request_id = request_id
             batch.source_mime_type = mimetypes.guess_type(safe_name)[0] or 'application/octet-stream'
@@ -1773,6 +1776,8 @@ def serialize_import_batch(
         payload['rows'] = review_rows
     else:
         payload['mapping_state'] = _batch_mapping_payload(batch).get('state', 'legacy')
+    if batch.import_kind == 'system_export':
+        payload['processing_chunk_size'] = max(1, int(getattr(settings, 'SYSUP_PROCESSING_CHUNK_SIZE', 400) or 400))
     return payload
 
 

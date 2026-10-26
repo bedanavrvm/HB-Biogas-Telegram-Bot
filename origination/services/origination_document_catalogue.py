@@ -57,7 +57,7 @@ def _signer_roles(rules: Any) -> set[str]:
 def main_laf_contract(
     definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate,
-    *, require_active: bool = True,
+    *, require_active: bool = True, require_complete: bool = True,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Build the immutable application schema and name incompatibility reasons."""
     reasons: list[str] = []
@@ -97,7 +97,7 @@ def main_laf_contract(
             schema = None
     else:
         schema = document_schema
-    if schema and document_schema.get('value_contract_version') == 2:
+    if require_complete and schema and document_schema.get('value_contract_version') == 2:
         from origination.services.origination_value_contracts import upgrade_schema
         # Commercial merging refreshes validation/presentation from its governed
         # catalogue. The chosen document still owns its reviewed value meanings.
@@ -112,7 +112,7 @@ def main_laf_contract(
     # The chosen Main LAF owns its signer contract. Product-level mirrors must
     # not reintroduce retired roles; the independently governed approval policy
     # is validated below and application snapshots remain unchanged.
-    if schema is not None:
+    if schema is not None and require_complete:
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         try:
             validate_product_form_contract(schema, document_signers, require_signers=False)
@@ -124,7 +124,7 @@ def main_laf_contract(
     return (schema if not reasons else None), reasons
 
 
-def validate_catalogue_publication(template: OriginationDocumentTemplate) -> None:
+def validate_catalogue_publication(template: OriginationDocumentTemplate, *, require_complete: bool = True) -> None:
     """Fail publication when an allowlisted product would receive an invalid document."""
     from origination.services.loan_origination import OriginationError, validate_product_form_contract
     from origination.services.origination_value_contracts import enabled
@@ -132,9 +132,9 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate) -> Non
 
     missing_roles = set(template.form_schema.get('required_signer_roles', [])) - {
         rule.get('role') for rule in template.signer_rules if rule.get('required', True)}
-    if missing_roles:
+    if require_complete and missing_roles:
         raise OriginationError('Review the required signers: ' + ', '.join(sorted(role.replace('_', ' ') for role in missing_roles)) + '.')
-    if enabled(template.form_schema):
+    if require_complete and enabled(template.form_schema):
         configuration = (template.published_configuration_revision.configuration if template.published_configuration_revision_id
                          else template.placement_config or {})
         try:
@@ -156,13 +156,14 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate) -> Non
         product_eligibilities__product_id__in=product_ids,
     ).exclude(document_type=template.document_type).distinct()
     if template.document_role == template.ROLE_SUPPORTING:
-        try:
-            validate_product_form_contract(
-                template.form_schema or {'fields': []}, template.signer_rules or [],
-                require_signers=False,
-            )
-        except OriginationError as exc:
-            raise OriginationError(f'The supporting document contract is invalid: {exc}') from exc
+        if require_complete:
+            try:
+                validate_product_form_contract(
+                    template.form_schema or {'fields': []}, template.signer_rules or [],
+                    require_signers=False,
+                )
+            except OriginationError as exc:
+                raise OriginationError(f'The supporting document contract is invalid: {exc}') from exc
         collision = OriginationDocumentTemplate.objects.filter(
             status=OriginationDocumentTemplate.STATUS_ACTIVE,
             document_role=template.ROLE_SUPPORTING,
@@ -175,26 +176,27 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate) -> Non
             )
         for primary in other_templates.filter(document_role=template.ROLE_PRIMARY):
             if same_value_setup(primary):
-                validate_document_combination(primary, [template])
+                validate_document_combination(primary, [template], require_complete=require_complete)
         for supporting in other_templates.filter(document_role=template.ROLE_SUPPORTING):
             # Either supporting template may be selected alongside the other.
             if same_value_setup(supporting):
                 primary_schema = {'value_contract_version': 2, 'fields': []} if enabled(template.form_schema) else {}
-                validate_snapshot_combination(primary_schema, [supporting.form_schema, template.form_schema])
+                validate_snapshot_combination(primary_schema, [supporting.form_schema, template.form_schema],
+                                              require_complete=require_complete)
         return
     definitions = OriginationProductDefinition.objects.filter(
         is_active=True, product_version__product_id__in=product_ids,
     ).select_related('product_version__product')
     failures = []
     for definition in definitions:
-        _schema, reasons = main_laf_contract(definition, template, require_active=False)
+        _schema, reasons = main_laf_contract(definition, template, require_active=False, require_complete=require_complete)
         if reasons:
             failures.append(f'{definition.name}: {" ".join(reasons)}')
     if failures:
         raise OriginationError(' '.join(failures))
     for supporting in other_templates.filter(document_role=template.ROLE_SUPPORTING):
         if same_value_setup(supporting):
-            validate_document_combination(template, [supporting])
+            validate_document_combination(template, [supporting], require_complete=require_complete)
 
 
 def catalogue_for_product(
@@ -298,9 +300,24 @@ def resolve_catalogue_selection(
     return primary_template, supporting_templates, schema, catalogue
 
 
+def _reviewed_compatibility_schema(schema: dict) -> dict:
+    """Compare known meanings while unfinished authoring remains advisory."""
+    from origination.services.origination_value_contracts import enabled, field_contract, ValueContractError
+    if not enabled(schema):
+        return schema
+    fields = []
+    for field in _fields(schema):
+        try:
+            if field_contract(field):
+                fields.append(field)
+        except ValueContractError:
+            continue
+    return {**schema, 'fields': fields}
+
+
 def validate_document_combination(
     primary: OriginationDocumentTemplate,
-    supporting: Iterable[OriginationDocumentTemplate],
+    supporting: Iterable[OriginationDocumentTemplate], *, require_complete: bool = True,
 ) -> None:
     """Reject canonical keys whose types disagree in the selected packet."""
     from origination.services.loan_origination import OriginationError
@@ -311,7 +328,7 @@ def validate_document_combination(
     from origination.services.origination_value_contracts import build_packet_contract, enabled, schema_with_mapped_values, ValueContractError
     try:
         def mapped_schema(template, raw_schema):
-            if not enabled(raw_schema):
+            if not require_complete or not enabled(raw_schema):
                 return raw_schema
             configuration = (template.published_configuration_revision.configuration if template.published_configuration_revision_id
                              else template.placement_config or {})
@@ -320,8 +337,9 @@ def validate_document_combination(
 
         primary_schema = mapped_schema(primary, primary_schema)
         supporting_schemas = [mapped_schema(template, template_form_contract(template)[0]) for template in supporting]
-        build_packet_contract(primary_schema, [
-            {'key': str(template.pk), 'schema': schema}
+        compatible = (lambda schema: schema) if require_complete else _reviewed_compatibility_schema
+        build_packet_contract(compatible(primary_schema), [
+            {'key': str(template.pk), 'schema': compatible(schema)}
             for template, schema in zip(supporting, supporting_schemas)
         ])
     except ValueContractError as exc:
@@ -340,14 +358,15 @@ def validate_document_combination(
         )
 
 
-def validate_snapshot_combination(primary_schema: Any, supporting_schemas: Iterable[Any]) -> None:
+def validate_snapshot_combination(primary_schema: Any, supporting_schemas: Iterable[Any], *, require_complete: bool = True) -> None:
     """Apply the same type-safety rule to an application's frozen candidates."""
     from origination.services.loan_origination import OriginationError
     supporting_schemas = list(supporting_schemas)
     from origination.services.origination_value_contracts import build_packet_contract, ValueContractError
     try:
-        build_packet_contract(primary_schema, [
-            {'key': str(index), 'schema': schema} for index, schema in enumerate(supporting_schemas)
+        compatible = (lambda schema: schema) if require_complete else _reviewed_compatibility_schema
+        build_packet_contract(compatible(primary_schema), [
+            {'key': str(index), 'schema': compatible(schema)} for index, schema in enumerate(supporting_schemas)
         ])
     except ValueContractError as exc:
         raise OriginationError(str(exc), errors=exc.errors) from exc

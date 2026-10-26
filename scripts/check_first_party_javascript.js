@@ -14,6 +14,8 @@ const roots = [
   path.join(root, 'core', 'tests_js'),
   path.join(root, 'core', 'tests_browser'),
   path.join(root, 'scripts'),
+  path.join(root, 'codebase-analysis-docs', 'assets', 'browser-access-preview'),
+  path.join(root, 'browser', 'scripts'),
 ];
 
 function sourceFiles(directory) {
@@ -21,7 +23,7 @@ function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const candidate = path.join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(candidate);
-    if (!entry.isFile() || path.extname(entry.name) !== '.js') return [];
+    if (!entry.isFile() || !['.js', '.cjs'].includes(path.extname(entry.name))) return [];
     if (entry.name.startsWith('vendor-')) return [];
     return [candidate];
   });

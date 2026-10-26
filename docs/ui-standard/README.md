@@ -1,11 +1,77 @@
 # Mini App Design Lab
 
+P2a.2 / ADR 0072 extends that separate demo with synthetic role-based creation,
+uploads, feedback/resolution and reopen/completion. ADS forms/Selects and
+side-by-side customer/evidence layout are source-bound candidates; the hidden
+native file chooser is an intentional exception documented in browser/DESIGN.md.
+Decision section 15 records current evidence. No approved baseline changes,
+native P2a write activation, real access or Telegram migration.
+
+P2a.1 / ADR 0071 makes a separate synthetic Complaints demo available at
+http://127.0.0.1:8767/. It reuses the ADS workspace with an explicit demo context,
+fixture-only reader and no account setup. Decision section 14 records source/
+browser evidence. Native staff access and Telegram migration remain gated.
+
+P2a / ADR 0070 now connects a separate closed React/ADS Complaints workspace to
+native company authentication and owning Complaint read services in isolated
+synthetic tests. Decision section 13 and the component index record the new
+candidate. The fixed preview and Telegram migration hold remain separate;
+operational M1/privacy/named-reader/human acceptance are still required.
+
 ## Current stage
 
 The Design Lab covers Portal, TAT Tracker, Complaints and Origination. All
 patterns start unreviewed. The lab does not change their live UI, workflow
 permissions or business rules. Candidate tokens/themes are not an approved
 standard. **Phase 6 migration requires separate explicit user approval.**
+
+The user's 19 October 2026 React/Atlassian Design System decision concerns **new
+standalone browser pages only** (ADR 0062). It is not permission to migrate or
+restyle the Telegram Mini Apps. Exact package/transitive/asset review now supports
+the bounded local `browser/` React/ADS build (ADR 0066), with explicit dependency
+exceptions, notices and exclusions. It is a synthetic demo, not operational
+authentication or acceptance of every ADS asset. The current source/component
+inventory is in component-index.md. See
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+
+The user's subsequent **full design adoption for the browser frontend** request
+governs the current P1c.4 correction (decision section 10). It uses documented
+single-column forms, persistent SectionMessage feedback, flat surfaces, the
+fixed-wide workspace grid and actual Navigation System components. ADS typed
+tokens and full recommended lint sets remain blocking. Always consult relevant
+current official docs as required by `browser/AGENTS.md`; `browser/DESIGN.md`
+maps the decisions. Imports, lint, viewport fit and screenshots do not certify
+full design conformance. This browser authorization does not select/migrate
+Telegram lab candidates or replace human evidence review.
+
+The **actual React/ADS preview** is served at http://127.0.0.1:8766/ using
+`python scripts/serve_ads_browser_preview.py` after the build documented in
+`browser/README.md`. Credentials stay fixed demo values; business tools are
+disconnected. Design selectors live separately at
+http://127.0.0.1:8766/review.html. This local candidate does not approve a
+standard or open M1.
+
+P1c.5 additionally builds a separate dormant native sign-in client under ADR
+0067, exercised only by opt-in isolated React-to-Django tests. It follows the
+same official patterns with editable fields/autofill/inline feedback and short
+password/code steps. Source candidates are in the component index/registry.
+It is not served by the fixed-value preview, mounted in production, completed
+onboarding or M1 acceptance. Current evidence and limits: decision section 11.
+
+P1c.6 extends that dormant client with guided initial-password, local credential
+QR/manual-key setup and one-time recovery handoff (ADR 0068, decision section 12).
+Sensitive images/codes are masked in synthetic captures. Actual delivery/support,
+human/device review and operational acceptance remain open; no lab approval or
+Telegram migration follows from this client work.
+
+A historical local, first-party access wireframe makes the proposed browser states
+reviewable without installing dependencies or connecting authentication. Run
+`python scripts/serve_browser_access_preview.py` and open
+http://127.0.0.1:8765/ on the same computer. It uses fixed demo values and no ADS
+assets, cookies, API or persistent storage. Its candidate inventory is in the
+component index and source ratchet. This is not the React client, a standard
+release, human design approval or permission to migrate Telegram. Exact scope,
+verification and rollback are in the decision document's section 6.
 
 See [implementation status](implementation-status.md) for delivered tooling,
 known audit gaps, test results and remaining review gates. This is not a claim

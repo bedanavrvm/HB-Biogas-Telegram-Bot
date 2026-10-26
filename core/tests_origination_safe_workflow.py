@@ -53,6 +53,7 @@ class OriginationSafeWorkflowTests(TestCase):
         return SimpleUploadedFile(name, stream.getvalue(), content_type='application/pdf')
 
     def setUp(self):
+        from origination.tests_form_projection import layout
         users = get_user_model()
         self.officer = users.objects.create_user(username='safe-field-officer')
         self.other_officer = users.objects.create_user(username='other-field-officer')
@@ -94,6 +95,7 @@ class OriginationSafeWorkflowTests(TestCase):
         self.application = LoanOriginationApplication.objects.create(
             reference_number='ORG-SAFE-001', product_definition=self.definition,
             officer=self.officer, branch='Embu', schema_snapshot=self.definition.form_schema,
+            template_configuration_snapshot=layout('applicant_name', 'loan_amount'),
             signer_rules_snapshot=self.definition.signer_rules,
             product_terms_snapshot=terms,
         )

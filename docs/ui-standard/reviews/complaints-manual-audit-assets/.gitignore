@@ -1,0 +1,8 @@
+# Keep the consolidated synthetic audit evidence and its index together.
+!/*.png
+!/*.jpg
+!/index.html
+!/audit-manifest.json
+!/provenance.json
+!/repair-index.html
+!/repair-manifest.json

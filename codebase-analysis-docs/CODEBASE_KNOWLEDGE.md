@@ -2,6 +2,75 @@
 
 Analysis date: **19 October 2026**. Source baseline: **`f9b1e8a97cf98b1e6c79927bd0ee7ce46c2ddcc2`**. This document describes checked-in source, not an inspected production deployment.
 
+Later implementation addendum: the dormant P1a browser-MFA foundation is
+described in `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md`.
+Its current source/tests supersede the historical authentication/dependency
+snapshot where noted; no operational browser login is enabled. Do not use the
+original inventory counts or hashes as a claim about this later worktree.
+P1b.1 adds explicit browser admission and audited revocation controls; its current
+contract and migration/checklist are in
+`codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md`. No operational browser
+login or workflow authority is enabled by either slice.
+P1b.2a adds a dormant JSON auth boundary and encrypted transient enrollment-secret
+storage; see `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md`. Production
+routes remain unmounted. The new standalone browser frontend is now user-selected
+React/ADS, with exact licence review before installation; see
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`. Telegram's frontend
+and its migration hold remain unchanged. No usable React frontend is claimed.
+D13a now adds review-only exact dependency evidence/tooling, not frontend
+installation or licence clearance; use section 5 of
+`codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` for current status.
+P1c preparation adds a source-only synthetic access wireframe served independently
+of Django on loopback. Use that document's section 6 for the local URL, fixed-demo
+boundaries, source/keyboard/mobile evidence and rollback. The React/ADS client is
+still uninstalled in that historical slice; the artifact does not satisfy M1.
+P1c.1 now supersedes the local install hold: `browser/` builds actual React/ADS
+access pages under ADR 0066 and the user's “resolve it and proceed” instruction.
+The separate exact graph, exceptions, notices and excluded assets are in
+`browser/DEPENDENCIES.md`. Decision section 7 records loopback port 8766 and
+source-bound browser evidence. The current client is a fixed-value demo; native
+auth/business transport, production distribution and M1 remain separate gates.
+P1c.2 implements the subsequent full browser ADS adoption request. All current
+pages use ADS layout/control/navigation/typography components and typed tokens;
+custom CSS/native selectors/global overrides are removed. Both full recommended
+lint sets block drift. Two inspected runtime packages become direct uses without
+new archives. Decision section 8 and plan revision 12 contain source-bound token,
+responsive/keyboard/theme evidence and the current change-specific handoff.
+P1c.3 refines that browser geometry under the approved viewport plan: wide ADS
+layouts, bounded fields beside guidance/status, compact adjacent controls and
+explicit desktop vertical-fit checks. Mobile/large text retains natural scroll.
+Decision section 9 and plan revision 13 retain that historical evidence/handoff.
+P1c.4 corrects composition against current official ADS usage: focused forms,
+persistent SectionMessage feedback, flat surfaces, the fixed-wide workspace
+grid and actual Navigation System. Design controls move to `/review.html`
+with labelled Selects. Theme initialization precedes the first control paint.
+Decision section 10 and plan revision 14 contain current evidence and limits.
+Future browser changes follow `browser/AGENTS.md` and `browser/DESIGN.md`;
+imports, lint and viewport checks do not establish design conformance.
+P1c.5 adds the separate dormant `access.html` native sign-in build and fixed
+same-origin cookie/CSRF transport under ADR 0067. Real React/Django/allauth tests
+use isolated synthetic data only; production remains off/unmounted. Routine
+sign-in has autofill, username retention and automatic stage resume. Stale owned
+cookies permit a fresh password/MFA attempt without changing ordinary Admin
+sessions. Guided setup/enrollment/delivery/support and M0/M1 remain open.
+Current evidence/handoff: decision section 11 and plan revision 15.
+P1b.2b.1 now adds a closed native TOTP enrollment/recovery-handoff backend;
+see `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` and ADR 0063 for
+current contracts, verification, limits and release checklist. Setup is not MFA
+login or permission. Browser remains off, production URLs unmounted, frontend
+installation held and operational M1 acceptance open.
+P1b.2b.2 adds a shared one-use claim after native browser TOTP validation without
+changing the global cache. See `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md`
+and ADR 0064 for the additive security-state schema, expiry-only cleanup,
+verification and rollback. Native shared rate-limit caching and the other M1
+operational gates remain open.
+P1b.2b.3 adds a closed exact-existing-account initial setup backend (preparation,
+native mailbox proof and first password), no mail/proof export or login grant.
+See `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md` and ADR 0065.
+It excludes existing usable/Admin credentials. First-password setting changes
+the exact user's Django session hash while preserving signed Telegram identity
+and grants. Browser remains off/unmounted and delivery/P1c/M1 are unaccepted.
+
 ## How to use this document
 
 Start with the high-level overview, find the owning workflow in the feature catalogue, then follow its service, model and test references. Read **Things You Must Know Before Changing Code** before modifying behavior. The deep reference explains request contracts, schema ownership, verification and safe change procedures.
@@ -24,6 +93,22 @@ All analysis artifacts are under `codebase-analysis-docs/`:
 | `codebase-analysis-docs/assets/SETTING_INDEX.json` | Environment variable names, source lines and casts; intentionally excludes configured values. |
 | `codebase-analysis-docs/assets/TEST_REFERENCE.md` | Python test classes and methods for finding behavioral evidence. |
 | `codebase-analysis-docs/assets/ANALYSIS_STATE.md` | Phase checkpoints, unresolved questions and continuation state. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RESEARCH.md` | Source-only findings and research on channel independence; revision 2 aligns the pilot order to Complaints → TAT → Origination → Portal. No runtime or production readiness is established. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_IMPLEMENTATION_PLAN.md` | Revision-13 gated plan: dormant Django/allauth browser MFA foundations, the locally accepted React/ADS workspace, browser-wide ADS adoption and the approved viewport layout. Existing grants, Complaints first and M3 review remain; actual transport, production distribution and M0/M1 acceptance stay open. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_P0_DISCOVERY.md` | Initial Complaints endpoint/side-effect manifest and historical P0 checks; D1–D3 now answered, operational M0 acceptance remains open. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_MFA_FOUNDATION.md` | P1a dormant Django/allauth TOTP/recovery integration, encrypted secrets, assurance contract, additive vendor schema, verification, activation blockers and per-release checklist. No browser login or business routes yet. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_LIFECYCLE.md` | P1b.1 explicit admission, audited browser-only suspension/revocation/reset, additive model and hard-delete compatibility; current checks, limits and release checklist. Browser remains disabled. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_JSON_AUTH.md` | P1b.2a constrained JSON password/MFA/session/logout contract, audit gate, protected pending-secret storage, verification and release checklist; no production routes or finished enrollment/recovery. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_REPLAY_GUARD.md` | P1b.2b.2 shared database claim after native browser TOTP validation, additive security-state migration, bounded expiry-only cleanup, verification, rollback and remaining operational gates. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_INITIAL_SETUP.md` | P1b.2b.3 closed exact-account preparation, native mailbox/first-password handlers, temporary schema/retention, shared-session effects, verification and remaining delivery/support/M1 gates. |
+| `codebase-analysis-docs/assets/STAFF_BROWSER_ENROLLMENT.md` | P1b.2b.1 closed native password-rechecked TOTP setup, transactional factor/view audit, one-time recovery handoff, interrupted-setup behavior, tests and change-specific monitoring/rollback. No provisioning, replacement, UI or production routes. |
+| `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md` | User-selected browser frontend; D13a exact-archive evidence, confirmed original-peer conflict, notice/asset/licence findings and review/merge checklist. No frontend packages/assets installed or approved. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_CANDIDATE.json` | Proposed exact login/shell runtime and build/lint versions for review; not an approved application manifest. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW_LOCK.json` | Review-only exact dependency graph, including development/platform options; root application lockfile remains unchanged. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.json` | Downloaded archive identity/integrity, licence hashes, assets, peers and lifecycle-command evidence; no candidate code executed. |
+| `codebase-analysis-docs/assets/BROWSER_DEPENDENCY_REVIEW.md` | Generated review inventory; human licence/asset/build acceptance still required. |
+| `codebase-analysis-docs/assets/review_browser_dependencies.py` | Standard-library-only bounded registry archive inspector and offline snapshot-binding verifier; never installs/extracts/executes candidate code. |
+| `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md` | Required change-specific phase/merge/deployment handoff checklist: additions, Telegram compatibility, configuration/schema, monitoring, rollback and unresolved gates. |
 | `codebase-analysis-docs/assets/build_source_inventory.py` | Standard-library-only static inventory builder and bounded source reader; imports no Django code and contacts no provider. |
 | `codebase-analysis-docs/assets/validate_analysis.py` | Read-only validation of source hashes/ranges, explicit repository paths, inventory continuity, required master sections and compact diagrams. |
 
@@ -68,7 +153,7 @@ Reachability evidence: `config/settings.py` around `SPIN_HARD_CUTOVER` and `ORDE
 
 | Layer | Source-confirmed implementation |
 |---|---|
-| Runtime | Python `>=3.12,<3.13`; Django `5.2.17`. `requirements.txt` is the deployment manifest; `pyproject.toml` mirrors 27 direct dependencies. |
+| Runtime | Python `>=3.12,<3.13`; Django `5.2.17`. `requirements.txt` is the deployment manifest; `pyproject.toml` mirrors 28 direct dependencies after the dormant allauth MFA addition (27 at the original analysis baseline). |
 | HTTP serving | WSGI/Gunicorn, WhiteNoise, Django templates and middleware. `start.sh` starts Gunicorn with two threads and a 120-second timeout. |
 | Database | `dj-database-url`; SQLite default for local work, PostgreSQL adapter `psycopg[binary]`; explicit PostgreSQL test profile. |
 | Browser | Django-rendered HTML, HTMX and small JavaScript utilities; Node is development/verification tooling, not a production frontend server. |
@@ -1114,3 +1199,56 @@ impact counts, PostgreSQL locking and real Telegram-device acceptance remain
 unverified until authorized release checks. **Next Steps:** review/apply the
 normal migration and any explicitly approved legacy reconciliation; do not
 rewrite historical visits, signed documents or financial approvals.
+
+
+## Guided closed browser onboarding - P1c.6 / 20 October 2026
+
+ADR 0068 extends the separate dormant React/ADS auth entry with prepared existing-
+account invitation, native first-password, QR/manual-key enrollment and one-time
+recovery handoff. Native setup/enrollment progress reads resume exact fresh bound
+sessions; no seed generation, code redisclosure, user/grant creation or assurance
+comes from reads/setup. Local QR uses the existing allauth MFA dependency; proof
+is transient and masked in captures. Decision section 12 and plan revision 16
+record source/test evidence, rollback and remaining readiness/M0/M1 gates.
+Production stays off/unmounted; no Telegram/schema/migration/dependency change.
+Next is operational readiness and M1 acceptance, then the Complaints read pilot.
+
+## Closed Complaints browser integration - P2a / 20 October 2026
+
+The user agreed to begin isolated Complaints integration alongside remaining M1
+work. ADR 0070 / plan revision 18 add a separate dormant React/ADS queue/detail
+entry and company-browser-only GET API. Native password/MFA identity and current
+Complaint grants/capabilities remain independent; the existing owning services
+and same-group shared-branch read policy are reused. An explicit candidate field
+projection excludes identifiers/raw messages/media/location and history notes/
+diffs. Names/descriptions still require human privacy acceptance. Read-side
+control/reference initialization and per-request capability usage are disclosed.
+Source-bound local evidence and remaining gates are in decision section 13 and
+the release checklist. Production remains off/unmounted, no new schema/package,
+Telegram change, real staff admission or external publication. P3 remains gated.
+
+## Persistent local Complaints review - P2a.1 / 20 October 2026
+
+ADR 0071 / plan revision 19 provide the separate synthetic React/ADS demo at
+http://127.0.0.1:8767/ without account setup. The existing workspace accepts an
+explicit demo reader/context; the default company-auth composition remains.
+A standalone loopback-only Python server verifies assets and serves demo reads
+from an immutable fixture SQLite store under test-results. It never initializes
+Django, reads `.env` or opens operational/test databases. No auth simulation,
+real staff, new package/migration or Telegram change. Restart and final evidence
+are documented in browser/README.md, decision section 14 and the release checklist.
+
+## Role-based local Complaints journeys - P2a.2 / 20 October 2026
+
+ADR 0072 / plan revision 20 extend only that demo. Officer/Manager creation with
+required identifiers/location and image/PDF evidence, HB comments/resolution,
+Manager reopen/missing-details completion, scoped IT and Portal-only denial use
+the checked-in Complaint capability catalogue (AST inspection, no Django import).
+Demo role selection never authenticates or grants real access. The immutable
+v2 SQLite seed initializes bounded process memory; entered values and bytes
+survive refresh across roles but clear on Reset demo/restart. Demo-only JSON
+POSTs enforce local Origin/header, revision, request-key/payload and generation
+checks; images preview locally and PDFs download explicitly. Native P2a remains
+read-only and production stays off/unmounted. No schema/package/provider change.
+Current evidence, native regression, limitations and rollback: decision section
+15 and the current release checklist. Restart/walkthrough: browser/README.md.

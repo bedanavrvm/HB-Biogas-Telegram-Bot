@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; font-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Staff access preview · JBL</title>
+  <link rel="stylesheet" href="/preview.css">
+  <script src="/preview.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to page content</a>
+  <header class="review-bar">
+    <div class="review-label"><span class="review-dot" aria-hidden="true"></span><strong>Interactive wireframe</strong><span class="review-description">Demo only · no account changes</span></div>
+    <div class="review-controls">
+      <label for="screen-picker">Page</label>
+      <select id="screen-picker">
+        <option value="login">Sign in</option>
+        <option value="setup">Verify setup link</option>
+        <option value="password">First password</option>
+        <option value="mfa">Authenticator check</option>
+        <option value="enroll">Set up authenticator</option>
+        <option value="recovery">Save recovery codes</option>
+        <option value="reauthenticate">Sign in again</option>
+        <option value="shell">Staff workspace</option>
+        <option value="help">Access help</option>
+      </select>
+      <label for="theme-picker">Theme</label>
+      <select id="theme-picker"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="context-panel" aria-label="Staff workspace introduction">
+      <a class="brand" href="#login"><span class="brand-mark" aria-hidden="true">J</span><span>JBL <span class="brand-secondary">Staff workspace</span></span></a>
+      <div class="intro">
+        <p class="eyebrow">Jawabu Biashara Limited</p>
+        <h1>Your work,<br>one place.</h1>
+        <p>Company access to the tools your team uses every day.</p>
+        <div class="flow-summary">
+          <p class="eyebrow">A familiar account. An extra check.</p>
+          <ol><li><span>01</span>Sign in with your staff account</li><li><span>02</span>Confirm with your authenticator</li><li><span>03</span>Open your permitted workspace</li></ol>
+        </div>
+      </div>
+      <p class="context-footnote">This preview contains no staff or customer records. The working React/ADS client is still pending dependency review.</p>
+    </aside>
+    <main id="content" tabindex="-1">
+      <div class="scenario-bar">
+        <label for="scenario-picker">Try a response</label>
+        <select id="scenario-picker">
+          <option value="success">Continue normally</option>
+          <option value="invalid">Invalid details</option>
+          <option value="unavailable">Service unavailable</option>
+          <option value="limited">Too many attempts</option>
+          <option value="expired">Session or link expired</option>
+          <option value="enrollment">Authenticator not set up</option>
+        </select>
+        <button class="text-button" id="reset-preview" type="button">Reset demo</button>
+      </div>
+      <div id="page" class="page"></div>
+      <p class="preview-footnote">All fields are fixed demo values. Buttons simulate responses without sending requests. Layout and wording are awaiting review.</p>
+      <noscript><p class="notice">Enable JavaScript to explore these synthetic pages. No login service is connected.</p></noscript>
+    </main>
+  </div>
+  <div id="announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+</body>
+</html>

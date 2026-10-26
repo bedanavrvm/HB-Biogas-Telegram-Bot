@@ -1,0 +1,14 @@
+erDiagram
+  staff_auth_browser_admission {
+    string id
+  }
+  staff_auth_browser_security_state {
+    string id
+  }
+  staff_auth_browser_setup_grant {
+    string id
+  }
+  staff_auth_totp_replay_state {
+    string id
+  }
+  staff_auth_browser_admission ||--o{ staff_auth_browser_setup_grant : contains

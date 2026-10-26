@@ -279,8 +279,18 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
             placements.add(placement)
         if role not in staff:
             identity = rule.setdefault('identity_fields', {})
+            if not isinstance(identity, dict) or any(
+                not isinstance(value, str) or not value.strip()
+                for kind, value in identity.items() if kind != 'national_id' or value is not None
+            ):
+                raise ValidationError('Choose valid fields for the signer identity.')
             for kind, field_type in [('name','text'),('phone','phone'),('national_id','national_id')]:
+                if kind == 'national_id' and kind in identity and identity[kind] is None:
+                    continue
                 key = identity.get(kind) or f'{participant_key}_{kind}'
+                existing_field = next((field for field in schema['fields'] if field.get('key') == key), None)
+                if kind == 'phone' and existing_field and existing_field.get('type') not in {'phone', 'text'}:
+                    raise ValidationError('Choose a phone field for OTP delivery.')
                 if not any(f.get('key') == key for f in schema['fields']):
                     label = rule['label']+' '+kind.replace('_',' ')
                     equivalent = semantic_field_conflict(key=key, label=label, aliases=[]) if participant_key == role else None

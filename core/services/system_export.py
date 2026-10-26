@@ -250,9 +250,7 @@ def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
 def parse_system_export(
     content: bytes, filename: str = '', *, max_rows: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Parse only a bounded system-export payload in the web process."""
-    if max_rows is None:
-        max_rows = max(1, int(getattr(settings, 'SYSUP_MAX_ROWS_PER_UPLOAD', 150) or 150))
+    """Retain the whole size-validated upload and match it in internal chunks."""
     lower = str(filename or '').lower()
     if lower.endswith('.xlsx'):
         source_rows, headers = _read_xlsx(content, max_rows=max_rows)
@@ -260,12 +258,19 @@ def parse_system_export(
         source_rows, headers = _read_csv(content, max_rows=max_rows)
     else:
         raise ValueError('The /sysup command only supports .csv or .xlsx system exports.')
-    rows = [resolve_system_export_row(_normalise_system_row(raw, row_number)) for row_number, raw in source_rows]
+    chunk_size = max(1, int(getattr(settings, 'SYSUP_PROCESSING_CHUNK_SIZE', 400) or 400))
+    rows = []
+    # shortcut: chunks share one request; use durable matching if upload latency exceeds worker budgets.
+    for start in range(0, len(source_rows), chunk_size):
+        rows.extend(resolve_system_export_row(_normalise_system_row(raw, row_number))
+                    for row_number, raw in source_rows[start:start + chunk_size])
     return rows, {
         'headers': headers,
         'total_rows': len(rows),
         'review_needed': sum(1 for row in rows if row.get('Import Status') == 'review_needed'),
         'skipped_blank': 0,
+        'processing_chunk_size': chunk_size,
+        'processing_chunks': (len(rows) + chunk_size - 1) // chunk_size,
     }
 
 
@@ -665,7 +670,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
     elif errors:
         message = 'The selected rows still need review before they can be committed.'
     elif deferred:
-        message = f'{committed} row(s) updated safely. {deferred} selected row(s) remain; commit again to continue.'
+        message = f'{committed} row(s) updated safely. {deferred} selected row(s) remain for the next processing batch.'
     elif committed:
         message = f'{committed} row(s) updated safely.'
     elif unchanged:
