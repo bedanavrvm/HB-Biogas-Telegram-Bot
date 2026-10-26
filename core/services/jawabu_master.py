@@ -21,7 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import JawabuFarmerMaster, JawabuFarmerUploadBatch
-from core.services.jawabu_validation import normalize_date_text
+from core.services.jawabu_validation import normalize_date_text, parse_business_date
 from core.services.identifiers import validate_kenyan_national_id
 from core.services.jawabu import (
     is_valid_phone,
@@ -1519,6 +1519,17 @@ def cleaned_master_row_from_review(
 
 def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     notes = []
+    if cleaned.get('sign_date') and parse_business_date(cleaned['sign_date']) is None:
+        notes.append('HBG Visit Date must be a valid calendar date')
+    for field, label in (
+        ('customer_name', 'Customer Name'), ('county', 'County'),
+        ('sub_county', 'Constituency'), ('village', 'Village'),
+        ('lead_source', 'Lead Source'), ('hb_sales_person', 'HB Sales Person'),
+        ('contract_type', 'Contract Type'), ('installation_status', 'Installation Status'),
+    ):
+        limit = JawabuFarmerMaster._meta.get_field(field).max_length
+        if len(str(cleaned.get(field) or '')) > limit:
+            notes.append(f'{label} must be {limit} characters or fewer')
     raw_deposit = str(row.get('Deposit Paid to HB', cleaned.get('actual_receipts', '')) or '').strip()
     if raw_deposit:
         from hb_operations.deposits import DepositError, parse_deposit

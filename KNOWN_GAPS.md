@@ -1,5 +1,32 @@
 # Known Gaps and Verified Workarounds
 
+## Continued Portal bulk tests - 26 October 2026
+
+The current Portal gate passes 999 checks, with six PostgreSQL-only skips.
+Impossible FarmUp dates and overlong canonical text values now block commit.
+Mixed invalid selections leave no partial customers/cases; valid selections,
+exact retries and cumulative monthly versions preserve canonical counts and
+held rows. An 80-entry BRO outage/lost-response test ends with 80 Sheet rows.
+The new 2,000-BRO/100-completed and 1,501-SysUp/60-completed journeys reconcile
+all final Sheet rows, signed documents, storage hashes and 7,766 operations.
+
+Two synchronous paths remain a production-size acceptance gap: a 2,000-row
+SysUp upload against existing cases took 47.2 seconds to stage, and the prior
+5,000-row FarmUp commit took 307.0 seconds. Internal 400-row matching slices do
+not release the upload request. Use resumable durable matching and bounded
+FarmUp commits before claiming reliable large-file processing under web-worker
+timeouts. These local timings are not production benchmarks.
+
+Monthly replacement receipts can overstate held work: a probe recognizes 200
+unchanged committed rows during validation but includes them in the subsequent
+550-held receipt, alongside 350 genuinely uncommitted rows. Canonical counts
+and preserved source versions are correct; the receipt count needs alignment.
+
+A supplemental 40-test legacy Jawabu group has 15 failures and one error.
+Running it with the committed FarmUp validator produces the identical failing
+test set; the new validation adds none. These remain unresolved and outside
+the passing Portal gate. Artifacts and exact scopes are in the existing audit.
+
 ## Portal varied-data acceptance and remaining limits - 26 October 2026
 
 The expanded local run passes 995 backend checks (six PostgreSQL-only skips),

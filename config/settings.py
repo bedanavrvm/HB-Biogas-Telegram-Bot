@@ -631,9 +631,8 @@ BATCH_PROCESSING_DELAY = config('BATCH_PROCESSING_DELAY', default=1, cast=int)
 WHATSAPP_BATCH_MAX_MESSAGES = config('WHATSAPP_BATCH_MAX_MESSAGES', default=0, cast=int)
 WHATSAPP_BATCH_MAX_FILE_SIZE_MB = config('WHATSAPP_BATCH_MAX_FILE_SIZE_MB', default=5, cast=int)
 FCA_BATCH_MAX_FILE_SIZE_MB = config('FCA_BATCH_MAX_FILE_SIZE_MB', default=10, cast=int)
-# `/sysup` runs in the Render web process. Keep its file/row and per-commit
-# budgets explicit so a large system export is reviewed in safe chunks rather
-# than holding a worker until Gunicorn terminates it.
+# SysUp retains one size-validated source; matching chunks and approved-write
+# request budgets are separate. Upload parsing/matching remains synchronous.
 SYSUP_MAX_FILE_SIZE_MB = config('SYSUP_MAX_FILE_SIZE_MB', default=5, cast=int)
 SYSUP_PROCESSING_CHUNK_SIZE = config('SYSUP_PROCESSING_CHUNK_SIZE', default=400, cast=int)
 SYSUP_COMMIT_MAX_ROWS_PER_REQUEST = config('SYSUP_COMMIT_MAX_ROWS_PER_REQUEST', default=20, cast=int)

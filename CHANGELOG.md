@@ -1,5 +1,25 @@
 # Changelog
 
+## 26 October 2026 - Continued Portal bulk tests and FarmUp validation
+
+- Reject impossible FarmUp visit dates and values longer than their canonical
+  text columns before creating records. Reuse the established date parser and
+  model limits; valid historical date formats remain accepted.
+- Add mixed 560-row FarmUp atomicity/partial/retry checks, a 600-row monthly
+  replacement with additions/changes/removals, and recovery of 80 BRO entries
+  through a Sheet outage and a lost response after an accepted write.
+- Reconcile a new 2,000-entry BRO run with 100 complete case journeys and a
+  1,501-row SysUp run with 60 complete journeys: all 3,501 final Sheet rows,
+  signed workspaces/stored files and 7,766 integration operations reconcile.
+  Separately match a fresh SysUp upload against all 2,000 populated BRO cases.
+- Verify 999 backend checks with six PostgreSQL-only skips. Additional older
+  Jawabu tests have the same 15 failures/one error with the committed validator;
+  retain that baseline comparison rather than treating the whole repository as
+  green. Continued volume results and open request-duration/held-counter limits
+  are recorded in `docs/portal-miniapp-audit-2026-10-26.md` and `KNOWN_GAPS.md`.
+- No schema, permission, configuration-value or UI changes; no deployment or
+  real provider writes. SysUp upload matching still runs in one request.
+
 ## 26 October 2026 - Portal volume testing, whole-file SysUp and HB navigation
 
 - Accept whole SysUp CSV/XLSX files within the existing file-size guard; match

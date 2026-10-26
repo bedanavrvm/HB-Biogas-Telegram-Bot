@@ -260,6 +260,7 @@ def parse_system_export(
         raise ValueError('The /sysup command only supports .csv or .xlsx system exports.')
     chunk_size = max(1, int(getattr(settings, 'SYSUP_PROCESSING_CHUNK_SIZE', 400) or 400))
     rows = []
+    # shortcut: chunks share one request; use durable matching if upload latency exceeds worker budgets.
     for start in range(0, len(source_rows), chunk_size):
         rows.extend(resolve_system_export_row(_normalise_system_row(raw, row_number))
                     for row_number, raw in source_rows[start:start + chunk_size])

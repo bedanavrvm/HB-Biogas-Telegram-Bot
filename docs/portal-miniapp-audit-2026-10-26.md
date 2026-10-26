@@ -1,10 +1,45 @@
 # Portal Mini App behavior and workflow audit
 
-Date: 26 October 2026. Base checkout: `6bd755bf`. Updated after the requested remediation. Application fixes, regression tests and isolated diagnostic scripts are present in the working tree. No deployment, migration, operational-data change or external write was performed.
+Date: 26 October 2026. Initial base checkout: `6bd755bf`; continued bulk-test base: `71be1683`. Updated after the requested remediation and bulk testing. No deployment, migration, operational-data change or real external write was performed.
+
+## Continued bulk verification
+
+The current Portal gate runs **1,005 tests: 999 pass, six PostgreSQL-only checks skip, no failures/errors**. Four new regression scenarios cover mixed-quality bulk intake, monthly replacement reconciliation, dates/text limits, and publication failure recovery. The 211-route/858-request sweep runs again within this gate. The prior 271-test Chromium result remains applicable to the unchanged UI; browsers were not rerun for this backend validation change.
+
+Confirmed additional evidence:
+
+| Scenario | Result |
+| --- | --- |
+| 2,000 BRO entries without SysUp | 1,800 initially deposit-held leads and 200 immediate visits; 100 selected cases complete signed orders, matched invoices, mixed-mode signed payment, installation and commissioning. All 2,000 final Sheet rows reconcile and 3,950 integration operations succeed |
+| 1,501-row SysUp journey | All 1,501 final Sheet rows reconcile; 60 cases complete signed orders, matched invoices, mixed-mode signed payment, installation and commissioning; 3,816 integration operations succeed |
+| SysUp against 2,000 existing BRO cases | Every row matches its existing immutable case; no new case is created. A 400-row selected request commits 20 and retains 1,980 outstanding rows, preserving workflow states, HB deposits and source bytes. Exact upload replay succeeds |
+| 560-row mixed FarmUp source | 400 valid rows, 40 repeated identities, 40 bad primary phones, 40 missing IDs and 40 negative deposits. Selecting all fails atomically with no customer/case writes. Selecting the valid 400 commits once and retains all 160 held rows; exact retry replays, changed-payload retries and stale revisions are rejected |
+| Revised 600-row monthly source | Original: 200 committed and 400 held. Replacement reverses order, changes 50 held rows, removes 100 held rows and adds 100. All 100 removed held rows survive reconciliation; selecting 150 additions/corrections results in exactly 350 canonical cases and retains both source versions |
+| 80 BRO entries during a Sheet outage | Canonical creation never calls Google. The queue backs off after failure; an accepted Sheet write with a lost response also retries safely. Final state: 80 canonical cases, 80 succeeded publications and exactly 80 Sheet rows keyed by immutable case UUID |
+
+The two new full-workflow cohorts complete **160 additional case journeys**, bringing the varied full-workflow total to **260**, plus the original two-case smoke journey. All **3,501 final Sheet rows** and **7,766 integration operations** reconcile across these two isolated databases. Retained order workbooks and local Drive files pass checksum checks. The BRO run retains 1,072 upload records/205 distinct content blobs; SysUp retains 304 upload records/127 distinct blobs. Local elapsed times were 1,904.4 and 1,558.2 seconds respectively; the runs overlapped on one machine.
+
+**New fixes:** shared FarmUp review validation now rejects impossible calendar dates and text exceeding canonical model column lengths before customer/case writes. Tests preserve leap-day, ISO, month-name and spreadsheet-apostrophe formats, accept a 255-character name and reject 256. The check uses the existing date parser and model limits; it introduces no new future-date policy, schema, permission or UI change. Six invalid dates and the overlong name were first reproduced as failing checks in `test-results/portal-bulk-dates-red.txt`.
+
+**Open findings:** populated-data SysUp staging took **47.198 seconds** for 2,000 existing cases, despite the 400-row matching slices; the slices run within one upload request. The first commit took 2.336 seconds and exact staging replay 0.125 seconds. The new 1,501-row journey also spent 140.6 seconds in its FarmUp commit; the earlier 5,000-row commit took 307.0 seconds. Large-file production acceptance therefore still needs resumable durable upload matching and bounded FarmUp commit execution. These in-process, local SQLite timings include concurrent synthetic runs on one machine and do not establish production latency or proxy/worker timeout behavior.
+
+The monthly replacement exposes a separate receipt-count defect: validation recognizes 200 unchanged committed rows, but committing the 150 selected additions/corrections reports 550 held instead of 350 uncommitted held rows. The extra 200 are existing unchanged cases. Canonical case counts, committed counts and source retention reconcile; receipt/count alignment remains open.
+
+A supplemental older `core.tests.JawabuWorkflowServiceTest` group runs 40 tests with **15 failures and one error**. Repeating it with the exact committed `farmup_review_validation_notes` function produces the identical failing test set, with no new failures from this change. The unresolved legacy group includes UUID/source mapping and historical date/parser assertions; it is separate from the passing Portal gate. This report does not claim the whole repository is green.
+
+New evidence is retained under `test-results/portal-local-audit-2026-10-26/`:
+
+- `volume-office-2000-1793001207927692900/verification.json`: independent reconciliation of the completed BRO run, including all 100 orders/invoices/commissioned actions and its signed payment batch.
+- `volume-sysup-1501-1793001208481178300/verification.json` and its DB, Sheet CSVs, workbook/PDF bytes and local Drive manifest.
+- `existing-sysup-2000-1793002698755094700/verification.json`: matching against a SQLite backup of the populated synthetic BRO database; the source run is not modified.
+- `variance-probes.json`, `suite-summary.json`, `legacy-current-summary.json`, `legacy-baseline-summary.json`; logs: `test-results/portal-bulk-final-backend.txt`, `portal-bulk-outage.txt`, `portal-bulk-legacy-baseline.txt`.
+- Reproduction: the existing `scripts/portal_local_audit.py --volume office --rows 2000 --complete 100` and `--volume sysup --rows 1501 --complete 60`; use `--verify-volume <output-directory>` for independent reconciliation. Additional baseline/existing-data probe scripts are retained in ignored `test-results/`.
+
+The large journeys started on `71be1683`; the revised validation is separately exercised by the current passing gate and mixed-source tests. All data is synthetic, network connections are blocked, `.env` is ignored, and publication/storage transports are local. PostgreSQL locking, live Telegram devices and real provider quotas/sharing remain unverified.
 
 ## Expanded variance and whole-file handling
 
-The latest gate runs **1,001 backend tests: 995 pass, six PostgreSQL-only tests skip, and none fail or error**. All **271 Portal/FarmUp Chromium tests pass**, including automatic SysUp continuation and retry after a partial commit. A separate sweep exercises **211 Portal route patterns with 858 GET/POST/PATCH/DELETE requests** using ordinary IT and BRO accounts; no request returns a server error. These are route/validation checks, not successful business execution of every action with every possible payload.
+The preceding gate ran **1,001 backend tests: 995 pass, six PostgreSQL-only tests skip, and none fail or error**. All **271 Portal/FarmUp Chromium tests pass**, including automatic SysUp continuation and retry after a partial commit. A separate sweep exercises **211 Portal route patterns with 858 GET/POST/PATCH/DELETE requests** using ordinary IT and BRO accounts; no request returns a server error. These are route/validation checks, not successful business execution of every action with every possible payload.
 
 | Dataset / route | Verified outcome |
 | --- | --- |
