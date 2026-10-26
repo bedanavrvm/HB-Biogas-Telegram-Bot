@@ -119,3 +119,44 @@ class OriginationMaintenanceBrowserTests(StaticLiveServerTestCase):
             definition.refresh_from_db()
             self.assertEqual(definition.lifecycle_status,'published')
             self.assertTrue(definition.product_version.product.active)
+
+    def test_document_removal_and_shared_identity_are_persistent(self):
+        from origination.models import OriginationDocumentTemplate, OriginationDataField
+        from origination.services.origination_templates import save_calibration_draft, initial_template_configuration
+        from origination.services.origination_fields import template_form_contract
+        self.client.force_login(self.superuser)
+        for key, label, kind in [('synthetic_main_name', 'Main applicant', 'text'),
+                                  ('synthetic_main_phone', 'Main phone', 'phone')]:
+            OriginationDataField.objects.create(key=key, label=label, data_type=kind)
+        rules = [{'role': 'borrower', 'label': 'Borrower', 'required': True,
+            'identity_fields': {'name': 'synthetic_main_name', 'phone': 'synthetic_main_phone', 'national_id': None},
+            'slots': [{'key': 'signature', 'type': 'signature', 'required': True}]},
+            {'role': 'officer', 'label': 'Officer', 'required': True,
+             'slots': [{'key': 'signature', 'type': 'signature', 'required': True}]}]
+        configuration = initial_template_configuration(None, form_schema={'fields': []})
+        configuration.update(document_type='synthetic-shared-visit', version=1)
+        configuration['signature_overlay_manifest']['slots'] = {role + '.signature': {
+            'role': role, 'slot_key': 'signature', 'slot_type': 'signature', 'label': role + ' signature',
+            'page_number': 1, 'box': {'x': 30, 'y': 100 + index * 60, 'width': 120, 'height': 30}}
+            for index, role in enumerate(['borrower', 'officer'])}
+        pdf = synthetic_pdf()
+        document = OriginationDocumentTemplate.objects.create(document_type='synthetic-shared-visit',
+            version=1, name='Synthetic Home visit', document_role='supporting', document_key='home_visit',
+            status='ready', form_schema={'fields': [], 'sections': [], 'required_signer_roles': ['asset_owner', 'officer']},
+            signer_rules=rules, drive_file_id='synthetic', source_filename='synthetic.pdf',
+            page_count=1, source_byte_size=len(pdf), source_sha256=__import__('hashlib').sha256(pdf).hexdigest(),
+            placement_config=configuration, created_by=self.superuser)
+        save_calibration_draft(template=document, configuration=configuration, actor=self.superuser,
+            expected_revision=0, client_request_id='synthetic-contract-initial')
+        output = Path(settings.BASE_DIR) / 'test-results/origination-configuration-browser'
+        output.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(['node', str(Path(settings.BASE_DIR) / 'scripts/test_origination_document_configuration_browser.js'),
+            self.live_server_url + reverse('admin:origination_originationdocumenttemplate_calibrate', args=[document.pk]), str(output)],
+            cwd=settings.BASE_DIR, env={**os.environ, 'QA_SESSION_ID': self.client.cookies[settings.SESSION_COOKIE_NAME].value},
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        print(result.stdout)
+        document.refresh_from_db()
+        self.assertEqual([rule['role'] for rule in document.signer_rules], ['borrower'])
+        self.assertEqual(template_form_contract(document)[1][0]['identity_fields']['phone'], 'synthetic_main_phone')
+        self.assertEqual(document.form_schema['fields'], [])

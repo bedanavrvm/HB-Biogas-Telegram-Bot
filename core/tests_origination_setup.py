@@ -21,6 +21,33 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def test_origination_requirements_edit_reuses_published_financial_terms(self):
+        original, _document = self._published_maintenance_product()
+        before = type(original.product_version).objects.values().get(pk=original.product_version_id)
+        self.client.post(reverse('admin:origination_origination_setup_revise', args=[original.pk]),
+                         {'request_id': 'local-requirements-version'})
+        successor = OriginationProductDefinition.objects.get(product_key=original.product_key, lifecycle_status='draft')
+        self.assertEqual(successor.product_version_id, original.product_version_id)
+        url = reverse('admin:origination_origination_setup_step', args=[successor.pk, 'terms'])
+        response = self.client.get(url)
+        self.assertContains(response, 'Origination requirements')
+        self.assertContains(response, 'Edit shared financial terms')
+        response = self.client.post(url, {'request_id': 'local-requirements-save', 'intent': 'stay',
+            'expected_tokens': json.dumps(step_tokens(successor)), 'interest_rate': '999',
+            'requirements-TOTAL_FORMS': '1', 'requirements-INITIAL_FORMS': '0',
+            'requirements-0-key': 'visit_proof', 'requirements-0-label': 'Visit proof',
+            'requirements-0-position': '0', 'requirements-0-requirement_type': 'document',
+            'requirements-0-enforcement_stage': 'review', 'requirements-0-required': 'on',
+            'requirements-0-active': 'on', 'attributes-TOTAL_FORMS': '0', 'attributes-INITIAL_FORMS': '0'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 200, response.content[:1000])
+        successor.refresh_from_db()
+        self.assertEqual(successor.workflow_configuration['requirements'][0]['key'], 'visit_proof')
+        self.assertEqual(type(original.product_version).objects.values().get(pk=original.product_version_id), before)
+        self.assertEqual(original.product_version.product.versions.count(), 1)
+        original.refresh_from_db()
+        self.assertFalse(original.workflow_configuration.get('requirements'))
+
     def test_autosave_retry_binds_actor_and_content_and_preserves_invalid_input(self):
         self.test_terms_can_save_without_forcing_optional_repeatable_rows()
         definition = OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
@@ -124,7 +151,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         source.refresh_from_db()
         self.assertEqual(source.form_schema['fields'][0]['label'], original['label'])
 
-    def test_field_removal_removes_placements_and_blocks_missing_commercial_contract(self):
+    def test_field_removal_keeps_product_ready_without_requiring_pdf_loan_inputs(self):
         from origination.services.origination_setup_documents import prepare_edit, document_readiness
         from origination.services.origination_fields import edit_template_field, template_schema_revision
         definition, source = self._published_maintenance_product()
@@ -136,7 +163,7 @@ class OriginationSetupWorkspaceTests(TestCase):
             expected_revision=revision.revision, request_id='remove-field')
         self.assertNotIn(key, [item['key'] for item in draft.form_schema['fields']])
         self.assertNotIn(key, draft.configuration_revisions.order_by('-revision').first().configuration['field_overlay_manifest']['fields'])
-        self.assertTrue(document_readiness(definition)[1])
+        self.assertEqual(document_readiness(definition)[1], [])
         self.assertIn(key, [item['key'] for item in source.form_schema['fields']])
 
     def test_field_edit_rejects_stale_revision_and_published_documents(self):
@@ -295,7 +322,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         original.refresh_from_db()
         response = self.client.post(reverse(
             'admin:origination_origination_setup_revise', args=[original.pk]),
-            {'request_id': str(uuid.uuid4())})
+            {'edit_shared_terms': '1', 'request_id': str(uuid.uuid4())})
         self.assertEqual(response.status_code, 302)
         successor = OriginationProductDefinition.objects.get(product_key=original.product_key, lifecycle_status='draft')
         self.assertEqual(original.product_version.effective_from, successor.product_version.effective_from)
@@ -456,7 +483,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         definition.refresh_from_db()
         self.assertEqual(definition.lifecycle_status, 'published')
 
-    def test_incompatible_attachment_returns_a_useful_error_without_creating_a_copy(self):
+    def test_static_document_can_attach_without_product_form_fields(self):
         from origination.models import OriginationDocumentProductEligibility
         definition = self._ready_guided_draft()
         template = OriginationDocumentTemplate.objects.get(document_type='guided-ready-laf')
@@ -466,9 +493,9 @@ class OriginationSetupWorkspaceTests(TestCase):
             'templates': [template.pk], 'request_id': 'attach-incompatible', 'intent': 'stay',
             'expected_tokens': json.dumps(step_tokens(definition)),
         }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Guided Main LAF', response.json()['error'])
-        self.assertFalse(template.product_eligibilities.exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertTrue(template.product_eligibilities.exists())
         self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='synthetic-folder')
@@ -683,7 +710,7 @@ class OriginationSetupWorkspaceTests(TestCase):
 
     def test_legacy_confirmation_hash_cannot_soft_lock_valid_terms(self):
         definition = self._ready_guided_draft()
-        event = definition.product_version.events.get(
+        event = definition.events.get(
             action='setup_step_completed', metadata__step_key='terms')
         metadata = dict(event.metadata)
         metadata.pop('content_sha256')
@@ -697,7 +724,7 @@ class OriginationSetupWorkspaceTests(TestCase):
         published = publish_product_version(version=definition.product_version, actor=self.superuser)
         response = self.client.post(reverse(
             'admin:origination_origination_setup_revise', args=[definition.pk]),
-            {'request_id': str(uuid.uuid4())})
+            {'edit_shared_terms': '1', 'request_id': str(uuid.uuid4())})
         self.assertEqual(response.status_code, 302)
         definition.refresh_from_db()
         self.assertNotEqual(definition.product_version_id, published.pk)
@@ -1032,6 +1059,6 @@ class OriginationSetupWorkspaceTests(TestCase):
         version.refresh_from_db()
         self.assertEqual(str(version.min_amount), '1000.00')
         self.assertEqual(version.fees.count(), 0)
-        self.assertEqual(version.events.filter(
+        self.assertEqual(definition.events.filter(
             action='setup_step_completed', metadata__step_key='terms',
         ).count(), 1)

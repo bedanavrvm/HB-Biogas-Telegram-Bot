@@ -12,6 +12,7 @@ import hashlib
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from origination.models import OriginationDocumentProductEligibility
@@ -23,6 +24,7 @@ from core.models import (
     Product,
     ProductAvailability,
     ProductMappingIssue,
+    ProductRequirement,
     ProductVersion,
 )
 from core.services.access_grant_governance import governed_access_grant_mutation
@@ -48,9 +50,31 @@ def preview_full_product_catalog_reset() -> dict[str, Any]:
     detach_counts: Counter[str] = Counter()
     tombstone_products = []
     deletable_products = []
+    blockers = []
     products = list(Product.objects.order_by('sort_order', 'name', 'pk'))
     for product in products:
         preview = preview_product_deletion(product)
+        reasons = list(preview_product_deletion(product, include_origination_history=True).blockers)
+        workflows = set(product.availability_assignments.exclude(workflow='loan_origination').values_list('workflow', flat=True))
+        for model in (AccessGrant, EmergencyAccessGrant):
+            workflows.update(model.objects.filter(
+                Q(product_ref=product) | Q(product__iexact=product.code) | Q(product__iexact=product.name),
+            ).exclude(workflow='loan_origination').values_list('workflow', flat=True))
+        reasons.extend('Used by ' + (workflow or 'shared workflow availability/access') for workflow in sorted(workflows))
+        if product.versions.filter(tat_configuration__isnull=False).exists():
+            reasons.append('TAT product configuration')
+        if ProductRequirement.objects.filter(product_version__product=product).exclude(
+                workflow='loan_origination').exists():
+            reasons.append('Shared or other-app product requirements')
+        for attribute in product.versions.filter(custom_attributes__isnull=False).values_list(
+                'custom_attributes__workflow_visibility', flat=True):
+            if not attribute or set(attribute) - {'loan_origination'}:
+                reasons.append('Shared or other-app custom attributes')
+                break
+        if JawabuApprovalDelegation.objects.filter(product_ref=product).exists():
+            reasons.append('Portal approval delegation')
+        if reasons:
+            blockers.append({'id': str(product.pk), 'name': product.name, 'reasons': reasons})
         detach_counts.update(preview.detach_counts)
         legacy_statuses = list(product.versions.exclude(
             status=ProductVersion.STATUS_DRAFT,
@@ -108,7 +132,8 @@ def preview_full_product_catalog_reset() -> dict[str, Any]:
         'tombstone_products': tombstone_products,
         'tombstone_count': len(tombstone_products),
         'deletable_product_ids': deletable_products,
-        'can_reset': True,
+        'can_reset': not blockers,
+        'blockers': blockers,
     }
 
 
@@ -312,6 +337,9 @@ def reset_full_product_catalog(*, actor, reason: str, request_id: str) -> dict[s
 
     products = list(Product.objects.select_for_update().order_by('pk'))
     before = preview_full_product_catalog_reset()
+    if not before['can_reset']:
+        raise ProductCatalogFullResetError('Reset blocked: products are used by other apps. ' + ' '.join(
+            item['name'] + ': ' + '; '.join(item['reasons']) + '.' for item in before['blockers']))
 
     deleted: Counter[str] = Counter()
     detached: Counter[str] = Counter()

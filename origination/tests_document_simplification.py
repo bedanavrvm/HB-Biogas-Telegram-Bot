@@ -118,12 +118,12 @@ class AdvisoryPublicationTests(_EditorFixture):
         self.assertEqual(self.document.status, 'ready')
         self.assertIsNone(self.document.published_configuration_revision_id)
 
-    def test_empty_alignment_can_publish_with_warnings(self):
+    def test_static_document_can_publish_without_unused_field_warnings(self):
         saved = save_calibration_draft(template=self.document, configuration=self.document.placement_config,
             actor=self.actor, expected_revision=0, client_request_id='empty-save')
         self.document.refresh_from_db()
         self.assertTrue(readiness(self.document)['can_publish'])
-        self.assertGreater(readiness(self.document)['outstanding_count'], 0)
+        self.assertEqual(readiness(self.document)['outstanding_count'], 0)
         published = publish_document(document=self.document, actor=self.actor, revision=saved.revision,
             request_id='empty-publish', impact_token='')
         self.assertEqual(published.status, 'active')
@@ -217,3 +217,28 @@ class ConcurrentSeedIdentityTests(TransactionTestCase):
         self.assertEqual(sum(created for _pk, created in results), 1)
         self.assertEqual(OriginationDocumentTemplate.objects.count(), 1)
         self.assertEqual(upload.call_count, 1)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'Requires real PostgreSQL row locks.')
+class ConcurrentEditableDocumentTests(TransactionTestCase):
+    def test_independent_editor_requests_reuse_one_copy_without_caller_transaction(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        EditableAlignmentTests.setUp(self)
+        barrier = Barrier(2)
+
+        def run():
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                document, replayed = clone_reusable_template_version(self.source, actor=self.actor)
+                return document.pk, replayed
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = [pool.submit(run) for _ in range(2)]
+            results = [result.result(timeout=30) for result in results]
+        self.assertEqual(results[0][0], results[1][0])
+        self.assertEqual(sum(not replayed for _pk, replayed in results), 1)
+        self.assertEqual(OriginationDocumentTemplate.objects.filter(status='ready').count(), 1)

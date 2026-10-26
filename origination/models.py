@@ -315,6 +315,8 @@ class OriginationProductDefinition(models.Model):
     version = models.PositiveIntegerField(default=1, db_comment='Version (PositiveIntegerField).')
     form_schema = models.JSONField(default=dict, db_comment='Form schema (JSONField).')
     signer_rules = models.JSONField(default=list, db_comment='Signer rules (JSONField).')
+    workflow_configuration = models.JSONField(default=dict, blank=True,
+        db_comment='Origination-owned versioned requirements and custom attributes. Snapshotted on applications; independent of shared commercial terms.')
     signing_policy = models.CharField(max_length=24, default='legacy', choices=[
         ('legacy', 'Existing approval policy'), ('all_required', 'All required signers complete approval'),
     ], db_comment='Published completion policy; legacy records are never reinterpreted.')

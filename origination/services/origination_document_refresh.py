@@ -195,6 +195,8 @@ def refresh_documents(*, application_id, actor, expected_revision, request_id, u
                   'values': deepcopy(row['document'].field_payload)} for row in rows]}
     old_fields = _fields(application.schema_snapshot)
     new_fields = _fields(main['schema'])
+    for field in application.schema_snapshot.get('application_input_fields', []):
+        old_fields[field['key']] = new_fields[field['key']] = field
     previous_signer_keys = set()
     for row in rows:
         previous_signer_keys.update(str(rule.get('participant_key') or rule.get('role'))
@@ -206,7 +208,8 @@ def refresh_documents(*, application_id, actor, expected_revision, request_id, u
             if (field.get('value_contract') or {}).get('scope') == 'application':
                 new_fields.setdefault(field['key'], field)
     application.form_payload, cleared = _retain_answers(application.form_payload, old_fields, new_fields)
-    for flag in ('acknowledgement_version', 'identity_copy_policy', 'document_completion_version'):
+    for flag in ('acknowledgement_version', 'identity_copy_policy', 'document_completion_version',
+                 'application_input_fields', 'commercial_contract_version'):
         if flag in application.schema_snapshot:
             main['schema'][flag] = application.schema_snapshot[flag]
     main['schema']['form_projection_version'] = 2

@@ -123,6 +123,7 @@ def _schema_fields(schema: dict[str, Any]) -> list[dict[str, Any]]:
 
 def validate_product_form_contract(
     form_schema: dict[str, Any], signer_rules: Any, *, require_signers: bool = True,
+    require_fields: bool = True, allow_shared_identity: bool = False,
 ) -> None:
     """Validate a visual form contract before template calibration.
 
@@ -131,7 +132,7 @@ def validate_product_form_contract(
     existing signer requirement by default.
     """
     fields = _schema_fields(form_schema)
-    if not fields:
+    if require_fields and not fields:
         raise OriginationError('An active origination product requires at least one form field.')
     keys = [str(field.get('key') or '').strip() for field in fields]
     if any(not key for key in keys) or len(keys) != len(set(keys)):
@@ -301,6 +302,8 @@ def validate_product_form_contract(
                 continue
             identity_field = fields_by_key.get(field_key)
             if not identity_field:
+                if allow_shared_identity:
+                    continue
                 raise OriginationError(
                     f'Signer {rule.get("role")} {identity_kind.replace("_", " ")} mapping '
                     'must reference a field in this form.',
@@ -330,8 +333,14 @@ def validate_product_form_contract(
 
 def validate_product_definition(definition: OriginationProductDefinition, *, document_owned: bool = False) -> None:
     """Reject activation of an incomplete product compatibility profile."""
-    validate_product_form_contract(definition.form_schema, [] if document_owned else definition.signer_rules,
-                                   require_signers=not document_owned)
+    if not document_owned:
+        validate_product_form_contract(definition.form_schema, definition.signer_rules)
+    from origination.services.origination_product_configuration import validate_configuration
+    from django.core.exceptions import ValidationError
+    try:
+        validate_configuration(definition.workflow_configuration)
+    except ValidationError as exc:
+        raise OriginationError('; '.join(exc.messages)) from exc
     from origination.services.origination_approval import validate_approval_roles
     validate_approval_roles(definition.approval_roles, None if document_owned else definition.signer_rules)
     if definition.signing_policy == 'all_required':
@@ -1296,6 +1305,8 @@ def create_application(
         serialize_product_version(definition.product_version)
         if definition.product_version_id else {}
     )
+    from origination.services.origination_product_configuration import apply_configuration
+    terms_snapshot = apply_configuration(terms_snapshot, definition)
     from origination.services.origination_documents import resolved_document_requirements
     if catalogue_selection:
         document_requirements = []
@@ -1350,6 +1361,9 @@ def create_application(
             schema_snapshot['identity_copy_policy'] = 1
             if catalogue_selection:
                 schema_snapshot['document_completion_version'] = 1
+                from origination.services.origination_commercial_terms import application_loan_inputs
+                schema_snapshot['application_input_fields'] = application_loan_inputs()
+                schema_snapshot['commercial_contract_version'] = 2
             initial_payload = {}
             if (
                 commercial_contract_enabled(schema_snapshot)
@@ -1639,7 +1653,11 @@ def save_application_fields(
             raise OriginationError('One or more selected fees are not available for this product version.')
     if custom_values is not None:
         from core.services.product_catalog import validate_custom_values
-        errors = validate_custom_values(application.product_version, custom_values, workflow='loan_origination')
+        if (application.product_terms_snapshot or {}).get('_origination_configuration_version'):
+            from origination.services.origination_product_configuration import validate_snapshot_custom_values
+            errors = validate_snapshot_custom_values(application.product_terms_snapshot, custom_values)
+        else:
+            errors = validate_custom_values(application.product_version, custom_values, workflow='loan_origination')
         if errors:
             raise OriginationError(
                 next(iter(errors.values())),
@@ -1874,7 +1892,9 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
                 'Correct the Commercial Terms readiness items before review.',
                 errors=errors,
             )
-    if application.schema_snapshot.get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
+    from origination.services.origination_value_contracts import form_projection_version
+    if (application.schema_snapshot.get('identity_contract') == APPLICANT_IDENTITY_CONTRACT
+            and form_projection_version(application) < 2):
         identity = applicant_identity_snapshot(
             application.form_payload, schema=application.schema_snapshot,
             signer_rules=application.signer_rules_snapshot,

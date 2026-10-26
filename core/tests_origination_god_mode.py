@@ -235,16 +235,18 @@ class OriginationGodModeTests(TestCase):
         with self.assertRaises(NoReverseMatch):
             reverse('admin:core_tattrackercase_god_mode_purge', args=['test-record'])
 
-    def test_full_reset_registry_covers_owned_models_and_preserves_phone_pilot_evidence(self):
+    def test_full_reset_registry_preserves_phone_pilot_evidence_and_reference_allocator(self):
         discovered = {
             model
             for model in apps.get_app_config('origination').get_models()
             if model.__name__.startswith('Origination')
             or model is LoanOriginationApplication
         }
-        preserved = {model for model in discovered if model.__name__.startswith('OriginationPhoneIdentity')}
+        preserved = {model for model in discovered if model.__name__.startswith('OriginationPhoneIdentity')
+                     or model.__name__ == 'OriginationApplicationReferenceSequence'}
         self.assertEqual({model.__name__ for model in preserved}, {
             'OriginationPhoneIdentitySubject', 'OriginationPhoneIdentityCheck', 'OriginationPhoneIdentityDailyUsage',
+            'OriginationApplicationReferenceSequence',
         })
         self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered - preserved)
         self.assertEqual(len(ORIGINATION_RESET_MODELS), 26)

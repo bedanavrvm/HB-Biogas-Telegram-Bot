@@ -427,6 +427,7 @@ def portal_origination_products(request):
         serialize_product_version,
     )
     from origination.services.origination_document_catalogue import catalogue_for_product, catalogue_revision
+    from origination.services.origination_product_configuration import apply_configuration
     current_catalogue_revision = catalogue_revision()
     payload = []
     for item in products:
@@ -457,7 +458,7 @@ def portal_origination_products(request):
             'id': item.product_version.product_id if item.product_version_id else None,
             'product_key': item.product_key, 'name': item.name, 'version': item.version,
             'global_product_version_id': str(item.product_version_id or ''),
-            'terms': serialize_product_version(item.product_version) if item.product_version_id else {},
+            'terms': apply_configuration(serialize_product_version(item.product_version), item) if item.product_version_id else {},
             'form_schema': item.form_schema, 'signer_rules': item.signer_rules,
             'lifecycle_status': item.lifecycle_status,
             'document_type': item.document_type,

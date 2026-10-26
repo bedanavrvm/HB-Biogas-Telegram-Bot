@@ -116,6 +116,9 @@ class SetupFeeForm(OptionalSetupRowMixin, forms.ModelForm):
 class SetupRequirementForm(OptionalSetupRowMixin, forms.ModelForm):
     minimum = forms.DecimalField(required=False)
     maximum = forms.DecimalField(required=False)
+    enforcement_stage = forms.ChoiceField(required=False, choices=(
+        ('', 'No transition requirement'), ('review', 'Before review'), ('signing', 'Before signing'),
+    ))
 
     class Meta:
         model = ProductRequirement
@@ -127,8 +130,11 @@ class SetupRequirementForm(OptionalSetupRowMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         config = self.instance.validation_config if self.instance.pk else {}
-        self.fields['minimum'].initial = config.get('min')
-        self.fields['maximum'].initial = config.get('max')
+        self.fields['minimum'].initial = self.initial.get('minimum', config.get('min'))
+        self.fields['maximum'].initial = self.initial.get('maximum', config.get('max'))
+        stage = self.initial.get('enforcement_stage', '')
+        if stage and stage not in {'review', 'signing'}:
+            self.fields['enforcement_stage'].choices.append((stage, stage + ' (retained legacy stage)'))
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -159,7 +165,7 @@ class SetupAttributeForm(OptionalSetupRowMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['choices'].initial = '\n'.join(str(item) for item in (self.instance.options or []))
+        self.fields['choices'].initial = self.initial.get('choices', '\n'.join(str(item) for item in (self.instance.options or [])))
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -172,15 +178,60 @@ class SetupAttributeForm(OptionalSetupRowMixin, forms.ModelForm):
             instance.save()
         return instance
 
+    def clean(self):
+        cleaned = super().clean()
+        self.instance.options = [item.strip() for item in cleaned.get('choices', '').splitlines() if item.strip()]
+        return cleaned
+
+
+class LocalConfigurationFormSet(forms.BaseFormSet):
+    def clean(self):
+        super().clean()
+        keys = [form.cleaned_data.get('key') for form in self.forms
+                if form.cleaned_data and not form.cleaned_data.get('DELETE')]
+        if len(keys) != len(set(keys)):
+            raise forms.ValidationError('Use a distinct key for each item.')
+
+
+def local_configuration_forms(data, configuration):
+    configuration = configuration or {}
+    requirements = [{**item, 'requirement_type': item['type'], 'active': item.get('active', True),
+        'position': index, 'minimum': (item.get('validation') or {}).get('min'),
+        'maximum': (item.get('validation') or {}).get('max')}
+        for index, item in enumerate(configuration.get('requirements', []))]
+    attributes = [{**item, 'attribute_type': item['type'], 'position': index,
+        'choices': '\n'.join(str(option) for option in item.get('options', []))}
+        for index, item in enumerate(configuration.get('custom_attributes', []))]
+    factory = forms.formset_factory
+    return (factory(SetupRequirementForm, formset=LocalConfigurationFormSet, extra=1, can_delete=True)(
+                data, initial=requirements, prefix='requirements'),
+            factory(SetupAttributeForm, formset=LocalConfigurationFormSet, extra=1, can_delete=True)(
+                data, initial=attributes, prefix='attributes'))
+
+
+def local_configuration_values(requirements, attributes, previous):
+    result = {'version': 1, 'requirements': [], 'custom_attributes': []}
+    for name, formset in [('requirements', requirements), ('custom_attributes', attributes)]:
+        originals = {item['key']: item for item in (previous or {}).get(name, [])}
+        for form in formset.forms:
+            if not form.cleaned_data or form.cleaned_data.get('DELETE') or not form.cleaned_data.get('key'):
+                continue
+            instance = form.save(commit=False)
+            item = {**originals.get(instance.key, {}), 'key': instance.key, 'label': instance.label,
+                    'required': instance.required}
+            if name == 'requirements':
+                item.update(type=instance.requirement_type, description=instance.description,
+                    validation=instance.validation_config, workflow='loan_origination',
+                    enforcement_stage=instance.enforcement_stage, active=instance.active)
+            else:
+                item.update(type=instance.attribute_type, help_text=instance.help_text,
+                    options=instance.options, workflows=['loan_origination'])
+            result[name].append(item)
+    return result
+
 
 FeeFormSet = inlineformset_factory(
     ProductVersion, ProductFee, form=SetupFeeForm, extra=1, can_delete=True,
-)
-RequirementFormSet = inlineformset_factory(
-    ProductVersion, ProductRequirement, form=SetupRequirementForm, extra=1, can_delete=True,
-)
-AttributeFormSet = inlineformset_factory(
-    ProductVersion, ProductCustomAttribute, form=SetupAttributeForm, extra=1, can_delete=True,
 )
 
 

@@ -36,7 +36,9 @@ class ValueResolutionTests(SimpleTestCase):
         self.assertEqual(build_packet_contract({'fields': []}, []), {'version': 1, 'fields': {}, 'documents': {}})
 
     def test_mixed_value_setups_are_rejected_in_both_directions(self):
-        for main, support in [({'fields': []}, schema()), (schema(), {'fields': []})]:
+        legacy = {'fields': [{'key': 'legacy_notes', 'type': 'text'}]}
+        reviewed = schema(field('applicant_name'))
+        for main, support in [(legacy, reviewed), (reviewed, legacy)]:
             with self.assertRaises(ValueContractError):
                 build_packet_contract(main, [{'key': 'support', 'schema': support}])
 
@@ -576,14 +578,15 @@ class ChosenDocumentMeaningTests(TestCase):
     def test_optional_legacy_support_does_not_hide_a_new_main(self):
         from origination.services.origination_document_catalogue import catalogue_for_product, validate_document_combination
         main = self.template(family='new_main', name='New Main', schema=upgrade_schema(self.schema))
-        support = self.template(family='old_support', name='Old support', role='supporting', schema={'fields': []})
+        support = self.template(family='old_support', name='Old support', role='supporting',
+            schema={'fields': [{'key': 'legacy_notes', 'type': 'text'}]})
         catalogue = catalogue_for_product(self.definition)
         self.assertTrue(catalogue['ready'])
         self.assertEqual(catalogue['supporting_documents'][0]['compatible_main_ids'], [])
         with self.assertRaises(OriginationError):
             validate_document_combination(main, [support])
 
-    def test_publication_refuses_required_future_event_and_missing_legal_role(self):
+    def test_publication_refuses_future_event_but_ignores_retired_seed_roles(self):
         from origination.services.origination_document_catalogue import validate_catalogue_publication
         support = self.template(family='future_event', name='Future event', role='supporting',
             schema=schema(field('received', source='workflow', binding='workflow.received_amount', required=True)))
@@ -591,8 +594,7 @@ class ChosenDocumentMeaningTests(TestCase):
         with self.assertRaisesRegex(OriginationError, 'later workflow event'):
             validate_catalogue_publication(support)
         support.form_schema = {**schema(), 'required_signer_roles': ['asset_owner']}
-        with self.assertRaisesRegex(OriginationError, 'asset owner'):
-            validate_catalogue_publication(support)
+        validate_catalogue_publication(support)
 
     def test_selection_rejects_layout_with_too_few_rows_before_creation(self):
         from origination.services.origination_document_catalogue import validate_document_combination

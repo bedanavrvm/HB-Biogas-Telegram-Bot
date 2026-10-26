@@ -53,12 +53,13 @@ class IndependentOriginationTests(TestCase):
 
     def test_models_and_http_boundary_are_owned_by_app(self):
         owned = list(apps.get_app_config('origination').get_models())
-        self.assertEqual(len(owned),29)
+        self.assertEqual(len(owned),30)
         self.assertTrue(all(model._meta.db_table.startswith(('core_', 'origination_')) for model in owned))
         self.assertTrue(all(model._meta.app_label=='origination' for model in owned))
         self.assertFalse(any('Origination' in model.__name__ for model in apps.get_app_config('core').get_models()))
         managed_through_workspaces = {'OriginationDocumentProductEligibility', 'OriginationReviewerNotice',
-            'OriginationPhoneIdentitySubject', 'OriginationPhoneIdentityCheck', 'OriginationPhoneIdentityDailyUsage'}
+            'OriginationPhoneIdentitySubject', 'OriginationPhoneIdentityCheck', 'OriginationPhoneIdentityDailyUsage',
+            'OriginationApplicationReferenceSequence'}
         self.assertTrue(all(model in admin.site._registry for model in owned if model.__name__ not in managed_through_workspaces))
         self.assertEqual(resolve(reverse('loan_origination_applications')).func.__module__,'origination.views')
         self.assertEqual(reverse('loan_origination_app'),'/origination/')

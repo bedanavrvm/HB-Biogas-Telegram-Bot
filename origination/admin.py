@@ -1886,9 +1886,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             )
         except Exception as exc:
             return self._calibration_error_response(exc)
-        from origination.services.origination_setup_documents import shared_review
-        from origination.services.document_editor import readiness
-        return JsonResponse({'ok': True, 'revision': saved.revision, 'shared_review': shared_review(obj), 'readiness':readiness(obj)})
+        from origination.document_editor_admin import editor_data
+        obj.refresh_from_db()
+        return JsonResponse(editor_data(obj))
 
     def calibration_field_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)

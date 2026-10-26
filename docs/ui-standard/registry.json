@@ -800,6 +800,36 @@
       "sha256": "efd2e8c5bddf389225e77521f583bd6dc691cf09fe4b4db17ecdd97e3dbf7ce7",
       "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
       "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/templates/admin/core/product/full_reset.html",
+      "sha256": "8d73715ce8c4b6ee3558e8eaddac478e7add1c469e46978c442c34c69fe66a44",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
+      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+    },
+    {
+      "path": "origination/static/admin/origination_calibration.js",
+      "sha256": "10ce359771818ee17e6321fbd8a9c0e9b9c8e14d336217aa8317082ce4a7b1d5",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
+      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+    },
+    {
+      "path": "origination/templates/admin/core/origination_setup/detail.html",
+      "sha256": "3a6f73d5784a340a0281b0ffca2abadfe44ce4a4065f3e63b0f60455f1210b96",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
+      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+    },
+    {
+      "path": "origination/templates/admin/core/origination_setup/workspace.html",
+      "sha256": "dca4ce1ed79efa34481d54063911834bfde6403230ab1247652db88c43d4b9ab",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
+      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+    },
+    {
+      "path": "origination/templates/admin/core/originationdocumenttemplate/calibrate.html",
+      "sha256": "9d04e60a72f5c15685397af716338ed425becd41cb5a94e59ed71a2974056b31",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
+      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
     }
   ],
   "source_roots": [

@@ -113,11 +113,6 @@ def readiness(document):
         task('pdf', 'Upload the PDF', 'pdf', blocking=True)
     if document.status in {'active', 'retired'}:
         task('published', 'Create an editable version to change this document', 'pdf', blocking=True)
-    if not schema.get('fields'):
-        task('fields', 'Add a field', 'fields')
-    for role in schema.get('required_signer_roles', []):
-        if not any(rule.get('role') == role and rule.get('required', True) for rule in signers):
-            task('required-signer:' + role, 'Review signer: ' + role.replace('_', ' '), 'signers')
     from origination.services.origination_value_contracts import enabled, field_contract, ValueContractError
     if enabled(schema):
         for field in schema.get('fields', []):
@@ -141,7 +136,8 @@ def readiness(document):
             task('signature:'+key, 'Place: '+spec['label'], 'placement', {'kind':'signature', 'item_key':key})
     if schema.get('fields') and (signers or document.document_role != 'primary'):
         try:
-            validate_product_form_contract(schema, signers, require_signers=document.document_role == 'primary')
+            validate_product_form_contract(schema, signers, require_signers=False,
+                require_fields=False, allow_shared_identity=True)
         except OriginationError as exc:
             task('contract', str(exc), 'signers')
     if fields or slots:
@@ -231,6 +227,7 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
     seen = set()
     placements = set()
     schema = deepcopy(document.form_schema or {'fields':[], 'sections':[]})
+    schema.pop('required_signer_roles', None)
     schema.setdefault('fields', [])
     if not schema.get('sections'):
         schema['sections'] = [{'key':'applicant', 'label':'Applicant'}]
@@ -253,6 +250,10 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
         signature_slots = [slot for slot in rule['slots'] if isinstance(slot, dict) and slot.get('type', 'signature') == 'signature']
         date_slots = [slot for slot in rule['slots'] if isinstance(slot, dict) and slot.get('type') == 'date_signed']
         occupied = {slot.get('key') for slot in rule['slots'] if isinstance(slot, dict)}
+        previous_rule = next((item for item in document.signer_rules or []
+                              if str(item.get('participant_key') or item.get('role')) == participant_key), {})
+        previous_slots = {slot['key'] if isinstance(slot, dict) else slot
+                          for slot in previous_rule.get('slots', [])}
         for signature in signature_slots:
             paired = next((slot for slot in date_slots if slot.get('signature_key') == signature['key']), None)
             if paired:
@@ -260,7 +261,7 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
             available_date = next((slot for slot in date_slots if not slot.get('signature_key')), None)
             if available_date:
                 available_date['signature_key'] = signature['key']
-            else:
+            elif signature['key'] not in previous_slots:
                 date_key = signature['key'] + '_date'
                 while date_key in occupied:
                     date_key += '_signed'
@@ -291,6 +292,9 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
                 existing_field = next((field for field in schema['fields'] if field.get('key') == key), None)
                 if kind == 'phone' and existing_field and existing_field.get('type') not in {'phone', 'text'}:
                     raise ValidationError('Choose a phone field for OTP delivery.')
+                if kind in identity and not existing_field:
+                    # Explicit shared mappings are resolved against the selected packet.
+                    continue
                 if not any(f.get('key') == key for f in schema['fields']):
                     label = rule['label']+' '+kind.replace('_',' ')
                     equivalent = semantic_field_conflict(key=key, label=label, aliases=[]) if participant_key == role else None
@@ -325,6 +329,7 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
     document.save(update_fields=['name','form_schema','signer_rules','updated_at'])
     save_calibration_draft(template=document, configuration=config, actor=actor, expected_revision=revision,
                            client_request_id=request_id+':placement')
+    document.refresh_from_db()
     document.events.create(action='editor_signers_saved', actor=actor,
         metadata={'request_id':request_id,'digest':digest,'roles':sorted(seen),'field_pack':field_pack})
     return document

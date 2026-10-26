@@ -57,7 +57,7 @@ class UnsignedApplicationTests(TestCase):
 
     def ready(self):
         application = self.create()
-        application.form_payload = {'applicant_full_name': 'Synthetic Applicant'}
+        application.form_payload = {'applicant_full_name': 'Synthetic Applicant', 'loan_amount': '5000', 'repayment_tenor': '3'}
         application.primary_previewed_revision = application.revision
         application.save(update_fields=['form_payload', 'primary_previewed_revision'])
         return application
@@ -119,7 +119,8 @@ class UnsignedApplicationTests(TestCase):
     def test_normal_draft_save_preserves_unsigned_completion(self):
         application = self.create()
         saved = save_application_fields(application_id=application.pk, actor=self.actor, expected_revision=1,
-            request_id='actual-save', payload={'applicant_full_name': 'Synthetic Applicant'})
+            request_id='actual-save', payload={'applicant_full_name': 'Synthetic Applicant',
+                                            'loan_amount': '5000', 'repayment_tenor': '3'})
         self.assertTrue(without_signing(saved))
         self.assertEqual(saved.schema_snapshot['document_completion_version'], 1)
         saved.primary_previewed_revision = saved.revision
@@ -127,6 +128,15 @@ class UnsignedApplicationTests(TestCase):
         completed = submit_for_review(application_id=saved.pk, actor=self.actor,
             expected_revision=saved.revision, request_id='saved-complete')
         self.assertEqual(completed.status, 'completed')
+
+    def test_seed_identity_flag_does_not_require_removed_identity_fields(self):
+        self.template.form_schema = {**self.template.form_schema, 'identity_contract': 'applicant_v1'}
+        self.template.save(update_fields=['form_schema'])
+        application = self.ready()
+        completed = submit_for_review(application_id=application.pk, actor=self.actor,
+            expected_revision=application.revision, request_id='removed-identity-fields')
+        self.assertEqual(completed.status, 'completed')
+        self.assertNotIn('national_id', completed.form_payload)
 
     def test_submission_api_chooses_completion_even_with_old_approval_settings(self):
         application = self.ready()

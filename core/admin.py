@@ -497,7 +497,8 @@ class ProductSupportingDocumentSetupForm(forms.Form):
         from origination.services.loan_origination import OriginationError, validate_product_form_contract
         from origination.services.origination_templates import OriginationTemplateError, validate_template_pdf
         try:
-            validate_product_form_contract(schema, signers, require_signers=False)
+            validate_product_form_contract(schema, signers, require_signers=False,
+                require_fields=False, allow_shared_identity=True)
         except OriginationError as exc:
             self.add_error('form_schema', str(exc))
         for field in (schema.get('fields') or []) if isinstance(schema, dict) else []:

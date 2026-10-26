@@ -32,6 +32,11 @@ from core.services.product_catalog_full_reset import (
 )
 class ProductCatalogFullResetTests(TestCase):
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
+        # This fixture represents an unused installation; built-in TAT setup is protected.
+        from core.models import ProductTatConfiguration
+        ProductTatConfiguration.objects.all().delete()
         User = get_user_model()
         self.root = User.objects.create_superuser(
             'product-reset-root', 'product-reset-root@example.test', 'password',
@@ -108,45 +113,28 @@ class ProductCatalogFullResetTests(TestCase):
         self.assertNotIn(str(unused.pk), tombstone_ids)
         self.assertIn(str(unused.pk), preview['deletable_product_ids'])
 
-        result = reset_full_product_catalog(
-            actor=self.root,
-            reason='Clear synthetic product catalogue data.',
-            request_id='product-full-reset-1',
-        )
-
-        self.assertFalse(result['replayed'])
-        self.assertFalse(Product.objects.filter(pk=unused.pk).exists())
-        self.assertFalse(ProductVersion.objects.filter(pk=unused_version.pk).exists())
-        self.assertFalse(ProductFee.objects.filter(product_version_id=unused_version.pk).exists())
+        self.assertFalse(preview['can_reset'])
+        with self.assertRaisesRegex(ProductCatalogFullResetError, 'Reset blocked'):
+            reset_full_product_catalog(actor=self.root, reason='Synthetic shared catalogue reset.',
+                request_id='product-full-reset-blocked')
+        self.assertTrue(Product.objects.filter(pk=unused.pk).exists())
         for product in (connected, legacy, legacy_text):
             product.refresh_from_db()
-            self.assertFalse(product.active)
-        self.assertTrue(ProductVersion.objects.filter(pk=connected_version.pk).exists())
-        self.assertTrue(ProductVersion.objects.filter(pk=legacy_version.pk).exists())
-        self.assertTrue(ProductVersion.objects.filter(pk=legacy_text_version.pk).exists())
-        self.assertTrue(SpinCreditRequest.objects.filter(product=connected).exists())
-        self.assertTrue(TatTrackerCase.objects.filter(pk=legacy_case.pk).exists())
-        self.assertTrue(OriginationDocumentTemplate.objects.filter(pk=template.pk).exists())
-        self.assertFalse(ProductAvailability.objects.filter(product=connected).exists())
-        self.assertFalse(OriginationDocumentProductEligibility.objects.filter(product=connected).exists())
+            self.assertTrue(product.active)
+        self.assertTrue(ProductAvailability.objects.filter(product=connected).exists())
+        self.assertTrue(OriginationDocumentProductEligibility.objects.filter(product=connected).exists())
         grant.refresh_from_db()
-        self.assertFalse(grant.active)
-        self.assertIsNone(grant.product_ref_id)
-        self.assertTrue(ComplianceAuditEvent.objects.filter(
-            action='product.tombstoned', subject_id=str(connected.pk),
-        ).exists())
-        reset_event = ComplianceAuditEvent.objects.get(
-            deduplication_key='product-catalog:full-reset:product-full-reset-1',
-        )
-        self.assertFalse(reset_event.metadata['operational_records_deleted'])
-        self.assertTrue(reset_event.metadata['historical_references_tombstoned'])
+        self.assertTrue(grant.active)
+        self.assertEqual(grant.product_ref_id, connected.pk)
+        self.assertTrue(TatTrackerCase.objects.filter(pk=legacy_case.pk).exists())
+        self.assertTrue(SpinCreditRequest.objects.filter(product=connected).exists())
 
-        replay = reset_full_product_catalog(
-            actor=self.root,
-            reason='Clear synthetic product catalogue data.',
-            request_id='product-full-reset-1',
-        )
-        self.assertTrue(replay['replayed'])
+    def test_unused_catalogue_reset_remains_idempotent(self):
+        product, _version = self.make_product('unused_only')
+        kwargs = dict(actor=self.root, reason='Synthetic unused-only reset', request_id='unused-only-reset')
+        self.assertFalse(reset_full_product_catalog(**kwargs)['replayed'])
+        self.assertFalse(Product.objects.filter(pk=product.pk).exists())
+        self.assertTrue(reset_full_product_catalog(**kwargs)['replayed'])
 
     def test_non_superuser_is_rejected(self):
         self.make_product('protected_product')
@@ -236,6 +224,6 @@ class ProductCatalogFullResetTests(TestCase):
             item
             for group in get_admin_navigation(request)
             for item in group.get('items', [])
-            if item.get('title') == 'Reset product catalogue'
+            if item.get('title') == 'Reset global product catalogue'
         )
         self.assertFalse(item['permission'](request))

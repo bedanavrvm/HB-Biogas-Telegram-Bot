@@ -256,3 +256,15 @@ copy. See ADR 0049 for draft adoption and historical requirement retention.
 10. Create a synthetic application for every assigned product and verify form
     validation, evidence, PDF preview, checkbox ticks, signer dispatch, and the
     latest signed packet before production use.
+
+
+## Admin ownership and shared values (26 October 2026)
+
+Seed signer-role suggestions are review notes (`seed_review_signer_roles`), not hidden requirements.
+The admin owns this document's retained fields and signing placements. Removing its last
+signature/stamp placement removes that document's obligation; Product signers do not restore it.
+Compatible borrower identity values may come from the selected Main LAF/application. An asset
+owner or another distinct person must be bound explicitly and is never assumed to be the borrower.
+Amount and repayment tenor remain visible application Loan details even if absent from this PDF.
+Origination checklists are versioned separately from shared financial terms. Seed/bootstrap reruns
+preserve edited documents; existing signed packets retain their captured contracts and bytes.

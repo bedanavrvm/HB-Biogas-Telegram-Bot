@@ -192,13 +192,16 @@ def _fields(schema: dict) -> list[dict]:
 def build_packet_contract(primary_schema: dict, documents: list[dict]) -> dict:
     """Compile the selected snapshot schemas, rejecting semantic conflicts."""
     if not enabled(primary_schema):
-        if any(enabled(document['schema']) for document in documents):
+        if any(enabled(document['schema']) and _fields(document['schema']) for document in documents):
             raise ValueContractError('Choose documents with the same shared-value setup.')
         return {'version': 1, 'fields': {}, 'documents': {}}
     shared, local, errors, ownership = {}, {}, {}, {}
     for document in [{'key': 'primary', 'schema': primary_schema}, *documents]:
         schema, document_key = document['schema'], str(document['key'])
         if not enabled(schema):
+            if document_key != 'primary' and not _fields(schema):
+                local.setdefault(document_key, {})
+                continue
             errors[document_key] = 'Choose a document with compatible reviewed fields.'
             continue
         local.setdefault(document_key, {})
@@ -366,8 +369,17 @@ def application_document_schema(application: Any, document=None) -> dict:
     configuration = application.template_configuration_snapshot if document is None else (document.template_snapshot or {}).get('configuration', {})
     if not form_projection_enabled(application):
         return deepcopy(schema or {})
-    return project_document_schema(schema or {}, configuration or {},
+    projected = project_document_schema(schema or {}, configuration or {},
         captured_system=(application.schema_snapshot or {}).get('system_fields', []))
+    if document is None and (application.schema_snapshot or {}).get('application_input_fields'):
+        inputs = deepcopy(application.schema_snapshot['application_input_fields'])
+        if enabled(projected):
+            inputs = upgrade_schema({'fields': inputs})['fields']
+        keys = {field['key'] for field in inputs}
+        projected['fields'] = [field for field in projected.get('fields', []) if field.get('key') not in keys] + inputs
+        if not any(section.get('key') == 'loan_details' for section in projected.setdefault('sections', [])):
+            projected['sections'].append({'key': 'loan_details', 'label': 'Loan details'})
+    return projected
 
 
 def packet_contract(application: Any) -> dict:

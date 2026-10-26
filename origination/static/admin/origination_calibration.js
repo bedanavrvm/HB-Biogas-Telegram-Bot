@@ -1534,7 +1534,9 @@
   };
   $('calibration-delete').onclick = () => {
     if (operationState === 'publishing' || published) return;
-    if (!selectedKey || !window.confirm('Remove this PDF placement? The applicant field will be kept.')) return;
+    if (!selectedKey || !window.confirm(selectedKind === 'signature'
+      ? 'Remove this signing placement? Removing the last signature or stamp also removes this document’s signing requirement for that person.'
+      : 'Remove this PDF placement? The field stays available to place again.')) return;
     const before = configurationHash(configuration);
     delete currentCollection()[selectedKey];
     selectedKey = Object.keys(fields())[0] || Object.keys(signatures())[0] || '';
@@ -1650,9 +1652,16 @@
       body: JSON.stringify({ revision, configuration: snapshot, client_request_id: clientRequestId }),
     });
     revision = data.revision;
+    schemaRevision = data.schema_revision;
+    signerRules = data.signers;
+    signatureCatalog = data.signature_slots;
+    contextKeys = data.context_keys;
+    formSections = data.form_sections;
+    if (configurationHash(configuration) === snapshotHash) configuration = data.configuration;
     sharedReview = data.shared_review || sharedReview;
     serverReadiness = data.readiness || serverReadiness;
-    savedBaselineHash = snapshotHash;
+    savedBaselineHash = configurationHash(data.configuration);
+    populateCatalogs(); renderSigners(); renderItemList(); inspect();
     delete pendingWriteKeys['calibration-save'];
     refreshDirtyState();
     return data;
@@ -1670,9 +1679,10 @@
     if (!rule.identity_fields) return '<p class="help">Staff identity uses the selected staff account.</p>';
     return [['name','Name field','text'],['phone','OTP phone field','phone'],['national_id','ID field','national_id']].map(([kind,label,type]) => {
       const selected = rule.identity_fields[kind];
-      const options = contextKeys.filter(item => item.attached && (item.type === type || item.key === selected));
-      return `<label>${label}<select data-signer-identity="${kind}" data-signer-index="${index}" ${published ? 'disabled' : ''}>${kind === 'national_id' ? `<option value="" ${selected === null ? 'selected' : ''}>No ID link</option>` : ''}${options.map(item => `<option value="${escapeHtml(item.key)}" ${item.key === selected ? 'selected' : ''}>${escapeHtml(item.label || item.key)}</option>`).join('')}</select></label>`;
-    }).join('') + '<p class="help">Place linked fields on the PDF to collect them in the form. OTP uses the saved phone.</p>';
+      const options = contextKeys.filter(item => item.type === type || item.key === selected);
+      if (selected && !options.some(item => item.key === selected)) options.push({key:selected,label:selected,attached:false});
+      return `<label>${label}<select data-signer-identity="${kind}" data-signer-index="${index}" ${published ? 'disabled' : ''}>${kind === 'national_id' ? `<option value="" ${selected === null ? 'selected' : ''}>No ID link</option>` : ''}${options.map(item => `<option value="${escapeHtml(item.key)}" ${item.key === selected ? 'selected' : ''}>${escapeHtml(item.label || item.key)}${item.attached ? '' : ' (from application/Main LAF)'}</option>`).join('')}</select></label>`;
+    }).join('') + '<p class="help">Identity can use compatible values from the Main LAF or another selected document. Place a field here only if this PDF needs it. OTP requires the saved phone before sending.</p>';
   }
   function renderSigners() {
     const list = $('document-signer-list'); if(!list) return;

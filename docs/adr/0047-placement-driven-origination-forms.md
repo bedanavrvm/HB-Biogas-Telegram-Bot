@@ -41,6 +41,11 @@ geometry, consent, authorization and commercial checks remain enforced.
 
 ## Consequences
 
+26 October 2026 exception: ADR 0075 captures visible application-level Loan details
+(amount and repayment tenor) independently of PDF placement for new catalogue
+applications. These explicit inputs are not hidden document requirements. Other
+document fields continue to follow the placement policy below.
+
 Removing a placement removes its input and required check. Required signer
 identity inputs must be placed to collect them; OTP dispatch still requires a
 valid saved phone and required signing geometry remains enforced.

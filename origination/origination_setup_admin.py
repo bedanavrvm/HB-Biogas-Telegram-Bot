@@ -21,9 +21,9 @@ from origination.models import (
 )
 from core.models import Product, ProductAvailability, ProductVersion, ProductVersionEvent
 from origination.origination_setup_forms import (
-    AttributeFormSet,
+    local_configuration_forms,
+    local_configuration_values,
     FeeFormSet,
-    RequirementFormSet,
     SetupIdentityForm,
     SetupTermsForm,
     SetupCatalogueSelectionForm,
@@ -243,6 +243,7 @@ def detail_view(model_admin, request, object_id):
         rows.append({
             'definition': definition,
             'terms': definition.product_version,
+            'configuration': definition.workflow_configuration,
             'fields': fields,
             'sections': list(sections.values()),
             'signers': signers,
@@ -372,27 +373,11 @@ def revise_view(model_admin, request, object_id):
         request_id = _request_id(request)
         from origination.services.origination_templates import clone_product_version
         successor = clone_product_version(source, actor=request.user)
-        if source.product_version_id:
+        if source.product_version_id and request.POST.get('edit_shared_terms') == '1':
             from core.services.product_catalog import clone_product_version as clone_terms
             draft_terms = clone_terms(source.product_version, actor=request.user)
-            if successor.product_version_id != draft_terms.pk:
-                successor.product_version = draft_terms
-                successor.product_key = draft_terms.product.code
-                successor.name = draft_terms.product.name
-                successor.save(update_fields=[
-                    'product_version', 'product_key', 'name', 'updated_at',
-                ])
-        ProductVersionEvent.objects.get_or_create(
-            product_version=successor.product_version,
-            action='setup_started', metadata__request_id=request_id,
-            defaults={
-                'actor': request.user,
-                'metadata': {
-                    'request_id': request_id, 'definition_id': str(successor.pk),
-                    'maintenance_successor': True,
-                },
-            },
-        )
+            successor.product_version = draft_terms
+            successor.save(update_fields=['product_version', 'updated_at'])
         OriginationProductDefinitionEvent.objects.get_or_create(
             product_definition=successor,
             action='setup_started', metadata__request_id=request_id,
@@ -675,50 +660,49 @@ def _step_identity(model_admin, request, definition, context):
     return HttpResponseRedirect(_workspace_url(definition, 'identity' if request.POST.get('intent') == 'stay' else 'terms'))
 
 
-def _terms_forms(request, version):
+def _terms_forms(request, definition):
     bound = request.POST if request.method == 'POST' else None
-    return (
-        SetupTermsForm(bound, instance=version),
-        FeeFormSet(bound, instance=version, prefix='fees'),
-        RequirementFormSet(bound, instance=version, prefix='requirements'),
-        AttributeFormSet(bound, instance=version, prefix='attributes'),
-    )
+    requirements, attributes = local_configuration_forms(bound, definition.workflow_configuration)
+    return (SetupTermsForm(bound, instance=definition.product_version),
+            FeeFormSet(bound, instance=definition.product_version, prefix='fees'), requirements, attributes)
 
 
 def _step_terms(model_admin, request, definition, context):
     version = definition.product_version
-    context['terms_readonly'] = version.status != ProductVersion.STATUS_DRAFT
-    if context['terms_readonly']:
-        context['terms_summary'] = version
+    readonly = version.status != ProductVersion.STATUS_DRAFT
+    context.update(terms_readonly=readonly, terms_summary=version)
+    form, fees, requirements, attributes = _terms_forms(request, definition)
+    context.update(form=form, fees=fees, requirements=requirements, attributes=attributes)
+    if definition.lifecycle_status != definition.STATUS_DRAFT:
+        context['configuration_readonly'] = True
         return None
-    form, fees, requirements, attributes = _terms_forms(request, version)
-    context.update({
-        'form': form, 'fees': fees, 'requirements': requirements,
-        'attributes': attributes,
-    })
     if request.method != 'POST':
         return None
-    if not all(item.is_valid() for item in (form, fees, requirements, attributes)):
+    checks = (requirements, attributes) if readonly else (form, fees, requirements, attributes)
+    if not all(item.is_valid() for item in checks):
         return None
     request_id = _request_id(request)
     with transaction.atomic():
         definition = _check_locked(definition, request, 'terms')
-        if definition.product_version.status != ProductVersion.STATUS_DRAFT:
-            raise ValidationError('These financial terms were published. Create an editable successor to change them.')
-        form, fees, requirements, attributes = _terms_forms(request, definition.product_version)
-        if not all(item.is_valid() for item in (form, fees, requirements, attributes)):
-            context.update({'form': form, 'fees': fees, 'requirements': requirements, 'attributes': attributes})
+        if definition.lifecycle_status != definition.STATUS_DRAFT:
+            raise ValidationError('Create an editable Origination version before changing requirements.')
+        form, fees, requirements, attributes = _terms_forms(request, definition)
+        readonly = definition.product_version.status != ProductVersion.STATUS_DRAFT
+        checks = (requirements, attributes) if readonly else (form, fees, requirements, attributes)
+        if not all(item.is_valid() for item in checks):
+            context.update(form=form, fees=fees, requirements=requirements, attributes=attributes)
             return None
-        form.save()
-        fees.save()
-        requirements.save()
-        attributes.save()
-        record_step_completion(
-            definition=definition, step_key='terms', actor=request.user,
-            request_id=request_id,
-        )
+        configuration = local_configuration_values(requirements, attributes, definition.workflow_configuration)
+        from origination.services.origination_product_configuration import validate_configuration
+        validate_configuration(configuration)
+        if not readonly:
+            form.save()
+            fees.save()
+        definition.workflow_configuration = configuration
+        definition.save(update_fields=['workflow_configuration', 'updated_at'])
+        record_step_completion(definition=definition, step_key='terms', actor=request.user, request_id=request_id)
     if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
-        messages.success(request, 'Commercial terms saved as a draft.')
+        messages.success(request, 'Origination configuration saved. Published shared financial terms are preserved.')
     return HttpResponseRedirect(_workspace_url(definition, 'terms' if request.POST.get('intent') == 'stay' else 'documents'))
 
 

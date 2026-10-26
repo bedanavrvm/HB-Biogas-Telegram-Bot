@@ -79,3 +79,15 @@ Local fields belong to this document instance. Required choices and row limits
 are validated by the existing form service; generated values cannot be posted.
 No legal attestation, approval, receipt or transfer event is invented by rendering.
 The source hash and dedicated reference are checked by supporting-seed tests.
+
+
+## Admin ownership and shared values (26 October 2026)
+
+Seed signer-role suggestions are review notes (`seed_review_signer_roles`), not hidden requirements.
+The admin owns this document's retained fields and signing placements. Removing its last
+signature/stamp placement removes that document's obligation; Product signers do not restore it.
+Compatible borrower identity values may come from the selected Main LAF/application. An asset
+owner or another distinct person must be bound explicitly and is never assumed to be the borrower.
+Amount and repayment tenor remain visible application Loan details even if absent from this PDF.
+Origination checklists are versioned separately from shared financial terms. Seed/bootstrap reruns
+preserve edited documents; existing signed packets retain their captured contracts and bytes.

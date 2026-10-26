@@ -1281,7 +1281,7 @@ class LoanOriginationServiceTests(TestCase):
         invalid_result = validate_form_payload(schema, invalid, require_complete=False)
         self.assertEqual(
             invalid_result.errors['pledged_assets'],
-            'Enter a valid Year of purchase in row 1.',
+            'Enter a valid number. Row 1.',
         )
 
         self.product.form_schema = schema

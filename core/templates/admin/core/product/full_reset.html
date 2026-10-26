@@ -22,6 +22,7 @@
       <p>To restore a tombstoned product later, reactivate its existing identity and create a governed successor version; do not create a duplicate product code.</p>
     </div>
 
+    {% if preview.blockers %}<div class="opb-alert" role="alert"><b>Reset blocked: products are used by other apps.</b><ul>{% for product in preview.blockers %}<li>{{ product.name }}: {{ product.reasons|join:'; ' }}</li>{% endfor %}</ul><p>Use Origination's own reset to clear Origination data.</p></div>{% endif %}
     {% if preview.tombstone_products %}
       <div class="opb-god-warning">
         <b>{{ preview.tombstone_count }} connected or legacy product{{ preview.tombstone_count|pluralize }} will be tombstoned, not deleted.</b>

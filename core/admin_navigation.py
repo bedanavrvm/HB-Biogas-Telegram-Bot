@@ -307,6 +307,16 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.ParsedMessage", "Complaint cases", "support_agent"),
         _model_item("core.OrderApprovalUpdate", "Order approval updates", "approval"),
     ]
+    shared_products = [
+        _model_item("core.Product", "Global products", "inventory_2"),
+        _model_item("core.ProductVersion", "Shared financial terms and legacy rules", "price_change"),
+        _custom_item(
+            "Reset global product catalogue",
+            "admin:core_product_full_reset",
+            "delete_forever",
+            _product_catalog_full_reset_allowed,
+        ),
+    ]
     configuration = [
         _staff_approvals_item(request),
         _model_item("auth.User", "Users", "group"),
@@ -319,14 +329,6 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.OperationalLocationAlias", "Location aliases", "alt_route"),
         _model_item("core.LocationMappingIssue", "Unmapped location values", "rule"),
         _model_item("core.LocationPolicyState", "Location enforcement", "policy"),
-        _model_item("core.Product", "Global products", "inventory_2"),
-        _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
-        _custom_item(
-            "Reset product catalogue",
-            "admin:core_product_full_reset",
-            "delete_forever",
-            _product_catalog_full_reset_allowed,
-        ),
         _custom_item(
             "Guided Origination product setup",
             "admin:origination_origination_setup_dashboard",
@@ -419,6 +421,11 @@ def get_admin_navigation(request) -> list[dict]:
             "title": "All workflows",
             "collapsible": True,
             "items": [item for item in reviews if item],
+        },
+        {
+            "title": "Shared product catalogue",
+            "collapsible": True,
+            "items": [item for item in shared_products if item],
         },
         {
             "title": "Configuration",

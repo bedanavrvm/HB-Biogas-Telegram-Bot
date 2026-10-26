@@ -280,11 +280,8 @@ def _expected_signature_slots(
     template: OriginationDocumentTemplate | None = None,
 ) -> dict[str, dict[str, Any]]:
     expected = {}
-    rules = (
-        template.signer_rules
-        if template and template.signer_rules
-        else product.signer_rules if product else []
-    )
+    from origination.services.origination_fields import template_form_contract
+    rules = template_form_contract(template)[1] if template is not None else product.signer_rules if product else []
     for rule in rules or []:
         if not isinstance(rule, dict):
             continue
@@ -522,10 +519,17 @@ def save_calibration_draft(
         raise OriginationTemplateError('Published product versions are immutable. Create a new product version to change its template.')
     latest = template.configuration_revisions.order_by('-revision').first()
     current_revision = latest.revision if latest else 0
+    request_id = _calibration_request_id(client_request_id)
+    raw_payload_hash = _calibration_payload_hash(configuration)
+    if request_id:
+        prior = template.events.filter(action='calibration_saved', metadata__request_id=request_id).first()
+        if prior and prior.metadata.get('raw_payload_hash'):
+            if prior.metadata['raw_payload_hash'] != raw_payload_hash or prior.actor_id != getattr(actor, 'pk', None):
+                raise OriginationTemplateError('This calibration request ID was already used for different content or actor.')
+            return template.configuration_revisions.get(revision=prior.metadata['configuration_revision'])
     normalized = validate_template_configuration(
         configuration, template=template, require_complete=False,
     )
-    request_id = _calibration_request_id(client_request_id)
     payload_hash = _calibration_payload_hash(normalized)
     replay = _calibration_request_replay(
         template=template, action='calibration_saved', request_id=request_id,
@@ -537,6 +541,32 @@ def save_calibration_draft(
         if latest and latest.created_by_id == getattr(actor, 'pk', None) and latest.configuration == normalized:
             return latest
         raise OriginationTemplateError('This calibration changed. Reload before saving again.')
+    from origination.services.origination_fields import template_owns_form_schema
+    previous = latest.configuration if latest else template.placement_config or {}
+    removed = set((previous.get('signature_overlay_manifest') or {}).get('slots') or {}) - set(
+        (normalized.get('signature_overlay_manifest') or {}).get('slots') or {})
+    if removed and template_owns_form_schema(template):
+        rules = []
+        for original in template.signer_rules or []:
+            rule = json.loads(json.dumps(original))
+            role = rule.get('role')
+            removed_keys = {key.split('.', 1)[1] for key in removed if key.startswith(str(role) + '.')}
+            slots = []
+            for slot in rule.get('slots', []):
+                item = {'key': slot} if isinstance(slot, str) else slot
+                if item['key'] in removed_keys or item.get('signature_key') in removed_keys:
+                    normalized['signature_overlay_manifest']['slots'].pop(f"{role}.{item['key']}", None)
+                else:
+                    slots.append(slot)
+            rule['slots'] = slots
+            if any(({'key': slot} if isinstance(slot, str) else slot).get('type', 'signature')
+                   in {'signature', 'stamp'} for slot in slots):
+                rules.append(rule)
+        schema = json.loads(json.dumps(template.form_schema or {}))
+        schema.pop('required_signer_roles', None)
+        schema['_revision'] = int(schema.get('_revision') or 0) + 1
+        template.form_schema, template.signer_rules = schema, rules
+        template.save(update_fields=['form_schema', 'signer_rules', 'updated_at'])
     revision = OriginationTemplateConfigurationRevision.objects.create(
         template=template, revision=current_revision + 1,
         configuration=normalized, created_by=actor,
@@ -545,7 +575,7 @@ def save_calibration_draft(
         template=template, action='calibration_saved', actor=actor,
         metadata={
             'configuration_revision': revision.revision,
-            **({'request_id': request_id, 'payload_hash': payload_hash} if request_id else {}),
+            **({'request_id': request_id, 'payload_hash': payload_hash, 'raw_payload_hash': raw_payload_hash} if request_id else {}),
         },
     )
     return revision
@@ -665,7 +695,8 @@ def create_shared_document_template(
         raise OriginationTemplateError('Supporting documents need their own document key.')
     from origination.services.loan_origination import OriginationError, validate_product_form_contract
     try:
-        validate_product_form_contract(form_schema or {}, signer_rules or [], require_signers=False)
+        validate_product_form_contract(form_schema or {}, signer_rules or [], require_signers=False,
+            require_fields=False, allow_shared_identity=True)
     except OriginationError as exc:
         raise OriginationTemplateError(str(exc)) from exc
     pdf_data = pdf_file.read()
@@ -802,6 +833,7 @@ def _merge_shared_primary_contract(
     return product_schema, product_rules
 
 
+@transaction.atomic
 def clone_reusable_template_version(
     template: OriginationDocumentTemplate, *, actor,
 ) -> tuple[OriginationDocumentTemplate, bool]:
@@ -1074,15 +1106,6 @@ def clone_product_version(
         product_key=source.product_key, lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
     ).order_by('-version').first()
     if existing:
-        if existing.product_version_id:
-            from origination.services.origination_commercial_terms import (
-                ensure_commercial_catalogue, merge_commercial_contract,
-            )
-            fields = ensure_commercial_catalogue(actor=actor)
-            upgraded_schema = merge_commercial_contract(existing.form_schema, fields=fields)
-            if upgraded_schema != existing.form_schema:
-                existing.form_schema = upgraded_schema
-                existing.save(update_fields=['form_schema', 'updated_at'])
         _inherit_template_for_product_version(
             source=source, successor=existing, actor=actor,
         )
@@ -1093,12 +1116,6 @@ def clone_product_version(
         .aggregate(models.Max('version'))['version__max'] or 0
     ) + 1
     successor_schema = json.loads(json.dumps(source.form_schema))
-    if source.product_version_id:
-        from origination.services.origination_commercial_terms import (
-            ensure_commercial_catalogue, merge_commercial_contract,
-        )
-        fields = ensure_commercial_catalogue(actor=actor)
-        successor_schema = merge_commercial_contract(source.form_schema, fields=fields)
     clone = OriginationProductDefinition.objects.create(
         product_version=global_version,
         product_key=source.product_key,
@@ -1106,6 +1123,7 @@ def clone_product_version(
         version=next_version,
         form_schema=successor_schema,
         signer_rules=json.loads(json.dumps(source.signer_rules)),
+        workflow_configuration=json.loads(json.dumps(source.workflow_configuration)),
         approval_roles=json.loads(json.dumps(source.approval_roles)),
         signing_policy=source.signing_policy,
         signing_defaults=json.loads(json.dumps(source.signing_defaults)),

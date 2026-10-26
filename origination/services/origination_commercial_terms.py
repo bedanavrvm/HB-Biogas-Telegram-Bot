@@ -95,10 +95,19 @@ def _stable_hash(value: Any) -> str:
 
 
 def commercial_contract_enabled(schema: Any) -> bool:
-    return isinstance(schema, dict) and any(
+    return isinstance(schema, dict) and (bool(schema.get('application_input_fields')) or any(
         isinstance(item, dict) and item.get('key') == 'repayment_tenor'
         for item in schema.get('fields', [])
-    )
+    ))
+
+
+def application_loan_inputs() -> list[dict]:
+    """Explicit application facts; PDF placement never controls lending policy."""
+    return [{'key': key, 'label': label, 'type': data_type, 'required': True,
+             'section_key': 'loan_details', 'validation': dict(validation),
+             'source_type': 'user_input'}
+            for key, label, data_type, _required, _options, validation, _reporting in FIELD_SPECS
+            if key in COMMERCIAL_INPUT_KEYS]
 
 
 def commercial_contract_version(schema: Any) -> int:

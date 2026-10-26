@@ -38,8 +38,6 @@ const path = require('node:path');
       await page.locator('[data-signer-label="0"]').fill('Applicant');
       await page.locator('[data-signer-label="0"]').blur();
       await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
-      await page.locator('#document-lending-fields').click();
-      await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
       if(mode === 'value-contract') {
         await page.locator('#document-pdf').evaluate(element => {element.open=true;});
         await page.locator('#document-shared-values').check();
@@ -124,7 +122,7 @@ const path = require('node:path');
       expect((await productResponse).status()).toBe(200);
       await expect(page.locator('.osw-hero .osw-status')).toHaveText('Published');
       expect(errors).toEqual([]);
-      console.log(`FINAL: custom PDF uploaded, signer pack added, signer edited, lending fields added, ${placements} fields/signatures placed, previewed and published; draft product linked and published; 0 dead ends. Mobile 320/390/430 and desktop checked.`);
+      console.log(`FINAL: custom PDF uploaded, signer pack added and edited, ${placements} fields/signatures placed, previewed and published; draft product linked and published; 0 dead ends. Mobile 320/390/430 and desktop checked.`);
     }
   } catch(error) {
     await page.screenshot({path:path.join(output,`${mode}-failure.png`),fullPage:true});throw error;

@@ -110,14 +110,7 @@ def workspace_snapshot(definition: OriginationProductDefinition) -> dict[str, An
     if version:
         terms.update({
             'fees': [_model_values(item, {'id'}) for item in version.fees.order_by('position', 'pk')],
-            'requirements': [
-                _model_values(item, {'id'})
-                for item in version.requirements.order_by('position', 'pk')
-            ],
-            'attributes': [
-                _model_values(item, {'id'})
-                for item in version.custom_attributes.order_by('position', 'pk')
-            ],
+            'origination_configuration': definition.workflow_configuration,
         })
     owned_documents = [
         {
@@ -212,7 +205,7 @@ def content_tokens(definition: OriginationProductDefinition) -> dict[str, str]:
 
 
 def _event_owner(definition, step_key):
-    if step_key in {'identity', 'terms', 'terms_publish'} and definition.product_version_id:
+    if step_key in {'identity', 'terms_publish'} and definition.product_version_id:
         return ProductVersionEvent, {'product_version': definition.product_version}
     return OriginationProductDefinitionEvent, {'product_definition': definition}
 
@@ -276,12 +269,12 @@ def _valid_terms(version: ProductVersion | None) -> tuple[bool, str]:
         return False, 'Choose or create a governed commercial-terms version.'
     try:
         version.full_clean()
-        for collection in (version.fees.all(), version.requirements.all(), version.custom_attributes.all()):
+        for collection in (version.fees.all(),):
             for item in collection:
                 item.full_clean()
     except ValidationError as exc:
         return False, '; '.join(exc.messages)
-    return True, 'Commercial terms and their Origination configuration are valid.'
+    return True, 'Shared commercial terms are valid.'
 
 
 def _valid_form(definition) -> tuple[bool, str]:
@@ -313,6 +306,11 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
         ).exists()
     )
     terms_valid, terms_detail = _valid_terms(definition.product_version)
+    from origination.services.origination_product_configuration import validate_configuration
+    try:
+        validate_configuration(definition.workflow_configuration)
+    except ValidationError as exc:
+        terms_valid, terms_detail = False, '; '.join(exc.messages)
     from origination.services.origination_setup_documents import document_readiness, pending_changes
     _documents, document_errors = document_readiness(definition) if product else ([], ['Choose a product.'])
     maintenance_pending = bool(pending_changes(definition))

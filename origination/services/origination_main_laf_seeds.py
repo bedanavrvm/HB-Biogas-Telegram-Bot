@@ -793,7 +793,7 @@ def build_form_schema(
         'seed_review_notes': list(definition.review_notes),
     }
     if definition.required_signer_roles:
-        schema['required_signer_roles'] = list(definition.required_signer_roles)
+        schema['seed_review_signer_roles'] = list(definition.required_signer_roles)
     for spec in definition.fields:
         if spec.get('source') == OriginationDataField.SOURCE_SYSTEM and not shared_values:
             continue

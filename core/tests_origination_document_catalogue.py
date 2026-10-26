@@ -213,8 +213,10 @@ class OriginationDocumentCatalogueTests(TestCase):
         support.form_schema['fields'].append({'key': 'loan_amount', 'type': 'phone'})
         support.save(update_fields=['form_schema'])
         support.product_eligibilities.all().delete()
-        with self.assertRaisesRegex(ValidationError, 'conflicting canonical field types'):
-            attach(definition=self.definition, templates=[main, support], actor=actor, request_id='wrong-type')
+        attach(definition=self.definition, templates=[main, support], actor=actor, request_id='wrong-type')
+        from origination.services.origination_document_catalogue import validate_document_combination
+        with self.assertRaises(OriginationError):
+            validate_document_combination(main, [support])
 
     def test_published_supporting_alignment_warnings_do_not_block_product_readiness(self):
         from origination.services.origination_setup_documents import document_readiness
@@ -223,16 +225,15 @@ class OriginationDocumentCatalogueTests(TestCase):
         _documents, errors = document_readiness(self.definition)
         self.assertFalse([error for error in errors if error.startswith(support.name + ':')], errors)
 
-    def test_incompatible_published_attachment_rolls_back_the_whole_selection(self):
+    def test_static_published_document_can_attach_without_product_mirror_fields(self):
         from origination.services.origination_setup_documents import select_documents as attach
         compatible = self._template(family='compatible', name='Compatible LAF', eligible=False)
         incompatible = self._template(family='incompatible', name='Wrong fields', schema={'fields': []}, eligible=False)
         actor = get_user_model().objects.create_superuser('compat-admin', 'qa@example.test', 'test-only')
-        with self.assertRaises(ValidationError):
-            attach(definition=self.definition, templates=[compatible, incompatible], actor=actor, request_id='invalid')
-        self.assertFalse(compatible.product_eligibilities.exists())
-        self.assertFalse(incompatible.product_eligibilities.exists())
-        self.assertFalse(self.definition.events.filter(action='setup_documents_selected').exists())
+        attach(definition=self.definition, templates=[compatible, incompatible], actor=actor, request_id='static')
+        self.assertTrue(compatible.product_eligibilities.exists())
+        self.assertTrue(incompatible.product_eligibilities.exists())
+        self.assertTrue(self.definition.events.filter(action='setup_documents_selected').exists())
         self.assertEqual(OriginationDocumentTemplate.objects.count(), 2)
 
     def test_attachment_rechecks_retired_document_and_product_and_authority(self):
