@@ -74,6 +74,24 @@ async function openReport(page, {entry='', reportAccess=true}={}) {
   await expect(page.locator('#globalResultCount')).toHaveText(entry.includes('metric=')?'4 complaints found':'12 complaints found');
 }
 
+test('complaint Excel uses a visible fallback for blank filename metadata',async({page})=>{
+  await openReport(page);
+  await page.evaluate(()=>{
+    const original=ComplaintCasesMiniAppApi.postJson;
+    ComplaintCasesMiniAppApi.postJson=async(route,payload)=>route==='global/export/'
+      ? {download_url:'https://miniapp.test/complaints.xlsx',filename:'   '}:original(route,payload);
+    const app=MiniAppUtils.initTelegram();
+    app.platform='android';
+    window.__nativeDownloads=[];
+    app.downloadFile=(params,callback)=>{__nativeDownloads.push(params);callback(true);};
+  });
+  await page.locator('#exportResultsBtn').click();
+  await page.getByRole('button',{name:'Download filtered',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>__nativeDownloads.length)).toBe(1);
+  expect(await page.evaluate(()=>__nativeDownloads[0].file_name)).toBe('complaints.xlsx');
+  await expect(page.locator('#downloadFilename')).toHaveText('complaints.xlsx');
+});
+
 test('Email attention link opens scoped late resolutions after authentication',async({page})=>{
   await openReport(page,{entry:'?view=reports&branch=Training%20branch&date_from=2026-10-05&date_to=2026-10-11&date_basis=resolved&metric=late'});
   const query=await page.evaluate(()=>window.__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params);

@@ -636,6 +636,24 @@ class OriginationTemplateConfigurationRevision(models.Model):
         return super().save(*args, **kwargs)
 
 
+class OriginationApplicationReferenceSequence(models.Model):
+    """Permanent deployment-wide allocator, excluded from operational test deletion."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False,
+        db_comment='Singleton allocator identity; always 1.')
+    last_number = models.PositiveBigIntegerField(default=0,
+        db_comment='Highest allocated ORG display number. Never reset or decremented by deletion.')
+
+    class Meta:
+        db_table = 'origination_application_reference_state'
+        db_table_comment = (
+            'Domain: origination. Purpose: Permanent global application reference allocator. '
+            'Classification: processing_record. Source of truth: yes. Lifecycle: active. '
+            'Retention: Permanent; never purged with applications or testing data. No parent or child relations.'
+        )
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name='orig_app_ref_singleton')]
+
+
 class LoanOriginationApplication(models.Model):
     """Canonical, revision-controlled application captured by a field officer."""
 
@@ -670,6 +688,8 @@ class LoanOriginationApplication(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')
     reference_number = models.CharField(max_length=80, unique=True, db_index=True, db_comment='Reference number (CharField).')
+    display_reference = models.CharField('Application number', max_length=80, unique=True, null=True, blank=True, editable=False,
+        db_comment='Permanent friendly ORG-N alias. Historical canonical references and signed bytes are unchanged.')
     product_definition = models.ForeignKey(
         OriginationProductDefinition, on_delete=models.PROTECT, related_name='applications',
     db_comment='Reference to core_originationproductdefinition; deletion behavior: PROTECT.')
@@ -774,7 +794,7 @@ class LoanOriginationApplication(models.Model):
         ]
 
     def __str__(self):
-        return self.reference_number
+        return self.display_reference or self.reference_number
 
 
 class OriginationCommercialException(models.Model):

@@ -10,11 +10,12 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection, connections, IntegrityError, transaction
-from django.test import TestCase, SimpleTestCase, TransactionTestCase, override_settings
+from django.test import Client, TestCase, SimpleTestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, ComplianceAuditChainState, IntegrationOperation, IntegrationCircuitState
+from core.models import AccessGrant, ComplianceAuditChainState, IntegrationOperation, IntegrationCircuitState, UserProfile
+from core.tests_telegram_authentication import BOT_TOKEN, signed_init_data
 from origination.models import (
     LoanOriginationApplication, OriginationProductDefinition,
     OriginationPhoneIdentityCheck as Check, OriginationPhoneIdentityDailyUsage as Usage,
@@ -69,6 +70,68 @@ class Fixtures:
 
 
 class AdapterTests(SimpleTestCase):
+    @override_settings(**CONFIG)
+    @patch('origination.services.daraja_phone_identity.access_token', return_value='synthetic-bearer-token')
+    @patch('origination.services.daraja_phone_identity._json_request')
+    def test_exchange_diagnostics_show_structure_without_identifiers_or_credentials(self, http, token):
+        http.return_value = (200, {'responseCode': '4001', 'status': 'false',
+            'responseRefID': 'safe-provider-reference', 'phone': '254700000001',
+            'idNumber': '00099001', 'access_token': 'synthetic-bearer-token',
+            'responseMessage': 'Customer 00099001 has phone 254700000001'})
+        with self.assertLogs(provider.__name__, level='INFO') as captured:
+            outcome = provider.validate(phone='254700000001', national_id='00099001',
+                request_ref='safe-request-reference', before_dispatch=lambda: None)
+        diagnostic = outcome.diagnostics
+        self.assertEqual(diagnostic['environment'], 'sandbox')
+        self.assertEqual(diagnostic['http_status'], 200)
+        self.assertEqual(diagnostic['request']['msisdn'], '<redacted>')
+        self.assertEqual(diagnostic['request']['idNumber'], '<redacted>')
+        self.assertEqual(diagnostic['response']['responseCode'], '4001')
+        self.assertEqual(diagnostic['response']['status'], 'false')
+        self.assertEqual(diagnostic['interpretation'], 'not_matched')
+        text = json.dumps(diagnostic) + '\n'.join(captured.output)
+        self.assertIn('safe-request-reference', text)
+        self.assertIn('safe-provider-reference', text)
+        for secret in ('254700000001', '00099001', 'synthetic-bearer-token',
+                       CONFIG['DARAJA_CONSUMER_SECRET'], CONFIG['DARAJA_PHONE_ID_HMAC_KEY']):
+            self.assertNotIn(secret, text)
+
+    @override_settings(**CONFIG)
+    @patch('origination.services.daraja_phone_identity.access_token', return_value='synthetic-bearer-token')
+    @patch('origination.services.daraja_phone_identity._json_request')
+    def test_invalid_response_and_timeout_keep_safe_diagnostics(self, http, token):
+        cases = [
+            (200, {'responseCode': '4000', 'status': 'synthetic-bearer-token',
+                   'responseRefID': '00099001', 'errorMessage': '254700000001'}),
+            provider.ProviderFailure('provider_transport_unavailable', uncertain=True),
+        ]
+        for response in cases:
+            with self.subTest(response_type=type(response).__name__):
+                http.side_effect = response if isinstance(response, Exception) else None
+                http.return_value = response
+                with self.assertLogs(provider.__name__, level='INFO') as captured:
+                    with self.assertRaises(provider.ProviderFailure) as error:
+                        provider.validate(phone='254700000001', national_id='00099001',
+                            request_ref='safe-request-reference', before_dispatch=lambda: None)
+                text = json.dumps(error.exception.diagnostics) + '\n'.join(captured.output)
+                for sensitive in ('254700000001', '00099001', 'synthetic-bearer-token'):
+                    self.assertNotIn(sensitive, text)
+                self.assertEqual(error.exception.diagnostics['request']['idType'], '01')
+
+    @override_settings(**CONFIG)
+    @patch('origination.services.daraja_phone_identity.access_token', return_value='synthetic-bearer-token')
+    @patch('origination.services.daraja_phone_identity._json_request')
+    def test_echoed_identifier_reference_and_nested_bodies_are_not_retained(self, http, token):
+        http.return_value = (200, {'responseCode': '4000', 'status': True, 'responseRefID': '00099001',
+            'body': {'status': True, 'message': '00099001 254700000001', 'national_id': '00099001'}})
+        with self.assertLogs(provider.__name__, level='INFO') as captured:
+            outcome = provider.validate(phone='254700000001', national_id='00099001',
+                request_ref='safe-request-reference', before_dispatch=lambda: None)
+        self.assertEqual(outcome.response_ref, '')
+        self.assertEqual(outcome.diagnostics['response']['body']['status'], True)
+        for sensitive in ('00099001', '254700000001', 'synthetic-bearer-token'):
+            self.assertNotIn(sensitive, json.dumps(outcome.diagnostics) + '\n'.join(captured.output))
+
     @patch('origination.services.daraja_phone_identity.requests.request')
     def test_http_transport_is_bounded_and_never_follows_redirects(self, request):
         response=request.return_value.__enter__.return_value
@@ -121,6 +184,90 @@ class AdapterTests(SimpleTestCase):
 @override_settings(**CONFIG)
 class PhoneIdentityTests(Fixtures, TestCase):
     def setUp(self): self.setup_data()
+
+    def test_explicit_fresh_check_bypasses_cache_without_rewriting_history_or_rebilling_replay(self):
+        before = LoanOriginationApplication.objects.values().get(pk=self.app.pk)
+        outcomes = iter(('not_matched', 'matched'))
+        def answer(**kwargs):
+            kwargs['before_dispatch']()
+            state = next(outcomes)
+            return provider.Outcome(state, '4001' if state == 'not_matched' else '4000')
+        with patch('origination.services.phone_identity.provider.validate', side_effect=answer) as validate:
+            first, _ = self.run_check('synthetic-original')
+            old = Check.objects.get()
+            body = {**self.body(), 'fresh_check': True}
+            second, status = self.run_check('synthetic-fresh', body=body)
+            replay, replay_status = self.run_check('synthetic-fresh', body=body)
+        self.assertEqual((status, replay_status), (200, 200))
+        self.assertEqual((first['status'], second['status']), ('not_matched', 'matched'))
+        self.assertFalse(second['reused'])
+        self.assertNotEqual(first['receipt_id'], second['receipt_id'])
+        self.assertEqual(second['receipt_id'], replay['receipt_id'])
+        self.assertEqual(validate.call_count, 2)
+        self.assertEqual(Check.objects.count(), 2)
+        self.assertEqual(Usage.objects.get().dispatch_count, 2)
+        old.refresh_from_db()
+        self.assertEqual(old.state, 'not_matched')
+        self.assertEqual(LoanOriginationApplication.objects.values().get(pk=self.app.pk), before)
+        self.assertTrue(self.app.events.get(request_id='synthetic-fresh').metadata['fresh_check'])
+
+    @patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
+    def test_fresh_check_joins_existing_attempt_before_reusing_older_result(self, validate):
+        self.run_check('synthetic-original')
+        body = {**self.body(), 'fresh_check': True}
+        _, _, pending = service._admit(self.app.pk, self.actor, 'synthetic-pending', body)
+        self.assertIsNotNone(pending)
+        for fresh in (True, False):
+            result, status = self.run_check(f'synthetic-join-{fresh}', body={**self.body(), 'fresh_check': fresh})
+            self.assertEqual(status, 202)
+            self.assertEqual(result['status'], 'checking')
+        self.assertEqual(validate.call_count, 1)
+        self.assertEqual(Check.objects.count(), 2)
+        self.assertEqual(Usage.objects.get().dispatch_count, 1)
+
+    @patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
+    def test_fresh_flag_requires_boolean_and_cannot_repurpose_a_request_key(self, validate):
+        body = self.body()
+        first, _ = self.run_check('synthetic-original', body=body)
+        replay, status = self.run_check('synthetic-original', body={**body, 'fresh_check': False})
+        self.assertEqual(status, 200)
+        self.assertEqual(first['receipt_id'], replay['receipt_id'])
+        for value in ('true', 1, 0, None, [], {}):
+            with self.subTest(value=value), self.assertRaises(service.PhoneIdentityError):
+                self.run_check('synthetic-invalid-fresh', body={**body, 'fresh_check': value})
+        with self.assertRaises(service.PhoneIdentityError) as error:
+            self.run_check('synthetic-original', body={**body, 'fresh_check': True})
+        self.assertEqual(error.exception.status, 409)
+        self.assertEqual(validate.call_count, 1)
+
+    @patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
+    def test_fresh_check_still_requires_confirmation_scope_and_daily_allowance(self, validate):
+        self.run_check('synthetic-original')
+        body = {**self.body(), 'fresh_check': True}
+        with self.assertRaises(service.PhoneIdentityError):
+            self.run_check('synthetic-unconfirmed', body={**body, 'confirmed': False})
+        with self.assertRaises(service.PhoneIdentityError) as error:
+            service.request_check(application_id=self.app.pk, actor=self.officer,
+                request_id='synthetic-unauthorized', body=body)
+        self.assertEqual(error.exception.status, 403)
+        Usage.objects.update(dispatch_count=50)
+        result, status = self.run_check('synthetic-capped-fresh', body=body)
+        self.assertEqual((status, result['code']), (429, 'daily_limit'))
+        self.assertEqual(validate.call_count, 2)  # The adapter callback blocks before its paid POST.
+        self.assertEqual(Usage.objects.get().dispatch_count, 50)
+
+    @patch('origination.services.phone_identity.provider.access_token', return_value='synthetic-bearer-token')
+    @patch('origination.services.phone_identity.provider._json_request', return_value=(
+        200, {'responseCode': '4000', 'status': True, 'responseRefID': 'safe-provider-reference'}))
+    def test_redacted_exchange_is_retained_in_existing_operation_metadata(self, http, token):
+        result, status = self.run_check('synthetic-diagnostic')
+        self.assertEqual(status, 200)
+        self.assertEqual(result['environment'], 'sandbox')
+        diagnostic = Check.objects.get().operation.metadata['provider_exchange']
+        self.assertEqual(diagnostic['response']['responseRefID'], 'safe-provider-reference')
+        self.assertEqual(diagnostic['http_status'], 200)
+        self.assertNotIn('00099001', json.dumps(diagnostic))
+        self.assertNotIn('254700000001', json.dumps(diagnostic))
 
     @patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
     def test_match_replay_and_workflow_bytes_unchanged(self, validate):
@@ -330,6 +477,122 @@ class PhoneIdentityTests(Fixtures, TestCase):
         self.client.force_login(self.officer)
         self.assertEqual(self.client.get(url).status_code, 403)
         self.assertEqual(self.client.post(url, json.dumps(body), content_type='application/json').status_code, 403)
+
+
+@override_settings(
+    **CONFIG,
+    TELEGRAM_BOT_TOKEN=BOT_TOKEN,
+    ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=True,
+    ORIGINATION_WEBAPP_AUTH_MAX_AGE_SECONDS=86400,
+    REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True,
+    SECURE_SSL_REDIRECT=False,
+)
+class PhoneIdentityTelegramTransportTests(Fixtures, TestCase):
+    """Exercise the mounted route with real Telegram HMAC and CSRF middleware."""
+
+    def setUp(self):
+        network = patch('socket.socket.connect', side_effect=AssertionError('External network forbidden'))
+        network.start()
+        self.addCleanup(network.stop)
+        validation = patch('origination.services.phone_identity.provider.validate', side_effect=Fixtures.matched)
+        self.validate = validation.start()
+        self.addCleanup(validation.stop)
+        self.setup_data()
+        self.actor.is_superuser = False
+        self.actor.save(update_fields=['is_superuser'])
+        AccessGrant.objects.create(
+            user=self.actor, workflow='loan_origination', role='IT', branch='Synthetic Branch',
+        )
+        for user, telegram_id in ((self.actor, '731901'), (self.officer, '731902')):
+            UserProfile.objects.update_or_create(user=user, defaults={'telegram_id': telegram_id})
+        self.client = Client(enforce_csrf_checks=True)
+        self.url = reverse('loan_origination_phone_identity_checks', args=[self.app.pk])
+        self.headers = {'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731901})}
+        self.payload = {**self.body(), 'client_request_id': 'synthetic-telegram-phone-check'}
+
+    def post(self, headers):
+        return self.client.post(self.url, json.dumps(self.payload), content_type='application/json', **headers)
+
+    def assert_no_dispatch(self):
+        self.validate.assert_not_called()
+        self.assertFalse(Check.objects.exists())
+        self.assertFalse(Usage.objects.exists())
+
+    def test_scoped_it_can_check_without_csrf_token_and_replay_does_not_rebill(self):
+        response = self.client.get(self.url, **self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assert_no_dispatch()
+        first = self.post(self.headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['result']['status'], 'matched')
+        self.assertIn('no-store', first['Cache-Control'])
+        replay = self.post(self.headers)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(first.json()['result']['receipt_id'], replay.json()['result']['receipt_id'])
+        self.assertEqual(self.validate.call_count, 1)
+        self.assertEqual(Usage.objects.get().dispatch_count, 1)
+
+    def test_active_superuser_can_check_with_signed_telegram_identity(self):
+        self.actor.is_superuser = True
+        self.actor.save(update_fields=['is_superuser'])
+        response = self.post(self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.validate.call_count, 1)
+
+    def test_signed_scoped_it_can_explicitly_request_a_fresh_check(self):
+        self.assertEqual(self.post(self.headers).status_code, 200)
+        self.payload = {**self.body(), 'fresh_check': True, 'client_request_id': 'synthetic-telegram-fresh-check'}
+        first = self.post(self.headers)
+        replay = self.post(self.headers)
+        self.assertEqual((first.status_code, replay.status_code), (200, 200))
+        self.assertFalse(first.json()['result']['reused'])
+        self.assertEqual(first.json()['result']['receipt_id'], replay.json()['result']['receipt_id'])
+        self.assertEqual(self.validate.call_count, 2)
+        self.assertEqual(Usage.objects.get().dispatch_count, 2)
+
+    def test_cookie_session_without_signed_telegram_identity_is_rejected(self):
+        self.client.force_login(self.actor)
+        response = self.post({})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['code'], 'authentication_required')
+        self.assert_no_dispatch()
+
+    def test_invalid_or_expired_telegram_identity_is_rejected(self):
+        invalid = {
+            'missing': '',
+            'unsigned': signed_init_data(user={'id': 731901}, include_hash=False),
+            'expired': signed_init_data(auth_date=1, user={'id': 731901}),
+            'tampered': signed_init_data(user={'id': 731901}, include_hash=False) + '&hash=' + '0' * 64,
+        }
+        for reason, init_data in invalid.items():
+            with self.subTest(reason=reason):
+                response = self.post({'HTTP_X_TELEGRAM_INIT_DATA': init_data})
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()['code'], 'authentication_required')
+                self.assert_no_dispatch()
+
+    def test_other_workflow_it_does_not_grant_origination_access(self):
+        AccessGrant.objects.create(user=self.officer, workflow='jawabu_portal', role='IT')
+        response = self.post({'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731902})})
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['ok'])
+        self.assert_no_dispatch()
+
+    def test_officer_or_wrong_branch_it_cannot_check(self):
+        AccessGrant.objects.create(
+            user=self.officer, workflow='loan_origination', role='JBL_OFFICER', branch='Synthetic Branch',
+        )
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': signed_init_data(user={'id': 731902})}
+        for role in ('officer', 'other_branch_it'):
+            with self.subTest(role=role):
+                if role == 'other_branch_it':
+                    AccessGrant.objects.create(
+                        user=self.officer, workflow='loan_origination', role='IT', branch='Other Branch',
+                    )
+                response = self.post(headers)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()['code'], 'forbidden')
+                self.assert_no_dispatch()
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Requires PostgreSQL row locks and partial uniqueness')

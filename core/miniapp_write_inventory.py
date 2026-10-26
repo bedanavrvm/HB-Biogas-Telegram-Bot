@@ -186,6 +186,13 @@ _add(
     request_key_binding=_ORIGINATION_KEY, domain_replay=_ORIGINATION_REPLAY,
 )
 _add(
+    'loan_origination_document_updates',
+    authentication=_ORIGINATION_AUTH, capability='origination.create',
+    scope=_ORIGINATION_SCOPE + '; assigned officer only',
+    request_key_binding=_ORIGINATION_KEY,
+    domain_replay='Locked application; deterministic revision/update-plan key; confirmed signatures freeze the bundle',
+)
+_add(
     'loan_origination_preview loan_origination_document_preview '
     'loan_origination_packet_preview loan_origination_review_packet_preview',
     authentication=_ORIGINATION_AUTH,

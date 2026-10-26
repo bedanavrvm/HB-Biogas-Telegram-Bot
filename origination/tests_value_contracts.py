@@ -263,6 +263,51 @@ class PacketValueSaveTests(TestCase):
         self.assertEqual(keys.count('applicant_name'), 1)
         self.assertNotIn('visited', keys)
 
+    def test_input_owners_are_response_only_and_support_only_values_have_one_owner(self):
+        original_main = deepcopy(self.application.schema_snapshot)
+        original_support = deepcopy(self.document.schema_snapshot)
+        second = OriginationApplicationDocument.objects.create(application=self.application, document_key='second_visit',
+            document_role='supporting', name='Second visit', selected=True, applicable=True,
+            schema_snapshot=deepcopy(original_support), display_order=2)
+        place_fixture_fields(self.application, second)
+        projected = application_input_schema(self.application)
+        fields = {item['key']: item for item in projected['fields']}
+        self.assertEqual(fields['applicant_name']['input_owner'], {'kind': 'main', 'section_key': 'applicant'})
+        self.assertEqual(fields['extra_shared']['input_owner'], {'kind': 'document', 'document_key': 'visit'})
+        self.assertNotIn('visit_notes', fields)
+        self.assertNotIn('visited', fields)
+        self.application.refresh_from_db(); self.document.refresh_from_db()
+        self.assertEqual(self.application.schema_snapshot, original_main)
+        self.assertEqual(self.document.schema_snapshot, original_support)
+        self.document.selected = False
+        self.document.save(update_fields=['selected'])
+        fields = {item['key']: item for item in application_input_schema(self.application)['fields']}
+        self.assertEqual(fields['extra_shared']['input_owner']['document_key'], second.document_key)
+
+    def test_unlink_and_clear_second_guarantor_does_not_change_spouse(self):
+        fields = [field(f'{role}_{kind}', subject=role) for role in ['spouse', 'guarantor_1', 'guarantor_2']
+                  for kind in ['name', 'national_id', 'phone']]
+        self.application.schema_snapshot = schema(*fields)
+        self.application.form_payload = {f'{role}_{kind}': f'Synthetic {role} {kind}'
+            for role in ['spouse', 'guarantor_1', 'guarantor_2'] for kind in ['name', 'national_id', 'phone']}
+        self.application.save(update_fields=['schema_snapshot', 'form_payload'])
+        self.document.selected = False
+        self.document.save(update_fields=['selected'])
+        place_fixture_fields(self.application, self.document)
+        linked = save_application_fields(application_id=self.application.pk, actor=self.officer,
+            payload={'_person_role_bindings': {'guarantor_2': 'spouse'}}, expected_revision=self.application.revision, request_id='link-second')
+        cleared = save_application_fields(application_id=linked.pk, actor=self.officer,
+            payload={'_person_role_bindings': {}, **{f'guarantor_2_{kind}': '' for kind in ['name', 'national_id', 'phone']}},
+            expected_revision=linked.revision, request_id='clear-second')
+        self.assertEqual(cleared.form_payload['spouse_name'], 'Synthetic spouse name')
+        self.assertEqual(cleared.form_payload['guarantor_1_name'], 'Synthetic guarantor_1 name')
+        self.assertEqual(cleared.form_payload['guarantor_2_name'], '')
+        self.assertEqual(cleared.form_payload['_person_role_bindings'], {})
+        replay = save_application_fields(application_id=linked.pk, actor=self.officer,
+            payload={'_person_role_bindings': {}, **{f'guarantor_2_{kind}': '' for kind in ['name', 'national_id', 'phone']}},
+            expected_revision=linked.revision, request_id='clear-second')
+        self.assertEqual(replay.revision, cleared.revision)
+
     def test_generated_post_and_other_officer_fail_without_mutation(self):
         with self.assertRaises(OriginationError): self.save({'visited': '2026-10-08'})
         with self.assertRaises(OriginationError):
@@ -271,11 +316,99 @@ class PacketValueSaveTests(TestCase):
         self.document.refresh_from_db()
         self.assertEqual(self.document.field_payload, {})
 
+    def test_confirmed_incomplete_preview_does_not_mark_document_ready(self):
+        from origination.services.origination_documents import mark_document_previewed
+        self.document.schema_snapshot = schema(field('visit_notes', scope='document', required=True))
+        self.document.save(update_fields=['schema_snapshot'])
+        with self.assertRaises(OriginationError):
+            mark_document_previewed(self.application, 'visit')
+        self.assertFalse(mark_document_previewed(self.application, 'visit', allow_incomplete=True))
+        self.document.refresh_from_db()
+        self.assertIsNone(self.document.previewed_application_revision)
+        self.assertIsNone(self.document.completed_at)
+        from django.test import RequestFactory
+        from origination.views import portal_origination_document_preview
+        request = RequestFactory().post('/', data={'revision': self.application.revision, 'allow_incomplete': True,
+            'preview_format': 'pdf', 'request_id': 'incomplete-preview'}, content_type='application/json')
+        request.origination_user = self.officer
+        with patch('origination.views._capability_error', return_value=None), \
+                patch('origination.views._application_access_error', return_value=None), \
+                patch('origination.views.render_document', return_value=b'%PDF-synthetic'):
+            response = portal_origination_document_preview(request, str(self.application.pk), 'visit')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['X-Preview-Complete'], 'false')
+        self.document.refresh_from_db()
+        self.assertIsNone(self.document.completed_at)
+
     def test_preview_does_not_invent_visit_or_money_events(self):
         context = preview_context(self.application)
         self.assertNotIn('amount_advanced', context)
         self.assertEqual(context['visited'], '')
         self.assertNotIn('home_visit_completed_date', context)
+
+    def test_incomplete_bundle_confirmation_never_marks_readiness(self):
+        from origination.services.origination_documents import mark_packet_previewed
+        self.document.schema_snapshot = schema(field('visit_notes', scope='document', required=True))
+        self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application, self.document)
+        with self.assertRaises(OriginationError):
+            mark_packet_previewed(self.application)
+        self.assertFalse(mark_packet_previewed(self.application, allow_incomplete=True))
+        self.application.refresh_from_db()
+        self.document.refresh_from_db()
+        self.assertIsNone(self.application.primary_previewed_revision)
+        self.assertIsNone(self.document.previewed_application_revision)
+        self.assertIsNone(self.document.completed_at)
+
+    def test_bundle_preview_endpoint_honours_confirmation_and_stale_revision(self):
+        from django.test import RequestFactory
+        from origination.views import portal_origination_packet_preview
+        self.document.schema_snapshot = schema(field('visit_notes', scope='document', required=True))
+        self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application, self.document)
+        def preview(confirmed, revision=None):
+            request = RequestFactory().post('/', data={'revision': revision or self.application.revision,
+                'allow_incomplete': confirmed, 'client_request_id': 'incomplete-bundle'}, content_type='application/json')
+            request.origination_user = self.officer
+            return portal_origination_packet_preview(request, str(self.application.pk))
+        with patch('origination.views._capability_error', return_value=None), \
+                patch('origination.views._application_access_error', return_value=None), \
+                patch('origination.views.render_packet', return_value=(b'%PDF-synthetic', [{'key': 'visit'}])):
+            self.assertEqual(preview(False).status_code, 400)
+            response = preview(True)
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response['X-Preview-Complete'], 'false')
+            self.assertEqual(response['X-Document-Count'], '1')
+            self.assertEqual(preview(True, self.application.revision + 1).status_code, 409)
+        self.document.refresh_from_db()
+        self.assertIsNone(self.document.completed_at)
+        self.assertFalse(self.application.events.get(request_id='incomplete-bundle').after_values['complete'])
+
+    def test_incomplete_preview_does_not_bypass_invalid_supplied_values(self):
+        from origination.services.origination_documents import mark_document_previewed, mark_packet_previewed
+        self.document.schema_snapshot = schema(field('visit_phone', scope='document', type='phone'))
+        self.document.field_payload = {'visit_phone': 'not a phone'}
+        self.document.save(update_fields=['schema_snapshot', 'field_payload'])
+        place_fixture_fields(self.application, self.document)
+        with self.assertRaises(OriginationError):
+            mark_packet_previewed(self.application, allow_incomplete=True)
+        with self.assertRaises(OriginationError):
+            mark_document_previewed(self.application, 'visit', allow_incomplete=True)
+
+    def test_complete_bundle_marks_only_current_selected_documents(self):
+        from origination.services.origination_documents import mark_packet_previewed
+        self.document.schema_snapshot = schema(field('visit_notes', scope='document', required=True))
+        self.document.field_payload = {'visit_notes': 'Synthetic saved visit'}
+        self.document.save(update_fields=['schema_snapshot', 'field_payload'])
+        place_fixture_fields(self.application, self.document)
+        removed = OriginationApplicationDocument.objects.create(application=self.application,
+            document_key='removed', document_role='supporting', name='Removed', selected=False,
+            schema_snapshot=schema(field('missing', scope='document', required=True)))
+        self.assertTrue(mark_packet_previewed(self.application))
+        self.application.refresh_from_db(); self.document.refresh_from_db(); removed.refresh_from_db()
+        self.assertEqual(self.application.primary_previewed_revision, self.application.revision)
+        self.assertEqual(self.document.previewed_application_revision, self.application.revision)
+        self.assertIsNone(removed.previewed_application_revision)
 
     def test_mapped_generated_values_use_frozen_quote_not_posted_values(self):
         self.application.template_configuration_snapshot = {'field_overlay_manifest': {'fields': {

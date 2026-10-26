@@ -78,6 +78,26 @@ def _manifest_ranges(package, *, page_count=None):
     return ranges
 
 
+def signed_document_content(package, content: bytes, document_key: str) -> tuple[bytes, dict]:
+    """Extract only manifest-bound pages from already hash-verified bundle bytes."""
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.errors import PdfReadError
+    try:
+        reader = PdfReader(BytesIO(content))
+        ranges = _manifest_ranges(package, page_count=len(reader.pages))
+        selected = ranges.get(_document_key(document_key)) if document_key != NOTICE_KEY else None
+        if not selected:
+            raise OriginationError('This document is not included in the signed application.')
+        writer = PdfWriter()
+        for page in range(selected['start'], selected['start'] + selected['count']):
+            writer.add_page(reader.pages[page])
+        output = BytesIO()
+        writer.write(output)
+    except (PdfReadError, ValueError, KeyError, TypeError) as exc:
+        raise OriginationError(SEPARATE_COPY_UNAVAILABLE) from exc
+    return output.getvalue(), selected
+
+
 def download_choices(application):
     """Authorized-detail metadata only; never render PDFs or contact storage."""
     if application.status in {'declined', 'expired', 'cancelled'}:
@@ -173,25 +193,11 @@ def _copy_result(application, *, allow_incomplete=False, document_key=''):
         package, content = signed_package_content(package_id=package.pk)
         if not document_key:
             return content, 'SIGNED', '', None
-        from pypdf import PdfReader, PdfWriter
-        from pypdf.errors import PdfReadError
-        try:
-            reader = PdfReader(BytesIO(content))
-            ranges = _manifest_ranges(package, page_count=len(reader.pages))
-            selected = ranges.get(document_key) if document_key != NOTICE_KEY else None
-            if not selected:
-                raise OriginationError('This document is not included in the signed application.')
-            writer = PdfWriter()
-            for page in range(selected['start'], selected['start'] + selected['count']):
-                writer.add_page(reader.pages[page])
-            output = BytesIO()
-            writer.write(output)
-        except (PdfReadError, ValueError, KeyError, TypeError) as exc:
-            raise OriginationError(SEPARATE_COPY_UNAVAILABLE) from exc
+        content, selected = signed_document_content(package, content, document_key)
         source = {'package_id': str(package.pk), 'sha256': package.signed_document_hash,
                   'manifest_sha256': hashlib.sha256(json.dumps(package.document_manifest_snapshot, sort_keys=True).encode()).hexdigest(),
                   'start': selected['start'], 'count': selected['count']}
-        return output.getvalue(), 'SIGNED', selected['name'], source
+        return content, 'SIGNED', selected['name'], source
     document = _selected_document(application, document_key) if document_key else None
     invalid = copy_readiness(application, require_complete=False, document_key=document_key)
     if invalid:

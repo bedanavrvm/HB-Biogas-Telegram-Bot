@@ -34,9 +34,11 @@
   let commercialQuoteGeneration = 0;
   let commercialQuoteState = null;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false, can_staff_sign: false };
-  let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
+  const APPLICATION_PAGE_SIZE = 10;
+  let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1, pageSize: APPLICATION_PAGE_SIZE };
   let current = null;
   let step = 0;
+  let sectionNavigationInFlight = false;
   let saveTimer = null;
   let previewUrl = '';
   let evidencePreviewUrl = '';
@@ -46,15 +48,19 @@
   let previewPageCount = 1;
   let previewRequestId = '';
   let previewDocumentKey = '';
+  let previewAllowIncomplete = false;
   let previewedRevision = null;
   let previewSucceeded = false;
   let previewPacketVersion = '';
   let approvalReview = null;
   let signingRefreshTimer = null;
   let signingRefreshGeneration = 0;
+  let documentResumeInFlight = false;
+  let editorOpenGeneration = 0;
   let dirty = false;
   let editGeneration = 0;
   let saveInFlight = null;
+  let draftSaveOperation = null;
   let saveInFlightRequestId = '';
   let lastFailedSaveRequestId = '';
   let pendingSaveRequestId = '';
@@ -78,6 +84,7 @@
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
   let activeCameraStream = null;
+  let cameraDialog = null;
   let sheetCleanup = null;
   let mainActionController = null;
   let lastActivatedButton = null;
@@ -228,6 +235,7 @@
         blob: await response.blob(),
         pageCount: Number(response.headers.get('X-Preview-Page-Count') || 1),
         packetVersion: response.headers.get('X-Signing-Packet-Version') || '',
+        previewComplete: response.headers.get('X-Preview-Complete') !== 'false',
       };
       const raw = await response.json().catch(() => ({}));
       const data = window.MiniAppUtils?.normalizeResponsePayload
@@ -294,12 +302,16 @@
       calendar: '<path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
       close: '<path d="m6 6 12 12M18 6 6 18"/>',
       filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+      search: '<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
       refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
       review: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12M14 2v6h6L14 2Z"/><circle cx="15" cy="15" r="4"/><path d="m18 18 3 3"/>',
       document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h6"/>',
       documents: '<path d="M15 3H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5M3 7v13a2 2 0 0 0 2 2h10"/>',
+      copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/>',
+      phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7l.5 2.8a2 2 0 0 1-.6 1.7L7.7 9.5a16 16 0 0 0 6.8 6.8l1.3-1.3a2 2 0 0 1 1.7-.6l2.8.5a2 2 0 0 1 1.7 2Z"/>',
+      camera: '<path d="M14.5 4h-5L7 7H3v13h18V7h-4Z"/><circle cx="12" cy="13" r="4"/>',
       download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
       undo: '<path d="M3 7v6h6M3 13l4-4a7 7 0 1 1 1 10"/>',
     };
@@ -439,7 +451,7 @@
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
       try {
-        if (sheetMode || reviewDialogMode || previewOpen || current || document.querySelector('.recovery-dialog[open]')) tg.BackButton.show?.();
+        if (cameraDialog || sheetMode || reviewDialogMode || previewOpen || current || document.querySelector('.recovery-dialog[open]')) tg.BackButton.show?.();
         else tg.BackButton.hide?.();
       } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
@@ -577,10 +589,28 @@
   function draftMatchesApplication(draft, application) {
     if (!draft || !application) return false;
     const configuration = draft.configuration || {};
-    return canonicalJson(draft.payload || {}) === canonicalJson(application.form_payload || {})
+    const document = application.document_packet?.documents?.find(item => item.key === draft.documentKey);
+    return (!draft.documentKey || (document && Object.entries(draft.documentPayload || {}).every(([key, value]) =>
+      canonicalJson(value) === canonicalJson((application.form_schema?.fields || []).some(field => field.key === key)
+        ? application.form_payload?.[key] : document.field_payload?.[key]))))
+      && canonicalJson(draft.payload || {}) === canonicalJson(application.form_payload || {})
       && canonicalJson(configuration.requirements || {}) === canonicalJson(application.product_requirements || {})
       && canonicalJson(configuration.customValues || {}) === canonicalJson(application.product_custom_values || {})
       && canonicalJson(configuration.selectedFeeKeys || []) === canonicalJson(application.product_selected_fee_keys || []);
+  }
+
+  function restoreDocumentDraft(draft) {
+    if (!draft?.documentKey) return;
+    const document = current?.document_packet?.documents?.find(item => item.key === draft.documentKey && item.selected && item.applicable);
+    if (!document) return;
+    for (const [key, value] of Object.entries(draft.documentPayload || {})) {
+      const field = document.schema?.fields?.find(item => item.key === key);
+      if (!field || !documentOwnsInput(field, document)) continue;
+      if (current.value_contract_version === 2 && field.value_contract?.scope === 'application') current.form_payload[key] = value;
+      else document.field_payload = {...document.field_payload, [key]:value};
+    }
+    const index = wizardSections().findIndex(section => section.key === `document:${document.key}`);
+    if (index >= 0) step = index;
   }
 
   function renderFreshEditor(application, requestedStep = step) {
@@ -659,6 +689,7 @@
       return;
     }
     current.form_payload = local.payload || current.form_payload;
+    restoreDocumentDraft(local);
     current.product_requirements = local.configuration?.requirements || current.product_requirements;
     current.product_custom_values = local.configuration?.customValues || current.product_custom_values;
     current.product_selected_fee_keys = local.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
@@ -666,6 +697,7 @@
     editGeneration = Number(local.generation || 1);
     dirty = true;
     syncCloseProtection();
+    return local.documentKey || '';
   }
 
   function openSheet({ mode, eyebrow, title, hint = '', body = '', footer = '', trigger = null }) {
@@ -693,6 +725,7 @@
   }
 
   function closeSheet({ restoreFocus = true } = {}) {
+    cameraDialog?.close();
     sheetCleanup?.(); sheetCleanup = null;
     window.OriginationSigningCompletion?.active?.dispose();
     const overlay = document.getElementById('origination-sheet-overlay');
@@ -1016,7 +1049,7 @@
           current = updated.data.application;
           const sections = wizardSections();
           targetStep = sections.findIndex(section => section.key === previousSection);
-          if (targetStep < 0) targetStep = Math.max(0, sections.findIndex(section => section.key === 'document_selection'));
+          if (targetStep < 0) targetStep = Math.min(step, sections.length - 1);
         }
         await openEditor(updated.data.application, targetStep);
         showToast(restarting ? 'New blank application started. Enter the details again.' : 'Documents updated.', 'success');
@@ -1066,24 +1099,38 @@
     };
   }
 
-  function openSectionSheet(trigger) {
-    const sections = wizardSections();
-    openSheet({
-      mode: 'sections', eyebrow: 'Application progress', title: 'Go to section',
-      hint: 'Sections come from the approved product schema.', trigger,
-      body: `<div class="section-picker">${sections.map((item, index) => `<button type="button" data-section-index="${index}" class="section-picker-item${index === step ? ' active' : ''}"><span>${index < step ? iconSvg('check') : index + 1}</span><strong>${escapeHtml(item.label)}</strong>${index === step ? '<small>Current</small>' : ''}</button>`).join('')}</div>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Close</button>',
-    });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    document.querySelectorAll('[data-section-index]').forEach(button => button.onclick = async () => {
-      const editable = ['draft', 'correction_required'].includes(current.status);
-      const activeSection = wizardSections()[step];
-      if (editable && !(activeSection?.key.startsWith('document:')
-        ? await saveSupportingDocument(activeSection.key.slice(9)) : await saveDraft(true))) return;
-      const target = Number(button.dataset.sectionIndex);
-      closeSheet({ restoreFocus: false });
-      renderEditor(current, target);
-    });
+  function closeSectionMenu(restoreFocus = false) {
+    const menu = document.getElementById('origination-section-menu');
+    const trigger = document.getElementById('origination-section-picker');
+    if (!menu || menu.hidden) return false;
+    menu.hidden = true;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger?.focus();
+    return true;
+  }
+
+  function toggleSectionMenu(focusCurrent = false) {
+    const menu = document.getElementById('origination-section-menu');
+    const trigger = document.getElementById('origination-section-picker');
+    if (!menu || !trigger || sectionNavigationInFlight) return;
+    if (!menu.hidden) return closeSectionMenu();
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    if (focusCurrent) menu.querySelector('[aria-current="step"]')?.focus();
+  }
+
+  async function navigateSection(key) {
+    if (sectionNavigationInFlight) return;
+    if (syncConflict) return showToast('Choose which draft to keep first.', 'warning');
+    closeSectionMenu();
+    sectionNavigationInFlight = true;
+    root()?.querySelector('.wizard-section-row')?.setAttribute('aria-busy', 'true');
+    try {
+      if (await goToSection(key)) document.getElementById('origination-section-picker')?.focus({preventScroll:true});
+    } finally {
+      sectionNavigationInFlight = false;
+      root()?.querySelector('.wizard-section-row')?.removeAttribute('aria-busy');
+    }
   }
 
   async function startApplication(event) {
@@ -1131,7 +1178,7 @@
   }
 
   function applicationListParams() {
-    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '10' });
+    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: String(APPLICATION_PAGE_SIZE) });
     if (listState.status) params.set(['draft', 'changes', 'progress', 'completed', 'closed'].includes(listState.status) ? 'status_group' : 'status', listState.status);
     if (listState.productKey) params.set('product_key', listState.productKey);
     if (listState.query) params.set('q', listState.query);
@@ -1154,7 +1201,8 @@
     renderList({ restoreScroll: true });
   }
 
-  async function openEditor(application, requestedStep) {
+  async function openEditor(application, requestedStep, {checkUpdates = true} = {}) {
+    const openingGeneration = ++editorOpenGeneration;
     const changingApplication = String(current?.id || '') !== String(application.id);
     if (changingApplication) {
       dirty = false;
@@ -1162,6 +1210,16 @@
       window.clearTimeout(commercialQuoteTimer);
       commercialQuoteState = null;
       commercialQuoteGeneration += 1;
+    }
+    let updateWarning = '';
+    if (checkUpdates && application.auto_update_documents && capabilities.can_create && (!dirty || changingApplication)) {
+      const key = requestKey('document-updates');
+      const updated = await postJson(`/applications/${application.id}/documents/updates/`, {
+        revision:application.revision, request_id:key, client_request_id:key,
+      });
+      if (openingGeneration !== editorOpenGeneration) return;
+      if (updated.ok) application = updated.data.application;
+      else updateWarning = updated.data?.error || 'Could not check document updates. Reopen the application to retry; your saved answers are kept.';
     }
     current = application;
     if (draftSectionApplicationId !== String(application.id)) {
@@ -1173,7 +1231,12 @@
     syncConflict = false;
     conflictDraft = null;
     conflictServerLoaded = false;
-    await recoverDraft(application);
+    const recoveredDocumentKey = await recoverDraft(application);
+    if (openingGeneration !== editorOpenGeneration) return;
+    if (recoveredDocumentKey) {
+      const recoveredStep = wizardSections().findIndex(section => section.key === `document:${recoveredDocumentKey}`);
+      if (recoveredStep >= 0) requestedStep = recoveredStep;
+    }
     if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved', 'completed'].includes(application.status)) {
       requestedStep = wizardSections().length - 1;
     }
@@ -1183,6 +1246,9 @@
       root()?.replaceChildren();
     }
     renderEditor(current, requestedStep);
+    const notice = application.document_update_notice;
+    if (updateWarning) showToast(updateWarning, 'warning');
+    else if (notice) showToast(notice.message, notice.status === 'updated' ? 'info' : 'warning');
   }
 
   function currentPacketVersion(application = current) {
@@ -1198,7 +1264,7 @@
   }
 
   async function refreshCurrentSigning({ manual = false } = {}) {
-    if (!current || document.visibilityState === 'hidden') return false;
+    if (!current || document.visibilityState === 'hidden' || dirty || saveInFlight || syncConflict) return false;
     const applicationId = String(current.id);
     const generation = ++signingRefreshGeneration;
     const oldVersion = currentPacketVersion();
@@ -1250,7 +1316,7 @@
     if (!current?.form_projection_version && facilityKey !== 'commercial_terms' && sections.some(item => item.key === 'commercial_terms')) {
       sections = sections.filter(item => item.key !== 'commercial_terms');
     }
-    if (current?.form_projection_version === 1) sections = sections.filter(section => fieldsFor(section.key).length);
+    if (current?.form_projection_version === 1 || current?.value_contract_version === 2) sections = sections.filter(section => fieldsFor(section.key).length);
     const terms = current?.product_terms || {};
     const requirements = [...(terms.requirements || []), ...(current?.identity_copies || [])].filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
@@ -1264,13 +1330,7 @@
     const packetDocuments = current?.document_packet?.documents || [];
     const supporting = packetDocuments.filter(item => item.role === 'supporting' && item.applicable);
     if (supporting.length) {
-      sections.push({
-        key: 'document_selection', label: 'Supporting documents',
-        hint: 'Choose the additional documents that apply after saving and previewing the main LAF.',
-      });
-      supporting.filter(item => item.selected && (!current.form_projection_version || (item.schema?.fields || []).some(field =>
-        current.value_contract_version === 2 ? field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered' : field.source_type !== 'system'))
-        && (!current.signing_workspace || (item.schema?.fields || []).some(field => field.editable !== false))).forEach(item => sections.push({
+      supporting.filter(item => item.selected).forEach(item => sections.push({
         key: `document:${item.key}`, label: item.name,
         hint: 'Shared application values are filled automatically. Complete only the remaining document details.',
         document: item,
@@ -1286,9 +1346,34 @@
       || (sections.some(item => item.key === 'invoice_details') ? 'invoice_details' : '')
       || 'commercial_terms';
     return (current?.form_schema?.fields || []).filter(field => {
+      if (field.input_owner?.kind === 'document') return false;
       const key = field.section_key || sectionFor(field.key);
       return key === sectionKey || (!current?.form_projection_version && sectionKey === facilityKey && key === 'commercial_terms');
     });
+  }
+
+  function inputOwner(field) {
+    return (current?.form_schema?.fields || []).find(item => item.key === field.key)?.input_owner;
+  }
+
+  function documentOwnsInput(field, document) {
+    if (current?.value_contract_version !== 2) return field.source_type !== 'system';
+    if (field.value_contract?.source !== 'entered') return false;
+    return field.value_contract?.scope === 'document'
+      || (inputOwner(field)?.kind === 'document' && inputOwner(field).document_key === document.key);
+  }
+
+  function inputSectionKey(field) {
+    const owner = inputOwner(field);
+    return owner?.kind === 'document' ? `document:${owner.document_key}` : owner?.section_key || field.section_key || sectionFor(field.key);
+  }
+
+  async function goToSection(key) {
+    if (!(await saveDraft(true))) return false;
+    const index = wizardSections().findIndex(item => item.key === key);
+    if (index < 0) return false;
+    renderEditor(current, index);
+    return true;
   }
 
   function correctionAllows(targetType, targetKey) {
@@ -1328,6 +1413,13 @@
       else if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.field] = input.value === 'true';
       else payload[input.dataset.field] = input.value;
     });
+    const activeDocument = wizardSections()[step]?.document;
+    if (activeDocument && current?.value_contract_version === 2) {
+      const shared = new Set((activeDocument.schema?.fields || []).filter(field => field.value_contract?.scope === 'application').map(field => field.key));
+      for (const [key, value] of Object.entries(collectSupportingDocumentPayload(activeDocument))) {
+        if (shared.has(key)) payload[key] = value;
+      }
+    }
     if (current?.value_contract_version === 2) {
       const links = {...(payload._person_role_bindings || {})};
       root()?.querySelectorAll('[data-person-link]').forEach(input => {
@@ -1566,20 +1658,24 @@
     return ` data-rule-field="${escapeHtml(JSON.stringify({type: field.type, validation: field.validation || {}, options: field.options || []}))}"`;
   }
 
-  function fieldInput(field, value, disabled, documentContext = null) {
+  function fieldInput(field, value, disabled, documentContext = null, readOnly = false) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(normalizeLabel(field));
-    const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
+    const classes = `laf-field miniapp-aligned-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
-    if (field.type === 'repeating_group') {
+    if (readOnly && field.type !== 'repeating_group') {
+      const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-reused-field="${key}" type="text" readonly aria-readonly="true" value="${escapeHtml(readOnlyFieldValue(field,value))}" placeholder="Not entered"></div>`;
+    } else if (field.type === 'repeating_group') {
       const structure = field.structure || {};
       const columns = structure.columns || [];
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 20);
       const policyBound = field.key === 'loan_fees';
       const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel, repeatableGridStyle(field))).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
+      const binding = readOnly ? `data-readonly-repeatable="${key}"` : `data-repeatable-field="${key}" data-main-repeatable="${key}"`;
+      control = `<div class="repeatable-field" ${binding} data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel, repeatableGridStyle(field))).join('')}</div>${policyBound || readOnly ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
     } else if (field.type === 'branch') {
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
@@ -1627,7 +1723,7 @@
         : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${disabled ? ' disabled' : ''}>`;
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
-    if (field.type !== 'repeating_group') {
+    if (field.type !== 'repeating_group' && !readOnly) {
       control = control.replace(/<(input|select|textarea)\b/g, match => match + ruleAttributes(field) + (field.required ? ' aria-required="true"' : ''));
     }
     const identifierHelp = field.type === 'national_id' ? '' : '';
@@ -1638,17 +1734,32 @@
       ? requiredDocuments.length === 1 && requiredDocuments[0].length <= 50
         ? `Required for ${requiredDocuments[0]}` : 'Required by a supporting document'
       : '';
-    const helpText = [field.help_text, identifierHelp, requirementHelp].filter(Boolean).join(' ');
+    const helpText = readOnly ? '' : [field.help_text, identifierHelp, requirementHelp].filter(Boolean).join(' ');
     const help = helpText ? `<small class="field-help">${escapeHtml(helpText)}</small>` : '';
-    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
+    const correction = !readOnly && ['ready_for_review', 'signed_pending_approval'].includes(current.status)
       ? documentContext ? correctionToggle('document_field', `${documentContext.key}.${field.key}`, `${documentContext.name}: ${field.label || field.key}`)
         : correctionToggle('field', field.key, normalizeLabel(field)) : '';
-    const phoneTarget = !documentContext && current.phone_id_checks?.allowed
-      ? current.phone_id_checks.targets.find(item => item.field_key === field.key) : null;
+    const phoneTarget = !documentContext && !readOnly && current.phone_id_checks?.allowed
+      ? current.phone_id_checks.targets?.find(target => target.field_key === field.key) : null;
     const wrapperTag = field.type === 'repeating_group' || phoneTarget ? 'div' : 'label';
-    const caption = phoneTarget ? `<label for="origination-phone-${key}">${label}${required}</label>` : `${label}${required}`;
-    if (phoneTarget) control = control.replace('<input', `<input id="origination-phone-${key}"`);
-    return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${caption}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}${phoneTarget ? `<div data-phone-id-target="${phoneTarget.target}" hidden></div>` : ''}</${wrapperTag}>`;
+    const fieldId = `laf-${documentContext?.key || 'main'}-${key}`;
+    if (field.type !== 'repeating_group') control = control.replace(/<(input|select|textarea)\b/, match => `${match} id="${fieldId}" aria-describedby="${fieldId}-feedback"`);
+    const caption = phoneTarget ? `<label for="${fieldId}" class="field-label miniapp-field-caption">${label}${required}</label>`
+      : `<span class="field-label miniapp-field-caption">${label}${required}</span>`;
+    const phoneCheck = phoneTarget ? `<div data-phone-id-target="${escapeHtml(phoneTarget.target)}" hidden></div>` : '';
+    return `<${wrapperTag} class="${classes}" ${readOnly ? 'data-reused-wrap' : 'data-field-wrap'}="${key}">${caption}<div class="field-control">${control}</div><div class="field-feedback miniapp-field-feedback" id="${fieldId}-feedback">${help}${correction}${phoneCheck}</div></${wrapperTag}>`;
+  }
+
+  function readOnlyFieldValue(field, value) {
+    const empty = value === '' || value == null;
+    let display = empty ? '' : value;
+    if (field.type === 'choice') {
+      const option = (field.options || []).find(item => String(item?.code ?? item) === String(value));
+      display = option?.label || option?.code || display;
+    } else if (field.type === 'boolean' && !empty) display = value === true || value === 'true' ? 'Yes' : 'No';
+    else if (field.type === 'date' && !empty) display = formatKenyanDate(value);
+    else if (field.type === 'datetime' && !empty) display = new Date(value).toLocaleString('en-KE', {timeZone:'Africa/Nairobi'});
+    return display;
   }
 
   function numericInputError(input) {
@@ -1694,7 +1805,7 @@
       );
       const errors = {};
       (document?.schema?.fields || []).filter(field => field.source_type !== 'system'
-        && (current.value_contract_version !== 2 || field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered')
+        && documentOwnsInput(field, document)
         && field.editable !== false).forEach(field => {
         if (field.type === 'repeating_group') {
           const container = root()?.querySelector(`[data-repeatable-field="${CSS.escape(field.key)}"]`);
@@ -1722,7 +1833,6 @@
       });
       return errors;
     }
-    if (sectionKey === 'document_selection') return {};
     if (sectionKey === 'product_requirements') {
       const terms = current?.product_terms || {};
       const values = collectProductConfiguration();
@@ -1785,6 +1895,8 @@
   }
 
   function originationErrorControl(key) {
+    const activeDocument = wizardSections()[step]?.document;
+    if (activeDocument && key.startsWith(`${activeDocument.key}.`)) key = key.slice(activeDocument.key.length + 1);
     const wrappers = [...(root()?.querySelectorAll('[data-field-wrap], [data-product-wrap]') || [])];
     const wrapper = wrappers.find(item => item.dataset.fieldWrap === key || item.dataset.productWrap === key
       || key.startsWith(`${item.dataset.fieldWrap}.`));
@@ -1845,9 +1957,12 @@
   }
 
   function originationErrorSection(key) {
+    const sharedField = (current?.form_schema?.fields || []).find(field => key === field.key || key.startsWith(`${field.key}.`));
+    if (sharedField) return wizardSections().findIndex(section => section.key === inputSectionKey(sharedField));
     return wizardSections().findIndex(section => {
       if (key.startsWith('requirement:') || key.startsWith('custom:')) return section.key === 'product_requirements';
-      const fields = section.document?.schema?.fields || fieldsFor(section.key);
+      if (section.document && key.startsWith(`${section.document.key}.`)) return true;
+      const fields = section.document ? section.document.schema.fields.filter(field => documentOwnsInput(field, section.document)) : fieldsFor(section.key);
       return fields.some(field => key === field.key || key.startsWith(`${field.key}.`));
     });
   }
@@ -1867,6 +1982,16 @@
   }
 
   async function saveDraft(showError) {
+    if (draftSaveOperation) {
+      const saved = await draftSaveOperation;
+      return saved && dirty ? saveDraft(showError) : saved;
+    }
+    draftSaveOperation = performDraftSave(showError);
+    try { return await draftSaveOperation; }
+    finally { draftSaveOperation = null; }
+  }
+
+  async function performDraftSave(showError) {
     if (!current || !['draft', 'correction_required'].includes(current.status)) return true;
     if (!dirty) return true;
     if (syncConflict) {
@@ -1877,12 +2002,15 @@
       const waitingForRequestId = saveInFlightRequestId;
       await saveInFlight;
       if (waitingForRequestId && lastFailedSaveRequestId === waitingForRequestId) return false;
-      return dirty ? saveDraft(showError) : true;
+      return dirty ? performDraftSave(showError) : true;
     }
     const applicationId = current.id;
     const revision = current.revision;
     const generation = editGeneration;
     const payload = collectPayload();
+    const activeDocument = wizardSections()[step]?.document;
+    const documentKey = activeDocument?.key || '';
+    const documentPayload = activeDocument ? collectSupportingDocumentPayload(activeDocument) : null;
     const configuration = collectProductConfiguration();
     const numericErrors = visibleDraftNumericErrors();
     if (Object.keys(numericErrors).length) {
@@ -1894,15 +2022,15 @@
     const key = pendingSaveRequestId;
     const attemptedDraft = {
       applicationId,
-      revision, payload, configuration, requestId: key,
+      revision, payload, configuration, documentKey, documentPayload, requestId: key,
       generation, savedAt: Date.now(),
     };
     await persistRecoveryDraft(applicationId, attemptedDraft);
     setSaveState('Saving…', 'saving');
     saveInFlightRequestId = key;
-    saveInFlight = apiFetch(`/applications/${applicationId}/`, {
-      method: 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({
+    saveInFlight = apiFetch(documentKey ? `/applications/${applicationId}/documents/${encodeURIComponent(documentKey)}/fields/` : `/applications/${applicationId}/`, {
+      method: documentKey ? 'POST' : 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
+      body: JSON.stringify(documentKey ? {revision, payload:documentPayload, request_id:key} : {
         revision,
         form_payload: payload,
         product_requirement_evidence: configuration.requirements,
@@ -1923,7 +2051,8 @@
           pendingSaveRequestId = requestKey('save');
           phoneDraft = {
             applicationId,
-            revision,
+            revision, documentKey,
+            documentPayload: activeDocument ? collectSupportingDocumentPayload(activeDocument) : null,
             payload: collectPayload(),
             configuration: collectProductConfiguration(),
             requestId: pendingSaveRequestId,
@@ -1949,6 +2078,7 @@
     }
     const changedWhileSaving = editGeneration !== generation;
     const latestPayload = changedWhileSaving ? collectPayload() : null;
+    const latestDocumentPayload = changedWhileSaving && activeDocument ? collectSupportingDocumentPayload(activeDocument) : null;
     const latestConfiguration = changedWhileSaving ? collectProductConfiguration() : null;
     current = result.data.application;
     previewedRevision = null;
@@ -1959,19 +2089,21 @@
     }
     if (changedWhileSaving) {
       current.form_payload = latestPayload;
+      restoreDocumentDraft({documentKey, documentPayload:latestDocumentPayload});
       current.product_requirements = latestConfiguration.requirements;
       current.product_custom_values = latestConfiguration.customValues;
       current.product_selected_fee_keys = latestConfiguration.selectedFeeKeys;
       dirty = true;
       syncCloseProtection();
       setSaveState('Saving newer changes…', 'saving');
-      return saveDraft(showError);
+      return performDraftSave(showError);
     }
     pendingSaveRequestId = '';
     dirty = false;
     syncCloseProtection();
     await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');
+    refreshEditorIdentity();
     if (showError) showToast('Changes saved.', 'success');
     return true;
   }
@@ -1995,10 +2127,13 @@
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => saveDraft(false), 900);
     const payload = collectPayload();
+    const activeDocument = wizardSections()[step]?.document;
     const configuration = collectProductConfiguration();
     void persistRecoveryDraft(current.id, {
       revision: current.revision,
       payload,
+      documentKey:activeDocument?.key || '',
+      documentPayload:activeDocument ? collectSupportingDocumentPayload(activeDocument) : null,
       configuration,
       requestId: pendingSaveRequestId,
       generation: editGeneration,
@@ -2013,11 +2148,14 @@
     window.clearTimeout(saveTimer);
     pendingSaveRequestId ||= requestKey('save');
     const payload = collectPayload();
+    const activeDocument = wizardSections()[step]?.document;
     const configuration = collectProductConfiguration();
     const key = pendingSaveRequestId;
     void persistRecoveryDraft(current.id, {
       revision: current.revision,
       payload,
+      documentKey:activeDocument?.key || '',
+      documentPayload:activeDocument ? collectSupportingDocumentPayload(activeDocument) : null,
       configuration,
       requestId: key,
       generation: editGeneration,
@@ -2032,15 +2170,31 @@
       await loadApplications();
       return true;
     }
-    if (!dirty || syncConflict || !['draft', 'correction_required'].includes(current.status)) return true;
-    return saveDraft(false);
+    if (dirty && !syncConflict && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(false))) return false;
+    if (documentResumeInFlight || !current.auto_update_documents || !capabilities.can_create || dirty
+        || saveInFlight || draftSaveOperation || syncConflict || sheetMode || reviewDialogMode
+        || sectionNavigationInFlight || document.getElementById('origination-section-picker')?.getAttribute('aria-expanded') === 'true'
+        || !document.getElementById('document-preview-overlay').hidden || isKeyboardInput(document.activeElement)) return true;
+    documentResumeInFlight = true;
+    const applicationId = current.id, revision = current.revision, generation = editGeneration;
+    try {
+      const key = requestKey('document-updates');
+      const result = await postJson(`/applications/${applicationId}/documents/updates/`, {
+        revision, request_id:key, client_request_id:key,
+      });
+      if (current?.id !== applicationId || current.revision !== revision || dirty || editGeneration !== generation) return false;
+      if (!result.ok) return false; // Opening/submitting retries and supplies feedback.
+      const updated = result.data.application;
+      if (updated?.document_update_notice?.status === 'updated') await openEditor(updated, step, {checkUpdates:false});
+      return true;
+    } finally { documentResumeInFlight = false; }
   }
 
   function progressMarkup() {
     const sections = wizardSections();
     const section = sections[step];
     const percent = Math.round(((step + 1) / sections.length) * 100);
-    return `<div class="wizard-progress-compact"><div class="wizard-section-row"><button type="button" class="icon-button" id="section-previous" aria-label="Previous section" ${step === 0 ? 'disabled' : ''}>${iconSvg('arrowLeft')}</button><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>${step + 1} / ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><button type="button" class="icon-button" id="section-next" aria-label="Next section" ${step === sections.length - 1 ? 'disabled' : ''}>${iconSvg('arrowRight')}</button></div><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
+    return `<div class="wizard-progress-compact"><nav class="wizard-section-row" aria-label="Application section navigation"><button type="button" class="icon-button" id="section-previous" aria-label="Previous section" ${step === 0 ? 'disabled' : ''}>${iconSvg('arrowLeft')}</button><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section" aria-expanded="false" aria-controls="origination-section-menu"><span><small>${step + 1} / ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><button type="button" class="icon-button" id="section-next" aria-label="Next section" ${step === sections.length - 1 ? 'disabled' : ''}>${iconSvg('arrowRight')}</button></nav><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div><nav id="origination-section-menu" class="section-picker editor-section-menu" aria-label="Application sections" hidden>${sections.map((item, index) => `<button type="button" data-section-index="${index}" class="section-picker-item${index === step ? ' active' : ''}"${index === step ? ' aria-current="step"' : ''}><span>${index + 1}</span><strong>${escapeHtml(item.label)}</strong>${index === step ? '<small>Current</small>' : ''}</button>`).join('')}</nav></div>`;
   }
 
   function hasFinalSignedPacket() {
@@ -2066,6 +2220,7 @@
   }
 
   function resolveLatestPreviewKey(documentKey) {
+    if (documentKey && !documentKey.startsWith('__') && hasFinalSignedPacket()) return documentKey;
     if (hasFinalSignedPacket()) return '__signed_packet__';
     if (hasCurrentSigningPacket()) return '__signing_packet__';
     if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
@@ -2091,10 +2246,6 @@
     const signed = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current?.status);
     const sectionAction = ['draft', 'correction_required'].includes(current?.status) ? 'Edit' : 'View';
     const reviewCards = ['fully_signed', 'approved'].includes(current?.status) ? '' : `<div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
-      if (section.key === 'document_selection') {
-        const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
-      }
       if (section.key.startsWith('document:')) {
         const document = section.document;
         return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(document.name)}</strong><small>${document.complete ? 'Fields complete' : `${document.missing_fields?.length || 0} fields missing`} · ${document.previewed ? 'Previewed' : 'Preview required'}</small></span><span>Open ${iconSvg('arrowRight')}</span></button>`;
@@ -2319,6 +2470,23 @@
     return `<section class="signing-workspace"><header><div><h3>${approved ? 'Signatures complete' : 'Signatures'}</h3><p>${workspace.completed_count} of ${workspace.required_count} signers complete</p></div><nav class="signing-tools" aria-label="Application actions">${preview}${workspace.can_recall ? `<button type="button" class="icon-button" id="origination-recall" aria-label="Withdraw for changes" title="Withdraw for changes">${iconSvg('undo')}</button>` : ''}</nav></header><div class="participant-list">${rows}</div>${archive}<details class="workspace-details"><summary>Application details</summary>${details}</details><details class="workspace-details"><summary>Documents</summary>${(current.document_packet?.documents || []).filter(doc => doc.selected).map(doc => `<p>${escapeHtml(doc.name)}</p>`).join('')}</details><details class="workspace-details"><summary>History</summary>${history}</details></section>`;
   }
 
+  function readOnlyPhoneChecksMarkup() {
+    if (!current?.phone_id_checks?.allowed || current.presentation === 'masked') return '';
+    return `<details class="application-phone-checks"><summary>Phone registration</summary>${(current.phone_id_checks.targets || []).map(target => `<div><span>${target.target === 'alternate' ? 'Alternative phone' : 'Applicant phone'}</span>${window.MiniAppUtils?.phoneLink?.(current.form_payload?.[target.field_key]) || ''}<div data-phone-id-target="${escapeHtml(target.target)}" hidden></div></div>`).join('')}</details>`;
+  }
+
+  function refreshEditorIdentity() {
+    const identity = root().querySelector('.editor-identity>strong');
+    if (identity) {
+      identity.textContent = current.applicant_summary?.name || 'New applicant';
+      identity.title = identity.textContent;
+    }
+    window.OriginationPhoneIdentity?.mount(root(), {
+      current:() => current, save:() => saveDraft(true), get:apiFetch, post:postJson,
+      requestKey, toast:showToast,
+    });
+  }
+
   function renderEditor(application, requestedStep) {
     window.MiniAppUtils?.bindAccessibleForm?.(root())?.dispose();
     document.body.classList.add('origination-editor-open');
@@ -2327,7 +2495,7 @@
     const values = collectPayload();
     const editable = ['draft', 'correction_required'].includes(application.status) && (!application.signing_workspace || application.signing_workspace.can_submit);
     const sections = wizardSections();
-    if (step >= sections.length) step = sections.length - 1;
+    step = Math.max(0, Math.min(step, sections.length - 1));
     const section = sections[step];
     const sectionLocked = false;
     const sectionEditable = editable && !sectionLocked && !syncConflict;
@@ -2335,7 +2503,6 @@
     if (application.status === 'completed') content = '<div class="section-title"><div><h3>Application completed</h3><p>No e-signatures were required. This does not approve the loan.</p></div></div><button type="button" class="btn btn-primary" id="origination-completed-download">Download application</button>';
     else if (application.signing_workspace && !editable) content = signingWorkspaceMarkup();
     else if (section.key === 'review') content = reviewMarkup(values);
-    else if (section.key === 'document_selection') content = documentSelectionMarkup(sectionEditable && application.status !== 'correction_required');
     else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, sectionEditable);
     else {
       const fields = section.key === 'product_requirements'
@@ -2359,21 +2526,16 @@
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = editable && application.status === 'draft'
       ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || application.reference_number)}</strong><small>${escapeHtml(application.product_name)} · ${escapeHtml(application.reference_number)}</small>${contextChip || contextStatus}</div><div class="editor-document-actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${editable ? progressMarkup() : ''}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<header class="editor-summary">
+      <div class="editor-context">
+        <button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button>
+        <div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small class="editor-product">${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div>
+        <div class="editor-document-actions" role="group" aria-label="Document actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      </div>${editable ? progressMarkup() : ''}
+    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
-    if (application.phone_id_checks?.allowed && !root().querySelector('[data-phone-id-target]')) {
-      const keys = new Set(application.phone_id_checks.targets.flatMap(item => [item.field_key, item.id_field_key]));
-      const contacts = (application.form_schema?.fields || []).filter(field => keys.has(field.key));
-      const details = document.createElement('details');
-      details.className = 'workspace-details';
-      details.innerHTML = `<summary>Applicant contacts</summary><div class="laf-grid">${contacts.map(field => fieldInput(field, application.form_payload?.[field.key], true)).join('')}</div>`;
-      root().querySelector('.wizard-card')?.appendChild(details);
-    }
-    window.OriginationPhoneIdentity?.mount(root(), {
-      current:() => current, save:() => saveDraft(true), get:apiFetch, post:postJson,
-      requestKey, toast:showToast,
-    });
+    refreshEditorIdentity();
     root().querySelectorAll('.preview-link').forEach(button => {
       const label = button.textContent.trim();
       button.setAttribute('aria-label',label);button.title=label;
@@ -2401,12 +2563,6 @@
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
-  function documentSelectionMarkup(editable) {
-    const packet = current?.document_packet || {};
-    const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable && item.selected);
-    const rows = documents.map(item => `<article class="packet-document-option"><span><strong>${escapeHtml(item.name)}</strong><small>${item.template_version ? `Version ${escapeHtml(item.template_version)}` : 'Supporting document'}</small></span></article>`).join('');
-    return `<div class="section-title"><div><h3>Supporting documents</h3></div>${editable ? '<button type="button" class="icon-button" data-manage-documents aria-label="Manage supporting documents" title="Manage documents">'+iconSvg('documents')+'</button>' : ''}</div><div class="packet-document-list">${rows || '<p class="muted">No supporting documents selected.</p>'}</div>`;
-  }
 
   function repeatableItemLabel(field) {
     const configured = String(field?.structure?.item_label || '').trim();
@@ -2469,56 +2625,22 @@
   }
 
   function supportingDocumentField(field, document, editable) {
-    const key = escapeHtml(field.key);
     const shared = current.form_payload?.[field.key];
-    const value = document.field_payload?.[field.key] ?? shared ?? '';
-    const mainFormOwnsField = (current.form_schema?.fields || []).some(item => item.key === field.key);
-    const locked = field.source_type === 'system' || (
-      mainFormOwnsField && shared !== undefined && shared !== null && shared !== ''
-    );
+    const isShared = current.value_contract_version === 2 && field.value_contract?.scope === 'application';
+    const value = isShared ? shared ?? '' : document.field_payload?.[field.key] ?? '';
+    const locked = field.source_type === 'system';
     const correctionKey = `${document.key}.${field.key}`;
-    const disabled = !editable || locked || !correctionAllows('document_field', correctionKey);
-    if (field.type !== 'repeating_group') {
-      return fieldInput({...field, help_text: locked ? 'Filled from the main LAF' : field.help_text}, value, disabled, document)
-        .replaceAll('data-field="', 'data-document-field="');
-    }
-    const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
-    let control;
-    if (field.type === 'repeating_group') {
-      const structure = field.structure || {};
-      const columns = structure.columns || [];
-      const rows = Array.isArray(value) ? value : [];
-      const maxItems = Number(structure.max_items || 11);
-      const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel, repeatableGridStyle(field))).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0</span></strong></div></div>`;
-    } else if (field.type === 'choice') {
-      const options = (field.options || []).map(option => {
-        const code = option && typeof option === 'object' ? option.code : option;
-        const label = option && typeof option === 'object' ? (option.label || option.code) : option;
-        return `<option value="${escapeHtml(code)}"${value === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-      }).join('');
-      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select>`;
-    } else if (field.type === 'boolean') {
-      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;
-    } else if (field.type === 'textarea') {
-      control = `<textarea data-document-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value)}</textarea>`;
-    } else {
-      const type = field.type === 'datetime' ? 'datetime-local' : 'text';
-      control = field.type === 'date'
-        ? nativeDateControl(`data-document-field="${key}"${field.required ? ' required' : ''}`, value, disabled)
-        : `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
-    }
-    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
-      ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
-      : '';
-    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
-    return `<${wrapperTag} class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span><small class="field-error" aria-live="polite"></small>${correction}${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}</${wrapperTag}>`;
+    const disabled = !editable || locked || field.editable === false || !correctionAllows(isShared ? 'field' : 'document_field', isShared ? field.key : correctionKey);
+    return fieldInput(field, value, disabled, document)
+      .replaceAll('data-field="', 'data-document-field="')
+      .replaceAll('data-main-repeatable=', 'data-document-repeatable=');
   }
 
   function supportingDocumentMarkup(document, editable) {
     const sharedValues = current?.value_contract_version === 2;
-    const fields = (document?.schema?.fields || []).filter(field => !sharedValues
-      || field.value_contract?.scope === 'document' && field.value_contract?.source === 'entered');
+    const fields = (document?.schema?.fields || []).map(field =>
+      sharedValues && field.value_contract?.scope === 'application'
+        ? {...field, ...(current.form_schema.fields.find(item => item.key === field.key) || {}), section_key:field.section_key} : field);
     const configured = document?.schema?.sections || [];
     const sectionKeys = [...new Set([...configured.map(section => section.key), ...fields.map(field => field.section_key || '')])];
     const sections = sectionKeys.map(key => {
@@ -2526,14 +2648,14 @@
       if (!items.length) return '';
       const section = configured.find(item => item.key === key);
       const heading = section ? `<div class="section-title"><div><h4>${escapeHtml(section.label || key)}</h4>${section.help_text ? `<p>${escapeHtml(section.help_text)}</p>` : ''}</div></div>` : '';
-      return `<section class="supporting-form-section">${heading}<div class="laf-grid">${items.map(field => supportingDocumentField(field, document, editable)).join('')}</div></section>`;
+      return `<section class="supporting-form-section">${heading}<div class="laf-grid">${items.map(field => {
+        if (documentOwnsInput(field, document)) return supportingDocumentField(field, document, editable);
+        const value = field.value_contract?.source === 'entered'
+          ? current.form_payload?.[field.key] : document.resolved_values?.[field.key];
+        return fieldInput(field, value, true, document, true);
+      }).join('')}</div></section>`;
     }).join('');
-    const generated = sharedValues ? (document?.schema?.fields || []).filter(field => field.value_contract?.source !== 'entered') : [];
-    const values = generated.map(field => {
-      const value = document.resolved_values?.[field.key];
-      return `<div class="laf-field"><span>${escapeHtml(field.label || field.key)}</span><strong>${escapeHtml(value === '' || value == null ? 'Not yet available' : value)}</strong></div>`;
-    }).join('');
-    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div>${sections || '<div class="empty-state">Uses the application details above.</div>'}${values ? `<div class="laf-grid">${values}</div>` : ''}`;
+    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div>${sections || '<p class="field-help">No additional details needed. Preview this document above.</p>'}`;
   }
 
   function correctionTargetStep(identity) {
@@ -2544,7 +2666,7 @@
       const documentKey = targetKey.split('.', 1)[0];
       return sections.findIndex(item => item.key === `document:${documentKey}`);
     }
-    return sections.findIndex(section => fieldsFor(section.key).some(field => field.key === targetKey));
+    return originationErrorSection(targetKey);
   }
 
   function openReviewDialog(mode) {
@@ -2795,14 +2917,13 @@
     let uploadKey = requestKey('id-copy');
     openSheet({mode: 'id-capture', title: option.label, eyebrow: '',
       hint: 'Optional. Add both sides to save one PDF.', trigger,
-      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" data-id-side="${side}" hidden><span data-id-caption="${side}">Take / choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
+      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><button type="button" class="btn btn-secondary" data-id-camera="${side}" aria-label="Take ${side} photo">${iconSvg('camera')}<span data-id-caption="${side}">Take photo</span></button><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" data-id-side="${side}" hidden><span>Choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
       footer: '<button type="button" class="btn btn-secondary" data-id-cancel>Cancel</button><button type="button" class="btn btn-primary" data-id-upload>Save ID copy</button>',
     });
     const cleanup = () => Object.values(urls).forEach(url => URL.revokeObjectURL(url));
     sheetCleanup = cleanup;
     document.querySelector('[data-id-cancel]').onclick = () => {cleanup();closeSheet();};
-    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => {
-      const side = input.dataset.idSide, file = input.files?.[0];
+    const setPhoto = (side, file) => {
       if (!file) return;
       if (urls[side]) URL.revokeObjectURL(urls[side]);
       photos[side] = file; urls[side] = URL.createObjectURL(file);
@@ -2824,9 +2945,13 @@
         dialog.addEventListener('close',()=>{gestures?.dispose?.();dialog.remove();image.focus?.();},{once:true});
         display();dialog.showModal();
       };
-      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake / replace';
+      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake';
       tg?.HapticFeedback?.notificationOccurred?.('success');
-    });
+      showToast(`${side === 'front' ? 'Front' : 'Back'} photo ready.`, 'success');
+    };
+    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => setPhoto(input.dataset.idSide, input.files?.[0]));
+    document.querySelectorAll('[data-id-camera]').forEach(button => button.onclick = () =>
+      openEvidenceCamera(requirementKey, button, file => setPhoto(button.dataset.idCamera, file)));
     document.querySelector('[data-id-upload]').onclick = async event => {
       const status = document.querySelector('[data-id-status]');
       if (!photos.front || !photos.back) {status.textContent = 'Add both the front and back.';return;}
@@ -2847,47 +2972,66 @@
           status.textContent = result.error || 'Could not save. Your photos are kept; retry.';showToast(status.textContent,result.pending?'info':'error');return;
         }
         cleanup();closeSheet();renderEditor(current,step);showToast('ID copy saved.');
-      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';});
+      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';showToast(status.textContent,'error');});
     };
   }
 
-  async function openEvidenceCamera(requirementKey, trigger) {
+  async function openEvidenceCamera(requirementKey, trigger, onCapture = null) {
     if (!navigator.mediaDevices?.getUserMedia) {
       return showToast('This Telegram WebView cannot open the camera directly. Use Choose file instead.', true);
     }
-    openSheet({
-      mode: 'camera', eyebrow: 'Requirement evidence', title: 'Take photo',
-      hint: 'Keep the document inside the frame. Nothing is uploaded until you use this photo.', trigger,
-      body: '<div class="evidence-camera-stage"><video id="evidence-camera-video" autoplay playsinline muted></video><canvas id="evidence-camera-canvas" hidden></canvas></div>',
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture">Use photo</button>',
-    });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    const capture = document.getElementById('evidence-camera-capture');
-    const video = document.getElementById('evidence-camera-video');
+    cameraDialog?.close();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'camera-capture-dialog';
+    dialog.setAttribute('aria-labelledby', 'camera-capture-title');
+    dialog.innerHTML = '<header><h2 id="camera-capture-title">Take photo</h2><button type="button" class="icon-button" data-camera-cancel aria-label="Close camera">'+iconSvg('close')+'</button></header><p>Keep the whole document in the frame.</p><div class="evidence-camera-stage"><video autoplay playsinline muted></video><canvas hidden></canvas></div><footer><button type="button" class="btn btn-secondary" data-camera-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture" disabled>Use photo</button></footer>';
+    document.body.append(dialog);
+    cameraDialog = dialog;
+    let stream = null, closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      stream?.getTracks().forEach(track => track.stop());
+      if (activeCameraStream === stream) activeCameraStream = null;
+      if (cameraDialog === dialog) cameraDialog = null;
+      dialog.remove();
+      syncTelegramControls();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    dialog.addEventListener('close', cleanup, {once:true});
+    dialog.querySelectorAll('[data-camera-cancel]').forEach(button => button.onclick = () => {dialog.close();cleanup();});
+    const capture = dialog.querySelector('#evidence-camera-capture');
+    const video = dialog.querySelector('video');
+    dialog.showModal();syncTelegramControls();
     try {
-      activeCameraStream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }, audio: false,
       });
-      video.srcObject = activeCameraStream;
+      if (closed || !dialog.isConnected) {stream.getTracks().forEach(track => track.stop());return;}
+      activeCameraStream = stream;
+      video.srcObject = stream;
       await video.play();
+      if (!closed) capture.disabled = false;
     } catch (_) {
-      closeSheet();
+      dialog.close();cleanup();
       return showToast('Camera access was unavailable. Allow camera permission or use Choose file.', true);
     }
     capture.onclick = async () => {
       if (!video.videoWidth || !video.videoHeight) return showToast('The camera is still starting. Try again.', true);
       capture.disabled = true;
-      const canvas = document.getElementById('evidence-camera-canvas');
+      const canvas = dialog.querySelector('canvas');
       const maximum = 2000;
       const scale = Math.min(1, maximum / Math.max(video.videoWidth, video.videoHeight));
       canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
       canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
       canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+      if (closed) return;
       if (!blob) { capture.disabled = false; return showToast('The photo could not be captured. Try again.', true); }
       const file = new File([blob], `evidence-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      closeSheet({ restoreFocus: false });
-      await uploadEvidenceFile(file, requirementKey, trigger);
+      dialog.close();cleanup();
+      if (onCapture) onCapture(file);
+      else await uploadEvidenceFile(file, requirementKey, trigger);
     };
   }
 
@@ -2961,29 +3105,11 @@
     return true;
   }
 
-  async function saveDocumentSelection() {
-    if (!root().querySelector('[data-document-select]')) return true;
-    // Required documents are displayed as checked, disabled controls. They are
-    // already selected by the server and are not part of the optional-choice
-    // API contract; :checked alone also matches disabled controls.
-    const selectedKeys = [...root().querySelectorAll('[data-document-select]:checked:not(:disabled)')].map(input => input.dataset.documentSelect);
-    const result = await postJson(`/applications/${current.id}/documents/selection/`, {
-      revision: current.revision,
-      selected_keys: selectedKeys,
-    });
-    if (!result.ok) {
-      showToast(result.data?.error || 'Could not save the supporting-document selection.', true);
-      return false;
-    }
-    current = result.data.application;
-    previewedRevision = current.revision;
-    return true;
-  }
 
   function collectSupportingDocumentPayload(document) {
     const payload = { ...(document?.field_payload || {}) };
-    if (current?.form_projection_version === 1) {
-      const active = new Set((document?.schema?.fields || []).filter(field => field.source_type !== 'system').map(field => field.key));
+    if (current?.form_projection_version === 1 || current?.value_contract_version === 2) {
+      const active = new Set((document?.schema?.fields || []).filter(field => documentOwnsInput(field, document) && field.value_contract?.scope !== 'application').map(field => field.key));
       for (const key of Object.keys(payload)) if (!active.has(key)) delete payload[key];
     }
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
@@ -3005,24 +3131,12 @@
   }
 
   async function saveSupportingDocument(documentKey) {
-    const document = (current?.document_packet?.documents || []).find(item => item.key === documentKey);
-    const payload = collectSupportingDocumentPayload(document);
-    const result = await postJson(`/applications/${current.id}/documents/${encodeURIComponent(documentKey)}/fields/`, {
-      revision: current.revision,
-      payload,
-    });
-    if (!result.ok) {
-      if (result.data?.errors) showErrors(result.data.errors);
-      showToast(result.data?.error || 'Could not save this supporting document.', true);
-      return false;
-    }
-    current = result.data.application;
-    previewedRevision = current.revision;
-    return true;
+    if (wizardSections()[step]?.document?.key !== documentKey) return false;
+    return saveDraft(true);
   }
 
-  async function openSupportingPreview(documentKey) {
-    await openPreview(documentKey);
+  async function openSupportingPreview(documentKey, allowIncomplete = false) {
+    await openPreview(documentKey, allowIncomplete);
   }
 
   async function openPacketPreview() {
@@ -3032,12 +3146,8 @@
   function bindEditor(editable) {
     root().querySelectorAll('[data-id-capture]').forEach(button => button.onclick = () => openIdentityCapture(button.dataset.idCapture,button));
     const browseSection = async direction => {
-      if (syncConflict) return showToast('Choose which draft to keep first.', 'warning');
-      const section = wizardSections()[step];
-      const saved = section.key === 'document_selection' ? await saveDocumentSelection()
-        : section.key.startsWith('document:') ? await saveSupportingDocument(section.key.slice(9))
-        : await saveDraft(true);
-      if (saved) renderEditor(current, step + direction);
+      const target = wizardSections()[step + direction];
+      if (target) await navigateSection(target.key);
     };
     document.getElementById('section-previous')?.addEventListener('click', () => browseSection(-1));
     document.getElementById('section-next')?.addEventListener('click', () => browseSection(1));
@@ -3058,6 +3168,7 @@
       if (!conflictServerLoaded || !conflictDraft) return;
       const phoneDraft = conflictDraft;
       current.form_payload = phoneDraft.payload || current.form_payload;
+      restoreDocumentDraft(phoneDraft);
       current.product_requirements = phoneDraft.configuration?.requirements || current.product_requirements;
       current.product_custom_values = phoneDraft.configuration?.customValues || current.product_custom_values;
       current.product_selected_fee_keys = phoneDraft.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
@@ -3068,12 +3179,31 @@
       void saveDraft(true);
     });
     document.getElementById('origination-back').onclick = exitEditor;
-    document.getElementById('origination-section-picker')?.addEventListener('click', event => openSectionSheet(event.currentTarget));
-    root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = () => {
+    document.getElementById('origination-section-picker')?.addEventListener('click', () => toggleSectionMenu());
+    document.getElementById('origination-section-picker')?.addEventListener('keydown', event => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      if (document.getElementById('origination-section-menu')?.hidden) toggleSectionMenu(true);
+      else document.querySelector('#origination-section-menu [aria-current="step"]')?.focus();
+    });
+    const menu = document.getElementById('origination-section-menu');
+    menu?.querySelectorAll('[data-section-index]').forEach(button => button.addEventListener('click', () => {
+      const section = wizardSections()[Number(button.dataset.sectionIndex)];
+      if (section) void navigateSection(section.key);
+    }));
+    menu?.addEventListener('keydown', event => {
+      const buttons = [...menu.querySelectorAll('button')];
+      const index = buttons.indexOf(document.activeElement);
+      const next = {ArrowDown:(index + 1) % buttons.length, ArrowUp:(index - 1 + buttons.length) % buttons.length, Home:0, End:buttons.length - 1}[event.key];
+      if (next == null) return;
+      event.preventDefault();
+      buttons[next]?.focus();
+    });
+    root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = async () => {
       const targetStep = Number(button.dataset.editStep);
       const targetSection = wizardSections()[targetStep];
       if (current.status === 'draft' && targetSection) unlockedDraftSections.add(targetSection.key);
-      renderEditor(current, targetStep);
+      if (targetSection) await goToSection(targetSection.key);
     });
     document.getElementById('origination-edit-section')?.addEventListener('click', () => {
       const section = wizardSections()[step];
@@ -3108,12 +3238,13 @@
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
     root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen, button.dataset.evidenceName, button.dataset.evidenceMime));
     root().querySelectorAll('[data-support-preview]').forEach(button => button.onclick = async () => {
-      if (hasFinalSignedPacket()) return openPreview('__signed_packet__');
+      if (editable && !(await saveSupportingDocument(button.dataset.supportPreview))) return;
       const sectionKey = wizardSections()[step]?.key || '';
       const errors = sectionErrors(sectionKey); showErrors(errors);
-      if (Object.keys(errors).length) return showToast('Complete the required document fields before previewing.', true);
-      if (editable && !(await saveSupportingDocument(button.dataset.supportPreview))) return;
-      await openSupportingPreview(button.dataset.supportPreview);
+      const selected = current.document_packet?.documents?.find(item => item.key === button.dataset.supportPreview);
+      const incomplete = Object.keys(errors).length > 0 || Boolean(selected?.missing_fields?.length);
+      if (incomplete && !window.confirm('Some details are missing. Preview this document as it is?')) return;
+      await openSupportingPreview(button.dataset.supportPreview, incomplete);
     });
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       refreshRepeatableField(container);
@@ -3129,21 +3260,18 @@
         );
         syncNativeDateDisplays(container);
         refreshRepeatableField(container);
-        if (container.dataset.mainRepeatable) scheduleSave();
-        else setSaveState('Supporting document not saved', 'dirty');
+        if (editable) scheduleSave();
       });
       container.addEventListener('click', event => {
         const remove = event.target.closest('[data-repeat-remove]');
         if (!remove) return;
         remove.closest('[data-repeat-row]')?.remove();
         refreshRepeatableField(container);
-        if (container.dataset.mainRepeatable) scheduleSave();
-        else setSaveState('Supporting document not saved', 'dirty');
+        if (editable) scheduleSave();
       });
       container.addEventListener('input', () => {
         refreshRepeatableField(container);
-        if (container.dataset.mainRepeatable) scheduleSave();
-        else setSaveState('Supporting document not saved', 'dirty');
+        if (editable) scheduleSave();
       });
       container.addEventListener('change', event => {
         if (event.target.matches?.('.native-date-control input[type="date"]')) {
@@ -3158,7 +3286,9 @@
         root().querySelectorAll('.laf-grid').forEach(grid => grid.addEventListener('input', scheduleCommercialQuotePreview));
       }
     }
-    else if (current.status === 'reviewed' && capabilities.can_start_signing) {
+    else if (editable) {
+      root().querySelectorAll('.laf-grid').forEach(grid => grid.addEventListener('input', scheduleSave));
+    } else if (current.status === 'reviewed' && capabilities.can_start_signing) {
       root().querySelector('.laf-grid')?.addEventListener('input', () => {
         const configuration = collectProductConfiguration();
         current.product_requirements = configuration.requirements;
@@ -3167,22 +3297,32 @@
     }
     root().querySelectorAll('.native-date-control input[type="date"]').forEach(input => input.addEventListener('change', () => {
       syncNativeDateDisplays(input.closest('.native-date-control'));
-      if (input.dataset.field) scheduleSave();
+      if (input.dataset.field || input.dataset.documentField) scheduleSave();
       if (wizardSections()[step]?.key === facilitySectionKey()) scheduleCommercialQuotePreview();
     }));
-    root().querySelector('[data-clear-guarantor-two]')?.addEventListener('click', () => {
-      if (current?.form_payload?._person_role_bindings?.guarantor_2) return showToast('Choose a separate person before clearing Guarantor 2.', true);
-      const card = root().querySelector('[data-guarantor-two-card]');
-      card?.querySelectorAll('input, select, textarea').forEach(input => {
+    root().querySelector('[data-clear-guarantor-two]')?.addEventListener('click', event => runPrimaryAction('Clearing...', async () => {
+      const keys = (current.form_schema?.fields || []).filter(field => field.key.startsWith('guarantor_2_')).map(field => field.key);
+      if (!editable || keys.some(key => !correctionAllows('field', key))) return showToast('Only the requested corrections can be changed.', 'warning');
+      window.clearTimeout(saveTimer);
+      const payload = collectPayload();
+      const links = {...payload._person_role_bindings};
+      delete links.guarantor_2;
+      payload._person_role_bindings = links;
+      keys.forEach(key => { payload[key] = ''; });
+      current.form_payload = payload;
+      const select = root().querySelector('[data-person-link="guarantor_2"]');
+      if (select) select.value = '';
+      for (const key of keys) root().querySelectorAll(`[data-field="${CSS.escape(key)}"]`).forEach(input => {
         if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
         else input.value = '';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      syncNativeDateDisplays(card);
+      syncNativeDateDisplays(root());
       scheduleSave();
-      showToast('Guarantor 2 cleared. Save this section to omit the second guarantor.');
-    });
+      if (!(await saveDraft(false))) { showToast('Could not save the cleared guarantor. Keep this page open and retry.', 'error'); return false; }
+      renderFreshEditor(current, step);
+      showToast('Guarantor 2 cleared.', 'success');
+      return true;
+    }, event.currentTarget));
     root().querySelectorAll('[data-location-type="county"]').forEach(input => input.addEventListener('change', syncOriginationSubCountySelect));
     root().querySelectorAll('[data-person-link]').forEach(input => input.addEventListener('change', () => runPrimaryAction('Saving...', async () => {
       const previous = current?.form_payload?._person_role_bindings?.[input.dataset.personLink] || '';
@@ -3197,7 +3337,8 @@
       }
       return openPreview();
     });
-    document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
+    document.getElementById('origination-preview-early')?.addEventListener('click', () =>
+      (current.document_packet?.documents || []).filter(item => item.selected).length > 1 ? openPacketPreview() : openPreview());
     document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Preparing documents...', async () => {
       if (['draft','correction_required'].includes(current.status) && !validateSubmission()) return;
       if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
@@ -3206,6 +3347,7 @@
       }
       const result = await postJson(`/applications/${current.id}/confirm-signing/`, { revision: current.revision });
       if (!result.ok) {
+        if (result.data?.code === 'documents_updated' && result.data.application) await openEditor(result.data.application, 0);
         if (result.data?.errors) showServerErrors(result.data.errors);
         return showToast(result.data?.error || 'Could not prepare the documents for signing.', true);
       }
@@ -3219,6 +3361,7 @@
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
       const result = await postJson(`/applications/${current.id}/submit/`, { revision: current.revision });
       if (!result.ok) {
+        if (result.data?.code === 'documents_updated' && result.data.application) await openEditor(result.data.application, 0);
         if (result.data?.errors) showServerErrors(result.data.errors);
         return showToast(result.data?.error || 'Could not submit the application.', true);
       }
@@ -3452,8 +3595,9 @@
       if (result.data?.errors) showServerErrors(result.data.errors);
       return showToast(result.data?.error || 'Could not prepare this application.', 'error');
     }
-    const {download_url:url, filename} = result.data;
-    if (!url || !filename) return showToast('The download is unavailable. Please try again.', 'error');
+    const url = String(result.data.download_url || '').trim();
+    const filename = String(result.data.filename || '').trim();
+    if (!url || !filename || /[\\/\r\n]/.test(filename)) return showToast('The download is unavailable. Please try again.', 'error');
     const fallback = () => {
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename;
       anchor.rel = 'noopener'; anchor.target = '_blank'; document.body.appendChild(anchor); anchor.click(); anchor.remove();
@@ -3469,20 +3613,29 @@
     } else fallback();
   }
 
-  async function openPreview(documentKey = '') {
+  async function openPreview(documentKey = '', allowIncomplete = false) {
+    const overlay = document.getElementById('document-preview-overlay');
+    if (!overlay.hidden) return; // One save/render/handoff per visible viewer.
     // Event listeners must call this through a wrapper. Keep a defensive
     // fallback too, so a future direct binding cannot turn a PointerEvent into
     // a document-key URL segment.
     if (typeof documentKey !== 'string') documentKey = '';
     documentKey = resolveLatestPreviewKey(documentKey);
-    if (!documentKey && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     previewDocumentKey = documentKey;
+    previewAllowIncomplete = allowIncomplete;
     previewSucceeded = false;
     clearPreviewPageCache();
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
     document.querySelector('.preview-toolbar').hidden = false;
-    const overlay = document.getElementById('document-preview-overlay');
+    const openingRequestId = previewRequestId;
+    const applicationId = current.id;
+    const pageLabel = document.getElementById('preview-page');
+    if (pageLabel) pageLabel.textContent = dirty ? 'Saving changes…' : 'Loading preview…';
+    const image = document.getElementById('document-preview-image');
+    if (image) image.removeAttribute('src');
+    const stage = document.getElementById('document-preview-stage');
+    stage?.setAttribute('aria-busy', 'true');
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
       ? 'Signed application'
@@ -3499,6 +3652,12 @@
     previewGestures?.reset();
     syncTelegramControls();
     window.requestAnimationFrame(() => document.getElementById('preview-close')?.focus());
+    if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) {
+      if (previewRequestId === openingRequestId) closePreview();
+      return;
+    }
+    if (previewRequestId !== openingRequestId || current?.id !== applicationId || overlay.hidden) return;
+    if (pageLabel) pageLabel.textContent = 'Loading preview…';
     await loadPreviewPage();
   }
 
@@ -3510,12 +3669,13 @@
       return cached;
     }
     if (previewPageLoads.has(pageNumber)) return previewPageLoads.get(pageNumber);
-    const key = previewRequestId || requestKey('preview');
+    let key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
-    const signedPacketPreview = ['__signed_packet__', '__signing_packet__'].includes(previewDocumentKey);
+    const individualSigned = hasFinalSignedPacket() && previewDocumentKey && !previewDocumentKey.startsWith('__');
+    const signedPacketPreview = individualSigned || ['__signed_packet__', '__signing_packet__'].includes(previewDocumentKey);
     const previewPath = signedPacketPreview
-      ? `/applications/${applicationId}/${previewDocumentKey === '__signing_packet__' ? 'current-signing-packet' : 'signed-packet'}/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}`
+      ? `/applications/${applicationId}/${previewDocumentKey === '__signing_packet__' ? 'current-signing-packet' : 'signed-packet'}/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}${individualSigned ? `&document_key=${encodeURIComponent(previewDocumentKey)}` : ''}`
       : previewDocumentKey === '__review_packet__'
       ? `/applications/${applicationId}/review-packet/preview/`
       : previewDocumentKey === '__test_signing__'
@@ -3525,18 +3685,30 @@
       : previewDocumentKey
       ? `/applications/${applicationId}/documents/${encodeURIComponent(previewDocumentKey)}/preview/`
       : `/applications/${applicationId}/preview/`;
-    const pending = apiFetch(previewPath, signedPacketPreview ? {
+    const requestPreview = () => apiFetch(previewPath, signedPacketPreview ? {
       headers: { 'X-Request-ID': key },
     } : {
       method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({
-        revision, request_id: key, preview_format: 'image', page: pageNumber,
+        revision, request_id: key, preview_format: 'image', page: pageNumber, allow_incomplete:previewAllowIncomplete,
         package_id: ['__test_signing__', '__review_packet__'].includes(previewDocumentKey) ? current?.signing_package?.id : undefined,
         unsigned_document_hash: previewDocumentKey === '__review_packet__' ? current?.signing_package?.unsigned_document_hash : undefined,
         review_scope_sha256: previewDocumentKey === '__review_packet__' ? current?.signing_package?.review_scope_sha256 : undefined,
       }),
-    }).then(result => {
+    });
+    const pending = (async () => {
+      let result = await requestPreview();
+      if (pageNumber === 1 && !previewAllowIncomplete && result.data?.code === 'incomplete_preview_confirmation_required'
+          && key === previewRequestId && current?.id === applicationId && current?.revision === revision) {
+        if (!window.confirm('Some required details are missing. Preview this copy as it is? It will not be ready for submission.')) return {cancelled:true};
+        previewAllowIncomplete = true;
+        key = previewRequestId = requestKey('incomplete-preview');
+        result = await requestPreview();
+      }
+      return result;
+    })().then(result => {
+      if (key !== previewRequestId || current?.id !== applicationId || current?.revision !== revision) return { stale: true };
+      if (result.cancelled) return {cancelled:true};
       if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
-      if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
       const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1), packetVersion: result.packetVersion || '' };
       if (signedPacketPreview && result.packetVersion) previewPacketVersion = result.packetVersion;
       if (previewDocumentKey === '__signing_packet__' && pageNumber === 1 && result.packetVersion) {
@@ -3547,7 +3719,7 @@
         previewedRevision = current.revision;
         previewSucceeded = true;
       }
-      if (previewDocumentKey === '__packet__' && pageNumber === 1) {
+      if (previewDocumentKey === '__packet__' && pageNumber === 1 && result.previewComplete) {
         previewedRevision = current.revision;
         previewSucceeded = true;
         (current?.document_packet?.documents || []).filter(item => item.selected).forEach(item => {
@@ -3557,7 +3729,7 @@
       }
       if (previewDocumentKey && !['__packet__', '__review_packet__', '__test_signing__', '__signed_packet__', '__signing_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
         const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
-        if (document) document.previewed = true;
+        if (document && result.previewComplete) document.previewed = true;
       }
       while (previewPageUrls.size > 3) {
         const discardPage = [...previewPageUrls.keys()].find(item => item !== previewPage);
@@ -3578,11 +3750,17 @@
     const wasCached = previewPageUrls.has(requestedPage);
     if (!wasCached) showToast('Generating filled PDF…');
     const entry = await fetchPreviewPage(requestedPage);
-    if (entry?.error) { return showToast(entry.error + ' Use Refresh to try again.', true); }
+    if (entry?.cancelled) {dismissPreviewProgressToast();closePreview();return;}
+    if (entry?.error) {
+      document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
+      document.getElementById('preview-page').textContent = 'Preview unavailable — tap Refresh';
+      return showToast(entry.error + ' Use Refresh to try again.', true);
+    }
     if (!entry || entry.stale || requestedPage !== previewPage) return;
     previewUrl = entry.url;
     previewPageCount = entry.pageCount;
     updatePreviewFrame();
+    document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
     dismissPreviewProgressToast();
     [requestedPage - 1, requestedPage + 1]
       .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewPageCount)
@@ -3648,6 +3826,7 @@
     dismissPreviewProgressToast();
     const wasApprovalPreview = previewDocumentKey === '__signing_packet__' && (current?.approval_roles || []).length;
     const overlay = document.getElementById('document-preview-overlay');
+    document.getElementById('document-preview-stage')?.setAttribute('aria-busy', 'false');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
     const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
     if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
@@ -3664,20 +3843,11 @@
     syncTelegramControls();
     const returnFocus = previewReturnFocus;
     previewReturnFocus = null;
-    const supportingStep = current && !previewDocumentKey && previewSucceeded && previewedRevision === current.revision
-      && !current.document_packet?.primary_ready
-      ? wizardSections().findIndex(item => item.key === 'document_selection')
-      : -1;
     previewDocumentKey = '';
     previewSucceeded = false;
     if (wasApprovalPreview) {
       renderEditor(current, step);
       window.requestAnimationFrame(() => root()?.querySelector('[data-staff-sign]')?.focus());
-      return;
-    }
-    if (supportingStep >= 0) {
-      showToast('Main LAF previewed. Continue with supporting documents.');
-      window.requestAnimationFrame(() => renderEditor(current, supportingStep));
       return;
     }
     window.requestAnimationFrame(() => returnFocus?.focus?.());
@@ -3724,15 +3894,15 @@
     const queueCount = key => {
       return tabCounts[key] ?? '';
     };
-    const cards = applications.map(item => {
+    const cards = applications.map((item, index) => {
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
-      const identifiers = [identity.national_id ? `<span><small>ID</small><span data-card-id-value>${escapeHtml(identity.national_id)}</span></span>` : '', identity.phone ? `<span><small>Phone</small><span data-miniapp-phone>${escapeHtml(identity.phone)}</span></span>` : ''].filter(Boolean).join('');
+      const position = (listState.page - 1) * listState.pageSize + index + 1;
+      const identifiers = `<span><small>National ID</small><span data-card-id-value${identity.national_id ? '' : ' class="not-provided"'}>${escapeHtml(identity.national_id || 'Not provided')}</span></span><span><small>Phone</small>${identity.phone ? `<span data-miniapp-phone>${escapeHtml(identity.phone)}</span>` : '<span class="not-provided">Not provided</span>'}</span>`;
       return `<article class="application-card" data-application-id="${escapeHtml(item.id)}">
-        <div class="application-card-header"><strong>${escapeHtml(applicantName)}</strong><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
-        <div class="application-card-meta"><span class="application-reference">${escapeHtml(item.reference_number)}</span><span>${escapeHtml(item.product_name)}</span><span>${escapeHtml(item.branch || 'No branch')}</span></div>
-        ${identifiers ? `<div class="application-card-identifiers">${identifiers}</div>` : ''}
-        <div class="application-card-footer"><small class="application-officer">${capabilities.can_review && item.officer_name ? escapeHtml(item.officer_name) : ''}</small><span class="application-card-state"><small class="application-status-text">${escapeHtml(item.next_action || 'View application')}</small>${iconSvg('arrowRight')}</span></div>
+        <div class="application-card-header"><div class="application-card-title"><span class="application-card-number" aria-label="List position ${position}">#${position}</span><strong>${escapeHtml(applicantName)}</strong></div><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span></div>
+        <div class="application-card-meta"><span>${escapeHtml(item.product_name)}<span class="card-meta-separator" aria-hidden="true"> · </span>${escapeHtml(item.branch || 'No branch')}</span><span class="application-reference">${escapeHtml(item.display_reference || item.reference_number)}</span>${capabilities.can_review && item.officer_name ? `<small class="application-officer"><span>Officer:</span> ${escapeHtml(item.officer_name)}</small>` : ''}</div>
+        <div class="application-card-identifiers">${identifiers}</div>
         <button type="button" class="application-card-open" data-application-open="${escapeHtml(item.id)}" aria-label="Open application for ${escapeHtml(applicantName)}"></button>
       </article>`;
     }).join('');
@@ -3750,7 +3920,7 @@
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
-    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><div class="application-search-field">${iconSvg('search')}<input type="search" name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, phone…" aria-label="Search applications"></div><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list" aria-label="Applications">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
     const heading = root().querySelector('.list-heading');
     heading.classList.add('sr-only');
     heading.setAttribute('aria-live', 'polite');
@@ -3880,6 +4050,7 @@
     capabilities = result.data.capabilities || capabilities;
     listState.page = result.data.pagination?.page || 1;
     listState.pages = result.data.pagination?.pages || 1;
+    listState.pageSize = Number(result.data.pagination?.page_size) || APPLICATION_PAGE_SIZE;
     listTotal = result.data.pagination?.total ?? applications.length;
     renderList({ focusSearch });
   }
@@ -3922,7 +4093,6 @@
   document.getElementById('preview-next').onclick = () => navigatePreviewPage(1);
   document.getElementById('preview-regenerate').onclick = async () => {
     if (['draft', 'correction_required'].includes(current?.status) && !(await saveDraft(true))) return;
-    previewedRevision = current.revision;
     clearPreviewPageCache();
     previewRequestId = requestKey('preview');
     await loadPreviewPage();
@@ -3951,13 +4121,12 @@
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   bindPreviewPinch();
   window.addEventListener('beforeunload', () => { preserveDraftOnExit(); closePreview(); });
-  window.addEventListener('pagehide', () => preserveDraftOnExit());
+  window.addEventListener('pagehide', () => {preserveDraftOnExit();cameraDialog?.close();activeCameraStream?.getTracks().forEach(track => track.stop());});
   window.addEventListener('pageshow', () => { void resumeDraftSynchronization(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') preserveDraftOnExit();
     else {
-      void resumeDraftSynchronization();
-      void refreshCurrentSigning();
+      void resumeDraftSynchronization().then(() => refreshCurrentSigning());
     }
   });
   window.addEventListener('online', () => { void resumeDraftSynchronization(); });
@@ -3975,8 +4144,16 @@
       setKeyboardViewportOpen(false);
     }, 120);
   });
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest('.wizard-progress-compact')) closeSectionMenu();
+  });
+  document.addEventListener('focusin', event => {
+    if (!event.target.closest('.wizard-progress-compact')) closeSectionMenu();
+  });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (closeSectionMenu(true)) {event.preventDefault();return;}
+    if (cameraDialog) {cameraDialog.close();return;}
     if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
@@ -3990,6 +4167,8 @@
   try {
     tg?.BackButton?.onClick?.(async () => {
       if (window.MiniAppRecovery?.closeTop()) return;
+      if (cameraDialog) return cameraDialog.close();
+      if (closeSectionMenu(true)) return;
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
       if (!document.getElementById('document-preview-overlay').hidden) return closePreview();

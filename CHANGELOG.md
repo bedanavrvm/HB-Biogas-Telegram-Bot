@@ -1,5 +1,24 @@
 # Changelog
 
+## 26 October 2026 - Reconcile main into Platform-Interdependence
+
+- Preserve both branches' change/gap records, main's permanent ORG references,
+  phone-check transport/diagnostics and unsigned document updates, alongside
+  this branch's strict placement-only forms, guarded legacy cleanup and Portal
+  fixes. New applications and refreshed unsigned documents capture projection 2.
+- Join the independent Origination 0012 migrations with the operation-free
+  `0013_merge_references_and_legacy_cleanup`; neither historical migration is
+  renamed or rewritten. Reverse the join only with `python manage.py migrate
+  origination 0012_remove_legacy_authoring_models`; both 0012 changes remain.
+- Reconcile placed-field preview fixtures and inventory the existing scoped
+  document-update write route. No permission expansion or external dependency.
+- Verify 1,284 backend checks, with 12 PostgreSQL-only skips across the focused
+  Origination and Portal suites, and all 504 affected Chromium checks. The join's
+  reverse/reapply probe preserves both 0012 histories and application values.
+- Merge verification and deployment/rollback limits are recorded in
+  `codebase-analysis-docs/assets/PLATFORM_INDEPENDENCE_RELEASE_CHECKLIST.md`.
+  No merge commit, push, main update, production migration or deployment.
+
 ## 26 October 2026 - Continued Portal bulk tests and FarmUp validation
 
 - Reject impossible FarmUp visit dates and values longer than their canonical
@@ -503,6 +522,126 @@
   tests passed; wider audit/catalogue/environment checks have documented gaps.
 - Browser MFA first is approved; forcing password/MFA inside Telegram is not.
   Operational provisioning/recovery/support and M1 acceptance remain unfinished.
+## 22 October 2026 - Origination review, preview and named downloads
+
+- Keep review section cards in two wrapping columns and the bundle-preview action
+  full width. The existing form/input scale and header remain unchanged.
+- Show the viewer immediately while saving, prevent duplicate opens and ignore
+  closed/stale preview responses. Ask about incomplete bundles before generating
+  PDFs, avoiding a full discarded render before confirmation.
+- Generate new combined documents with Main LAF first, then supporting documents
+  in their configured order. Existing signed bundles are never reordered.
+- Reject blank Origination download names and provide a named Complaints Excel
+  fallback. Portal's report/order/payment/letter downloads now expose consistent
+  named GET/HEAD metadata for Telegram Web; current access checks remain in place.
+- Evidence and device limitations: `docs/ui-standard/origination-review-downloads.md`.
+
+## 22 October 2026 - Compact numbered Origination cards
+
+- Use inline identifier labels/values and wrapping attribution metadata to
+  shorten normal application cards by about 41% in the measured fixture.
+- Add TAT-style list numbering that continues across pages and resets with
+  filtered results, while retaining the application reference separately.
+- Match TAT's card font stack/scale, preserving existing form sizing, full
+  identity values, phone dial targets and independent workflow permissions.
+- Source-bound evidence: `docs/ui-standard/origination-compact-cards.md`.
+
+## 22 October 2026 - Origination reference header
+
+- Adopt the supplied two-row header: applicant/product/status and plain document
+  action icons, then section dropdown and end-aligned arrows with a thin progress
+  line. No phone/National ID header strip; existing form scale is unchanged.
+- Keep save-before-navigation, failure recovery, actual document actions and
+  scoped phone checks in the Applicant form. See the source-bound evidence in
+  `docs/ui-standard/origination-reference-header.md`.
+- Apply the user's main-page reference with segmented tabs, search/filter row
+  and aligned identity cards. Remove repeated Complete/View application action
+  rows while retaining whole-card activation, phone dial links, permissions and
+  specific correction feedback. Missing identifiers keep their aligned slots.
+
+## 22 October 2026 - Automatic unsigned Origination document updates
+
+- Opening/resuming an unsigned application automatically adopts the latest
+  published versions of its selected documents, without a refresh button.
+  Submission checks again and returns the updated form if needed.
+- Keep the application number, compatible answers, uploads and loan terms.
+  New inputs use the existing form design; old previews/reviews, signing links
+  and OTP challenges are invalidated without changing historical package bytes.
+- Any confirmed signature on any document prevents adoption, even if an earlier
+  signature was subsequently invalidated. Typed/unconfirmed previews do not lock.
+- See ADR 0060 and `docs/ui-standard/origination-automatic-documents.md` for
+  scope, safety boundaries and source-bound evidence. No production/provider work.
+
+## 22 October 2026 - Origination compact application corrections
+
+- Compact applicant header with plain document-action icons and dial/copy
+  contacts; registration details expand on demand rather than stretching it.
+- One Main LAF/supporting field renderer, aligned feedback below controls,
+  grey read-only reused values without source links, and stable card identity slots.
+- Combined incomplete previews now honour explicit confirmation without marking
+  readiness; malformed supplied values and signing/submission rules remain checked.
+- Explicit front/back camera capture, retake and file selection reuse existing
+  ID-to-PDF collation and preserve staged photos on upload failure.
+- Add permanent ORG-N display references through checked-in migration 0012;
+  original references, historical documents and signed bytes are unchanged.
+- Candidate and reproducible screenshot evidence:
+  `docs/ui-standard/origination-ui-corrections.md`. No cross-app migration or
+  production/provider action is included.
+
+## 21 October 2026 - Origination application and supporting-document pages
+
+- Replaced redundant supporting-document index/extra shared-field steps with
+  one fill-and-preview page per selected supporting document. Main LAF sections
+  remain grouped; shared values are entered once and reused through read-only
+  summaries with links to their input source.
+- Moved contact actions and scoped phone checks into the applicant-named header:
+  phones launch the dialler and National ID copies with success/failure feedback.
+- Fixed linked Guarantor 2 clearing, truthful save confirmation, document save
+  serialisation, navigation saves and document-aware encrypted draft recovery.
+- Confirmed incomplete document previews no longer imply readiness. Individual
+  signed previews retain exact manifest-bound source pages and never regenerate
+  signed documents. No schema, role or provider configuration changes.
+- Source-bound candidate and screenshot instructions:
+  `docs/ui-standard/origination-application-sections.md`. Normal code/static
+  deployment is required; no production changes or live-provider calls made.
+
+## 21 October 2026 - Origination phone-check diagnostics and check again
+
+- Added a compact refresh icon beside phone-check results. One explicit
+  confirmation requests a new provider check instead of reusing the old result;
+  it warns about possible cost. Ordinary requests retain thirty-day reuse.
+  Active checks are joined, double clicks/replays do not rebill, and current
+  Origination IT scope, saved-value checks and dispatch limits remain intact.
+- Added safe structured request/response diagnostics in logs and the existing
+  Integration Operation metadata. Personal identifiers, credentials and
+  untrusted free-text/body values are excluded; environment, request structure,
+  HTTP/code/status/reference and interpretation can be inspected. Earlier raw
+  bodies cannot be recovered. No production lookup was made to obtain logs.
+- Sandbox results are labelled. Mobile light/dark screenshots were reviewed
+  using the existing icon-button pattern; the source-bound candidate does not
+  approve foundations, update visual baselines or start Phase 6 migration.
+- No new schema, environment variable, role or dependency. Normal code/static
+  deployment is needed. Verification and remaining gates are in `KNOWN_GAPS.md`.
+- Final focused checks: 35 backend tests and eleven real-shell browser checks
+  passed; two PostgreSQL-only concurrency tests skipped. Lint, route/UI
+  integrity and whitespace checks passed. No live-provider success is claimed.
+
+## 21 October 2026 - Origination phone-check request fix
+
+- Fixed phone verification being rejected by CSRF middleware before its
+  Telegram authentication and Origination IT authorization could run. The
+  exemption applies only to the phone-check endpoint, matching the existing
+  signed-Telegram staff API pattern; a browser login alone still grants no
+  access.
+- Added real-HMAC, CSRF-enforcing route tests for scoped IT, Superuser,
+  idempotent replay and explicit authentication/workflow/scope denials. Provider
+  calls are mocked. Roles, paid-call limits, reuse and retry rules are unchanged.
+- No migrations, settings changes or dependencies are required. Normal code
+  deployment is required for the live fix; no production deployment or real
+  Safaricom calls were performed. Verification details are in `KNOWN_GAPS.md`.
+- Focused verification: 26 tests passed, two PostgreSQL-only tests skipped;
+  lint and route/UI integrity checks passed. Deployment-runtime parity remains
+  unverified because the local virtualenv differs from the repository pins.
 
 ## 19 October 2026 - HB Deposits and JBL first-visit eligibility
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import requests
 from django.conf import settings
@@ -15,6 +16,7 @@ from core.services.external_resilience import remaining_external_seconds
 
 HOSTS = {'sandbox': 'https://sandbox.safaricom.co.ke', 'production': 'https://api.safaricom.co.ke'}
 SAFE_CODES = {'4000', '4001', '400', '401.001', '403.001', '500'}
+logger = logging.getLogger(__name__)
 
 
 class ProviderFailure(Exception):
@@ -25,6 +27,7 @@ class ProviderFailure(Exception):
         self.uncertain = uncertain
         self.provider_code = provider_code if provider_code in SAFE_CODES else ''
         self.status_code = status_code or (503 if uncertain or code == 'provider_transport_unavailable' else None)
+        self.diagnostics = None
         super().__init__(code)
 
 
@@ -33,6 +36,43 @@ class Outcome:
     state: str
     provider_code: str
     response_ref: str = ''
+    diagnostics: dict | None = None
+
+
+def _safe_reference(value, sensitive) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', value):
+        return '<redacted>'
+    if any(secret and (value == secret or (len(secret) >= 4 and secret in value)) for secret in sensitive):
+        return '<redacted>'
+    return value
+
+
+def _response_diagnostic(data: dict, sensitive, depth=0) -> dict:
+    """Never log arbitrary upstream text, echoed identifiers or unknown fields."""
+    result = {}
+    for key in ('responseCode', 'errorCode'):
+        if key in data:
+            value = str(data[key])
+            result[key] = value if value in SAFE_CODES else '<unrecognized>'
+    if 'status' in data:
+        value = data['status']
+        result['status'] = value if (isinstance(value, bool) or
+            isinstance(value, str) and value.strip().casefold() in {'true', 'false'}) else '<unrecognized>'
+    for key in ('requestRefID', 'responseRefID', 'requestId'):
+        if key in data:
+            result[key] = _safe_reference(data[key], sensitive)
+    for key in ('responseMessage', 'responseDescription', 'errorMessage', 'message'):
+        if key in data:
+            result[key] = '<redacted>'
+    # Retain recognisable envelope structure without logging arbitrary body
+    # contents, arrays, personal values, or provider-defined field names.
+    for key in ('header', 'body', 'data', 'result'):
+        if key in data:
+            result[key] = (_response_diagnostic(data[key], sensitive, depth + 1)
+                           if isinstance(data[key], dict) and depth < 2 else '<omitted>')
+    if len(data) > len(result):
+        result['_other_fields_omitted'] = len(data) - len(result)
+    return result
 
 
 def configuration_error() -> str:
@@ -139,18 +179,38 @@ def validate(*, phone: str, national_id: str, request_ref: str, before_dispatch)
     error = configuration_error()
     if error:
         raise ProviderFailure(error)
-    token = access_token()
-    remaining_external_seconds(10)
-    # This callback reauthorizes and atomically counts exactly this dispatch.
-    before_dispatch()
-    status, data = _json_request('POST', HOSTS[settings.DARAJA_ENVIRONMENT] + '/v1/KYC-validation/validateID',
-                                headers={'Authorization': f'Bearer {token}'}, json={
-                                    'requestRefID': request_ref, 'shortCode': settings.DARAJA_SHORTCODE,
-                                    'msisdn': phone, 'idType': '01', 'idNumber': national_id,
-                                })
-    code = str(data.get('errorCode', ''))
-    if status != 200 or code:
-        if status == 401 or code == '401.001':
-            cache.delete(_token_key())
-        raise ProviderFailure('provider_unavailable', uncertain=status >= 500, provider_code=code, status_code=status)
-    return parse_outcome(data)
+    sensitive = [phone, national_id, str(settings.DARAJA_CONSUMER_KEY),
+                 str(settings.DARAJA_CONSUMER_SECRET), str(settings.DARAJA_PHONE_ID_HMAC_KEY)]
+    url = HOSTS[settings.DARAJA_ENVIRONMENT] + '/v1/KYC-validation/validateID'
+    payload = {'requestRefID': request_ref, 'shortCode': settings.DARAJA_SHORTCODE,
+               'msisdn': phone, 'idType': '01', 'idNumber': national_id}
+    diagnostic = {'environment': settings.DARAJA_ENVIRONMENT, 'url': url, 'dispatched': False,
+        'request': {'requestRefID': _safe_reference(request_ref, sensitive),
+                    'shortCode': str(settings.DARAJA_SHORTCODE)[:20],
+                    'msisdn': '<redacted>', 'idType': '01', 'idNumber': '<redacted>'},
+        'identifier_lengths': {'msisdn': len(phone), 'idNumber': len(national_id)}}
+    try:
+        token = access_token()
+        sensitive.append(token)
+        remaining_external_seconds(10)
+        # This callback reauthorizes and atomically counts exactly this dispatch.
+        before_dispatch()
+        diagnostic['dispatched'] = True
+        logger.info('Origination Daraja phone check request: %s', json.dumps(diagnostic, sort_keys=True))
+        status, data = _json_request('POST', url, headers={'Authorization': f'Bearer {token}'}, json=payload)
+        diagnostic.update(http_status=status, response=_response_diagnostic(data, sensitive))
+        code = str(data.get('errorCode', ''))
+        if status != 200 or code:
+            if status == 401 or code == '401.001':
+                cache.delete(_token_key())
+            raise ProviderFailure('provider_unavailable', uncertain=status >= 500, provider_code=code, status_code=status)
+        outcome = parse_outcome(data)
+        diagnostic['interpretation'] = outcome.state
+        logger.info('Origination Daraja phone check response: %s', json.dumps(diagnostic, sort_keys=True))
+        safe_ref = diagnostic['response'].get('responseRefID', '')
+        return replace(outcome, response_ref='' if safe_ref == '<redacted>' else safe_ref, diagnostics=diagnostic)
+    except ProviderFailure as exc:
+        diagnostic.update(interpretation='unavailable', error_code=exc.code)
+        exc.diagnostics = diagnostic
+        logger.info('Origination Daraja phone check response: %s', json.dumps(diagnostic, sort_keys=True))
+        raise

@@ -4,7 +4,53 @@ Use a change-specific copy at **every phase handoff and every proposed/completed
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.
 
-## Current P2a.2 role-based local Complaints handoff
+## Current local main conflict resolution - 26 October 2026
+
+- [x] Scope: resolve the existing merge of main `b7e34290` into
+  `Platform-Interdependence` at `618317d2`. Preserve both histories; no main
+  branch update, merge commit, push or deployment is part of this resolution.
+- [x] Additions/workflows: reconcile Origination's permanent references,
+  unsigned same-family adoption, strict placement-only forms, phone-check
+  fixtures and guarded legacy retirement. Preserve the incoming scoped Portal
+  download metadata and Complaints download changes and the branch's Portal
+  remediation/bulk work. No new capability, dependency or browser activation.
+- [x] Schema: retain both independent 0012 migrations. The new
+  `origination.0013_merge_references_and_legacy_cleanup` joins them without
+  operations. Legacy retirement still refuses nonempty configuration tables;
+  application reference migration retains canonical references and signed bytes.
+  No new environment value or external dependency is required.
+- [x] Rollback: before committing, `git merge --abort` returns to the pre-merge
+  checkout. Reverse only the join with `python manage.py migrate origination
+  0012_remove_legacy_authoring_models`; both 0012 schemas stay applied. Reversing
+  to 0011 would also remove reference aliases and recreate empty legacy tables;
+  that is a separate schema/code rollback requiring its own reviewed scope.
+- [x] Initial verification: 291 focused backend tests run, 285 pass and six
+  PostgreSQL-only checks skip. Strict-projection/reference/refresh integration,
+  phone transport, signed-copy retention and guarded migration paths are covered.
+  Ruff, Django checks/model drift, UI source ratchet and the 203-route write
+  inventory pass. Evidence: `test-results/merge-main-focused-fixed.txt` and
+  `test-results/merge-main-2026-10-26/origination-summary.json`.
+- [x] Final verification: Portal regression runs 1,005 tests, with 999 passed and
+  six PostgreSQL-only skips. All 504 affected Chromium tests pass without retries
+  or skips. The explicit join reverse/reapply probe preserves both 0012 changes
+  and all synthetic application fields/aliases. All backend execution uses
+  isolated SQLite, blocked network connections and synthetic data with `.env`
+  ignored. Evidence: `test-results/merge-main-portal-regression.txt`,
+  `test-results/merge-main-browser.json` and
+  `test-results/merge-main-2026-10-26/migration-roundtrip.json`.
+- [x] Telegram compatibility: retain owning-workflow scopes and signed-launch
+  authentication, source-bound UI exceptions and the Phase 6 hold. No real
+  Telegram, Drive, Sheets, email, SMS or Daraja actions are performed.
+- [ ] Open/not run: real PostgreSQL locks/workers, live provider delivery,
+  physical devices, remote CI and full repository validation. Browser production
+  admission/operations remain off/unmounted; existing M1/privacy/rollout gates
+  and documented Portal bulk latency/held-counter limitations remain open.
+- [x] Monitor on a separately approved rollout: migration guards and references,
+  unsigned document refresh/revision conflicts, placement-only active inputs,
+  named downloads, signing evidence, provider diagnostics and Portal publication.
+  Conflict resolution grants no permission to deploy or change production grants.
+
+## Historical P2a.2 role-based local Complaints handoff
 
 - [x] Scope/ADR: user requested realistic roles/actions, specifically creation/
   uploads; ADR 0072 and plan revision 20. Same local URL 127.0.0.1:8767.

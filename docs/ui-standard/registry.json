@@ -479,27 +479,39 @@
     },
     {
       "path": "origination/static/miniapp/phone_identity_checks.js",
-      "sha256": "1f97585a65cb25229ce162225f69fe5968413809dc331b052b4ae89542063fd7",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "User-requested IT-only inline action candidate: existing buttons and Telegram confirmation; field validation, save-before-confirm, scoped status polling and neutral outcomes. Synthetic source-faithful evidence is not human approval; no live API calls, token migration or visual baseline update."
+      "sha256": "edff4dd60443749e560d889e9a7adecf74ecc97c16026c383d69b5e94aad8aa6",
+      "review_reference": "docs/ui-standard/origination-ui-corrections.md#evidence",
+      "reason": "User-requested Origination-only corrective candidate: compact plain-icon header, aligned feedback and read-only supporting fields, explicit camera capture, stable cards and truthful preview status. Actual-shell synthetic mobile interaction/screenshots are evidence, not baseline approval or Phase 6 migration. Phone-check authority/provider policies and signed bytes remain unchanged."
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "43aedb798cefa206ca68175ab162ac14b221edde439615f74949f9d3ae13d3fd",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Preserves the earlier document-management changes; adds the explicitly requested IT-only inline phone-check candidate using existing fields and confirmation. Source-bound mobile light/dark and failure evidence is synthetic, not human approval. No candidate tokens or Phase 6 migration."
+      "sha256": "5fd072796a12fbf318f6905a27e9d8e21a0fbdeaaa3a5315907224eee18e0cb8",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "User-requested compact numbered cards matching TAT typography, with source-bound evidence in origination-compact-cards.md; immediate saved-data-safe preview loading and blank-name rejection. Real-shell synthetic responsive screenshots and failure/retry contracts accompany these scoped refinements. Existing header, forms, automatic document refresh, role rules and signed bytes remain; no Phase 6 or baseline approval."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "6258a199ec1bec066f90dbb91b6fc8a3d1c4b1410fba842ec172e32854dc1751",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Preserves existing supporting-form rules; the new phone action alone reuses the established 44px touch minimum. A narrow candidate declaration, not a theme migration or baseline approval."
+      "sha256": "bd148523b4571e34a09091791260c5bf66a074b4cf7dac194d188bb81072b0b9",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Scoped user-requested compact numbered cards (TAT source font roles) and two-column review with a full-width preview action. Mobile light/dark and enlarged-text screenshots/geometry accompany the candidate; form scale, existing header and tap targets remain. No shared tokens or Phase 6 migration."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "579309de48238a14d558cb13f85f1a44f5aaf9d3e5c251f9257e4d6d944a6a25",
-      "review_reference": "codebase-analysis-docs/assets/PHONE_ID_CHECKS.md#ui-candidate-and-evidence",
-      "reason": "Nonvisual loading and cache-version changes for the requested advisory phone-check script. Existing foundations, legacy source baselines and migration hold remain unchanged."
+      "sha256": "9554ffec16286231c41b0b1b28431932208996f6f31424b29589092b1548e85f",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual cache-version change for compact cards, review and preview/download corrections. No template layout, candidate tokens, baseline status or Phase 6 migration changes."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "ccea673f67cd3f5566513516cc21a857a4cd3c3275d267de93e76616b59e3bde",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual download correctness: trim whitespace metadata and preserve the existing named Excel fallback in native and browser downloads. Actual export controls and native payload regression; no layout, font, role or Phase 6 change."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "043bee9586c51da5eaa539e18dd997e1221db7c51c3776168134d6d0ea063949",
+      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
+      "reason": "Nonvisual cache-version update for the blank download-name correction; no application layout/token or shared-baseline change."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",

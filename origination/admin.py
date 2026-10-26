@@ -2131,14 +2131,14 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
 
 @admin.register(LoanOriginationApplication)
 class LoanOriginationApplicationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
-    list_display = ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
+    list_display = ('display_reference', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
     list_filter = ('status', 'branch', 'product_definition')
-    search_fields = ('reference_number', 'officer__username')
+    search_fields = ('display_reference', 'reference_number', 'officer__username')
     readonly_fields = ('signing_setup_link',) + tuple(field.name for field in LoanOriginationApplication._meta.fields)
     fieldsets = (
-        ('Application', {'fields': ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'signing_setup_link')}),
+        ('Application', {'fields': ('display_reference', 'product_definition', 'officer', 'branch', 'status', 'signing_setup_link')}),
         ('Advanced', {'classes': ('collapse',), 'fields': tuple(field.name for field in LoanOriginationApplication._meta.fields
-            if field.name not in {'reference_number', 'product_definition', 'officer', 'branch', 'status'})}),
+            if field.name not in {'display_reference', 'product_definition', 'officer', 'branch', 'status'})}),
     )
 
     @admin.display(description='Signers')

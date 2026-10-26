@@ -10,7 +10,7 @@ const shell = fs.readFileSync(path.join(root, 'origination/templates/loan_origin
 async function boot(page, {it=true, dark=false, status='draft', failure=false, outcome='matched', pending=false}={}) {
   await page.setViewportSize({width:360,height:800});
   const id = '00000000-0000-4000-8000-000000000058';
-  const checks = {allowed:true,enabled:true,revision:1,targets:['primary','alternate'].map((target,index) => ({
+  const checks = {allowed:true,enabled:true,environment:'sandbox',revision:1,targets:['primary','alternate'].map((target,index) => ({
     target,field_key:index ? 'applicant_other_phone' : 'applicant_phone', id_field_key:'applicant_id_number',
     subject_token:'synthetic-bound-value',can_check:true,status:'not_checked',freshness:'none',phone_suffix:'0001',id_suffix:'9001',
   }))};
@@ -32,7 +32,7 @@ async function boot(page, {it=true, dark=false, status='draft', failure=false, o
       const body = route.request().postDataJSON(); writes.push(body);
       if (failure) return route.fulfill({status:503,json:{ok:false,error:'Verification unavailable. This is not a mismatch.'}});
       Object.assign(checks.targets.find(item=>item.target===body.target), {
-        status:pending?'checking':outcome,freshness:'current',checked_at:'2026-10-19T06:00:00Z',reusable_until:'2026-11-18T06:00:00Z',reused:true,
+        status:pending?'checking':outcome,freshness:'current',checked_at:'2026-10-19T06:00:00Z',reusable_until:'2026-11-18T06:00:00Z',reused:!body.fresh_check,
       });
       return route.fulfill({status:pending?202:200,json:{ok:true,result:checks.targets.find(item=>item.target===body.target)}});
     }
@@ -84,6 +84,30 @@ for(const dark of [false,true]) test(`IT inline primary and alternate actions fi
   await page.screenshot({path:info.outputPath('phone-check-reused.png'),fullPage:true});
 });
 
+for(const dark of [false,true]) test(`refresh icon explicitly requests a fresh check (${dark?'dark':'light'})`,async({page},info)=>{
+  const {writes}=await boot(page,{dark,outcome:'not_matched'});
+  await page.getByRole('button',{name:'Check primary Applicant phone against ID',exact:true}).click();
+  const host=page.locator('[data-phone-id-target=primary]');
+  const again=page.getByRole('button',{name:'Check primary Applicant phone against ID again',exact:true});
+  await expect(again).toBeVisible();
+  await expect(host).toContainText('Sandbox');
+  expect(await again.locator('svg').count()).toBe(1);
+  expect((await again.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  expect((await again.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({path:info.outputPath(`phone-check-again-${dark?'dark':'light'}.png`),fullPage:true});
+  await page.evaluate(()=>window.__confirm=false);
+  await again.click();
+  expect(writes).toHaveLength(1);
+  await page.evaluate(()=>window.__confirm=true);
+  await again.evaluate(button=>{button.click();button.click();});
+  await expect.poll(()=>writes.length).toBe(2);
+  expect(writes[1]).toMatchObject({fresh_check:true,confirmed:true,confirmation_version:1});
+  expect(writes[1].client_request_id).not.toBe(writes[0].client_request_id);
+  expect(await page.evaluate(()=>window.__confirmations.at(-1).message)).toContain('charge');
+  await expect(host).not.toContainText('Reused');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 test('cancel and non-IT views perform no verification writes',async({page})=>{
   const {writes}=await boot(page);
   await page.evaluate(()=>window.__confirm=false);
@@ -111,8 +135,10 @@ test('invalid values hide action and failures leave the form usable',async({page
 
 test('completed application offers advisory checks without editing or approval',async({page})=>{
   await boot(page,{status:'completed'});
-  await page.getByText('Applicant contacts',{exact:true}).click();
-  await expect(page.locator('[data-field=applicant_phone]')).toBeDisabled();
+  await expect(page.locator('.editor-summary [data-phone-id-target]')).toHaveCount(0);
+  await page.locator('.application-phone-checks summary').click();
+  await expect(page.locator('.application-phone-checks a[href="tel:+254700000001"]')).toBeVisible();
+  await expect(page.locator('[data-field=applicant_phone]')).toHaveCount(0);
   await page.getByRole('button',{name:'Check alternate Applicant phone against ID'}).click();
   await expect(page.locator('[data-phone-id-target=alternate]')).toContainText('Registration matched');
   await expect(page.getByRole('heading',{name:'Application completed'})).toBeVisible();

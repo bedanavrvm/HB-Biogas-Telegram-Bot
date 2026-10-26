@@ -47,8 +47,14 @@ class ApplicationDownloadTests(TestCase):
         self.sources = {'primary': labelled_pdf('Main page 1', 'Main page 2'),
                         'guarantee': labelled_pdf('Guarantee page'), 'home_visit': labelled_pdf('Home visit page')}
         for index, key in enumerate(self.sources):
+            fields = [{'key': 'guarantee_notes', 'type': 'text'}] if key == 'guarantee' else []
             config = {'document_type': key, 'field_overlay_manifest': {'fields': {}},
                       'signature_overlay_manifest': {'slots': {}}}
+            for field in fields:
+                config['field_overlay_manifest']['fields'][field['key']] = {
+                    'context_key': field['key'], 'page_number': 1,
+                    'box': {'x': 10, 'y': 10, 'width': 100, 'height': 18},
+                }
             template = OriginationDocumentTemplate.objects.create(document_type=key, version=1,
                 document_key=key, document_role='primary' if key == 'primary' else 'supporting',
                 name=key.title(), status='active', page_count=2 if key == 'primary' else 1,
@@ -58,7 +64,7 @@ class ApplicationDownloadTests(TestCase):
                 document_key=key, document_role=template.document_role, display_order=index,
                 name='Main LAF' if key == 'primary' else 'Guarantee' if key == 'guarantee' else 'Home visit',
                 inclusion_mode='optional', selected=True, template_snapshot={'configuration': config},
-                schema_snapshot={'fields': []})
+                schema_snapshot={'fields': fields})
         self.enterContext(patch('origination.services.origination_templates.load_template_source',
             side_effect=lambda template: self.sources[template.document_key]))
 
@@ -108,6 +114,27 @@ class ApplicationDownloadTests(TestCase):
                 self.prepare(key)
         self.assertFalse(self.app.events.filter(action='application_copy_prepared').exists())
 
+    def test_main_laf_is_first_even_when_supporting_display_order_is_lower(self):
+        self.app.packet_documents.filter(document_key='primary').update(display_order=99)
+        self.app.packet_documents.filter(document_key='home_visit').update(display_order=0)
+        self.app.packet_documents.filter(document_key='guarantee').update(display_order=0)
+        content, _kind = copy_content(self.app)
+        self.assertEqual([page.extract_text().strip() for page in PdfReader(BytesIO(content)).pages],
+            ['Main page 1', 'Main page 2', 'Guarantee page', 'Home visit page'])
+
+    def test_incomplete_bundle_warning_does_not_generate_a_pdf(self):
+        from origination.views import portal_origination_packet_preview
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        request = RequestFactory().post('/', {'revision': self.app.revision}, content_type='application/json')
+        request.origination_user = self.actor
+        request.origination_access = user_access(self.actor, 'loan_origination')
+        with patch('origination.views.render_packet') as renderer:
+            response = portal_origination_packet_preview(request, str(self.app.pk))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content)['code'], 'incomplete_preview_confirmation_required')
+        renderer.assert_not_called()
+
     def test_completed_unsigned_application_keeps_combined_and_individual_downloads(self):
         self.app.status = 'completed'
         self.app.save(update_fields=['status'])
@@ -132,6 +159,50 @@ class ApplicationDownloadTests(TestCase):
         self.prepare('guarantee', request_id='valid-guarantee')
         with self.assertRaises(OriginationError):
             self.prepare('home_visit', allow_incomplete=True)
+
+    def test_bundle_preview_uses_real_renderer_for_missing_supporting_fields(self):
+        from origination.views import portal_origination_packet_preview
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        request = RequestFactory().post('/', {'revision': self.app.revision, 'allow_incomplete': True,
+            'client_request_id': 'actual-rendered-bundle'}, content_type='application/json')
+        request.origination_user = self.actor
+        request.origination_access = user_access(self.actor, 'loan_origination')
+        response = portal_origination_packet_preview(request, str(self.app.pk))
+        self.assertEqual(response.status_code, 200, response.content[:150])
+        self.assertEqual(response['X-Preview-Complete'], 'false')
+        self.assertEqual(response['X-Document-Count'], '3')
+        pages = PdfReader(BytesIO(response.content)).pages
+        self.assertEqual([page.extract_text().strip() for page in pages],
+            ['Main page 1', 'Main page 2', 'Guarantee page', 'Home visit page'])
+        self.app.refresh_from_db()
+        self.assertIsNone(self.app.primary_previewed_revision)
+        self.assertFalse(self.app.packet_documents.filter(completed_at__isnull=False).exists())
+
+    def test_incomplete_preview_confirmation_never_grants_access(self):
+        from origination.views import portal_origination_packet_preview
+        actor = get_user_model().objects.create_user('synthetic-unauthorized-preview')
+        request = RequestFactory().post('/', {'revision': self.app.revision, 'allow_incomplete': True}, content_type='application/json')
+        request.origination_user = actor
+        request.origination_access = user_access(actor, 'loan_origination')
+        self.assertEqual(portal_origination_packet_preview(request, str(self.app.pk)).status_code, 403)
+
+    def test_bundle_warning_code_survives_authenticated_message_contract(self):
+        self.app.packet_documents.filter(document_key='guarantee').update(
+            schema_snapshot={'fields': [{'key': 'guarantee_notes', 'type': 'text', 'required': True}]})
+        with override_settings(ORIGINATION_WEBAPP_REQUIRE_TELEGRAM_AUTH=False):
+            self.client.force_login(self.actor)
+            response = self.client.post(reverse('loan_origination_packet_preview', args=[self.app.pk]),
+                {'revision': self.app.revision, 'client_request_id': 'authenticated-warning'},
+                content_type='application/json', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2')
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()['code'], 'incomplete_preview_confirmation_required')
+        from core.services.miniapp_messages import normalize_miniapp_response
+        normalized = normalize_miniapp_response(RequestFactory().post('/', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2'),
+            response, workflow='loan_origination')
+        payload = json.loads(normalized.content)
+        self.assertEqual(payload['code'], 'incomplete_preview_confirmation_required')
+        self.assertIn('missing', payload['message'])
 
     def test_supporting_copy_does_not_require_unrelated_main_input(self):
         from origination.tests_form_projection import layout

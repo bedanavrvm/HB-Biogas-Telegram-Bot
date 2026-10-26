@@ -39,6 +39,12 @@ class OriginationConflict(OriginationError):
     """The caller attempted to change a stale application revision."""
 
 
+class OriginationPreviewConfirmationRequired(OriginationError):
+    """A renderable draft is incomplete, not invalid or ready for submission."""
+
+    code = 'incomplete_preview_confirmation_required'
+
+
 class OriginationRecallConfirmationRequired(OriginationConflict):
     """A recall discovered a prepared packet the officer has not confirmed."""
 
@@ -1366,9 +1372,12 @@ def create_application(
                 signer_rules_snapshot = definition.signer_rules
                 template_configuration_snapshot = _published_template_configuration(definition)
             schema_snapshot['form_projection_version'] = 2
+            from origination.services.application_references import next_application_reference
+            reference = next_application_reference()
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
-                reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
+                reference_number=reference,
+                display_reference=reference,
                 product_definition=definition,
                 product_version=definition.product_version,
                 officer=officer,
@@ -2739,6 +2748,7 @@ def serialize_application(
         )
     payload = {
         'id': str(application.pk), 'reference_number': application.reference_number,
+        'display_reference': application.display_reference or application.reference_number,
         'product_key': application.product_definition.product_key,
         'product_name': application.product_definition.name,
         'product_version': application.product_definition.version,
@@ -2773,6 +2783,10 @@ def serialize_application(
     from origination.services.origination_consent import short_acknowledgement
     from origination.services.application_completion import without_signing
     payload['completion_without_signing'] = without_signing(application)
+    from origination.services.origination_document_refresh import refresh_block_reason
+    payload['auto_update_documents'] = bool(include_payload and actor and actor.pk == application.officer_id
+        and not refresh_block_reason(application))
+    payload['document_update_notice'] = getattr(application, '_document_update_notice', None)
     payload['short_acknowledgement'] = short_acknowledgement(application)
     from origination.services.origination_signing_plans import workspace
     signing_workspace = workspace(application, latest_package if application.status != 'draft' else None, actor) if presentation == 'full' else None

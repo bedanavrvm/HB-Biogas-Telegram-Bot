@@ -2,7 +2,9 @@
 
 23 October 2026. Scope: all 31 models present before this change, their current
 writers/readers, Admin exposure, and compatibility dependencies. The resulting
-runtime app has 29 models. This is a source and isolated-test audit; production
+runtime app had 29 models after retirement; merging main's permanent application
+reference allocator brings the runtime app to 30. The allocator is retained
+outside operational/testing deletion. This is a source and isolated-test audit; production
 row counts, Drive files, OTP delivery and handset behaviour were not inspected.
 
 ## Findings and changes
@@ -68,6 +70,7 @@ identities, compliance evidence and external files retain their own boundaries.
 
 | Model | Purpose, writer and reader | Why it can be empty / decision |
 | --- | --- | --- |
+| `OriginationApplicationReferenceSequence` | Permanent global ORG display-number allocator added from main; application creation allocates under a lock. | Initialized by reference migration; retained outside application/testing deletion. Keep; never reset or decrement. |
 | `OriginationDataField` | Global canonical variables. `origination_fields.create_data_field`, commercial catalogue and reviewed LAF seeds write; editor, schema snapshots and reporting read. | Empty before catalogue/bootstrap. Keep. Key/type and captured semantics are governed. |
 | `OriginationDataFieldEvent` | Append-only field creation/change/attachment evidence written by field services and seeds; Admin/audit readers. | Empty until a governed field operation. Keep. |
 | `OriginationProductDefinition` | Immutable published form/product-version configuration; setup, cloning and reviewed seeds write; application creation and catalogue read. | Empty before product setup. Keep. Old technical editor URLs now open the current guided workspace. |

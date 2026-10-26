@@ -213,7 +213,7 @@ test('supporting forms use placed fields and sections and restore saved answers 
   });
   const chooseVisit=async()=>{
     await page.getByRole('button',{name:'Choose application section'}).click();
-    await page.getByRole('button',{name:/Home visit/}).click();
+    await page.locator('[data-section-index]').filter({hasText:'Home visit'}).click();
   };
   await page.getByRole('button',{name:'Manage documents',exact:true}).click();
   await page.locator('[name=supporting_template_ids][value=support-2]').check();
@@ -230,15 +230,16 @@ test('supporting forms use placed fields and sections and restore saved answers 
   await page.locator('[data-document-field=visit_outcome]').selectOption('confirmed');
   await page.screenshot({path:info.outputPath('supporting-form-360.png'),fullPage:true});
   await page.getByRole('button',{name:'Choose application section'}).click();
-  await page.getByRole('button',{name:/Supporting documents/}).click();
-  expect(fieldWrites.at(-1)).toEqual({private_note:'Saved visit note',visit_phone:'0700000000',visit_outcome:'confirmed'});
+  await page.locator('[data-section-index]').filter({hasText:'Review'}).click();
+  await expect.poll(()=>fieldWrites.at(-1)).toEqual({private_note:'Saved visit note',visit_phone:'0700000000',visit_outcome:'confirmed'});
   await page.getByRole('button',{name:'Manage documents',exact:true}).click();
   await page.locator('[name=supporting_template_ids][value=support-2]').uncheck();
   await page.getByRole('button',{name:'Save changes',exact:true}).click();
   await expect(page.locator('#origination-sheet-overlay')).toBeHidden();
   await page.getByRole('button',{name:'Choose application section'}).click();
   await expect(page.locator('[data-section-index]').filter({hasText:'Home visit'})).toHaveCount(0);
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#origination-section-menu')).toBeHidden();
   await page.getByRole('button',{name:'Manage documents',exact:true}).click();
   await page.locator('[name=supporting_template_ids][value=support-2]').check();
   await page.getByRole('button',{name:'Save changes',exact:true}).click();
@@ -301,8 +302,7 @@ for(const width of [320,430,1280]) for(const dark of [false,true]) {
     expect(lastPayload).not.toHaveProperty('unused');
     await page.locator('[data-field=purpose]').fill('Synthetic request');
     await page.locator('#section-next').click();
-    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
-    await page.locator('#section-next').click();
+    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toHaveCount(0);
     await expect(page.locator('[data-document-field=private_note]')).toBeVisible();
     await page.screenshot({path:info.outputPath(`placed-support-${width}-${dark?'dark':'light'}.png`),fullPage:true});
   });
@@ -314,7 +314,10 @@ for (const width of [320,360,390,430,1280]) {
     await expect(page.getByRole('button',{name:'Needs your action 1'})).toHaveAttribute('aria-pressed','true');
     await expect(page.locator('.application-card')).toHaveCount(1);
     await expect(page.locator('.reviewer-alerts')).toHaveCount(0);
-    await expect(page.locator('.application-card')).toContainText('Make corrections');
+    await expect(page.locator('.application-card')).toContainText('Changes requested');
+    await expect(page.locator('.application-card')).toContainText('Please check the repayment details.');
+    await expect(page.locator('.application-card-state')).toHaveCount(0);
+    await expect(page.getByText('Complete application',{exact:true})).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:info.outputPath(`queues-${width}.png`)});
     await page.getByRole('button',{name:'Filters',exact:true}).click();
@@ -514,14 +517,14 @@ for (const width of [320, 430]) {
     await expect(page.locator('[data-field="applicant_name"]')).toHaveCount(1);
     await page.locator('[data-field="applicant_name"]').fill('Updated Synthetic Applicant');
     await page.locator('#section-next').click();
-    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toBeVisible();
+    await expect(page.locator('[data-document-field="notes"]')).toBeEditable();
+    await expect(page.getByRole('heading',{name:'Supporting documents',exact:true})).toHaveCount(0);
     expect(writes.length).toBeGreaterThan(0);
     expect(writes.at(-1).inactive_saved_value).toBeUndefined();
-    await page.locator('#section-next').click();
     await expect(page.locator('[data-document-field="notes"]')).toBeEditable();
     await expect(page.locator('[data-document-field="applicant_name"]')).toHaveCount(0);
     await expect(page.locator('[data-document-field="interest"]')).toHaveCount(0);
-    await expect(page.locator('.laf-field').filter({hasText:'Interest amount'})).toContainText('0');
+    await expect(page.locator('[data-reused-field="interest"]')).toHaveValue('0');
     await expect(page.locator('[data-document-field="notes"]')).toHaveValue('Saved local note');
     for(const dark of [false,true]) {
       await page.evaluate(value => {

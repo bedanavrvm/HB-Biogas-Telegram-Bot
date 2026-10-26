@@ -226,6 +226,7 @@ def origination_app(request):
     return response
 
 
+@csrf_exempt  # Verified Telegram identity, not a session cookie, authorizes this staff API.
 @require_http_methods(['GET', 'POST'])
 def portal_origination_phone_identity_checks(request, application_id: str):
     from origination.services.phone_identity import PhoneIdentityError, projection, request_check, require_access
@@ -280,6 +281,19 @@ def _request_id(request, body: dict) -> str:
     from core.services.miniapp_requests import bind_miniapp_write_request
 
     return bind_miniapp_write_request(request, body).key
+
+
+def _auto_update_before_submission(request, application, body):
+    from origination.services.origination_document_refresh import auto_refresh_documents
+    saved = auto_refresh_documents(application, actor=request.origination_user,
+                                  expected_revision=int(body.get('revision')))
+    notice = getattr(saved, '_document_update_notice', None) or {}
+    if notice.get('status') == 'updated':
+        return JsonResponse({'ok': False, 'code': 'documents_updated', 'error': notice['message'],
+            'application': serialize_application(saved, actor=request.origination_user)}, status=409)
+    if notice.get('status') == 'warning':
+        return JsonResponse({'ok': False, 'error': notice['message']}, status=409)
+    return None
 
 
 def _application(application_id: str):
@@ -598,6 +612,7 @@ def portal_origination_applications(request):
             term = query[:80]
             queryset = queryset.filter(
                 Q(reference_number__icontains=term)
+                | Q(display_reference__icontains=term)
                 | Q(identity_snapshot__name__icontains=term)
                 | Q(identity_snapshot__national_id__icontains=term)
                 | Q(identity_snapshot__phone__icontains=term)
@@ -629,6 +644,7 @@ def portal_origination_applications(request):
                 'id': str(item.pk),
                 'application_id': str(item.application_id),
                 'reference_number': item.application.reference_number,
+                'display_reference': item.application.display_reference or item.application.reference_number,
                 'message': item.message,
                 'notice_type': item.notice_type,
                 'created_at': item.created_at.isoformat(),
@@ -823,6 +839,8 @@ def portal_origination_submit(request, application_id: str):
         return access_error
     try:
         body = _body(request)
+        if (updated := _auto_update_before_submission(request, application, body)) is not None:
+            return updated
         from origination.services.application_completion import without_signing
         if not without_signing(application) and (application.approval_roles_snapshot or application.signing_policy_snapshot == 'all_required'):
             package, _ = confirm_and_start_conditional_signing(
@@ -855,6 +873,8 @@ def portal_origination_confirm_signing(request, application_id: str):
         return error
     try:
         body = _body(request)
+        if (updated := _auto_update_before_submission(request, application, body)) is not None:
+            return updated
         package, replayed = confirm_and_start_conditional_signing(
             application_id=application.pk, actor=request.origination_user,
             expected_revision=int(body.get('revision')),
@@ -1831,6 +1851,10 @@ def portal_origination_signed_packet(request, application_id: str):
         from origination.services.loan_origination import _record_event
         from origination.services.origination_esign import signed_package_content
         package, content = signed_package_content(package_id=package.pk)
+        document_key = str(request.GET.get('document_key') or '').strip()
+        if document_key:
+            from origination.services.application_copies import signed_document_content
+            content, _selected = signed_document_content(package, content, document_key)
         preview_format = str(request.GET.get('preview_format') or 'pdf').strip().lower()
         page_number = int(request.GET.get('page') or 1)
         if preview_format == 'image':
@@ -1849,6 +1873,7 @@ def portal_origination_signed_packet(request, application_id: str):
                         else 'view'
                     ),
                     'signed_document_hash': package.signed_document_hash,
+                    'document_key': document_key,
                 },
             )
     except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
@@ -1991,6 +2016,34 @@ def portal_origination_evidence_download(request, evidence_id: str):
 
 
 @csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def portal_origination_document_updates(request, application_id: str):
+    """Uses the existing authenticated, scope-checked Origination write boundary."""
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'origination.create', application)) is not None:
+        return error
+    if (error := _application_access_error(request, application)) is not None:
+        return error
+    if application.officer_id != request.origination_user.pk:
+        return JsonResponse({'ok': False, 'error': 'Only the assigned officer may update these documents.'}, status=403)
+    from origination.services.origination_document_refresh import document_updates, auto_refresh_documents
+    try:
+        if request.method == 'GET':
+            return JsonResponse({'ok': True, **document_updates(application)})
+        body = _body(request)
+        _request_id(request, body)
+        saved = auto_refresh_documents(application, actor=request.origination_user,
+            expected_revision=int(body.get('revision')))
+        return JsonResponse({'ok': True, 'application': serialize_application(saved, actor=request.origination_user)})
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+
+
+@csrf_exempt
 @require_http_methods(['GET'])
 def portal_origination_document_choices(request, application_id: str):
     application = _application(application_id)
@@ -2079,13 +2132,13 @@ def portal_origination_document_preview(request, application_id: str, document_k
             raise OriginationConflict('This application changed. Refresh before previewing it.')
         content = render_document(application, document_key)
         preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
-        mark_document_previewed(application, document_key)
+        complete = mark_document_previewed(application, document_key, allow_incomplete=body.get('allow_incomplete') is True)
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
             from origination.services.loan_origination import _record_event
             _record_event(
                 application, 'supporting_document_previewed', actor=request.origination_user,
-                request_id=request_id, after={'document_key': document_key},
+                request_id=request_id, after={'document_key': document_key, 'complete': complete},
             )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -2104,6 +2157,7 @@ def portal_origination_document_preview(request, application_id: str, document_k
     else:
         response = HttpResponse(content, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}.pdf"'
+    response['X-Preview-Complete'] = 'true' if complete else 'false'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
@@ -2124,20 +2178,25 @@ def portal_origination_packet_preview(request, application_id: str):
         body = _body(request)
         if int(body.get('revision')) != application.revision:
             raise OriginationConflict('This application changed. Refresh before previewing the packet.')
+        # Ask before expensive template downloads, rendering and rasterisation.
+        # Marking still happens only after the requested preview renders.
+        if body.get('allow_incomplete') is not True:
+            from origination.services.origination_documents import _preview_complete
+            _preview_complete(application)
         content, manifest = render_packet(application)
         preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
         if preview_format == 'image':
             from core.services.partnership_laf_preview import render_pdf_page
             page_number = int(body.get('page') or 1)
             content, total_pages = render_pdf_page(content, page_number=page_number)
-        mark_packet_previewed(application)
+        complete = mark_packet_previewed(application, allow_incomplete=body.get('allow_incomplete') is True)
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
             from origination.services.loan_origination import _record_event
             _record_event(
                 application, 'document_packet_previewed', actor=request.origination_user,
                 request_id=request_id,
-                after={'document_keys': [item.get('key') for item in manifest]},
+                after={'document_keys': [item.get('key') for item in manifest], 'complete': complete},
             )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -2151,6 +2210,7 @@ def portal_origination_packet_preview(request, application_id: str):
         response = HttpResponse(content, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet.pdf"'
     response['X-Document-Count'] = str(len(manifest))
+    response['X-Preview-Complete'] = 'true' if complete else 'false'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

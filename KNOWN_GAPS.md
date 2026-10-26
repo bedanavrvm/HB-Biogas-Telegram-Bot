@@ -1,5 +1,24 @@
 # Known Gaps and Verified Workarounds
 
+## Main integration and migration join - 26 October 2026
+
+Conflict resolution retains both Origination 0012 migrations; the new 0013
+operation-free join supplies one migration leaf. Normal approved deployment
+must include the joined history. The existing cleanup migration still stops
+on nonempty legacy authoring tables; reconcile that configuration under the
+old release instead of bypassing the guard. Reversing only the join uses
+`python manage.py migrate origination 0012_remove_legacy_authoring_models`;
+it does not remove the display-reference schema or recreate retired models.
+
+Unsigned document adoption and new application creation retain projection 2;
+historical signed bytes and independent workflow access remain protected.
+Execution evidence and unverified production/PostgreSQL/device gates are in
+the platform release checklist. No main merge or production action occurred.
+The combined affected suites pass 1,284 backend and 504 Chromium checks; 12
+PostgreSQL-only checks skip. Join reversal/reapplication preserves both 0012
+histories and synthetic application values/aliases.
+The documented bulk-import latency/held-counter and older test gaps remain open.
+
 ## Continued Portal bulk tests - 26 October 2026
 
 The current Portal gate passes 999 checks, with six PostgreSQL-only skips.
@@ -629,6 +648,197 @@ not installed locally. No exception extension, artifact baseline update, unrelat
 or catalogue regeneration was bundled into this phase. Full CI and production
 readiness are not established by the focused tests. No commit/merge/deployment
 or production migration was performed.
+## Compact Origination review and named downloads - 22 October 2026
+
+Implemented compact numbered cards using TAT's queue type roles, two-column
+review cards and a full-width preview action. The viewer now appears during a
+slow saved-data wait, and incomplete bundle confirmation happens before PDF
+generation. Newly generated bundles put Main LAF first; frozen/signed originals
+are not rewritten. See `docs/ui-standard/origination-review-downloads.md` and
+`docs/ui-standard/origination-compact-cards.md` for sources, diagnosis and evidence.
+
+Fixed reproducible whitespace-only Origination/Complaints filename handoffs and
+missing Telegram Web download metadata on four Portal download routes. All four
+native call sites already use the correct `file_name` property. These findings
+do not prove the cause of the user's particular blank native prompt without its
+app/client evidence. If it persists after normal deployment, use the named
+browser fallback and provide the affected app/file and a synthetic/redacted
+screenshot of the Telegram prompt. Do not relax download access or token checks.
+
+**270 browser tests passed**, plus **26 application-copy tests** on isolated
+SQLite and **six Portal metadata/denial tests** with synthetic dependencies.
+Inspected light/dark mobile screenshots; JavaScript syntax, Ruff, UI ratchet and
+whitespace checks passed. Native Telegram dialogs, PostgreSQL and production
+latency remain unverified. No migration/configuration changes are needed; normal
+code/static deployment is needed and has not been performed. No external writes
+or shared visual baseline/Phase 6 approval occurred.
+
+## Origination supplied header/main-page references - 22 October 2026
+
+Implemented both scoped references: integrated two-row editor header without
+phone/National ID strip; anchored section chooser/end-aligned navigation; and
+the main page's segmented tabs, search/filter row and aligned clickable cards.
+Removed redundant Complete/View application rows. Form scale, independent
+phone links, actual document actions and current authorization are preserved.
+Evidence: `docs/ui-standard/origination-reference-header.md`.
+
+**92 browser checks passed**, followed by **18 final responsive layout checks**
+with inspected light/dark and enlarged-text screenshots. Related isolated
+backend checks: **63 run, 61 passed, 2 PostgreSQL-only skips**. JavaScript syntax,
+Ruff, Django/migration checks, UI source ratchet and diff whitespace checks passed.
+No shared baseline/Phase 6 approval, production deployment or real Telegram-device
+verification is implied. The app still needs normal code/static deployment.
+
+## Automatic unsigned Origination documents - 22 October 2026
+
+Implemented lazy automatic same-family document adoption on officer open/resume
+and before submission, with compatible-answer retention and a first-confirmed-
+signature lock. Source, evidence and limits:
+`docs/ui-standard/origination-automatic-documents.md` and ADR 0060.
+
+Local acceptance: **231 backend tests run, 226 passed, 5 PostgreSQL-only skips**;
+**33 browser tests passed**, plus five final automatic-update/runtime checks.
+Light/dark mobile screenshots were inspected. PostgreSQL first-signature versus
+refresh concurrency has a checked-in regression test but was skipped on SQLite;
+the other four skips also require PostgreSQL. Actual Telegram resume behaviour
+still needs device verification. No new database schema or provider setup is
+required; normal code/static deployment is required and has not been performed.
+
+Adoption is triggered by the assigned officer opening/resuming/submitting, not a
+background sweep of dormant applications. It does not change product terms,
+switch Main LAF family, resurrect closed applications, upgrade unsigned legacy
+records without a governed catalogue or rewrite signed documents.
+
+## Origination UI corrections - 22 October 2026
+
+Implemented the compact header/plain icons, aligned Main LAF/supporting field
+renderer, grey read-only reused values without links, explicit front/back camera
+capture, truthful incomplete bundle preview and permanent short application
+references. Details/evidence: `docs/ui-standard/origination-ui-corrections.md`.
+
+Final related browser run: **139 passed**, with inspected screenshots under
+`test-results/origination-oct22-acceptance`. The 430px light/dark font metadata
+also records loaded Plus Jakarta Sans faces. Fresh isolated backend acceptance:
+**161 run, 159 passed, 2 PostgreSQL-only skips**. Reference concurrency is not
+claimed verified on SQLite. A separate 58-test migration/phone/field/frontend
+run had **52 passes, 2 skips and the same 4 older source-string failures** noted
+below; ownership upgrade/rollback completed. A migration-rewind run can leave a
+retained SQLite test database without seeded policy/audit rows, so final
+acceptance used `--fresh-database` instead of relying on its leftover state.
+Final missing-value card spacing was corrected after screenshot inspection;
+all **9 focused card checks** passed and the updated capture is retained in
+`test-results/origination-oct22-card-spacing`.
+
+Ruff, JS syntax/field rules, Django checks, migration drift, UI source ratchet
+and whitespace checks passed. Physical Telegram camera/dialler/keyboard checks
+and PostgreSQL locking remain unverified. Migration 0012 is checked in for the
+normal release process; no production migration/deployment/provider calls were
+performed. Local runtime remains Python 3.14.6 / Django 5.1.6.
+
+## Origination application sections and supporting forms - 21 October 2026
+
+Implemented the scoped application simplification and preserved the existing
+phone-check/recheck work. Supporting forms have one page per selected applicable
+instance, one canonical input location for shared values, individual previews,
+and document-aware save/recovery. Header contacts are dial/copy actions rather
+than repeated disabled inputs. Linked Guarantor 2 clearing, overlapping saves,
+failed saves and encrypted recovery were exercised through the real Mini App shell.
+
+Final isolated run through `scripts/test_named_sheets.py` covered value contracts,
+document management, placement projection, unsigned completion, application
+downloads, identity copies, phone verification and retained signed-document
+preview: **166 tests run, 163 passed, 3 PostgreSQL-only tests skipped**. SQLite
+does not verify PostgreSQL row locking. The four related Playwright files ran
+**124 tests, all passed**, including independent supporting-document values,
+reused values, incomplete-preview confirmation, clipboard failure and recovery
+after reloading. Mobile light/dark and save-failure screenshots were inspected;
+reproduction/evidence is in `docs/ui-standard/origination-application-sections.md`.
+Ruff, JavaScript syntax, UI source ratchet and whitespace checks passed.
+
+The separate `core.tests_loan_origination_frontend` module retains four stale
+source-string failures (old wording and static cache versions). A read-only
+comparison against HEAD reproduced the same four failing test names; these are
+not evidence of new operational failures and were not rewritten to hide them.
+An initial ad-hoc Python test invocation omitted Django's test argv marker and
+therefore enabled production AccessGrant fixture guards; rerunning with the
+repository's isolated test harness resolved those setup errors without changing
+access-control code or production settings.
+
+Real Telegram dialler/clipboard permissions, native keyboard behaviour and exact
+production font rendering remain human/device checks. The local virtualenv
+(Python 3.14.6 / Django 5.1.6) differs from deployment pins. No production
+deployment, live provider request, schema migration, role grant, document upgrade,
+visual baseline approval or Phase 6 migration was performed.
+
+## Origination check-again and exchange diagnostics - 21 October 2026
+
+Implemented an explicitly confirmed fresh check without deleting prior
+verification evidence. Default reuse remains thirty days. The same request key
+cannot be repurposed from reuse to fresh dispatch; pending attempts are joined
+before an older conclusive result can be reused. Scope, confirmation, value
+binding, throttle and daily allowance are unchanged. There are no automatic
+paid retries.
+
+New provider calls emit allowlisted, redacted request/response diagnostics and
+retain that safe view in Integration Operation metadata. This cannot restore
+old discarded payloads and does not establish the cause of the reported live
+mismatch. Exact Safaricom KYC sandbox fixtures/response contract still need
+provider confirmation; no real call was made. No full identifiers, credentials
+or unrestricted provider text are logged. Operator instructions and candidate
+screenshots: `codebase-analysis-docs/assets/PHONE_ID_CHECKS.md`.
+
+The initial browser run passed eleven real-shell tests, including light/dark
+fresh-check icons, cancellation and double-click protection. Both new mobile
+screenshots were inspected; native Telegram and deployed font acceptance remain
+unverified. The original missing-icon and unsupported-fresh-request failures
+were reproduced before implementation. The final isolated backend run executed
+`manage.py test origination.tests_phone_identity --noinput --verbosity 1`:
+**35 passed, zero failed, two PostgreSQL-only concurrency tests skipped**.
+Coverage includes fresh-over-cache dispatch, preserved history, same-key replay,
+old ordinary fingerprint compatibility, in-flight joining, scoped signed
+Telegram transport, confirmation/allowance denials, diagnostic persistence and
+redaction of credentials/identifiers including echoed references/nested bodies.
+Ruff, the 202-route write inventory, UI source ratchet and whitespace checks
+passed. All Node/client checks and syntax checks for 147 first-party JavaScript
+files passed. SQLite comment and dependency deprecation warnings are unchanged.
+The local Python 3.14.6/Django 5.1.6 environment differs from deployment pins;
+PostgreSQL concurrency and production-runtime parity remain release checks.
+No schema migration, settings/credential change, role change, production
+deployment or live provider request was performed.
+
+## Origination phone-check CSRF rejection - 21 October 2026
+
+The phone-check POST was missing the endpoint-local CSRF exemption used by
+other signed-Telegram Origination staff APIs. Production logs and a local
+middleware reproduction confirm it returned `CSRF token missing` before
+Telegram authentication, scoped IT authorization or provider dispatch. The
+generic permission message did not mean an Origination role was missing.
+
+The narrow fix retains verified Telegram identity, current Origination
+IT/Superuser scope, confirmation, idempotency, paid-call limits and no automatic
+paid retries. Regression tests exercise the mounted route with real synthetic
+Telegram HMACs and enforced CSRF checks; cookie-only and invalid Telegram
+requests, other-workflow IT and out-of-branch IT are denied. Provider calls are
+mocked and socket connections are blocked in the new transport tests.
+
+Final isolated verification: `manage.py test origination.tests_phone_identity
+--noinput --verbosity 1` ran 28 tests: **26 passed, zero failed, two skipped**.
+The skips require PostgreSQL row-lock/concurrency behaviour, not SQLite. The
+original middleware reproduction now reaches Telegram authentication and still
+denies unsigned requests. Ruff, the 202-route write inventory, UI source ratchet
+and `git diff --check` passed. The initial red run reproduced the CSRF rejection
+on an authorized signed request before the endpoint decorator was added.
+
+The local virtualenv uses Python 3.14.6/Django 5.1.6 rather than the repository's
+Python 3.12.3/Django 5.2.17 pins. Deployment-runtime parity, PostgreSQL concurrency,
+real Telegram and live-provider verification remain unverified; the wider
+repository test suite was not run. Existing SQLite table/column-comment warnings
+and a dependency deprecation warning remain unchanged.
+
+No production deployment, real Safaricom call, schema migration, dependency,
+credential or permission change is included. Normal code deployment is required
+before retesting the live action; do not disable global CSRF protection or grant
+unrelated roles as a workaround.
 
 ## HB Deposits implementation verification - 19 October 2026
 

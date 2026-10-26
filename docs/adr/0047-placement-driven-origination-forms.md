@@ -6,6 +6,9 @@ Amended - 23 October 2026: the user's strict placement-only requirement removes
 all operational exceptions for editable forms. Submitted version-1 packets keep
 the original projection through the isolated version-1 reconstruction service.
 
+Update - 22 October: ADR 0060 supersedes the new-applications-only publication
+boundary below for unsigned applications. Signed documents retain their mappings.
+
 ## Context
 
 Publishing an unfinished alignment is deliberately allowed (ADR 0046), but
@@ -32,7 +35,8 @@ version 2 identifies the stored/audited server policy, not a new client protocol
 
 Inactive answers remain recoverable, but cannot be changed through the active
 form or influence current validation, calculations or generated documents.
-Publishing a newer layout affects new applications only. Required signature
+Publishing a newer layout also updates unsigned same-family applications under
+ADR 0060, retaining the version-2 placement-only policy. Required signature
 geometry, consent, authorization and commercial checks remain enforced.
 
 ## Consequences
@@ -41,7 +45,8 @@ Removing a placement removes its input and required check. Required signer
 identity inputs must be placed to collect them; OTP dispatch still requires a
 valid saved phone and required signing geometry remains enforced.
 Selected supporting documents contribute only their active fields. Submitted
-and signed snapshots are never backfilled or reconstructed from current templates.
+snapshots without confirmed signatures may adopt same-family updates under ADR 0060;
+signed snapshots are never backfilled or reconstructed from current templates.
 
 ## Alternatives considered
 

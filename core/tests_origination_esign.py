@@ -462,6 +462,37 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertEqual(event.after_values['access_type'], 'download')
         self.assertEqual(event.after_values['signed_document_hash'], self.package.signed_document_hash)
 
+    def test_signed_document_preview_uses_only_retained_manifest_pages(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        writer.add_blank_page(width=400, height=600)
+        output = BytesIO(); writer.write(output)
+        signed = output.getvalue()
+        self.package.status = self.package.STATUS_FULLY_SIGNED
+        self.package.signed_document_hash = hashlib.sha256(signed).hexdigest()
+        self.package.document_manifest_snapshot = [
+            {'key': 'primary', 'name': 'Main LAF', 'page_count': 1},
+            {'key': 'support', 'name': 'Supporting form', 'page_count': 1},
+        ]
+        self.package.save(update_fields=['status', 'signed_document_hash', 'document_manifest_snapshot'])
+        request = RequestFactory().get('/signed-packet/', {
+            'package_id': str(self.package.pk), 'document_key': 'support',
+        }, HTTP_X_REQUEST_ID='signed-individual-preview')
+        request.origination_user = self.actor
+        with patch('origination.services.origination_esign.signed_package_content', return_value=(self.package, signed)):
+            response = portal_origination_signed_packet(request, str(self.application.pk))
+        self.assertEqual(response.status_code, 200)
+        pages = PdfReader(BytesIO(response.content)).pages
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0].mediabox.width, 400)
+        self.package.refresh_from_db()
+        self.assertEqual(self.package.signed_document_hash, hashlib.sha256(signed).hexdigest())
+        self.assertEqual(self.application.events.get(request_id='signed-individual-preview').after_values['document_key'], 'support')
+        request.GET = request.GET.copy(); request.GET['document_key'] = 'missing'
+        with patch('origination.services.origination_esign.signed_package_content', return_value=(self.package, signed)):
+            response = portal_origination_signed_packet(request, str(self.application.pk))
+        self.assertEqual(response.status_code, 400)
+
     def test_signed_packet_integrity_mismatch_is_rejected(self):
         self.package.status = self.package.STATUS_FULLY_SIGNED
         self.package.signed_document_hash = hashlib.sha256(b'expected').hexdigest()

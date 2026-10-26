@@ -66,6 +66,10 @@ class LegacyAuthoringMigrationTests(TransactionTestCase):
             self.assertEqual(retained.unsigned_document_hash, 'a' * 64)
             self.assertEqual(current.get_model('origination', 'LoanOriginationApplication').objects.get(pk=application.pk).form_payload,
                              {'retained': 'synthetic'})
+            merged_application = current.get_model('origination', 'LoanOriginationApplication').objects.get(pk=application.pk)
+            self.assertEqual(merged_application.reference_number, 'ORG-SYNTHETIC-RETIRE')
+            self.assertRegex(merged_application.display_reference, r'^ORG-[1-9][0-9]*$')
+            self.assertTrue(current.get_model('origination', 'OriginationApplicationReferenceSequence').objects.filter(pk=1).exists())
             MigrationExecutor(connection).migrate(previous)
             self.assertEqual(assignment_model.objects.count(), 0)
             self.assertEqual(issue_model.objects.count(), 0)
