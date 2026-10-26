@@ -12,9 +12,15 @@
 
   function portalBackFallbackUrl() {
     if (/\/portal\/s\/hb-actions\/[^/]+\//.test(window.location.pathname)) {
+      const parent = document.querySelector('#hb-action-back, #hb-deposit-workspace .case-history-back');
+      if (parent) return parent.href;
       const workstream = new URLSearchParams(window.location.search).get('workstream');
-      return `/portal/s/hb-actions/?queue=${workstream === 'commissioning' ? 'commissioning' : 'installation'}`;
+      return `/portal/s/hb-actions/?queue=${['commissioning', 'deposits'].includes(workstream) ? workstream : 'installation'}`;
     }
+    if (/^\/portal\/s\/(?:approvals\/)?payments\/[^/]+\/$/.test(window.location.pathname)) {
+      return window.location.pathname.replace(/[^/]+\/$/, '') + window.location.search;
+    }
+    if (/^\/portal\/s\/farmup\/[^/]+\/$/.test(window.location.pathname)) return '/portal/s/farmup/';
     const caseBack = document.querySelector('.case-history-back[data-return-screen]');
     if (caseBack && /\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return caseBack.href;
     // A directly opened case (or a WebView restored from a cold page) has no
@@ -68,6 +74,8 @@
     if (!close) return;
     const overlay = close.closest('.sheet-overlay');
     if (!overlay) return;
+    // The form controller may refuse closure to retain selected local files.
+    if (overlay.id === 'sheet-overlay' && window.PortalMiniAppFarmerSheet?.closeSheet) return;
     event.preventDefault();
     // Let the screen controller handle its own cleanup first (for example,
     // destroying a map or clearing the selected batch).  The shell only owns
@@ -141,10 +149,28 @@
       tg.BackButton.show();
       return;
     }
+    const confirmCancel = document.querySelector('.invoice-action-confirm-overlay [data-confirm-cancel]');
+    if (confirmCancel) {
+      clearBackHandler();
+      backHandler = () => confirmCancel.click();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     const receiptPreview = document.getElementById('payment-receipt-preview');
     if (receiptPreview?.open) {
       clearBackHandler();
       backHandler = () => document.getElementById('payment-receipt-preview-close')?.click();
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
+    const dialog = [...document.querySelectorAll('dialog[open]')].at(-1);
+    if (dialog) {
+      clearBackHandler();
+      backHandler = () => {
+        if (dialog.dispatchEvent(new Event('cancel', {cancelable: true}))) dialog.close('cancel');
+      };
       tg.BackButton.onClick(backHandler);
       tg.BackButton.show();
       return;
@@ -188,6 +214,13 @@
       tg.BackButton.show();
       return;
     }
+    if (document.getElementById('sidebar')?.classList.contains('open')) {
+      clearBackHandler();
+      backHandler = () => setSidebar(false);
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     const topLevel = document.querySelector('#content [data-top-level="true"]');
     if (topLevel) {
       clearBackHandler();
@@ -202,7 +235,7 @@
 
   function syncMainButton() {
     if (!mainAction) mainAction = window.MiniAppUtils?.bindMainAction?.({telegram:tg, resolve:() => {
-      if (document.querySelector('dialog[open], #media-viewer-overlay.open, #jbl-camera-overlay.open, .portal-media-overlay.open')) return null;
+      if (document.querySelector('dialog[open], .invoice-action-confirm-overlay, #media-viewer-overlay.open, #jbl-camera-overlay.open, .portal-media-overlay.open')) return null;
       return [...document.querySelectorAll('#content [data-main-action]')].find(element => {
         const overlay = element.closest('.sheet-overlay');
         return (!overlay || overlay.classList.contains('open')) && !element.closest('[hidden]')
@@ -244,7 +277,7 @@
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('portal:inbox-change', syncBackButton);
-  window.addEventListener('portal:dialog-change', syncBackButton);
+  window.addEventListener('portal:dialog-change', () => { syncBackButton(); syncMainButton(); });
   window.addEventListener('miniapp:recovery-dialog-change', () => { syncBackButton(); syncMainButton(); });
   window.addEventListener('portal:case-route-change', () => {
     syncBackButton();
@@ -313,5 +346,5 @@
   new MutationObserver(() => {
     syncBackButton();
     syncMainButton();
-  }).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'disabled']});
+  }).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'disabled', 'open']});
 })();

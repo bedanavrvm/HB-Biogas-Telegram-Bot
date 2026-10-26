@@ -2,6 +2,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
+const { mountPortalShell } = require('./fixtures/portal_shell');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const portalTemplate = fs.readFileSync(path.resolve(__dirname, '../templates/portal/portal.html'), 'utf8');
 const orderPanel = portalTemplate.slice(portalTemplate.indexOf('    <div id="requisition-batch-panel"'), portalTemplate.indexOf('    <div id="req-list"'));
@@ -275,17 +276,7 @@ test('Portal unfinished visit and local media survive inspection; nested Back cl
   await page.evaluate(() => window.__state.capabilities.add('portal.jbl_media.write'));
   await page.locator('.farmer-card').click();
   await page.locator('#jbl-comment').fill('Synthetic unfinished visit notes');
-  const image = await page.evaluate(() => {
-    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
-    const context = canvas.getContext('2d');
-    for (let x = 0; x < 256; x += 8) for (let y = 0; y < 256; y += 8) {
-      context.fillStyle = `hsl(${(x * 13 + y * 17) % 360} 80% 50%)`;
-      context.fillRect(x, y, 8, 8);
-    }
-    return canvas.toDataURL('image/jpeg').split(',')[1];
-  });
-  await page.locator('#jbl-visit-photo-media').setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(image, 'base64') });
-  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');
+  await selectVisitPhoto(page);
   await page.locator('#case360-toggle').click();
   await expect(page).toHaveURL(/\/cases\/case-1/);
   await expect(page.locator('#sheet-overlay')).not.toHaveClass(/open/);
@@ -299,6 +290,20 @@ test('Portal unfinished visit and local media survive inspection; nested Back cl
   await expect(page.locator('#jbl-comment')).toHaveValue('Synthetic unfinished visit notes');
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');
 });
+
+async function selectVisitPhoto(page) {
+  const image = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+    const context = canvas.getContext('2d');
+    for (let x = 0; x < 256; x += 8) for (let y = 0; y < 256; y += 8) {
+      context.fillStyle = `hsl(${(x * 13 + y * 17) % 360} 80% 50%)`;
+      context.fillRect(x, y, 8, 8);
+    }
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  });
+  await page.locator('#jbl-visit-photo-media').setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(image, 'base64') });
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');
+}
 
 test('Portal case inspection timeout leaves the source usable', async ({ page }) => {
   await boot(page, 'all');
@@ -422,4 +427,155 @@ test('Portal invalid history markup does not replace the queue', async ({ page }
   await expect(page.locator('#toast')).toContainText('could not start');
   await expect(page.locator('.farmer-card')).toHaveCount(1);
   await expect(page).toHaveURL(/\/s\/all\/$/);
+});
+
+for (const exit of ['sheet-back', 'telegram']) test(`Portal ${exit} keeps visit photos when discard is cancelled`, async ({page}) => {
+  await boot(page, 'jbl');
+  await page.evaluate(() => window.__state.capabilities.add('portal.jbl_media.write'));
+  await page.locator('.farmer-card').click();
+  await selectVisitPhoto(page);
+  page.once('dialog', dialog => dialog.dismiss());
+  if (exit === 'telegram') await page.evaluate(() => window.__backHandler());
+  else await page.locator('#sheet-back').click();
+  await expect(page.locator('#sheet-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');
+  expect(await page.evaluate(() => window.__writes)).toEqual([]);
+  page.once('dialog', dialog => dialog.accept());
+  if (exit === 'telegram') await page.evaluate(() => window.__backHandler());
+  else await page.locator('#sheet-back').click();
+  await expect(page.locator('#sheet-overlay')).not.toHaveClass(/open/);
+  await page.locator('.farmer-card').click();
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('No files selected');
+});
+
+const backMarkup = id => portalTemplate.match(new RegExp(`<([a-z]+)\\b(?=[^>]*id="${id}")[^>]*>[\\s\\S]*?<\\/\\1>`))[0];
+const depositTemplate = fs.readFileSync(path.resolve(__dirname, '../templates/portal/partials/hb_deposit_detail.html'), 'utf8');
+for (const item of [
+  {name:'invoice', screen:'invoices', markup:backMarkup('invoice-detail-route-back'), url:'/portal/s/invoices/invoice-1/', parent:'/portal/s/invoices/'},
+  {name:'installation', screen:'hb_actions', markup:backMarkup('hb-action-back'), url:'/portal/s/hb-actions/case-1/?workstream=installation', parent:'/portal/s/hb-actions/?queue=installation'},
+  {name:'commissioning', screen:'hb_actions', markup:backMarkup('hb-action-back'), url:'/portal/s/hb-actions/case-1/?workstream=commissioning', parent:'/portal/s/hb-actions/?queue=commissioning'},
+  {name:'deposit', screen:'hb_actions', markup:depositTemplate.match(/<a class="case-history-back"[\s\S]*?<\/a>/)[0], url:'/portal/s/hb-actions/case-1/?workstream=deposits', parent:'/portal/s/hb-actions/?queue=deposits'},
+]) for (const canReadAll of [true, false]) test(`Portal ${item.name} Back returns to its own parent with All Cases access=${canReadAll}`, async ({page}) => {
+  await boot(page, 'all');
+  await page.addStyleTag({content:'.case-history-back{display:inline-flex;min-width:32px;min-height:32px}'});
+  const markup = item.markup.replace(/{% url '([^']+)' %}/g, (_, name) => name === 'portal_invoices_screen' ? '/portal/s/invoices/' : '/portal/s/hb-actions/')
+    .replace(/{{ hb_action_workstream\|default:'installation' }}/g, item.name);
+  await page.evaluate(({screen, url, markup, canReadAll}) => {
+    history.replaceState({}, '', url);
+    document.getElementById('portal-screen').dataset.screen = screen;
+    document.getElementById('page-all').insertAdjacentHTML('afterbegin', markup);
+    if (!canReadAll) window.__state.capabilities.delete('portal.case.read');
+  }, {...item, markup, canReadAll});
+  await page.locator('.case-history-back').click();
+  await expect(page).toHaveURL('http://miniapp.test' + item.parent);
+});
+
+async function bootBackShell(page, url, {topLevel = false, body = ''} = {}) {
+  await page.route('http://miniapp.test/**', route => route.fulfill({contentType:'text/html', body:'<!doctype html><title>Synthetic Portal</title>'}));
+  await page.goto('http://miniapp.test' + url);
+  await mountPortalShell(page, `<div id="portal-screen" data-screen="payments" data-top-level="${topLevel}">${body}</div>`);
+  await page.route('http://miniapp.test/**', route => route.fulfill({contentType:'text/html', body:'<!doctype html><title>Synthetic Portal destination</title>'}));
+  await page.evaluate(() => {
+    document.querySelector('#sidebar nav').innerHTML = ['dashboard','invoices','payments','farmup','hb_actions'].map(screen => `<a class="shell-nav-link" data-screen="${screen}" href="/portal/s/${screen === 'hb_actions' ? 'hb-actions' : screen}/">${screen}</a>`).join('');
+    window.__back = null;
+    window.__backVisible = false;
+    window.Telegram = {WebApp:{ready(){},expand(){},onEvent(){},BackButton:{onClick(fn){window.__back=fn;},offClick(){window.__back=null;},show(){window.__backVisible=true;},hide(){window.__backVisible=false;}}}};
+    window.PortalAppShell = {activate(){}};
+  });
+  for (const name of ['utils.js','portal_dialogs.js','miniapp-nav.js']) await page.addScriptTag({path:asset(name)});
+  await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+}
+
+for (const [url, parent] of [
+  ['/portal/s/payments/batch-1/?status=completed&page=3&search=104', '/portal/s/payments/?status=completed&page=3&search=104'],
+  ['/portal/s/approvals/payments/batch-1/?status=in_review&page=2&search=23', '/portal/s/approvals/payments/?status=in_review&page=2&search=23'],
+  ['/portal/s/farmup/batch-1/', '/portal/s/farmup/'],
+  ['/portal/s/hb-actions/case-1/?workstream=deposits', '/portal/s/hb-actions/?queue=deposits'],
+  ['/portal/s/hb-actions/case-1/?workstream=commissioning', '/portal/s/hb-actions/?queue=commissioning'],
+  ['/portal/s/invoices/invoice-1/', '/portal/s/invoices/'],
+]) test(`Portal Telegram Back uses the parent of ${url}`, async ({page}) => {
+  await bootBackShell(page, url);
+  await page.evaluate(() => window.__back());
+  await expect(page).toHaveURL('http://miniapp.test' + parent);
+});
+
+test('Portal Telegram Back uses the rendered HB workstream on an inferred commissioning deep link', async ({page}) => {
+  await bootBackShell(page, '/portal/s/hb-actions/case-1/', {body:'<a id="hb-action-back" href="/portal/s/hb-actions/?queue=commissioning">Back</a>'});
+  await page.evaluate(() => window.__back());
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/hb-actions/?queue=commissioning');
+});
+
+for (const topLevel of [true, false]) test(`Portal Telegram Back dismisses the drawer before navigating, top level=${topLevel}`, async ({page}) => {
+  const url = topLevel ? '/portal/s/payments/' : '/portal/s/payments/batch-1/';
+  await bootBackShell(page, url, {topLevel});
+  await page.locator('#shell-menu-button').click();
+  await expect.poll(() => page.evaluate(() => window.__backVisible)).toBe(true);
+  await page.evaluate(() => window.__back());
+  await expect(page.locator('#sidebar')).not.toHaveClass(/open/);
+  await expect(page.locator('#shell-menu-button')).toBeFocused();
+  await expect(page).toHaveURL('http://miniapp.test' + url);
+  await expect.poll(() => page.evaluate(() => window.__backVisible)).toBe(!topLevel);
+});
+
+test('Portal Telegram Back cancels payment confirmation without submitting or leaving the batch', async ({page}) => {
+  await bootBackShell(page, '/portal/s/payments/batch-1/', {body:backMarkup('payment-submit-confirm')});
+  await page.evaluate(() => {
+    window.__submissions=0;
+    const dialog=document.getElementById('payment-submit-confirm');
+    dialog.addEventListener('close', () => {if(dialog.returnValue === 'confirm') window.__submissions++;});
+    dialog.showModal();
+  });
+  await page.evaluate(() => window.__back());
+  await expect(page.locator('#payment-submit-confirm')).not.toHaveAttribute('open');
+  expect(await page.evaluate(() => document.getElementById('payment-submit-confirm').returnValue)).toBe('cancel');
+  expect(await page.evaluate(() => window.__submissions)).toBe(0);
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/batch-1/');
+});
+
+test('Portal Telegram Back honours a dialog cancellation guard', async ({page}) => {
+  await bootBackShell(page, '/portal/s/payments/batch-1/', {body:'<dialog id="guarded"><button>Wait</button></dialog>'});
+  await page.evaluate(() => {const dialog=document.getElementById('guarded');dialog.addEventListener('cancel', event => event.preventDefault());dialog.showModal();});
+  await page.evaluate(() => window.__back());
+  await expect(page.locator('#guarded')).toHaveAttribute('open');
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/batch-1/');
+});
+
+test('Portal parent Back retains unsaved edits and blocks navigation during a write', async ({page}) => {
+  await bootBackShell(page, '/portal/s/payments/batch-1/?status=completed&page=3');
+  await page.evaluate(() => MiniAppUtils.setCloseProtection('synthetic-unsaved', true));
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.evaluate(() => window.__back());
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/batch-1/?status=completed&page=3');
+  await page.evaluate(() => {
+    MiniAppUtils.setCloseProtection('synthetic-unsaved', false);
+    MiniAppUtils.setCloseProtection('network-write:synthetic', true);
+  });
+  await page.evaluate(() => window.__back());
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/batch-1/?status=completed&page=3');
+  await page.evaluate(() => {
+    MiniAppUtils.setCloseProtection('network-write:synthetic', false);
+    window.__back();
+  });
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/?status=completed&page=3');
+});
+
+for (const theme of ['light','dark']) test(`Portal Telegram Back cancels the active confirmation before its parent in ${theme}`, async ({page}, info) => {
+  await page.setViewportSize({width:320,height:740});
+  await bootBackShell(page, '/portal/s/payments/batch-1/', {body:'<div id="parent" class="sheet-overlay open" role="dialog" aria-modal="true"><div class="sheet-panel"><button class="sheet-close-button">Close</button><p>Synthetic payment</p></div></div>'});
+  await page.evaluate(theme => {
+    document.documentElement.dataset.miniappColorScheme = theme;
+    const colors = theme === 'dark' ? {bg:'#17171e','secondary-bg':'#20202c',text:'#ffffff',hint:'#a8a8b3'} : {bg:'#f5f7f8','secondary-bg':'#ffffff',text:'#17212b',hint:'#6d7a86'};
+    for (const [key,value] of Object.entries(colors)) document.documentElement.style.setProperty(`--tg-theme-${key}-color`, value);
+    window.__confirmationResult='pending';
+    window.PortalDialogs.confirmAction('Remove case?', 'Remove the synthetic case from this batch?', 'Remove').then(result => {window.__confirmationResult=result;});
+  }, theme);
+  await expect(page.locator('.invoice-action-confirm-overlay')).toBeVisible();
+  await expect(page.locator('.invoice-action-confirm')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(32, 32, 44)' : 'rgb(255, 255, 255)');
+  await page.screenshot({path:info.outputPath(`back-confirmation-${theme}.png`)});
+  await page.evaluate(() => window.__back());
+  await expect(page.locator('.invoice-action-confirm-overlay')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__confirmationResult)).toBe(false);
+  await expect(page.locator('#parent')).toHaveClass(/open/);
+  await expect(page.locator('#parent')).not.toHaveAttribute('inert');
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/payments/batch-1/');
 });

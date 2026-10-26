@@ -146,6 +146,7 @@
         overlay.remove();
         parents.forEach(node => { node.inert = false; });
         if (previousFocus?.isConnected) previousFocus.focus();
+        window.dispatchEvent(new Event('portal:dialog-change'));
         resolve(confirmed);
       }
       function onKeydown(event) {
@@ -163,6 +164,7 @@
       overlay.onclick = event => { if (event.target === overlay) close(false); };
       document.addEventListener('keydown', onKeydown, true);
       overlay.querySelector('[data-confirm-cancel]').focus();
+      window.dispatchEvent(new Event('portal:dialog-change'));
     });
   }
 

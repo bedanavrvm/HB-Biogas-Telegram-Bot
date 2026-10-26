@@ -418,6 +418,18 @@
   ],
   "changes": [
     {
+      "path": "core/static/miniapp/portal_dialogs.js",
+      "sha256": "9edd9dc6d61978139d01985daa713c6663ca5498cd90017ed1db5ba539663029",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
+      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+    },
+    {
+      "path": "core/static/miniapp/miniapp-nav.js",
+      "sha256": "383ca9d92c5ea81a03568f50668b6fdd2d81bacf40af3313835df6a84a1a6762",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
+      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+    },
+    {
       "path": "browser/src/complaints-report-charts.tsx",
       "sha256": "771ee7f0eb3e92bb0ba5a0a181c4d20c825d4cade95d2b82a72deda2d97c6bd4",
       "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
@@ -431,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "c8a0784d7dae16587991c63976120c664c442e05d74eead7daebe72e12c2fefb",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "30b861d78ba89c48eac35d89440dbf6399e1b1aca5d8fedd0f7e80aef5ccc506",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
+      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -455,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "178e53f24a6ad1a4110f118b22f0677102c62299bbd11b50110bb7aa44063d9a",
-      "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
-      "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
+      "sha256": "0a9f141aca9ebd8f5b4c79a4c9c75124351ef1837b40070262bdf0f4350fc8cb",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
+      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -467,9 +479,9 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "4a18d29226eb334be4e68cb4c1a4a706418b497d9f2cb70daa49770f07f304a3",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "9efcc88ff7574c88e61d2200de4b39357b65db4301aafcdc1b369e0b22bf72e7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
+      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",

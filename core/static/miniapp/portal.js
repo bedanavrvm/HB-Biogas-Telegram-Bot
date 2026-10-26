@@ -2676,7 +2676,7 @@
       loadCaseHistoryFarmer(retryCaseHistoryButton.dataset.farmerId || '');
       return;
     }
-    if (event.target.closest('#case-history-back, .case-history-back')) {
+    if (event.target.closest('#case-history-back, .case-history-back[data-return-screen]')) {
       event.preventDefault();
       if (window.PortalCaseNavigation?.back?.()) return;
       if (event.target.closest('#case-history-back')) { showCaseHistorySearch(); return; }
