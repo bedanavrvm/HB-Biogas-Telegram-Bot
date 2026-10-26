@@ -284,7 +284,7 @@
     };
     return {
       revision: detail.revision, workstream: 'installation', installation_status: 'installed',
-      installation_date: field('hb-installation-date')?.value || '', serial_number: field('hb-serial-number')?.value.trim() || '',
+      installation_date: field('hb-installation-date')?.value || '',
       installation_report_submitted: Boolean(field('hb-installation-report-submitted')?.checked),
     };
   }
@@ -399,6 +399,7 @@
       const index = gallery.indexOf(anchor);
       const move = offset => openDocumentPreview({currentTarget: gallery[index + offset], preventDefault() {}});
       invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        rotate: true,
         mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview',
         onNext: index >= 0 && index < gallery.length - 1 ? () => move(1) : undefined,
         onPrevious: index > 0 ? () => move(-1) : undefined,

@@ -35,6 +35,8 @@ from core.services.payment_documents import payment_readiness
 
 class InvoiceIdentityWorkflowTests(TestCase):
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.farmer = JawabuFarmerMaster.objects.create(
             customer_name='Mary Wanjiku',
             imab_customer_name='MARY WANJIKU',
@@ -77,6 +79,24 @@ class InvoiceIdentityWorkflowTests(TestCase):
         }
         values.update(overrides)
         return ParsedInvoice.objects.create(**values)
+
+    def test_unmatching_invoice_dates_a_restored_legacy_deposit_and_retains_prior_date(self):
+        from unittest.mock import patch
+        from datetime import datetime, timezone as utc_timezone
+        from core.services.invoice_parser import unmatch_invoice
+        self.farmer.invoice_number = 'INV-1'
+        self.farmer.deposit_paid_hbg = Decimal('7000')
+        self.farmer.actual_receipts = '5000'
+        self.farmer.hb_deposit_date = date(2024,2,29)
+        self.farmer.save()
+        invoice = self.invoice(payment=Decimal('7000'))
+        with patch('django.utils.timezone.now', return_value=datetime(2026,10,25,22,30,tzinfo=utc_timezone.utc)):
+            unmatch_invoice(invoice, actor='Synthetic Operations')
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.hb_deposit_date, date(2026,10,26))
+        event = self.farmer.pipeline_events.get(action='hb_deposit_invoice_updated')
+        self.assertEqual(event.old_values['hb_deposit_date'], '2024-02-29')
+        self.assertEqual(event.new_values['deposit_paid_hbg'], '5000.00')
 
     def test_misspelled_name_with_same_normalized_id_is_informational(self):
         invoice = self.invoice()

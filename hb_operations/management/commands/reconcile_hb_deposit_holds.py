@@ -113,7 +113,7 @@ class Command(BaseCommand):
             farmer.workflow_revision += 1
             farmer.save(update_fields=['status', 'cleaning_notes', 'workflow_revision', 'updated_at'])
             record_pipeline_event(
-                farmer, action='hb_deposit_review_reconciliation_reversed', stage_key='intake', source='hb_deposit',
+                farmer, action='hb_deposit_review_reconcile_reversed', stage_key='intake', source='hb_deposit',
                 request_id=key, actor=actor.get_full_name() or actor.get_username(), actor_user=actor,
                 old_values=event.new_values, new_values=event.old_values, revision_before=revision, revision_after=revision + 1,
                 reason='Explicit operator reversal of unchanged legacy deposit review reconciliation.',

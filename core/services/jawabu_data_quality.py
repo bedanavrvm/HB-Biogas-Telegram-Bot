@@ -12,7 +12,7 @@ from core.services.jawabu_customer_quality import (
     national_id_quality_message,
 )
 from core.services.jawabu_validation import validation_warnings
-from core.services.locations import global_county_choices
+from core.services.locations import global_county_choices, county_label_map
 
 
 def _active_duplicate_values(field_name: str) -> set[str]:
@@ -38,6 +38,7 @@ def active_jawabu_quality_report(*, limit: int = 100) -> dict[str, Any]:
     """Inspect active customer data without changing Django, Sheets, or Drive."""
     branches = set(global_branch_choices())
     counties = set(global_county_choices())
+    county_labels = county_label_map(JawabuFarmerMaster.objects.filter(status='active').values_list('county', flat=True).distinct())
     products = configured_operational_products()
     duplicate_ids = _active_duplicate_values('national_id')
     duplicate_customer_numbers = _active_duplicate_values('customer_no')
@@ -58,6 +59,7 @@ def active_jawabu_quality_report(*, limit: int = 100) -> dict[str, Any]:
         if farmer.primary_phone and normalize_kenyan_phone(farmer.primary_phone) == farmer.primary_phone:
             normalized_primary_phones += 1
         entries: list[tuple[str, str, str]] = []
+        farmer.county = county_labels.get(farmer.county) or farmer.county
         entries.extend((field, issue['code'], issue['message']) for field, issue in (
             (item['field'], item) for item in validation_warnings(
                 farmer, product_catalog=products, branch_catalog=list(branches), county_catalog=list(counties),

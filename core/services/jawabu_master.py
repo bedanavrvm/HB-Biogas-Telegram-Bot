@@ -524,6 +524,7 @@ def commit_farmup_review_batch(
         # uploaded identity fields may legitimately be corrected later and are
         # therefore unsuitable as the long-term row key.
         cleaned['id'] = str(farmer.pk)
+        cleaned['hb_deposit_date'] = farmer.hb_deposit_date.isoformat() if farmer.hb_deposit_date else ''
         committed_cleaned_rows.append(cleaned)
         committed_farmers.append(farmer)
         committed += 1
@@ -682,7 +683,9 @@ def ensure_master_system_headers(sheet, header_row: int, *, headers: list[str] |
     from core.services.sheet_columns import NamedColumns, assert_columns_unchanged
     headers = ensure_master_case_id_header(sheet, header_row, headers=headers)
     columns = NamedColumns(headers)
-    required = ['Unit Number', *MASTER_SYSTEM_HEADERS]
+    required = ['Unit Number', *MASTER_SYSTEM_HEADERS, 'HB Deposit Date']
+    if not any(columns.column(name, required=False) for name in ('Serial No', 'Serial No.', 'Serial Number')):
+        required.append('Serial No')
     missing = [name for name in required if not columns.column(name, required=False)]
     if not missing:
         return headers
@@ -874,6 +877,7 @@ def write_rows_to_master_sheet(
 
 
 MASTER_DATE_HEADERS = {
+    'hb deposit date',
     'hbg visit date',
     'homebiogas visit date',
     'sign date',
@@ -1152,6 +1156,8 @@ def merge_master_row_values(
     from core.services.jawabu_case_reference import display_case_reference
     set_header_value(row_values, header_lookup, MASTER_CASE_ID_HEADER, display_case_reference(record_id))
     set_header_value(row_values, header_lookup, 'Master Record ID', record_id)
+    if 'hb_deposit_date' in cleaned:
+        set_header_value(row_values, header_lookup, 'HB Deposit Date', cleaned['hb_deposit_date'] or '')
     set_header_value(row_values, header_lookup, 'Import Batch ID', str(batch.id))
     set_header_value(row_values, header_lookup, 'Source Filename', batch.source_filename)
     set_header_value(row_values, header_lookup, 'Source Row', cleaned.get('source_row_number') or '')
@@ -2083,6 +2089,7 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
         old_values = _farmup_provenance_values(existing)
         from hb_operations.deposits import deposit_state
         old_deposit_amount = deposit_state(existing)['recorded_amount']
+        old_deposit_date = existing.hb_deposit_date
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         farmup_owned = {
             'customer', 'unit_number', 'source', 'source_name', 'source_row_number',
@@ -2115,6 +2122,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             setattr(existing, field, value)
         from core.services.jawabu_validation import canonicalize_farmer
         canonicalize_farmer(existing, strict=True)
+        from hb_operations.deposits import stamp_deposit_date
+        stamp_deposit_date(existing, Decimal(old_deposit_amount) if old_deposit_amount is not None else None)
         from core.services.location_catalog import bind_farmer_location_fields
         bind_farmer_location_fields(existing)
         scheduled_for_jbl_visit = _set_pending_jbl_visit_status(existing)
@@ -2143,8 +2152,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             action='application_imported' if restarted else 'application_updated',
             stage_key='intake',
             source='farmup',
-            old_values={'deposit_paid_hbg': old_deposit_amount},
-            new_values={'deposit_paid_hbg': deposit_state(existing)['recorded_amount']},
+            old_values={'deposit_paid_hbg': old_deposit_amount, 'hb_deposit_date': old_deposit_date.isoformat() if old_deposit_date else None},
+            new_values={'deposit_paid_hbg': deposit_state(existing)['recorded_amount'], 'hb_deposit_date': existing.hb_deposit_date.isoformat() if existing.hb_deposit_date else None},
             metadata={'reappraisal_cycle': bool(restarted)},
         )
         if preserve_hb_deposit:
@@ -2189,12 +2198,14 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     farmer = JawabuFarmerMaster.objects.create(**defaults)
     from core.services.jawabu_validation import canonicalize_farmer
     canonicalize_farmer(farmer, strict=True)
+    from hb_operations.deposits import stamp_deposit_date
+    stamp_deposit_date(farmer, None, initial=True)
     from core.services.location_catalog import bind_farmer_location_fields
     bind_farmer_location_fields(farmer)
     scheduled_for_jbl_visit = _set_pending_jbl_visit_status(farmer)
     farmer.save(update_fields=[
         'national_id', 'primary_phone', 'secondary_phone', 'hbg_visit_date',
-        'deposit_paid_hbg', 'latitude_value', 'longitude_value',
+        'deposit_paid_hbg', 'hb_deposit_date', 'latitude_value', 'longitude_value',
         'repayment_day', 'repayment_tenor_months', 'jbl_visit_status',
         'workflow_state', 'workflow_state_entered_at', 'updated_at',
         'branch', 'county', 'sub_county', 'branch_ref', 'county_ref', 'sub_county_ref',
@@ -2217,7 +2228,7 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     from core.services.jawabu_case360 import record_pipeline_event
     from hb_operations.deposits import deposit_state
     record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup',
-                          new_values={'deposit_paid_hbg': deposit_state(farmer)['recorded_amount']})
+                          new_values={'deposit_paid_hbg': deposit_state(farmer)['recorded_amount'], 'hb_deposit_date': farmer.hb_deposit_date.isoformat() if farmer.hb_deposit_date else None})
     if scheduled_for_jbl_visit:
         record_pipeline_event(
             farmer,
@@ -2246,7 +2257,7 @@ def _farmup_provenance_values(farmer: JawabuFarmerMaster) -> dict[str, object]:
             'customer_name', 'national_id', 'customer_no', 'primary_phone',
             'secondary_phone', 'county', 'sub_county', 'ward', 'village',
             'landmark', 'branch', 'payment_product', 'sign_date',
-            'hbg_visit_date', 'actual_receipts', 'deposit_paid_hbg',
+            'hbg_visit_date', 'actual_receipts', 'deposit_paid_hbg', 'hb_deposit_date',
         )
     }
 

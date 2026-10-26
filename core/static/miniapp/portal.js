@@ -1693,6 +1693,7 @@
     state.jblVisitDraftFields = Array.isArray(data.jbl_visit_draft_fields) ? data.jbl_visit_draft_fields : [];
     state.voiceInput = data.voice_input || state.voiceInput;
     state.actor = data.actor || state.actor;
+    state.reportSessionKey = data.report_session_key || '';
     updatePortalContext();
     const nextPolicyVersion = data.access_policy_version || null;
     if (state.accessPolicyVersion && nextPolicyVersion && state.accessPolicyVersion !== nextPolicyVersion) {
@@ -1969,6 +1970,7 @@
     else if (page === 'reports' && portalReports.load) {
       return portalReports.load({
         tg,
+        sessionKey: state.reportSessionKey,
         canManage: hasCapability('portal.reports.manage'),
       });
     }
@@ -2197,6 +2199,7 @@
 
   async function loadPortalSettings(loadOperations = false) {
     window.MiniAppRecovery?.mount(el('portal-recovery'), {
+      variant: 'portal',
       prefix: '/api/portal/',
       load: async page => { const result = await apiFetch(`/settings/recovery/?page=${page}`); if (!result.ok) throw new Error(result.data?.error || 'App status could not be loaded.'); return result.data; },
       request: (endpoint, payload) => portalApi.postJson(endpoint.slice('/api/portal'.length), payload, tg),

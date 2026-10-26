@@ -165,9 +165,11 @@
       const input = el('payments-sequence-next');
       if (input) input.value = response.data.next_number || 1;
       sequenceRevision = Number(response.data.revision || 0);
+      if (el('payments-sequence-summary')) el('payments-sequence-summary').textContent = `Next: ${response.data.next_number || 1}`;
       if (status) status.textContent = `Next official payment: ${response.data.next_number || 1}`;
     } catch (error) {
       if (status) status.textContent = error.message || 'Could not load the payment number.';
+      if (el('payments-sequence-summary')) el('payments-sequence-summary').textContent = 'Could not check number';
     }
   }
 
@@ -183,6 +185,7 @@
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not save the payment number.');
       el('payments-sequence-reason').value = '';
       sequenceRevision = Number(response.data.revision || sequenceRevision);
+      if (el('payments-sequence-summary')) el('payments-sequence-summary').textContent = `Next: ${response.data.next_number}`;
       if (el('payments-sequence-status')) el('payments-sequence-status').textContent = `Next official payment: ${response.data.next_number}`;
       deps.showToast('Official payment number updated.', 'success');
     } catch (error) {
@@ -313,6 +316,7 @@
       const index = gallery.indexOf(item);
       const move = offset => previewReceiptInvoice({dataset: {receiptItem: String(gallery[index + offset].id)}});
       receiptPreviewUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        rotate: true,
         name: item.source_filename || 'Invoice',
         onNext: index < gallery.length - 1 ? () => move(1) : undefined,
         onPrevious: index > 0 ? () => move(-1) : undefined,

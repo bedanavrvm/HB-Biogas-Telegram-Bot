@@ -325,14 +325,19 @@ def run(output, *, source='sysup', intake_count=2, completion_count=None):
                 orders.append(order)
                 balance = Decimal('44500.00') + (Decimal(index % 8) * Decimal('137.25') if varied else 0)
                 gross = balance + Decimal('9500')
-                invoice_pdf = pdf(f'HOMEBIOGAS VENTURES LIMITED\nBILL TO\n{farmer.customer_name}\n{identity}\n{phone_format(phone, index)}\nINVOICE {990001 + len(orders)}\nDATE {timezone.localdate():%d/%m/%Y}\nSUBTOTAL {gross:,.2f}\nDISCOUNT -4,500.00\nTOTAL {gross - Decimal("4500"):,.2f}\nPAYMENT 5,000.00\nBALANCE DUE {balance:,.2f}')
+                serial = f'000-HB-{index:05d}' if index % 4 != 3 else ''
+                serial_text = '' if not serial else (
+                    f'DESCRIPTION SERIAL NUMBER QTY RATE AMOUNT\nTraining System {serial} 1 {gross:,.2f} {gross:,.2f}' if index % 3 == 0
+                    else f'SERIAL NUMBER\n{serial}' if index % 3 == 1 else f'Serial No: {serial}')
+                invoice_pdf = pdf(f'HOMEBIOGAS VENTURES LIMITED\nBILL TO\n{farmer.customer_name}\n{identity}\n{phone_format(phone, index)}\nINVOICE {990001 + len(orders)}\nDATE {timezone.localdate():%d/%m/%Y}\n{serial_text}\nSUBTOTAL {gross:,.2f}\nDISCOUNT -4,500.00\nTOTAL {gross - Decimal("4500"):,.2f}\nPAYMENT 5,000.00\nBALANCE DUE {balance:,.2f}')
                 uploaded = api('OPERATIONS_ADMIN', 'portal_invoice_pool_upload', {
                     'file': SimpleUploadedFile(f'synthetic-invoice-{identity}.pdf', invoice_pdf, content_type='application/pdf')}, multipart=True)
                 assert uploaded['auto_matched_count'] == 1, uploaded
                 receipts.append(uploaded['receipt_batch'])
                 farmer.refresh_from_db()
                 assert farmer.balance_due == balance, str(farmer.balance_due)
-                record('invoice_parsed_and_matched', farmer_id=str(farmer.pk), invoice=farmer.invoice_number, balance=str(farmer.balance_due))
+                assert HomeBiogasAction.objects.get(farmer=farmer).serial_number == serial
+                record('invoice_parsed_and_matched', farmer_id=str(farmer.pk), invoice=farmer.invoice_number, balance=str(farmer.balance_due), serial=serial, deposit_date=farmer.hb_deposit_date)
 
             farmers = list(JawabuFarmerMaster.objects.filter(national_id__in=[item[1] for item in identities[:completion_count]]).order_by('national_id'))
             payment_modes = {str(farmer.pk): 'LOAN-JAWABU' if i % 2 == 0 else 'CASH' for i, farmer in enumerate(farmers)}
@@ -394,6 +399,9 @@ def run(output, *, source='sysup', intake_count=2, completion_count=None):
                     row = by_id[str(farmer.pk)]
                     assert row[values[0].index('Current Pipeline State')] == 'COMMISSIONED'
                     assert str(row[values[0].index('Payment No')]) == '1'
+                    serial_column = values[0].index('Serial No')
+                    assert (row[serial_column] if serial_column < len(row) else '') == HomeBiogasAction.objects.get(farmer=farmer).serial_number
+                    assert row[values[0].index('HB Deposit Date')] == farmer.hb_deposit_date.strftime('%d-%b-%Y')
                     from decimal import ROUND_HALF_UP
                     assert Decimal(str(row[values[0].index('Balance Due')])) == farmer.balance_due.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
             from datetime import datetime
@@ -476,6 +484,12 @@ def verify_retained_journey(output):
             assert row['Payment No'] == str(batch.payment_number)
             assert Decimal(row['Balance Due']) == farmer.balance_due.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
             action = HomeBiogasAction.objects.get(farmer=farmer)
+            if 'Serial No' in row:
+                assert (row['Serial No'] or '') == action.serial_number
+                invoice = ParsedInvoice.objects.get(matched_farmer=farmer, status='matched')
+                assert action.serial_number == (invoice.raw_payload or {}).get('serial_number', '')
+            if 'HB Deposit Date' in row:
+                assert row['HB Deposit Date'] == farmer.hb_deposit_date.strftime('%d-%b-%Y')
             assert action.installation_date <= action.commissioning_date <= timezone.localdate()
             assert farmer.customer_no and farmer.credit_decision == farmer.final_decision == 'Approved'
     assert sheet_rows == len(farmers)
@@ -493,6 +507,8 @@ def verify_retained_journey(output):
               'commissioned': expected, 'payment_batches': 1,
               'operations': IntegrationOperation.objects.count(), 'drive_uploads': len(manifest),
               'unique_blobs': len({entry['id'] for entry in manifest}),
+              'serials_resolved': HomeBiogasAction.objects.exclude(serial_number='').count(),
+              'serials_unresolved': HomeBiogasAction.objects.filter(serial_number='').count(),
               'original_harness_status': evidence['status'], 'elapsed_seconds': evidence['elapsed_seconds']}
     (output / 'verification.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps(result))

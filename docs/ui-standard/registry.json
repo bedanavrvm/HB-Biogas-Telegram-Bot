@@ -437,39 +437,39 @@
     },
     {
       "path": "core/static/miniapp/portal.css",
-      "sha256": "8bb62b32ed235c071d988cfe9f349df223d50a90eb45e14c0b26ad9a6a3eb6cc",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "c3f84c84b22b275a5a99d94c8eebb46aace347b8d673032b13b1d070c47287dc",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "30b861d78ba89c48eac35d89440dbf6399e1b1aca5d8fedd0f7e80aef5ccc506",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
-      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+      "sha256": "1310bd67dba90a0ea2dca3621a03eb4111519e74afa8c25b20ce57fa9e767fdc",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "e26bdcd061837d297c7dfa3e5346a36884bc19e717c4565a641eec74c3a4effb",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "3108014e5fc93531efc4174088f0856d0ab7264535360c17cbc1793b33bea206",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
-      "sha256": "fea3f7d665c75bdd479c85f44aaf84e3544cb9e30ce8569448b72f57d29b9e25",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "e0762eb40ba2c3a28bcdc3b8dad96207052a722c117655d26708df579b694d49",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/static/miniapp/portal_hb_deposits.js",
-      "sha256": "423dfc574fcf6089431f8602bc2cae97b2ebb2c13199584edb522888b316a171",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "b3c6716be8fa240ea5c140aa610e729181a67b2b87a63fb9302987574a10624a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "0a9f141aca9ebd8f5b4c79a4c9c75124351ef1837b40070262bdf0f4350fc8cb",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
-      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+      "sha256": "c55321d760c38e6b65eb591b604f53f71ccc9530e27b162075b6f42fed2b39bd",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -479,15 +479,15 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "9efcc88ff7574c88e61d2200de4b39357b65db4301aafcdc1b369e0b22bf72e7",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
-      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+      "sha256": "4a88e497f98ad05684e75565d874ac2b38564adb2f8ee071d9d19c0476cc9de9",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",
-      "sha256": "2914dec9c673825ac38cc8385d924a5e16e8b672aef81f35ddeed3ae1a30a9c7",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "29d7cdc2ceea1f86378aa0c01368d1f2374580773a3940171b0a7c6233894561",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
       "path": "origination/static/miniapp/phone_identity_checks.js",
@@ -758,6 +758,48 @@
       "sha256": "28343050a18cdef89acbba63a6cda43639d7a67567704dc6d4bead92ebf2e34b",
       "review_reference": "docs/portal-miniapp-audit-2026-10-26.md#whole-file-sysup-processing",
       "reason": "Nonvisual whole-file SysUp continuation and cache-version update using existing loading and feedback controls. Source-bound automatic-chunk, interruption/retry and prior conflict-preservation browser checks pass. Existing layout, legacy baselines, candidate tokens and Phase 6 hold are unchanged."
+    },
+    {
+      "path": "core/static/miniapp/miniapp_recovery.css",
+      "sha256": "c7fc95a3141dd546a8607c9272980e7dfa807d56e846728aea5c169b253c5357",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/miniapp_recovery.js",
+      "sha256": "1b75437da910343172bbad2542df3b87189561ef0eb4d94f482f6fdae8b23dc9",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/portal_curated_reports.js",
+      "sha256": "242bfcdc543150ff38596d84739a1b934d4d24093d95b5b8a4b79ff8525eee0d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/portal_invoices.js",
+      "sha256": "ce28a37d1d704dc1cf58b69bd0b4b0d9e7650ee157451080af49b19542c77842",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/portal_payments.js",
+      "sha256": "f7719a306614d24a5b0bfa234ddc3b1d28cfd37977f52db9b4034362c0fedd04",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/portal_report_insights.css",
+      "sha256": "5f1a7a5dc97908aacfd0087f8855535edfd1b1edfe662e78739d076d265484e3",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+    },
+    {
+      "path": "core/static/miniapp/secure_media_viewer.js",
+      "sha256": "efd2e8c5bddf389225e77521f583bd6dc691cf09fe4b4db17ecdd97e3dbf7ce7",
+      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
+      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     }
   ],
   "source_roots": [

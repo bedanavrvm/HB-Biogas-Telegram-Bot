@@ -49,6 +49,7 @@ async function mountDeposit(page, {canEdit = true, visited = false, dark = false
       id: 'synthetic-case', customer_name: 'Synthetic Deposit Applicant With A Long Name', case_reference: 'SYNTHETIC-1',
       national_id: '99999981', primary_phone: '254700000081', branch: 'Synthetic branch', source: 'jawabu_farmup_review',
       workflow_revision: 1, recorded_amount: '2000.00', required_amount: '5000.00', shortfall: '3000.00',
+      deposit_date:'2025-02-18',
       deposit_hold: true, can_edit: true, visit_recorded: false, reason: 'Awaiting HB deposit: KES 3,000.00 outstanding.',
       activity: [{action: 'hb_deposit_updated', actor: 'Synthetic HB colleague', occurred_at: '19-10-2026 16:00 EAT', old_values: {deposit_paid_hbg:'0.00'}, new_values: {deposit_paid_hbg:'2000.00'}, reason: 'Initial recorded total'}],
     };
@@ -64,7 +65,7 @@ async function mountDeposit(page, {canEdit = true, visited = false, dark = false
         if (window.depositFail) throw new Error('Synthetic interrupted response');
         if (window.depositConflict) return {ok:false,data:{ok:false,code:'workflow_revision_conflict',error:'This case changed.'}};
         const payload = JSON.parse(options.body);
-        window.depositData = {...window.depositData, workflow_revision:2, recorded_amount: payload.amount, shortfall: '0.00', deposit_hold:false};
+        window.depositData = {...window.depositData, workflow_revision:2, recorded_amount: payload.amount, shortfall: '0.00', deposit_hold:false,deposit_date:'2026-10-26'};
       }
       return {ok:true,data:{ok:true,deposit:structuredClone(window.depositData)}};
     }}});
@@ -78,6 +79,7 @@ for (const dark of [false, true]) test(`HB deposit mobile ${dark ? 'dark' : 'lig
   await page.setViewportSize({width:390, height:844});
   await mountDeposit(page, {dark});
   await expect(page.locator('#hb-deposit-summary')).toContainText('3,000.00');
+  await expect(page.locator('#hb-deposit-summary')).toContainText('18-02-2025');
   await expect(page.locator('#hb-deposit-activity')).toContainText('Synthetic HB colleague');
   await page.locator('#hb-deposit-amount').fill('1000');
   await page.locator('#hb-deposit-save').click();
@@ -90,7 +92,8 @@ for (const dark of [false, true]) test(`HB deposit mobile ${dark ? 'dark' : 'lig
   await page.screenshot({path:info.outputPath(`hb-deposit-${dark ? 'dark' : 'light'}-retry.png`),animations:'disabled'});
   await page.evaluate(() => { window.depositFail = false; });
   await page.locator('#hb-deposit-save').click();
-  await expect(page.locator('#hb-deposit-status')).toContainText('requirement met');
+  await expect(page.locator('#hb-deposit-status')).toContainText('Deposit cleared for JBL visit');
+  await expect(page.locator('#hb-deposit-summary')).toContainText('26-10-2026');
   const requests = await page.evaluate(() => window.depositRequests);
   expect(requests[0].headers['Idempotency-Key']).toBe(requests[1].headers['Idempotency-Key']);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

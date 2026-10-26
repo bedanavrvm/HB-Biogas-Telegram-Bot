@@ -636,7 +636,7 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(result['updated'], 1)
         farmer = JawabuFarmerMaster.objects.get()
         self.assertEqual(farmer.customer_name, 'DAVID MUGAMBI')
-        self.assertEqual(farmer.county, 'MERU')
+        self.assertEqual(farmer.county, 'Meru')
 
     def test_portal_commit_queues_master_publication_without_google_call(self):
         self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}

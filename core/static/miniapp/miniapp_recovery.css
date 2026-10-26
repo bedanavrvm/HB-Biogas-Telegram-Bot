@@ -19,3 +19,12 @@
 .origination-app .origination-header{grid-template-columns:38px minmax(0,1fr) 44px}
 .workflow-standard .recovery-dialog header button{width:44px!important;min-width:44px;max-width:44px;flex:0 0 44px;margin-left:auto;padding:0}
 .miniapp-recovery,.recovery-dialog,.miniapp-recovery button,.recovery-dialog button,.recovery-row{border-color:color-mix(in srgb,var(--tg-theme-text-color,#172338) 18%,transparent)}
+.portal-recovery { border:1px solid var(--border-color); border-radius:12px; padding:12px; }
+.portal-recovery .recovery-explanation,.portal-recovery .recovery-checked { color:var(--text-muted); font-size:12px; line-height:1.5; }
+.portal-recovery-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:10px 0; }
+.portal-recovery-summary span { display:grid; gap:4px; font-size:12px; }
+.portal-recovery-summary strong { font-size:20px; }
+.portal-recovery .recovery-row { display:grid; grid-template-columns:minmax(0,1fr) auto; }
+.portal-recovery .recovery-details { grid-column:1 / -1; min-width:0; font-size:12px; overflow-wrap:anywhere; }
+.portal-recovery .recovery-details summary { cursor:pointer; min-height:32px; }
+.portal-recovery .recovery-details li { margin:6px 0; line-height:1.5; }

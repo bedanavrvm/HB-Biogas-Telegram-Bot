@@ -184,6 +184,11 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
             'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
         ])
         if parsed.status == 'matched' and parsed.matched_farmer_id:
+            with transaction.atomic():
+                farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=parsed.matched_farmer_id)
+                if farmer.invoice_number == parsed.invoice_no:
+                    from hb_operations.services import apply_invoice_serial
+                    apply_invoice_serial(farmer, parsed)
             from core.services.invoice_identity import ensure_identity_review
             ensure_identity_review(parsed, parsed.matched_farmer)
         record_invoice_event(
@@ -559,6 +564,27 @@ def _invoice_segments_from_text(text: str):
     return [p for p in parts if 'BILL TO' in p.upper() and 'BALANCE DUE' in p.upper()]
 
 
+def extract_serial_number(text: str) -> str:
+    """Read labelled serials; ambiguity and image-only invoices remain unresolved."""
+    lines = _non_empty_lines(_normalize_invoice_text(text))
+    candidates = set()
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r'(?:SERIAL\s*(?:NUMBER|NO\.?)|S/N)\s*[:#-]?\s*(.*)', line, re.I)
+        if match:
+            value = match.group(1).strip() or (lines[index + 1].strip() if index + 1 < len(lines) else '')
+            if re.match(r'^QTY\s+RATE\s+AMOUNT\b', value, re.I):
+                table = '\n'.join([match.group(1), *lines[index + 1:]])
+                table = re.split(r'\b(?:SUBTOTAL|DISCOUNT|BALANCE DUE|PAYMENT)\b', table, maxsplit=1, flags=re.I)[0]
+                money = r'(?:KES\s*)?[0-9,]+\.\d{2}'
+                for row in re.finditer(rf'\b([A-Za-z0-9][A-Za-z0-9./_-]{{0,127}})\s+\d+\s+{money}\s+{money}(?=\s|$)', table):
+                    if re.search(r'\d', row.group(1)):
+                        candidates.add(row.group(1))
+                continue
+            if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9./_-]{0,127}', value) and value.upper() not in {'DESCRIPTION', 'AMOUNT', 'SUBTOTAL', 'TOTAL', 'DATE', 'PAYMENT', 'QTY', 'QUANTITY'}:
+                candidates.add(value)
+    return next(iter(candidates)) if len(candidates) == 1 else ''
+
+
 def parse_invoice_text(text: str, page_number: int) -> dict | None:
     """
     Parse a single invoice page text.
@@ -653,6 +679,7 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
 
     return {
         'page': page_number,
+        'serial_number': extract_serial_number(text),
         'invoice_no': invoice_no,
         'order_reference': order_reference,
         'invoice_date': invoice_date_raw,
@@ -1402,20 +1429,7 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             if invoice.status in skipped_statuses:
                 continue
             farmer = farmers[invoice.proposed_farmer_id]
-            farmer.invoice_number = invoice.invoice_no
-            farmer.invoice_date = invoice.invoice_date
-            farmer.invoice_amount = invoice.invoice_amount
-            farmer.discount = invoice.discount
-            farmer.payment = invoice.payment
-            # The source invoice labels this amount "Payment". In JBL's
-            # workflow it is the customer's deposit paid to HBG. Keep the
-            # parsed field for audit history, and persist the operational
-            # meaning on the canonical deposit field used by requisitions.
-            farmer.deposit_paid_hbg = invoice.payment
-            farmer.balance_due = invoice.balance_due
-            _revision_before, revision_after = next_workflow_revision(farmer)
-            farmer.workflow_revision = revision_after
-            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at'])
+            _apply_invoice_to_farmer(farmer, invoice)
             from core.services.jawabu_case360 import record_pipeline_event
             record_pipeline_event(
                 farmer, action='invoice_confirmed', stage_key='invoice', actor=actor,
@@ -1454,19 +1468,31 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
 
 
 def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice) -> None:
+    from hb_operations.deposits import recorded_deposit, stamp_deposit_date
+    previous_deposit = recorded_deposit(farmer)
+    previous_date = farmer.hb_deposit_date
     farmer.invoice_number = invoice.invoice_no
     farmer.invoice_date = invoice.invoice_date
     farmer.invoice_amount = invoice.invoice_amount
     farmer.discount = invoice.discount
     farmer.payment = invoice.payment
     farmer.deposit_paid_hbg = invoice.payment
+    stamp_deposit_date(farmer, previous_deposit)
     farmer.balance_due = invoice.balance_due
     _revision_before, revision_after = next_workflow_revision(farmer)
     farmer.workflow_revision = revision_after
     farmer.save(update_fields=[
         'invoice_number', 'invoice_date', 'invoice_amount',
-        'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at',
+        'discount', 'payment', 'deposit_paid_hbg', 'hb_deposit_date', 'balance_due', 'workflow_revision', 'updated_at',
     ])
+    from hb_operations.services import apply_invoice_serial
+    apply_invoice_serial(farmer, invoice)
+    if previous_deposit != recorded_deposit(farmer):
+        from core.services.jawabu_case360 import record_pipeline_event
+        record_pipeline_event(farmer, action='hb_deposit_invoice_updated', stage_key='invoice', source='invoice',
+            actor=str(invoice.batch.uploaded_by or ''), request_id=f'invoice-deposit:{invoice.pk}:{invoice.revision}',
+            old_values={'deposit_paid_hbg': str(previous_deposit) if previous_deposit is not None else None, 'hb_deposit_date': previous_date.isoformat() if previous_date else None},
+            new_values={'deposit_paid_hbg': str(farmer.deposit_paid_hbg) if farmer.deposit_paid_hbg is not None else None, 'hb_deposit_date': farmer.hb_deposit_date.isoformat() if farmer.hb_deposit_date else None})
     reserve_farmer_publication(
         farmer,
         request_id=f'invoice-match:{invoice.id}:{farmer.id}',
@@ -1554,6 +1580,11 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '', 
             raise InvoiceMatchEligibilityError('invoice_not_matchable', 'Only a matched invoice can be unmatched.')
         cancel_correction_on_unmatch(invoice, actor=str(actor or 'portal'))
         if old_farmer and str(old_farmer.invoice_number or '').strip() == str(invoice.invoice_no or '').strip():
+            from hb_operations.services import apply_invoice_serial
+            from hb_operations.deposits import recorded_deposit, stamp_deposit_date
+            previous_deposit = recorded_deposit(old_farmer)
+            previous_date = old_farmer.hb_deposit_date
+            apply_invoice_serial(old_farmer, invoice, clear=True)
             old_farmer.invoice_number = ''
             old_farmer.invoice_date = None
             old_farmer.invoice_amount = None
@@ -1561,13 +1592,21 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '', 
             old_farmer.payment = None
             if old_farmer.deposit_paid_hbg == invoice.payment:
                 old_farmer.deposit_paid_hbg = None
+            stamp_deposit_date(old_farmer, previous_deposit)
             old_farmer.balance_due = None
             _revision_before, revision_after = next_workflow_revision(old_farmer)
             old_farmer.workflow_revision = revision_after
             old_farmer.save(update_fields=[
                 'invoice_number', 'invoice_date', 'invoice_amount',
-                'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at',
+                'discount', 'payment', 'deposit_paid_hbg', 'hb_deposit_date', 'balance_due', 'workflow_revision', 'updated_at',
             ])
+            if previous_deposit != recorded_deposit(old_farmer):
+                from core.services.jawabu_case360 import record_pipeline_event
+                amount = recorded_deposit(old_farmer)
+                record_pipeline_event(old_farmer, action='hb_deposit_invoice_updated', stage_key='invoice', source='invoice',
+                    actor=str(actor or ''), request_id=f'invoice-unmatch-deposit:{invoice.pk}:{invoice.revision}',
+                    old_values={'deposit_paid_hbg': str(previous_deposit) if previous_deposit is not None else None, 'hb_deposit_date': previous_date.isoformat() if previous_date else None},
+                    new_values={'deposit_paid_hbg': str(amount) if amount is not None else None, 'hb_deposit_date': old_farmer.hb_deposit_date.isoformat() if old_farmer.hb_deposit_date else None})
             reserve_farmer_publication(
                 old_farmer,
                 request_id=f'invoice-unmatch:{invoice.id}:{old_farmer.id}:{invoice.revision}',
@@ -1785,18 +1824,21 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                 with transaction.atomic():
                     matched_farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=matched_farmer.pk)
                     require_official_requisition(matched_farmer, lock=True)
+                    from hb_operations.deposits import recorded_deposit, stamp_deposit_date
+                    previous_deposit = recorded_deposit(matched_farmer)
                     matched_farmer.invoice_number = inv["invoice_no"]
                     matched_farmer.invoice_date = parse_invoice_date(inv["invoice_date"])
                     matched_farmer.invoice_amount = clean_amount(inv["invoice_amount"])
                     matched_farmer.discount = clean_discount_amount(inv["discount"])
                     matched_farmer.payment = clean_amount(inv["payment"])
                     matched_farmer.deposit_paid_hbg = matched_farmer.payment
+                    stamp_deposit_date(matched_farmer, previous_deposit)
                     matched_farmer.balance_due = clean_amount(inv["balance_due"])
                     _revision_before, revision_after = next_workflow_revision(matched_farmer)
                     matched_farmer.workflow_revision = revision_after
                     matched_farmer.save(update_fields=[
                         'invoice_number', 'invoice_date', 'invoice_amount',
-                        'discount', 'payment', 'deposit_paid_hbg', 'balance_due',
+                        'discount', 'payment', 'deposit_paid_hbg', 'hb_deposit_date', 'balance_due',
                         'workflow_revision', 'updated_at',
                     ])
 

@@ -192,7 +192,7 @@
           <div id="hb-installed-fields" class="hb-action-installed-fields" hidden>
             <div class="hb-action-two-column">
               <label>Actual installation date<input id="hb-installation-date" name="installation_date" type="date"></label>
-              <label>Serial number <small>Optional</small><input id="hb-serial-number" name="serial_number" type="text" maxlength="128"></label>
+              <label>Serial No <small>From invoice</small><input id="hb-serial-number" name="serial_number" type="text" maxlength="128" readonly placeholder="Not found in accepted invoice"></label>
             </div>
             <label class="hb-action-checkbox"><input id="hb-installation-report-submitted" name="installation_report_submitted" type="checkbox"><span>Installation report submitted</span></label>
           </div>
@@ -663,11 +663,12 @@
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Fulfilment partner<select id="requisition-sequence-partner"><option value="HB">HB</option><option value="ECOCONSERVE">Eco-conserve</option></select></label><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
       <div class="portal-settings-action-row"><small id="requisition-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="requisition-sequence-save">Save official number</button></div>
     </details>
-    <section id="portal-payment-sequence-settings" class="portal-settings-card" data-required-capability="portal.payment.sequence.manage" hidden>
-      <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official payment number</h2><p>Set the next number only when aligning the Portal with the official payment register.</p></div>
+    <details id="portal-payment-sequence-settings" class="portal-settings-card" data-required-capability="portal.payment.sequence.manage" hidden>
+      <summary class="portal-settings-summary"><strong>Payment numbers</strong><span id="payments-sequence-summary">Loading numbers…</span></summary>
+      <p class="field-help">Set the next number only when aligning the Portal with the official payment register.</p>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next payment number<input id="payments-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="payments-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
       <div class="portal-settings-action-row"><small id="payments-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="payments-sequence-save">Save official number</button></div>
-    </section>
+    </details>
     </div>
     <details id="portal-approval-delegation" class="portal-approval-controls portal-settings-card" data-required-capability="portal.approval.delegation.authorize" hidden>
       <summary><span>Temporary approval cover</span><small>Grant or revoke time-limited authority</small></summary>

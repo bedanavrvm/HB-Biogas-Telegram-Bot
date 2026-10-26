@@ -397,6 +397,11 @@ def _apply_county_branch_filters(qs, request, *, params=None, capability: str = 
         values = _portal_filter_values(params, field)
         if values:
             condition = Q(pk__in=[])
+            if field == 'county':
+                from core.services.portal_report_insights import county_labels
+                labels = county_labels([*qs.values_list('county', flat=True).distinct(), *values])
+                selected = {labels.get(value, value) for value in values}
+                values = [value for value, label in labels.items() if label in selected]
             for value in values:
                 condition |= Q(**{f'{field}__iexact': value})
             qs = qs.filter(condition)
@@ -893,6 +898,26 @@ def _portal_pdf_preview_html(content: bytes, filename: str, **options) -> bytes:
     from core.services.secure_media_preview import pdf_preview_html
 
     return pdf_preview_html(content, filename, **options)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_local_document_preview(request):
+    """Render selected evidence without storing or submitting the file."""
+    capabilities = ('portal.jbl_media.write', 'portal.invoice.write', 'portal.documents.sign')
+    if all(_portal_capability_error(request, capability) is not None for capability in capabilities):
+        return JsonResponse({'ok': False, 'error': 'Your Portal role cannot preview selected documents.'}, status=403)
+    document = request.FILES.get('file')
+    if not document or document.size > 16 * 1024 * 1024:
+        return JsonResponse({'ok': False, 'error': 'Choose a PDF up to 16 MB.'}, status=400)
+    try:
+        content = _portal_pdf_preview_html(document.read(), 'Selected document', show_filename=False)
+    except ValueError as error:
+        return JsonResponse({'ok': False, 'error': str(error)}, status=400)
+    response = HttpResponse(content, content_type='text/html; charset=utf-8')
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:
@@ -2334,6 +2359,10 @@ def portal_meta(request):
     }
     carto_key = str(getattr(settings, 'CARTO_BASEMAP_API_KEY', '') or '').strip()
     carto_key_query = f'?key={quote(carto_key, safe="")}' if carto_key else ''
+    from django.utils.crypto import salted_hmac
+    report_session_key = salted_hmac('portal-report-preferences', json.dumps(
+        [str(portal_user.pk), policy_version(), capability_scopes], sort_keys=True,
+    )).hexdigest() if portal_user else ''
     from core.services.jawabu_approvals import REASON_CODES, REJECTED_REASONS, DEFERRED_REASONS
 
     response = JsonResponse({
@@ -2361,6 +2390,7 @@ def portal_meta(request):
         'approval_delegation_gates': delegation_gates,
         'capabilities': capabilities,
         'actor': {'name': actor_name, 'roles': actor_roles},
+        'report_session_key': report_session_key,
         'capability_scopes': capability_scopes,
         'access_policy_version': policy_version(),
         'carto_basemaps': {
@@ -3551,6 +3581,7 @@ def _jbl_queue_filter_options(request):
 def _portal_queue_filter_options(request, queue_key: str):
     """Choices from the full authorized queue, excluding the location filters."""
     from core.services.jawabu_pipeline import deferred_queue
+    from core.services.portal_report_insights import county_labels
     params = request.GET.copy()
     params.pop('county', None)
     params.pop('branch', None)
@@ -3571,7 +3602,7 @@ def _portal_queue_filter_options(request, queue_key: str):
     has_hbg_date = qs.filter(hbg_visit_date__isnull=False).exists()
     has_jbl_date = qs.filter(jbl_visit_date__isnull=False).exists()
     return {
-        'county': sorted(counties, key=str.casefold),
+        'county': sorted(set(county_labels(counties).values()), key=str.casefold),
         'branch': sorted(branches, key=str.casefold),
         'status': [value for value in ('deferred', 'rejected')
                    if qs.filter(pk__in=deferred_queue(status=value).values('pk')).exists()]
@@ -7407,6 +7438,7 @@ def _serialize_parsed_invoice(
         'batch_filename': invoice.batch.original_filename if invoice.batch_id else '',
         'page': invoice.page,
         'invoice_no': invoice.invoice_no,
+        'serial_number': str((invoice.raw_payload or {}).get('serial_number') or ''),
         'invoice_date': invoice.invoice_date.isoformat() if invoice.invoice_date else invoice.invoice_date_raw,
         'customer_name': invoice.customer_name,
         'customer_id': invoice.customer_id,

@@ -316,6 +316,33 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
     return {'created': created, 'existing': existing, 'missing_farmer_ids': missing}
 
 
+def apply_invoice_serial(farmer, invoice, *, clear=False):
+    """The accepted invoice owns the one operational serial, including corrections."""
+    action = HomeBiogasAction.objects.select_for_update().filter(farmer=farmer).first()
+    if action is None:
+        return
+    serial = '' if clear else str((invoice.raw_payload or {}).get('serial_number') or '').strip()[:128]
+    if action.serial_number == serial:
+        return
+    before = action.serial_number
+    action.serial_number = serial
+    action.revision += 1
+    action.save(update_fields=['serial_number', 'revision', 'updated_at'])
+    HomeBiogasActionEvent.objects.create(
+        action=action, event_type='invoice.serial_updated', revision=action.revision,
+        actor_label=str(invoice.batch.uploaded_by or 'Invoice import'),
+        previous_values={'serial_number': before}, new_values={'serial_number': serial, 'invoice_id': str(invoice.pk)},
+        request_id=f'invoice-serial:{invoice.pk}:{invoice.revision}' + (':clear' if clear else ''),
+    )
+
+
+def _locked_action(action_id):
+    # Match the invoice path's lock order: case first, then its HB record.
+    farmer_id = HomeBiogasAction.objects.values_list('farmer_id', flat=True).get(pk=action_id)
+    JawabuFarmerMaster.objects.select_for_update().get(pk=farmer_id)
+    return HomeBiogasAction.objects.select_for_update().select_related('farmer').get(pk=action_id)
+
+
 def _validate_installation(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
     if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED:
         raise HomeBiogasActionError('Installation is read-only after commissioning is complete.')
@@ -332,7 +359,7 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
     comment = _text(payload, 'installation_note') or _text(payload, 'pending_installation_comment')
     planned_installation_date = _date_value(payload, 'planned_installation_date')
     installation_date = _date_value(payload, 'installation_date')
-    serial = _text(payload, 'serial_number', max_length=128)
+    serial = action.serial_number
     # The staff form records this as a simple optional checkbox.  Preserve the
     # legacy API field for historical integrations, but never make it a gate
     # for recording an actual installation.
@@ -356,7 +383,7 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
             'planned_installation_date': planned_installation_date,
             'installation_date': None,
             'readiness_status': readiness, 'pending_installation_comment': comment,
-            'serial_number': '', 'installation_report_status': '',
+            'serial_number': serial, 'installation_report_status': '',
         }
     if not installation_date:
         raise HomeBiogasActionError('Choose the actual installation date.')
@@ -447,7 +474,7 @@ def _sync_farmer(
 
 @transaction.atomic
 def transition_action(action_id, *, payload: dict, actor, request_id: str, expected_revision: int):
-    action = HomeBiogasAction.objects.select_for_update().select_related('farmer').get(pk=action_id)
+    action = _locked_action(action_id)
     duplicate = action.events.filter(request_id=request_id).first() if request_id else None
     if duplicate:
         return action, [], True
@@ -488,7 +515,7 @@ def update_commissioning_notes(action_id, *, payload: dict, actor, request_id: s
     are durable context for the existing Master Data ``CS Remarks`` column.
     This is a normal HB write, not a correction of historic facts.
     """
-    action = HomeBiogasAction.objects.select_for_update().select_related('farmer').get(pk=action_id)
+    action = _locked_action(action_id)
     duplicate = action.events.filter(request_id=request_id).first() if request_id else None
     if duplicate:
         return action, [], True
@@ -526,7 +553,7 @@ def update_commissioning_notes(action_id, *, payload: dict, actor, request_id: s
 
 @transaction.atomic
 def correct_action(action_id, *, payload: dict, actor, request_id: str, expected_revision: int):
-    action = HomeBiogasAction.objects.select_for_update().select_related('farmer').get(pk=action_id)
+    action = _locked_action(action_id)
     duplicate = action.events.filter(request_id=request_id).first() if request_id else None
     if duplicate:
         return action, [], True

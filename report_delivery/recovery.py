@@ -27,7 +27,7 @@ def recovery_rows(actor, workflow, *, group=None):
         waiting = delivery.status in {'queued', 'retry', 'processing'}
         rows.append(issue(delivery.pk, f'{delivery.schedule.title or "Report"} · Email delivery',
             detail='Delivery is being checked.' if waiting else 'This delivery needs review before sending again.',
-            status='Waiting' if waiting else 'Needs review',
+            status='Processing' if delivery.status == 'processing' else 'Waiting' if waiting else 'Needs review',
             action=request_action('Check status', endpoint, {'action': 'status', 'delivery_ids': [str(delivery.pk)]},
                                   'Check this existing delivery? This does not create or send a new report.'),
             steps=['Check this delivery’s status first. Accepted is not confirmation that it reached the inbox.',

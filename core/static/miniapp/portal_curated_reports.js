@@ -10,13 +10,41 @@
   const icon=name=>({search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',cases:'<path d="M8 6h12M8 12h12M8 18h12M3 6h1M3 12h1M3 18h1"/>',download:'<path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/>',filter:'<path d="M4 6h16M7 12h10M10 18h4"/>',settings:'<path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>'}[name]||'');
   const svg=name=>`<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon(name)}</svg>`;
   const id=()=>crypto.randomUUID?.() || `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const sharedKeys=['branch','county','product','date_mode','month','quarter','year','from','to','granularity'];
+  let sessionKey='', launchKey='', tabFilters={}, sharedFilters={};
+  const picked=(value,keys)=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,String(value[key])]));
+  function saveFilters(){
+    const next=picked(s.applied,sharedKeys);
+    if(JSON.stringify(next)!==JSON.stringify(sharedFilters))for(const key of Object.keys(tabFilters))tabFilters[key]=picked(tabFilters[key],['stage']);
+    sharedFilters=next;
+    tabFilters[s.preset]=picked(s.applied,['stage','chart_key','bucket_key','series_key']);
+    if(!sessionKey||!launchKey)return;
+    try{sessionStorage.setItem('portal-report-session',JSON.stringify({owner:sessionKey,launch:launchKey,preset:s.preset,shared:sharedFilters,tabs:Object.fromEntries(Object.entries(tabFilters).map(([key,value])=>[key,picked(value,['stage'])]))}));}catch(_){}
+  }
+  async function restoreFilters(options, sequence){
+    const owner=options.sessionKey||'', launch=options.tg?.initData||'';
+    const nextLaunch=launch&&window.crypto?.subtle?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(launch)))).map(byte=>byte.toString(16).padStart(2,'0')).join(''):'';
+    if(sequence!==s.sequence)return false;
+    const sameContext=sessionKey===owner&&launchKey===nextLaunch;
+    if(!sameContext){sharedFilters={};tabFilters={};s.applied={};s.search='';s.preset='pipeline';}
+    sessionKey=owner;launchKey=nextLaunch;
+    if(!sessionKey||!launchKey)return sameContext;
+    try{
+      const saved=JSON.parse(sessionStorage.getItem('portal-report-session')||'null');
+      if(saved?.owner!==sessionKey||saved?.launch!==launchKey){sessionStorage.removeItem('portal-report-session');return sameContext;}
+      sharedFilters=picked(saved.shared||{},sharedKeys);
+      if(labels[saved.preset])s.preset=saved.preset;
+      for(const key of Object.keys(labels))if(!tabFilters[key])tabFilters[key]=picked(saved.tabs?.[key]||{},['stage']);
+    }catch(_){try{sessionStorage.removeItem('portal-report-session');}catch(_){} }
+    return sameContext;
+  }
   function fmt(v,type){if(v===null||v===undefined||v==='')return '—';if(type==='number')return new Intl.NumberFormat('en-KE',{maximumFractionDigits:2}).format(v);if(type==='date'){const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleDateString('en-GB',{timeZone:'Africa/Nairobi',day:'2-digit',month:'short',year:'numeric'});}return esc(type==='choice'?stages[v]||v:v);}
   function destroy(includeGrid=true){s.charts.forEach(c=>c.destroy());s.charts=[];s.observer?.disconnect();s.observer=null;if(includeGrid){s.grid?.destroy();s.grid=null;}}
   function month(){const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Nairobi',year:'numeric',month:'2-digit'}).formatToParts(new Date());return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}`;}
   function chartLabel(chart,index){const key=chart.bucket_keys[index];const date=window.MiniAppReportControls.formatChartDate(key);return chart.type==='line'&&date!==key?date:chart.labels[index];}
   function filterSheet(){
     const f=s.applied,o=s.result.filter_options,mode=f.date_mode || (s.preset==='pipeline'?'all':'month');
-    const select=(key,label,values)=>`<label>${label}<select name="${key}"><option value="">All</option>${values.map(v=>`<option value="${esc(v)}"${f[key]===v?' selected':''}>${esc(key==='stage'?stages[v]:v)}</option>`).join('')}</select></label>`;
+    const select=(key,label,values)=>`<label>${label}<select name="${key}"><option value="">All</option>${f[key]&&!values.includes(f[key])?`<option selected value="${esc(f[key])}">${esc(f[key])} (unavailable)</option>`:''}${values.map(v=>`<option value="${esc(v)}"${f[key]===v?' selected':''}>${esc(key==='stage'?stages[v]:v)}</option>`).join('')}</select></label>`;
     return `<dialog id="portal-report-dialog" aria-labelledby="portal-report-filter-title"><form id="portal-report-filters"><header><h2 id="portal-report-filter-title">Filter ${labels[s.preset].toLowerCase()}</h2><button type="button" data-action="close" aria-label="Close filters without applying">×</button></header><div class="portal-report-filter-fields">
     ${select('branch','Branch',o.branches||[])}${select('county','County',o.counties||[])}${select('product','Product',o.products||[])}
     ${s.preset==='pipeline'?select('stage','Stage',['jbl_visit','credit','final_review','order','ordered','deferred','rejected','withdrawn']):''}
@@ -45,9 +73,12 @@
     <section id="portal-insight-charts" class="portal-insight-charts ${s.display}" aria-label="Portal report charts" tabindex="0">${r.charts.map(chartMarkup).join('')}</section>
     ${resultsMarkup(r)}${filterSheet()}`;
     mountGrid(target,r);
+    target.querySelectorAll('[data-type]').forEach(button=>{const label=button.dataset.type.replaceAll('_',' ');button.setAttribute('aria-label',`${label} chart`);button.title=`${label} chart`;button.classList.add('portal-chart-type-icon');button.innerHTML=window.MiniAppReportControls.chartTypeIcon(button.dataset.type);});
+    const figures=[...target.querySelectorAll('.portal-curated-summary > div')];
+    if(figures.length>4){const details=document.createElement('details');details.className='portal-summary-details';details.innerHTML='<summary>More figures</summary><div class="portal-curated-summary"></div>';figures[0].parentElement.after(details);figures.slice(4).forEach(node=>details.lastElementChild.appendChild(node));}
     target.querySelector('.portal-report-filter-fields').classList.add('miniapp-report-filter-fields');
     target.querySelectorAll('.portal-chart-settings').forEach(window.MiniAppReportControls.prepareChartMenu);
-    target.querySelectorAll('.portal-insight-chart').forEach(card=>{const c=r.charts.find(item=>item.id===card.dataset.chart);const note=document.createElement('p');card.appendChild(note);window.MiniAppReportControls.setChartHelp(note,c.context||`${c.title}. Select a chart item to see its cases.`);note.remove();});
+    target.querySelectorAll('.portal-insight-chart').forEach(card=>{const c=r.charts.find(item=>item.id===card.dataset.chart),type=s.types[c.id];const note=document.createElement('p');card.appendChild(note);const reading=type==='doughnut'?'Each slice shows a category\'s share. Match its colour to the legend.':['bar','stacked_bar'].includes(type)&&c.type!=='line'?'Read categories down the left and values along the bottom. Longer bars mean larger values.':'Read dates or categories along the bottom and values on the side.';window.MiniAppReportControls.setChartHelp(note,`${c.help||`${c.title}: values show ${c.unit||'cases'} in the selected scope.`} ${reading} Select a bar, point or slice to see its matching cases below.`);note.remove();});
     const box=target.querySelector('#portal-insight-charts');box.addEventListener('scroll',position,{passive:true});box.addEventListener('keydown',e=>{if(e.target===box&&s.display==='carousel'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();move(e.key==='ArrowRight'?1:-1);}});
     target.querySelector('dialog').addEventListener('close',()=>{target.querySelector('#portal-report-filters')?.reset();dates();target.querySelector('[data-action="filters"]')?.focus();});if(s.resumeScroll!==null){box.scrollLeft=s.resumeScroll;s.resumeScroll=null;}position();draw();
   }
@@ -160,6 +191,7 @@
       s.result=response.data.result;
       s.result.charts.forEach(c=>{c.labels=c.labels.map((_label,index)=>chartLabel(c,index));});
       s.applied={...s.result.applied_filters};
+      saveFilters();
       s.search=s.applied.search||'';s.loading=false;
       if(tableOnly){updateResults();reportStatus(`${s.result.total_rows.toLocaleString()} cases found.`);}
       else render();
@@ -186,13 +218,13 @@
     notify:(message,tone)=>window.PortalAppShell?.showToast?.(message,tone)});}
   document.addEventListener('click',e=>{
     if(!root()?.contains(e.target))return;
-    const preset=e.target.closest('[data-preset]');if(preset){clearTimeout(s.searchTimer);s.preset=preset.dataset.preset;s.result=null;s.applied={};s.search='';return load();}
+    const preset=e.target.closest('[data-preset]');if(preset){clearTimeout(s.searchTimer);saveFilters();s.preset=preset.dataset.preset;s.result=null;s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};return load(1,{...s.applied,search:s.search});}
     const display=e.target.closest('[data-display]');if(display){s.display=display.dataset.display;pref(s.display);return render();}
     const type=e.target.closest('[data-type]');if(type){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;s.types[type.dataset.key]=type.dataset.type;return render();}
-    const grouping=e.target.closest('[data-granularity]');if(grouping){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;return load(1,{...s.applied,granularity:grouping.dataset.granularity});}
+    const grouping=e.target.closest('[data-granularity]');if(grouping){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;const f={...s.applied,granularity:grouping.dataset.granularity};['chart_key','bucket_key','series_key'].forEach(key=>delete f[key]);return load(1,f);}
     const page=e.target.closest('[data-page]');if(page&&!page.disabled)return load(Number(page.dataset.page),s.applied,{tableOnly:true});
     const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;
-    if(action==='filters'){root().querySelector('dialog').showModal();dates();}if(action==='close')close();if(action==='reset'){clearTimeout(s.searchTimer);s.search='';close();load();}if(action==='retry')load(1,s.intent,s.retryOptions||{});if(action==='export')exportXlsx();if(action==='email')emailReport();if(action==='previous'||action==='next')move(action==='next'?1:-1);
+    if(action==='filters'){root().querySelector('dialog').showModal();dates();}if(action==='close')close();if(action==='reset'){clearTimeout(s.searchTimer);s.search='';sharedFilters={};tabFilters={};s.applied={};try{sessionStorage.removeItem('portal-report-session');}catch(_){}close();load();}if(action==='retry')load(1,s.intent,s.retryOptions||{});if(action==='export')exportXlsx();if(action==='email')emailReport();if(action==='previous'||action==='next')move(action==='next'?1:-1);
     if(action==='clear'){const f={...s.applied};['chart_key','bucket_key','series_key'].forEach(k=>delete f[k]);load(1,f,{tableOnly:true});}
     if(action==='drill'){const card=b.closest('[data-chart]');drill(s.result.charts.find(c=>c.id===card.dataset.chart),card.querySelector('[data-bucket]').value,card.querySelector('[data-series]').value);}
   });
@@ -200,5 +232,17 @@
   document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.name==='date_mode'||e.target.matches('[data-date] input')){root().querySelector('[name="to"]')?.setCustomValidity('');dates();}if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
   document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();clearTimeout(s.searchTimer);const f={...Object.fromEntries(new FormData(e.target)),search:s.search,granularity:s.applied.granularity||'month'};if(f.date_mode==='custom'&&f.from>f.to){e.target.elements.to.setCustomValidity('Choose an end date on or after the start date.');e.target.elements.to.reportValidity();return;}close();load(1,f);});
   const theme=()=>{if(root()&&s.result){destroy(false);draw();}};
-  window.PortalMiniAppReports={load(options={}){const returning=s.origin===root();clearTimeout(s.searchTimer);s.tg?.offEvent?.('themeChanged',theme);s.tg=options.tg||s.tg;s.tg?.onEvent?.('themeChanged',theme);s.result=null;if(!returning){s.applied={};s.search='';s.page=1;}else s.resumeScroll=s.scroll;return load(returning?s.page:1,returning?s.applied:{});},unmount(){clearTimeout(s.searchTimer);s.origin=root();s.page=s.result?.pagination.page||1;s.scroll=root()?.querySelector('#portal-insight-charts')?.scrollLeft||0;++s.sequence;window.MiniAppReportControls.closeExcelExport();close();destroy();s.tg?.offEvent?.('themeChanged',theme);s.result=null;s.loading=false;},canHandleBack(){return Boolean(document.querySelector('.miniapp-excel-dialog[open]')||root()?.querySelector('dialog')?.open||root()?.querySelector('.miniapp-chart-popover[open]'));},handleBack(){if(window.MiniAppReportControls.closeExcelExport())return true;if(window.MiniAppReportControls.closeChartMenus(root()||document))return true;if(!this.canHandleBack())return false;close();return true;}};
+  window.PortalMiniAppReports={
+    async load(options={}){
+      const target=root(),sequence=++s.sequence;
+      clearTimeout(s.searchTimer);s.tg?.offEvent?.('themeChanged',theme);s.tg=options.tg||s.tg;s.tg?.onEvent?.('themeChanged',theme);s.result=null;
+      const sameContext=await restoreFilters(options,sequence);if(root()!==target||sequence!==s.sequence)return;
+      const returning=s.origin===target&&sameContext;
+      if(!returning){s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};s.search='';s.page=1;}else s.resumeScroll=s.scroll;
+      return load(returning?s.page:1,{...s.applied,...(s.search?{search:s.search}:{})});
+    },
+    unmount(){clearTimeout(s.searchTimer);s.origin=root();s.page=s.result?.pagination.page||1;s.scroll=root()?.querySelector('#portal-insight-charts')?.scrollLeft||0;++s.sequence;window.MiniAppReportControls.closeExcelExport();close();destroy();s.tg?.offEvent?.('themeChanged',theme);s.result=null;s.loading=false;},
+    canHandleBack(){return Boolean(document.querySelector('.miniapp-excel-dialog[open]')||root()?.querySelector('dialog')?.open||root()?.querySelector('.miniapp-chart-popover[open]'));},
+    handleBack(){if(window.MiniAppReportControls.closeExcelExport())return true;if(window.MiniAppReportControls.closeChartMenus(root()||document))return true;if(!this.canHandleBack())return false;close();return true;}
+  };
 })();

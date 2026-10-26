@@ -5,7 +5,8 @@ const {test,expect}=require('playwright/test');
 const asset=name=>path.resolve(__dirname,'../static/miniapp',name);
 const {mountPortalShell}=require('./fixtures/portal_shell');
 
-async function open(page,{chartsUnavailable=false}={}) {
+async function open(page,{chartsUnavailable=false,persistent=false}={}) {
+  if(persistent){await page.route('https://portal.synthetic.invalid/',route=>route.fulfill({body:'<!doctype html><html></html>',contentType:'text/html'}));await page.goto('https://portal.synthetic.invalid/');}
   await mountPortalShell(page,'<div id="portal-screen" data-screen="reports"><section class="page active" id="page-reports"><div id="portal-reports-root"></div></section></div>');
   if(!chartsUnavailable)await page.addScriptTag({path:asset('vendor-chartjs-4.5.1.umd.min.js')});
   await page.addScriptTag({path:asset('components.js')});
@@ -23,15 +24,73 @@ async function open(page,{chartsUnavailable=false}={}) {
       const names=preset==='pipeline'?[['stages','Cases by pipeline stage'],['received','Cases received over time'],['age','Current-stage backlog age'],['branch','Cases by branch'],['county','Cases by county']]:preset==='outcomes'?[['activity','Visits and decisions over time'],['visits','Visit outcomes'],['credit','Credit decisions'],['final','Final decisions'],['duration','Completed-stage turnaround'],['sla','Completed stages against target']]:[['activity','Order and invoice activity'],['invoice_trend','Invoice value over time'],['finance_branch','Financial comparison by branch'],['finance_county','Financial comparison by county']];
       return {preset,period:preset==='pipeline'?null:{from:'2026-10-01',to:'2026-10-04'},applied_filters:{date_mode:preset==='pipeline'?'all':'month',granularity:'month',...body.filters},filter_options:{branches:['Training branch','Other training branch'],counties:['Training county'],products:['TRAINING']},
         summary:{'Cases in scope':12,'Awaiting visit':4,'Credit analysis':3,'Invoice amount':'123456.78'},total_rows:body.filters.chart_key?4:12,shown_rows_limit:12,pagination:{page:body.page||1,pages:2,page_size:50},columns:[{key:'case_id',label:'Case reference',type:'text'},{key:'customer_name',label:'Customer name',type:'text'},{key:'branch',label:'Branch',type:'text'}],rows:[{case_id:'JBL-100',record_id:'00000000-0000-0000-0000-000000000001',customer_name:'Synthetic reporting customer',branch:'Training branch'}],
-        charts:names.map(([id,title],i)=>({id,title,type:i===1?'line':'bar',unit:id==='duration'?'hours':preset==='finance'&&id!=='activity'?'KES':'cases',context:preset==='finance'?'Current recorded values for cases in this period':'Current authorized cases',labels:['Training branch','Other training branch'],bucket_keys:['training','other'],datasets:[{key:'Cases',label:'Cases',values:['4','8']}],values:['4','8'],...(id==='duration'?{sample_counts:{training:4,other:8}}:{})}))};
+        charts:names.map(([id,title])=>({id,title,type:['received','activity','invoice_trend'].includes(id)?'line':'bar',unit:id==='duration'?'hours':preset==='finance'&&id!=='activity'?'KES':'cases',context:preset==='finance'?'Current recorded values for cases in this period':'Current authorized cases',labels:['Training branch','Other training branch'],bucket_keys:['training','other'],datasets:[{key:'Cases',label:'Cases',values:['4','8']}],values:['4','8'],...(id==='duration'?{sample_counts:{training:4,other:8}}:{})}))};
     };
     window.PortalMiniAppApi={postJson:async(url,body)=>{window.__calls.push({url,body});if(url.includes('export'))return {ok:true,data:{ok:true,download_url:'/synthetic-download',filename:'portal-report.xlsx'}};const response={ok:true,data:{ok:true,result:window.__result(body)}};if(window.__holdNext){window.__holdNext=false;await new Promise(resolve=>{window.__release=()=>resolve();});}return response;}};
     window.__tg={onEvent:(name,handler)=>{window.__theme=handler;},offEvent:()=>{window.__theme=null;}};
   });
   await page.addScriptTag({path:asset('portal_curated_reports.js')});
-  await page.evaluate(()=>PortalMiniAppReports.load({tg:window.__tg}));
-  await expect(page.locator('.portal-insight-chart')).toHaveCount(5);
+  await page.evaluate(persistent=>{if(persistent)window.__tg.initData='synthetic-launch-A';return PortalMiniAppReports.load({tg:window.__tg,sessionKey:persistent?'synthetic-owner-policy-A':''});},persistent);
+  if(persistent)await expect(page.locator('.portal-insight-chart').first()).toBeVisible();else await expect(page.locator('.portal-insight-chart')).toHaveCount(5);
 }
+
+test('shared filters survive every report tab and full navigation without storing customer searches',async({page})=>{
+  await open(page,{persistent:true});await page.locator('[data-action="filters"]').click();
+  await page.locator('[name="branch"]').selectOption('Training branch');await page.locator('[name="county"]').selectOption('Training county');
+  await page.locator('[name="stage"]').selectOption('credit');await page.locator('[name="date_mode"]').selectOption('custom');
+  await page.locator('[name="from"]').fill('2025-02-01');await page.locator('[name="to"]').fill('2026-10-26');
+  await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await page.locator('#portal-report-search').fill('PRIVATE CUSTOMER 999999');
+  await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.filters.search)).toBe('PRIVATE CUSTOMER 999999');
+  for(const preset of ['outcomes','finance','pipeline']){
+    await page.locator(`[data-preset="${preset}"]`).click();
+    await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.preset)).toBe(preset);
+    expect(await page.evaluate(()=>window.__calls.at(-1).body.filters)).toMatchObject({branch:'Training branch',county:'Training county',date_mode:'custom',from:'2025-02-01',to:'2026-10-26'});
+  }
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.stage)).toBe('credit');
+  const saved=await page.evaluate(()=>sessionStorage.getItem('portal-report-session'));
+  expect(saved).not.toContain('PRIVATE');expect(saved).not.toContain('search');expect(saved).not.toContain('synthetic-launch-A');
+  await open(page,{persistent:true});
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters)).toMatchObject({branch:'Training branch',stage:'credit',from:'2025-02-01',to:'2026-10-26'});
+  await expect(page.locator('#portal-report-search')).toHaveValue('');
+  await page.locator('[data-action="filters"]').click();await page.getByRole('button',{name:'Reset',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__calls.at(-1).body.filters.branch||'')).toBe('');
+  await page.locator('[data-preset="outcomes"]').click();
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.stage||'')).toBe('');
+});
+
+test('changing owner, policy or Telegram launch clears remembered report scope',async({page})=>{
+  await open(page,{persistent:true});await page.locator('[data-action="filters"]').click();await page.locator('[name="branch"]').selectOption('Training branch');await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await page.evaluate(()=>PortalMiniAppReports.load({tg:window.__tg,sessionKey:'synthetic-owner-policy-B'}));
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.branch)).toBeUndefined();
+  await page.locator('[data-action="filters"]').click();await page.locator('[name="branch"]').selectOption('Training branch');await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await page.evaluate(()=>{window.__tg.initData='synthetic-launch-B';return PortalMiniAppReports.load({tg:window.__tg,sessionKey:'synthetic-owner-policy-B'});});
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.branch)).toBeUndefined();
+});
+
+test('chart help explains the axes of the selected chart type',async({page})=>{
+  await open(page);
+  const stages=page.locator('[data-chart="stages"]');await stages.locator('.miniapp-chart-help summary').click();
+  await expect(stages.locator('.miniapp-chart-help-content')).toContainText('categories down the left');
+  await page.locator('[data-preset="outcomes"]').click();
+  const visits=page.locator('[data-chart="visits"]');await visits.locator('.portal-chart-settings summary').click();
+  await visits.locator('[data-type="doughnut"]').click();await visits.locator('.miniapp-chart-help summary').click();
+  await expect(visits.locator('.miniapp-chart-help-content')).toContainText('slice shows a category');
+});
+
+test('changing shared time grouping clears stale drill buckets while retaining a tab stage',async({page})=>{
+  await open(page);await page.locator('[data-action="filters"]').click();await page.locator('[name="stage"]').selectOption('credit');await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+  await page.locator('[data-preset="outcomes"]').click();
+  const activity=page.locator('[data-chart="activity"]');await activity.locator('.portal-chart-cases summary').click();await activity.locator('[data-bucket]').selectOption('training');await activity.getByRole('button',{name:'Show cases'}).click();
+  await expect(page.locator('.portal-chart-selection')).toBeVisible();
+  await page.locator('[data-preset="pipeline"]').click();
+  const received=page.locator('[data-chart="received"]');await received.locator('.portal-chart-settings summary').click();await received.locator('[data-granularity="day"]').click();
+  await page.locator('[data-preset="outcomes"]').click();
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters)).toMatchObject({granularity:'day'});
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.chart_key)).toBeUndefined();
+  await page.locator('[data-preset="pipeline"]').click();
+  expect(await page.evaluate(()=>window.__calls.at(-1).body.filters.stage)).toBe('credit');
+});
 
 for(const width of [320,360,390,430,768,1280])for(const preset of ['pipeline','outcomes','finance']) {
   test(`${preset} reports fit ${width}px and support chart views`,async({page},info)=>{

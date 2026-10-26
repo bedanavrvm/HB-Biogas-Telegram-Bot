@@ -13,7 +13,6 @@ from core.models import JawabuDataQualityIssue, JawabuFarmerMaster
 from core.services.branches import global_branch_choices
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 from core.services.jawabu_customer_quality import national_id_quality_message, product_quality_message
-from core.services.locations import global_county_choices
 
 
 class JawabuValidationError(ValueError):
@@ -183,10 +182,13 @@ def canonicalize_farmer(
             errors['repayment_tenor'] = 'Repayment tenor must be 1 to 120 months.'
             blocking_errors['repayment_tenor'] = errors['repayment_tenor']
     branches = set(branch_catalog if branch_catalog is not None else global_branch_choices())
-    counties = set(county_catalog if county_catalog is not None else global_county_choices())
+    from core.services.locations import county_label_map
+    county = county_label_map([farmer.county], catalogue=county_catalog).get(farmer.county)
     if farmer.branch and farmer.branch not in branches:
         errors['branch'] = 'Branch is not in the controlled branch list; confirm before it is used operationally.'
-    if farmer.county and farmer.county not in counties:
+    if county:
+        farmer.county = county
+    elif farmer.county:
         errors['county'] = 'County is not in the controlled county list; confirm before it is used operationally.'
     product_message = product_quality_message(farmer.payment_product, configured_products=product_catalog)
     if product_message:

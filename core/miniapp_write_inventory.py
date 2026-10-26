@@ -47,6 +47,15 @@ def _add(
 
 
 _add(
+    'portal_local_document_preview',
+    authentication='portal_auth_required; verified Telegram identity and active staff',
+    capability='portal.jbl_media.write or portal.invoice.write or portal.documents.sign',
+    scope='Selected local PDF bytes only; no stored record or external provider',
+    request_key_binding='miniapp_write_response; deterministic bounded rendering, no canonical writes',
+    domain_replay='Read-only byte transform; safe to repeat, no file storage or workflow transition',
+)
+
+_add(
     'portal_hb_deposit_update',
     authentication='portal_auth_required; verified Telegram initData and active staff',
     capability='portal.hb_deposit.write',

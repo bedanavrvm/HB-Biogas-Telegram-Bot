@@ -2455,6 +2455,7 @@ class JawabuFarmerMaster(models.Model):
     actual_receipts_currency = models.CharField(max_length=16, blank=True, default='')
     actual_receipts = models.CharField(max_length=64, blank=True, default='')
     deposit_paid_hbg = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    hb_deposit_date = models.DateField(null=True, blank=True, db_comment='Initial FarmUp visit date or Nairobi date of the latest accepted HB deposit change; prior dates remain in audit history.')
     hb_sales_person = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sign_date = models.CharField(max_length=32, blank=True, default='')
     hbg_visit_date = models.DateField(null=True, blank=True, db_index=True)

@@ -82,6 +82,7 @@ OPERATIONAL_FIELDS: dict[str, tuple[PublicationField, ...]] = {
         _field("imab_created", "JawabuFarmerMaster.imab_created", ("IMAB Created", "IS CUSTOMER CREATED ON IMAB?"), "workflow"),
         _field("system_loan_officer", "JawabuFarmerMaster.system_loan_officer", ("System Loan Officer", "Loan Officer"), "workflow"),
         _field("deposit_paid_hbg", "JawabuFarmerMaster.deposit_paid_hbg", ("Deposit Paid to HBG", "Deposit Paid to HB", "DEPOSIT / HB"), "financial"),
+        _field("hb_deposit_date", "JawabuFarmerMaster.hb_deposit_date", ("HB Deposit Date",), "timestamp"),
         _field("repayment_date", "JawabuFarmerMaster.repayment_date", ("Preferred Repayment Date", "Preferred Repayment Day", "Repayment Date", "Repayment Dates", "Repayment Day"), "financial"),
         _field("repayment_day", "JawabuFarmerMaster.repayment_day", ("Repayment Day",), "financial"),
         _field("repayment_tenor", "JawabuFarmerMaster.repayment_tenor", ("Tenor", "Repayment Tenor"), "financial"),

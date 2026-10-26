@@ -25,7 +25,8 @@ def storage_rows(actor, access):
                 action = request_action('Retry saving', endpoint, {'operation_id': str(operation.pk)},
                     'Retry saving this source file to Drive? No source rows will be imported again.')
             rows.append(issue(operation.pk if operation else batch.pk, 'Source file storage',
-                detail='The uploaded worklist is saved in the app.', action=action,
+                status='Processing' if operation and operation.status == 'running' else 'Waiting' if operation and operation.status == 'pending' else 'Needs review',
+                detail=f'{batch.source_filename or "Uploaded worklist"} · Saved in Portal; Drive storage needs attention.', action=action,
                 steps=['Ask Portal IT to check the shared Drive folder and its access.',
                        'If the original upload is missing or retries are exhausted, review this retained upload in SysUp or FarmUp using its support reference. Do not import its rows again.']))
     cleanup = scope_workflow_queryset(IntegrationOperation.objects.filter(source_model='InvoiceUploadBatch', operation_type=DELETE_OPERATION),
@@ -36,7 +37,7 @@ def storage_rows(actor, access):
             {'operation_id': str(operation.pk), 'retry': True},
             'Retry removing this already-deleted invoice’s unused Drive file? No other invoice or file will be selected.') if operation.status in {'dead_letter', 'retryable_failure'} else None
         rows.append(issue(operation.pk, 'Invoice file cleanup', detail='Invoice removal is saved. Its unused Drive file is still waiting for cleanup.',
-            status='Needs review' if action else 'Waiting', action=action))
+            status='Processing' if operation.status == 'running' else 'Needs review' if action else 'Waiting', action=action))
     allowed_ids = {str(pk) for pk in _scoped_cases(actor, 'portal.requisition.write', access).values_list('pk', flat=True)}
     for batch in RequisitionBatch.objects.exclude(drive_upload_error='').exclude(status='cancelled').select_related('group_configuration'):
         members = {str(pk) for pk in batch.farmer_ids or []}
@@ -100,4 +101,8 @@ def status_payload(actor, access, *, page=1):
     rows.extend(storage_rows(actor, access))
     from report_delivery.recovery import recovery_rows
     rows.extend(recovery_rows(actor, 'jawabu_portal'))
-    return page_payload(rows, page)
+    counts = {'waiting': 0, 'processing': 0, 'needs_attention': 0}
+    for row in rows:
+        row['status_code'] = {'Waiting': 'waiting', 'Retrying': 'processing', 'Processing': 'processing'}.get(row['status'], 'needs_attention')
+        counts[row['status_code']] += 1
+    return {**page_payload(rows, page), 'summary': counts}

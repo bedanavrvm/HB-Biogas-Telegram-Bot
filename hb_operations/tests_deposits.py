@@ -82,6 +82,24 @@ class DepositWorkflowTests(TestCase):
         reserve.assert_called_once()
         self.assertFalse(hasattr(farmer, 'homebiogas_action'))
 
+    def test_date_changes_with_total_but_not_same_amount_or_retry(self):
+        from datetime import datetime, timezone as utc_timezone
+        self.farmer.hb_deposit_date = date(2025, 2, 18)
+        self.farmer.save(update_fields=['hb_deposit_date'])
+        with patch('django.utils.timezone.now', return_value=datetime(2026, 10, 25, 22, 30, tzinfo=utc_timezone.utc)):
+            farmer = self.save()
+        self.assertEqual(farmer.hb_deposit_date, date(2026, 10, 26))
+        event = farmer.pipeline_events.get(action='hb_deposit_updated')
+        self.assertEqual(event.old_values['hb_deposit_date'], '2025-02-18')
+        self.assertEqual(event.new_values['hb_deposit_date'], '2026-10-26')
+        with patch('django.utils.timezone.now', return_value=datetime(2026, 11, 15, 10, tzinfo=utc_timezone.utc)):
+            with self.assertRaises(DepositError) as unchanged:
+                self.save('5000', revision=2, key='same-total')
+            self.assertEqual(unchanged.exception.code, 'no_change')
+            self.save()
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.hb_deposit_date, date(2026, 10, 26))
+
     def test_canonicalization_cannot_restore_old_total(self):
         from core.services.jawabu_validation import canonicalize_farmer
         farmer = self.save()
@@ -172,6 +190,9 @@ class DepositWorkflowTests(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.deposit_paid_hbg, Decimal('5000'))
         self.assertFalse(hb_owns_deposit(self.farmer))
+        from django.utils import timezone
+        from zoneinfo import ZoneInfo
+        self.assertEqual(self.farmer.hb_deposit_date, timezone.localdate(timezone=ZoneInfo('Africa/Nairobi')))
 
     def test_deposit_request_key_is_not_a_successful_visit_replay(self):
         self.save()
@@ -354,6 +375,8 @@ class DepositWorkflowTests(TestCase):
 @skipUnless(connection.vendor == 'postgresql', 'Requires real PostgreSQL row locks; SQLite is not concurrency evidence.')
 class DepositConcurrencyTests(TransactionTestCase):
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.actor = get_user_model().objects.create_user(username='synthetic-pg-deposit', is_superuser=True)
         self.farmer = JawabuFarmerMaster.objects.create(customer_name='Synthetic concurrency applicant', workflow_state='jbl_visit', deposit_paid_hbg=Decimal('5000'), actual_receipts='5000')
 

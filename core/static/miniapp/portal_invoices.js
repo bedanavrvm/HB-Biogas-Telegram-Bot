@@ -112,6 +112,7 @@
       });
       if (version !== letterPreviewVersion || !overlay.classList.contains('open') || content.firstChild !== loading) return;
       letterPreviewObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        rotate: true,
         mimeType: 'text/html',
         name: letter.preview_filename || 'Corrected-invoice letter',
       });
@@ -563,6 +564,7 @@
       '<div class="invoice-parsed-grid">',
       '<section class="invoice-parsed-group"><h4>Invoice details</h4><div class="invoice-field-grid">',
       kv('Invoice number', invoice.invoice_no),
+      kv('Serial No', invoice.serial_number || 'Not found in invoice'),
       kv('Invoice date', fmtDate(invoice.invoice_date)),
       kv('Invoice holder', invoice.customer_name, {wide: true}),
       kv('National ID', invoice.customer_id),

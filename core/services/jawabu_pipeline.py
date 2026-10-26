@@ -2620,6 +2620,7 @@ def sync_farmer_to_master_sheet(
                 normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
             ),
             'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else ''),
+            'hb_deposit_date': (candidates('hb_deposit_date'), _date_text(farmer.hb_deposit_date)),
             'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
             'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
             'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
@@ -2829,6 +2830,9 @@ def sync_farmer_to_master_sheet(
 def create_portal_visit_lead(*, national_id, primary_phone, **case_values):
     """Retain the paired canonical identity/intake inside the caller's save."""
     from core.models import JawabuCustomer
+    if case_values.get('deposit_paid_hbg') is not None:
+        from zoneinfo import ZoneInfo
+        case_values['hb_deposit_date'] = timezone.localdate(timezone=ZoneInfo('Africa/Nairobi'))
     customer = JawabuCustomer.objects.create(national_id=national_id, primary_phone=primary_phone)
     return JawabuFarmerMaster.objects.create(
         customer=customer, national_id=national_id, primary_phone=primary_phone, **case_values,

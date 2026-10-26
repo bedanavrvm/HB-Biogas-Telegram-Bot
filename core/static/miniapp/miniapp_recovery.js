@@ -27,6 +27,7 @@
     const keys = new Map();
     host.classList.add('miniapp-recovery');
     host.innerHTML = '<header><h2>App status</h2><button type="button" data-check aria-label="Check app status" title="Check status">↻</button></header><div data-recovery-content aria-live="polite"></div>';
+    if (options.variant === 'portal') host.classList.add('portal-recovery');
     const content = host.querySelector('[data-recovery-content]');
     const notify = (message, kind = 'info') => options.notify?.(message, kind);
     async function refresh() {
@@ -43,6 +44,19 @@
         const paging = payload.pagination || {};
         page = Number(paging.page || 1);
         content.innerHTML = rows.length ? `<div class="recovery-list">${rows.map((row, index) => `<article class="recovery-row"><div class="recovery-copy"><strong>${escape(row.title)}</strong><span>${escape(row.detail)}</span><small class="recovery-state">${escape(row.status)}</small></div><div class="recovery-actions">${row.action ? `<button type="button" data-repair="${index}">${escape(row.action.label)}</button>` : ''}<button type="button" data-guide="${index}" aria-label="Help with ${escape(row.title)}" title="What to do">?</button></div></article>`).join('')}</div>` : '<p class="recovery-empty">No updates need attention.</p>';
+        if (options.variant === 'portal') {
+          const counts = payload.summary || {};
+          content.insertAdjacentHTML('afterbegin', `<p class="recovery-explanation">Your work is saved in Portal. This shows updates to Sheets, files and report delivery.</p><div class="portal-recovery-summary">${[['waiting','Waiting'],['processing','Processing'],['needs_attention','Needs attention']].map(([key,label]) => `<span><strong>${Number(counts[key] || 0)}</strong>${label}</span>`).join('')}</div><small class="recovery-checked">Checked just now</small>`);
+          content.querySelectorAll('.recovery-row').forEach((node, index) => {
+            const row = rows[index];
+            node.dataset.status = row.status_code || 'needs_attention';
+            const details = document.createElement('details');
+            details.className = 'recovery-details';
+            details.innerHTML = `<summary>What to do</summary><ol>${(row.steps || []).map(step => `<li>${escape(step)}</li>`).join('')}</ol><small>Support reference: ${escape(row.reference)}</small>`;
+            node.appendChild(details);
+            node.querySelector('[data-guide]')?.remove();
+          });
+        }
         if (paging.pages > 1) content.insertAdjacentHTML('beforeend', `<nav aria-label="App status pages"><button type="button" data-page="${page-1}" aria-label="Previous status page" ${page === 1 ? 'disabled' : ''}>‹</button><span>${page} / ${escape(paging.pages)} · ${escape(paging.total)} updates</span><button type="button" data-page="${page+1}" aria-label="Next status page" ${page >= paging.pages ? 'disabled' : ''}>›</button></nav>`);
       } catch (error) {
         content.innerHTML = `<p role="alert">${escape(error.message || 'App status could not be checked. Try again.')}</p><button type="button" data-check>Try again</button>`;

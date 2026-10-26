@@ -63,3 +63,30 @@ def county_choices(include_all: bool = False) -> list[tuple[str, str]]:
     values = global_county_choices()
     choices = [(value, value) for value in values]
     return [('', 'All counties'), *choices] if include_all else choices
+
+
+def county_label_map(values, *, catalogue=None):
+    """Resolve only unambiguous county names, codes and approved aliases."""
+    from core.services.location_catalog import normalize_location_value
+    values = [value for value in values if str(value or '').strip()]
+    if not values:
+        return {}
+    names = {}
+    def add(value, label):
+        names.setdefault(normalize_location_value(value), set()).add(label)
+    if catalogue is None:
+        from core.models import OperationalLocation, OperationalLocationAlias
+        counties = list(OperationalLocation.objects.filter(location_type='county', active=True))
+        for county in counties:
+            add(county.name, county.name)
+            add(county.code, county.name)
+        for alias, name in OperationalLocationAlias.objects.filter(
+            location_type='county', active=True, location__active=True,
+        ).values_list('alias', 'location__name'):
+            add(alias, name)
+        if not counties:
+            catalogue = global_county_choices()
+    for name in catalogue or []:
+        add(name, name)
+    return {value: next(iter(labels)) if len(labels := names.get(normalize_location_value(value), set())) == 1 else None
+            for value in values}

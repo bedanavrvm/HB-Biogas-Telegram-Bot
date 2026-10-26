@@ -10,11 +10,11 @@
     <form class="hb-action-form" id="hb-deposit-form">
       <section class="hb-action-form-card">
         <div class="form-row"><label for="hb-deposit-amount">Total paid to HB (KES)</label><input id="hb-deposit-amount" name="amount" type="text" inputmode="decimal" required maxlength="16" autocomplete="off" aria-describedby="hb-deposit-help"><small id="hb-deposit-help">Enter the cumulative total paid, not the latest instalment. JBL visits require at least KES 5,000.</small></div>
-        <div class="form-row"><label for="hb-deposit-reason">Note / correction explanation</label><textarea id="hb-deposit-reason" name="reason" rows="3" maxlength="2000" aria-describedby="hb-deposit-reason-help"></textarea><small id="hb-deposit-reason-help">An explanation is required when reducing the recorded total.</small></div>
+        <div class="form-row" id="hb-deposit-reason-row" hidden><label for="hb-deposit-reason">Correction explanation</label><textarea id="hb-deposit-reason" name="reason" rows="3" maxlength="2000" aria-describedby="hb-deposit-reason-help"></textarea><small id="hb-deposit-reason-help">Explain why the total is being reduced.</small></div>
         <p id="hb-deposit-error" class="field-error" role="alert" hidden></p>
-        <div class="hb-action-form-actions"><button class="btn btn-primary" id="hb-deposit-save" type="submit">Save total</button><button class="btn btn-secondary" id="hb-deposit-reload" type="button">Reload latest</button></div>
+        <div class="hb-action-form-actions"><button class="btn btn-primary" id="hb-deposit-save" type="submit">Save total</button><button class="btn btn-secondary" id="hb-deposit-reload" type="button" hidden>Reload latest</button></div>
       </section>
     </form>
-    <details class="hb-action-history" open><summary>Activity <span id="hb-deposit-activity-count"></span></summary><div id="hb-deposit-activity"></div></details>
+    <details class="hb-action-history"><summary>Activity <span id="hb-deposit-activity-count"></span></summary><div id="hb-deposit-activity"></div></details>
   </div>
 </div>

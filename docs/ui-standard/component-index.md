@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The 26 October Portal corrections reuse the existing settings summaries, HB
+forms/history, shared chart icons/help, scoped recovery controls and secure
+media viewer. Compact reports, launch-bound non-customer preferences, preview
+rotation and deposit-date display are recorded in
+`reviews/2026-10-26-portal-improvements.md`. This is a bounded user-requested
+correction; original baselines and Phase 6 approval remain unchanged.
+
 Specification 18 (23 October) completes the native Complaints candidate's queue,
 detail, protected evidence and reporting composition. Shared product dialogs,
 calendar, notifications, thumbnail gallery and report metrics reuse the pinned

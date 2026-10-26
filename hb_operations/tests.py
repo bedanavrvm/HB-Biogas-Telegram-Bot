@@ -60,6 +60,84 @@ class HomeBiogasActionServiceTests(TestCase):
         release_requisition_signoff(self.signoff, actor=self.user)
         return HomeBiogasAction.objects.get(farmer=self.farmer)
 
+    def test_accepted_invoice_owns_serial_and_manual_installation_cannot_replace_it(self):
+        from core.services.invoice_parser import _apply_invoice_to_farmer
+        action = self.release()
+        self.farmer.refresh_from_db()
+        batch = InvoiceUploadBatch.objects.create(uploaded_by='Synthetic invoice uploader')
+        invoice = ParsedInvoice.objects.create(batch=batch, invoice_no='SYNTHETIC-INV',
+            matched_farmer=self.farmer, status='matched', raw_payload={'serial_number': '000-HB/17'})
+        with patch('core.services.invoice_parser.reserve_farmer_publication'):
+            _apply_invoice_to_farmer(self.farmer, invoice)
+            _apply_invoice_to_farmer(self.farmer, invoice)
+        action.refresh_from_db()
+        self.assertEqual(action.serial_number, '000-HB/17')
+        self.assertEqual(action.events.filter(event_type='invoice.serial_updated').count(), 1)
+        updated, _, _ = transition_action(action.pk, actor=self.user, request_id='serial-cannot-be-entered',
+            expected_revision=action.revision, payload={'workstream': 'installation',
+                'installation_status': 'installed', 'installation_date': '2026-10-20',
+                'serial_number': 'USER-OVERRIDE'})
+        self.assertEqual(updated.serial_number, '000-HB/17')
+
+    def test_invoice_replacement_clears_unresolved_serial_with_audit(self):
+        from .services import apply_invoice_serial
+        action = self.release()
+        batch = InvoiceUploadBatch.objects.create()
+        first = ParsedInvoice.objects.create(batch=batch, raw_payload={'serial_number': '000-HB/17'})
+        replacement = ParsedInvoice.objects.create(batch=batch, raw_payload={})
+        apply_invoice_serial(self.farmer, first)
+        apply_invoice_serial(self.farmer, replacement)
+        action.refresh_from_db()
+        self.assertEqual(action.serial_number, '')
+        event = action.events.filter(event_type='invoice.serial_updated').latest('created_at')
+        self.assertEqual(event.previous_values['serial_number'], '000-HB/17')
+        self.assertEqual(event.new_values['invoice_id'], str(replacement.pk))
+
+    def test_serial_backfill_is_dry_by_default_and_idempotent(self):
+        from io import StringIO
+        from django.core.management import call_command
+        action = self.release()
+        self.farmer.invoice_number = 'RETAINED-SYNTHETIC'
+        self.farmer.save(update_fields=['invoice_number'])
+        invoice = ParsedInvoice.objects.create(batch=InvoiceUploadBatch.objects.create(),
+            invoice_no=self.farmer.invoice_number, matched_farmer=self.farmer, status='matched',
+            raw_payload={'serial_number': '000-HB/18'})
+        output = StringIO()
+        with patch('hb_operations.management.commands.backfill_invoice_serials.reserve_farmer_publication') as reserve:
+            call_command('backfill_invoice_serials', stdout=output)
+            action.refresh_from_db()
+            self.assertEqual(action.serial_number, '')
+            reserve.assert_not_called()
+            call_command('backfill_invoice_serials', apply=True, stdout=output)
+            call_command('backfill_invoice_serials', apply=True, stdout=output)
+            reserve.assert_called_once()
+        action.refresh_from_db()
+        self.assertEqual(action.serial_number, '000-HB/18')
+        self.assertEqual(action.events.filter(event_type='invoice.serial_updated').count(), 1)
+
+    def test_invoice_serial_and_latest_deposit_date_publish_to_one_local_sheet_row(self):
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+        from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+        from core.services.invoice_parser import _apply_invoice_to_farmer
+        self.group.workflow = {'type':'jawabu_homebiogas','master_sync_enabled':True,'master_sheet_name':'Master Data','master_header_row':1,'master_data_start_row':2}
+        self.group.save(update_fields=['workflow'])
+        self.farmer.group_configuration = self.group
+        self.farmer.save(update_fields=['group_configuration'])
+        self.release()
+        self.farmer.refresh_from_db()
+        invoice = ParsedInvoice.objects.create(batch=InvoiceUploadBatch.objects.create(),
+            invoice_no='SYNTHETIC-SHEET', matched_farmer=self.farmer, status='matched',
+            payment='5000', raw_payload={'serial_number':'000-HB/19'})
+        sheet = FakeMasterDataSheet(['No.','Customer Name'])
+        sheet.values = [['No.','Customer Name']]
+        with patch('core.services.invoice_parser.reserve_farmer_publication'), patch('core.services.sheets.GoogleSheetsService.get_instance', return_value=FakeJawabuService(sheet)):
+            _apply_invoice_to_farmer(self.farmer, invoice)
+            self.assertTrue(sync_farmer_to_master_sheet(self.farmer))
+            self.assertTrue(sync_farmer_to_master_sheet(self.farmer))
+        self.assertEqual(len(sheet.values), 2)
+        self.assertEqual(sheet.values[1][sheet.values[0].index('Serial No')], '000-HB/19')
+        self.assertEqual(sheet.values[1][sheet.values[0].index('HB Deposit Date')], self.farmer.hb_deposit_date.strftime('%d-%b-%Y'))
+
     def test_accepted_signed_order_releases_each_case_once(self):
         first = release_requisition_signoff(self.signoff, actor=self.user)
         second = release_requisition_signoff(self.signoff, actor=self.user)

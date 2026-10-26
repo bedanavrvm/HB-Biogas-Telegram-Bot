@@ -16,16 +16,8 @@ from core.services.report_periods import calendar_period
 
 def county_labels(values):
     """Project approved aliases without rewriting historical case data."""
-    from core.models import OperationalLocation, OperationalLocationAlias
-    from core.services.location_catalog import normalize_location_value
-    known = {normalize_location_value(item.name): item.name for item in
-             OperationalLocation.objects.filter(location_type='county', active=True)}
-    for alias in OperationalLocationAlias.objects.select_related('location').filter(
-        location_type='county', active=True, location__active=True,
-    ):
-        known.setdefault(alias.normalized_alias, alias.location.name)
-    return {value: known.get(normalize_location_value(value), str(value).strip().title())
-            for value in values if value}
+    from core.services.locations import county_label_map
+    return {value: label or str(value).strip() for value, label in county_label_map(values).items()}
 
 NAIROBI = ZoneInfo('Africa/Nairobi')
 STAGES = {'jbl_visit': 'Awaiting visit', 'credit': 'Credit analysis', 'final_review': 'Final review',
@@ -86,7 +78,7 @@ def prepare(preset, supplied, queryset):
     county_map = county_labels(queryset.exclude(county='').values_list('county', flat=True).distinct())
     choices['counties'] = sorted(set(county_map.values()), key=str.casefold)
     if filters.get('county'):
-        label = county_map.get(filters['county'], filters['county'].strip().title())
+        label = county_labels([filters['county']])[filters['county']]
         variants = [value for value, canonical in county_map.items() if canonical.casefold() == label.casefold()]
         queryset = queryset.filter(county__in=variants)
         filters['county'] = label
@@ -288,6 +280,23 @@ def insights(preset, queryset, filters, period):
             chart.update(default_type='doughnut', allowed_types=['doughnut', 'bar'])
         else:
             chart.update(default_type='bar', allowed_types=['bar'])
+        descriptions = {
+            'stages': 'Counts cases at their current stage. Longer bars mean more cases at that stage.',
+            'received': 'Counts cases first added to Portal in each time period. It does not count later edits as new cases.',
+            'age': 'Groups waiting cases by how long they have spent in their current stage. Older groups show work that may need follow-up.',
+            'branch': 'Counts cases for each branch within your selected filters.',
+            'county': 'Counts cases for each county within your selected filters. Approved spellings of the same county are combined.',
+            'activity': 'Counts the visits and decisions recorded in each period. One case can contribute to more than one activity.' if preset == 'outcomes' else 'Counts cases ordered or invoiced in each period. Two cases in one order count twice; this does not count unique order workbooks.',
+            'visits': 'Groups recorded JBL visits by their outcome. Each segment or bar shows the number of cases with that outcome.',
+            'credit': 'Groups credit decisions by their outcome. Compare how many cases were approved, declined or put on hold.',
+            'final': 'Groups final decisions by their outcome. These are final-stage decisions, not credit-analysis results.',
+            'duration': 'Shows hours taken by completed stages, excluding approved holds. Median means half finished within that time; P90 means nine out of ten did. Lower values mean faster completion. Sample counts show how many completed stages were measured.',
+            'sla': 'Compares completed stages with their saved time targets. The bars separate those completed within target from those that took longer. Stages without usable timing or targets are not treated as on time.',
+            'invoice_trend': 'Adds invoice amounts in KES by invoice date. Higher points mean a larger invoiced amount, not more customers or cash received.',
+            'finance_branch': 'Compares current invoice amounts, recorded payments and outstanding balances in KES for each branch. These are current values for cases with activity in the selected period.',
+            'finance_county': 'Compares current invoice amounts, recorded payments and outstanding balances in KES for each county. These are current values for cases with activity in the selected period.',
+        }
+        chart['help'] = descriptions.get(key, title)
         output.append(chart)
     full_count = len(cohort)
     selection = filters.get('chart_key')

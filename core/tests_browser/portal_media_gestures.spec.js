@@ -5,6 +5,46 @@ const {test, expect} = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const {mountPortalShell} = require('./fixtures/portal_shell');
 
+for(const width of [320,390,768])test(`PDF rotation refits pages, retains orientation and resets for a new document at ${width}`,async({page},info)=>{
+  await page.setViewportSize({width,height:844});
+  await mountPortalShell(page,'<div id="preview" style="height:600px"></div>');
+  await page.addScriptTag({path:asset('secure_media_viewer.js')});
+  await page.evaluate(()=>{
+    const canvas=document.createElement('canvas');canvas.width=800;canvas.height=400;
+    canvas.getContext('2d').fillRect(0,0,800,400);
+    const png=canvas.toDataURL();window.originalPreview=`<figure><img alt="Page 1" src="${png}"></figure><figure><img alt="Page 2" src="${png}"></figure>`;
+    window.rotationBlob=new Blob([originalPreview],{type:'text/html'});
+    window.rotationUrl=SecureMediaViewer.renderBlob(document.getElementById('preview'),rotationBlob,{rotate:true});
+  });
+  const stage=page.locator('.secure-media-stage');
+  await expect(page.locator('#preview img')).toHaveJSProperty('naturalWidth',800);
+  await page.getByRole('button',{name:'Rotate preview clockwise'}).click();
+  await expect(stage).toHaveAttribute('data-rotation','90');
+  const box=await stage.boundingBox(),img=await page.locator('#preview img').boundingBox();
+  expect(img.width).toBeLessThanOrEqual(box.width+1);expect(img.height).toBeLessThanOrEqual(box.height+1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const rotate=await page.getByRole('button',{name:'Rotate preview clockwise'}).boundingBox();
+  expect(rotate.width).toBeGreaterThanOrEqual(44);expect(rotate.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({path:info.outputPath(`pdf-rotated-${width}.png`),fullPage:true});
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();await expect(stage).toHaveAttribute('data-zoom','1.5');
+  await page.getByRole('button',{name:'Next page'}).click();await expect(page.locator('#preview img')).toHaveAttribute('alt','Page 2');
+  await expect(stage).toHaveAttribute('data-rotation','90');await expect(stage).toHaveAttribute('data-zoom','1');
+  expect(await page.evaluate(()=>rotationBlob.text())).toBe(await page.evaluate(()=>originalPreview));
+  await page.evaluate(()=>{SecureMediaViewer.revoke(rotationUrl);SecureMediaViewer.renderBlob(document.getElementById('preview'),rotationBlob,{rotate:true});});
+  await expect(page.locator('.secure-media-stage')).toHaveAttribute('data-rotation','0');
+});
+
+test('closing a selected PDF aborts its render request and cannot replace a later preview',async({page})=>{
+  await page.setContent('<div id="preview"></div>');await page.addScriptTag({path:asset('secure_media_viewer.js')});
+  await page.evaluate(()=>{
+    window.fetch=(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{window.previewAborted=true;reject(new Error('aborted'));}));
+    const url=SecureMediaViewer.renderBlob(document.getElementById('preview'),new Blob(['%PDF-synthetic'],{type:'application/pdf'}),{rotate:true});
+    SecureMediaViewer.revoke(url);document.getElementById('preview').textContent='Later document';
+  });
+  expect(await page.evaluate(()=>window.previewAborted)).toBe(true);
+  await expect(page.locator('#preview')).toHaveText('Later document');
+});
+
 for(const width of [320,390,768])test(`shared viewer navigation stays at opposite ends ${width}`,async({page},info)=>{
   await page.setViewportSize({width,height:844});
   await page.setContent('<div id="preview"></div>');

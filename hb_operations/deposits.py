@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 import re
 
 from django.core.exceptions import PermissionDenied
@@ -54,6 +55,16 @@ def recorded_deposit(farmer) -> Decimal | None:
         return None
 
 
+def stamp_deposit_date(farmer, previous_amount, *, initial=False):
+    """Date the accepted amount change, never an unrelated case edit."""
+    current = recorded_deposit(farmer)
+    if initial or current != previous_amount:
+        farmer.hb_deposit_date = (
+            (farmer.hbg_visit_date if initial and farmer.source != 'jawabu_office_lead' else timezone.localdate(timezone=ZoneInfo('Africa/Nairobi')))
+            if current is not None else None
+        )
+
+
 def deposit_state(farmer) -> dict:
     amount = recorded_deposit(farmer)
     shortfall = max(REQUIRED_DEPOSIT - (amount or Decimal('0')), Decimal('0'))
@@ -64,6 +75,7 @@ def deposit_state(farmer) -> dict:
         'required_amount': '5000.00', 'shortfall': format(shortfall, '.2f'),
         'deposit_hold': held, 'deposit_sufficient': shortfall == 0,
         'visit_recorded': visited,
+        'deposit_date': farmer.hb_deposit_date.isoformat() if farmer.hb_deposit_date else None,
         'reason': f'Awaiting HB deposit: KES {shortfall:,.2f} outstanding.' if held else '',
     }
 
@@ -163,14 +175,15 @@ def update_deposit(farmer, *, amount, reason, expected_revision, request_id, act
         raise DepositError('The recorded total has not changed.', 'no_change')
     old_state = deposit_state(farmer)
     revision = int(farmer.workflow_revision or 1)
-    old_values = {'deposit_paid_hbg': old_state['recorded_amount'], 'actual_receipts': farmer.actual_receipts}
+    old_values = {'deposit_paid_hbg': old_state['recorded_amount'], 'actual_receipts': farmer.actual_receipts, 'hb_deposit_date': old_state['deposit_date']}
     farmer.deposit_paid_hbg = total
     farmer.actual_receipts = format(total, '.2f')
     farmer.actual_receipts_currency = 'KES'
+    stamp_deposit_date(farmer, before)
     farmer.workflow_revision = revision + 1
-    farmer.save(update_fields=['deposit_paid_hbg', 'actual_receipts', 'actual_receipts_currency', 'workflow_revision', 'updated_at'])
+    farmer.save(update_fields=['deposit_paid_hbg', 'hb_deposit_date', 'actual_receipts', 'actual_receipts_currency', 'workflow_revision', 'updated_at'])
     actor_label = actor.get_full_name() or actor.get_username()
-    new_values = {'deposit_paid_hbg': format(total, '.2f'), 'actual_receipts': farmer.actual_receipts}
+    new_values = {'deposit_paid_hbg': format(total, '.2f'), 'actual_receipts': farmer.actual_receipts, 'hb_deposit_date': farmer.hb_deposit_date.isoformat()}
     record_field_provenance(
         farmer, old_values=old_values, new_values=new_values, source=SOURCE,
         source_reference=key, actor=actor_label,
@@ -212,8 +225,8 @@ def serialize_deposit(farmer, *, actor, access, history=False, write_allowed=Non
             'old_values': event.old_values, 'new_values': event.new_values,
             'reason': event.reason, 'metadata': event.metadata,
         } for event in farmer.pipeline_events.filter(
-            Q(action__in=['hb_deposit_updated', 'hb_deposit_import_observed', 'hb_deposit_review_reconciled',
-                         'hb_deposit_review_reconciliation_reversed', 'office_lead_saved_on_deposit_hold'])
+            Q(action__in=['hb_deposit_updated', 'hb_deposit_invoice_updated', 'hb_deposit_import_observed', 'hb_deposit_review_reconciled',
+                         'hb_deposit_review_reconciliation_reversed', 'hb_deposit_review_reconcile_reversed', 'office_lead_saved_on_deposit_hold'])
             | Q(source='farmup', action__in=['application_imported', 'application_updated'])
         ).order_by('-occurred_at', '-pk')]
     return result
@@ -238,7 +251,7 @@ def record_office_deposit_hold(farmer, *, held_intake, payload, request_id, acto
         record_pipeline_event(
             farmer, action='office_lead_saved_on_deposit_hold', stage_key='intake',
             actor=actor_label, actor_user=actor, request_id=request_id,
-            new_values={'deposit_paid_hbg': payload['deposit']},
+            new_values={'deposit_paid_hbg': payload['deposit'], 'hb_deposit_date': farmer.hb_deposit_date.isoformat() if farmer.hb_deposit_date else None},
             metadata={'request_payload': payload},
             reason='Intake saved; first JBL visit awaits the HB deposit.',
         )

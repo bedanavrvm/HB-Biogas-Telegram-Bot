@@ -12,12 +12,13 @@
     detail = data;
     el('hb-deposit-loading').hidden = true;
     el('hb-deposit-content').hidden = false;
-    el('hb-deposit-identity').textContent = [data.customer_name, data.case_reference, data.national_id, data.primary_phone, data.branch, data.source].filter(Boolean).join(' · ');
-    el('hb-deposit-summary').innerHTML = [['Recorded', data.recorded_amount], ['Required', data.required_amount], ['Outstanding', data.shortfall]].map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(money(value))}</strong></div>`).join('');
-    el('hb-deposit-status').textContent = data.visit_recorded ? 'JBL visit recorded. Deposit history is read-only; later payment facts use the invoice/payment workflow.' : data.deposit_hold ? data.reason : 'Deposit requirement met. The JBL visit queue will unlock if other case requirements are satisfied.';
+    el('hb-deposit-identity').textContent = [data.customer_name, data.case_reference, data.branch].filter(Boolean).join(' · ');
+    el('hb-deposit-summary').innerHTML = `<div><span>Outstanding</span><strong>${esc(money(data.shortfall))}</strong></div><div><span>HB deposit date</span><strong>${esc(data.deposit_date ? data.deposit_date.split('-').reverse().join('-') : 'Not recorded')}</strong></div>`;
+    el('hb-deposit-status').textContent = data.visit_recorded ? 'Visit recorded · deposit history is read-only.' : data.deposit_hold ? data.reason : 'Deposit cleared for JBL visit.';
     if (!data.can_edit && !data.visit_recorded) el('hb-deposit-status').textContent += ' This record is read-only in HB Deposits.';
     el('hb-deposit-amount').value = data.recorded_amount ?? '';
     el('hb-deposit-reason').value = '';
+    if (el('hb-deposit-reason-row')) el('hb-deposit-reason-row').hidden = true;
     ['hb-deposit-amount', 'hb-deposit-reason', 'hb-deposit-save'].forEach(id => { el(id).disabled = !data.can_edit; });
     const activity = data.activity || [];
     el('hb-deposit-activity-count').textContent = `(${activity.length})`;
@@ -25,7 +26,7 @@
       const observed = item.action === 'hb_deposit_import_observed';
       const before = item.old_values?.deposit_paid_hbg;
       const after = observed ? item.new_values?.incoming_farmup_deposit : item.new_values?.deposit_paid_hbg;
-      const label = {office_lead_saved_on_deposit_hold: `Office intake saved; ${money(after)}`, hb_deposit_review_reconciled: 'Legacy deposit-only review flag reconciled', hb_deposit_review_reconciliation_reversed: 'Legacy review reconciliation reversed'}[item.action];
+      const label = {office_lead_saved_on_deposit_hold: `Office intake saved; ${money(after)}`, hb_deposit_review_reconciled: 'Legacy deposit-only review flag reconciled', hb_deposit_review_reconcile_reversed: 'Legacy review reconciliation reversed', hb_deposit_review_reconciliation_reversed: 'Legacy review reconciliation reversed'}[item.action];
       const change = label || (observed ? `FarmUp reported ${money(after)}; HB retained ${money(before)}` : before !== undefined || after !== undefined ? `${money(before)} → ${money(after)}` : 'FarmUp intake imported / updated');
       return `<article class="hb-history-row"><strong>${esc(change)}</strong><p>${esc(item.actor)} · ${esc(item.occurred_at)}</p>${item.reason ? `<p>${esc(item.reason)}</p>` : ''}</article>`;
     }).join('') : '<p class="meta">No recorded deposit changes yet.</p>';
@@ -63,7 +64,7 @@
       const result = await deps.portalApi.apiFetch(`/hb-deposits/${encodeURIComponent(detail.id)}/update/`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': pending.key, 'X-Request-ID': pending.key}, body: JSON.stringify(payload)}, deps.tg);
       if (!result.ok || !result.data?.ok) {
         error(result.data?.error || 'Could not save. Retry safely with the same total.');
-        if (result.data?.code === 'workflow_revision_conflict' || result.data?.code === 'deposit_locked') error(`${result.data.error} Use Reload latest before making another change.`);
+        if (result.data?.code === 'workflow_revision_conflict' || result.data?.code === 'deposit_locked') {error(`${result.data.error} Use Reload latest before making another change.`);el('hb-deposit-reload').hidden = false;}
         return;
       }
       protection?.markClean(); pending = null; render(result.data.deposit);
@@ -74,6 +75,9 @@
   function init(injected) {
     deps = injected; detail = null; pending = null; protection?.destroy(); protection = null;
     el('hb-deposit-form')?.addEventListener('submit', save);
+    el('hb-deposit-amount')?.addEventListener('input', () => {
+      if (el('hb-deposit-reason-row')) el('hb-deposit-reason-row').hidden = !(detail?.can_edit && detail.recorded_amount !== null && Number(el('hb-deposit-amount').value) < Number(detail.recorded_amount));
+    });
     el('hb-deposit-reload')?.addEventListener('click', () => {
       if (protection?.isDirty() && !window.confirm('Discard unsaved deposit changes and reload the latest total?')) return;
       pending = null; error(''); load({force: true});

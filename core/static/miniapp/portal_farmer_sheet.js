@@ -1827,6 +1827,7 @@
     if (window.SecureMediaViewer) {
       URL.revokeObjectURL(nextUrl);
       activeMediaObjectUrl = window.SecureMediaViewer.renderBlob(stage, item.file, {
+        rotate: true,
         name: item.file.name || 'Selected evidence',
         imageClass: 'media-viewer-image jbl-selection-viewer-image',
         onNext: index < entries.length - 1 ? () => navigateSelectedJblPreview(1) : undefined,
@@ -2140,7 +2141,7 @@
     });
     const button = el('btn-submit-jbl');
     if (button) { button.textContent = held ? 'Save lead awaiting deposit' : 'Log JBL Visit'; button.dataset.mainAction = button.textContent; }
-    el('sheet-sub').textContent = held ? 'Save intake for HB follow-up. No JBL visit or evidence will be recorded until KES 5,000 is paid.' : 'Add customer details, then log the first JBL visit.';
+    el('sheet-sub').textContent = held ? 'Save intake for HB follow-up.' : 'Add customer details, then log the first JBL visit.';
   }
 
   function validateJblVisitFields() {
@@ -2934,6 +2935,7 @@
       const blob = await viewer.fetchAuthorizedBlob(item.preview_url, { headers: mediaPreviewHeaders(), signal: mediaPreviewController.signal });
       if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       activeMediaObjectUrl = viewer.renderBlob(content, blob, {
+        rotate: true,
         mimeType: item.mime_type,
         name: item.name || 'Client media',
         onNext: clientMediaIndex < clientMediaGallery.length - 1 ? () => navigateClientMedia(1) : undefined,

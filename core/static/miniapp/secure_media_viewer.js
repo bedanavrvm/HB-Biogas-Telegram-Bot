@@ -3,10 +3,11 @@
   const active = new WeakMap();
   const owners = new Map();
   const gestures = new WeakMap();
+  const pending = new Map();
 
   function bindImageGestures(stage, img, options = {}) {
     gestures.get(stage)?.dispose();
-    let scale = 1, panX = 0, panY = 0, fittedWidth = 0, fittedHeight = 0;
+    let scale = 1, panX = 0, panY = 0, fittedWidth = 0, fittedHeight = 0, rotation = 0;
     let start = null, pinch = null, multiTouch = false;
     const pointers = new Map(), listeners = [];
     const originalStage = stage.getAttribute('style'), originalImage = img.getAttribute('style');
@@ -16,16 +17,19 @@
     img.draggable = false;
     function transform() {
       const rect = stage.getBoundingClientRect();
-      const limitX = Math.max(0, (fittedWidth * scale - rect.width) / 2);
-      const limitY = Math.max(0, (fittedHeight * scale - rect.height) / 2);
+      const sideways = rotation % 180 !== 0;
+      const limitX = Math.max(0, ((sideways ? fittedHeight : fittedWidth) * scale - rect.width) / 2);
+      const limitY = Math.max(0, ((sideways ? fittedWidth : fittedHeight) * scale - rect.height) / 2);
       panX = Math.max(-limitX, Math.min(limitX, panX)); panY = Math.max(-limitY, Math.min(limitY, panY));
-      img.style.transform = `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${scale})`;
+      img.style.transform = `translate(-50%, -50%) translate(${panX}px, ${panY}px) rotate(${rotation}deg) scale(${scale})`;
       stage.dataset.zoom = String(scale);
+      stage.dataset.rotation = String(rotation);
       options.onZoom?.(scale);
     }
     function fit() {
       const rect = stage.getBoundingClientRect();
-      const ratio = Math.min(rect.width / (img.naturalWidth || 1), rect.height / (img.naturalHeight || 1));
+      const sideways = rotation % 180 !== 0;
+      const ratio = Math.min(rect.width / ((sideways ? img.naturalHeight : img.naturalWidth) || 1), rect.height / ((sideways ? img.naturalWidth : img.naturalHeight) || 1));
       fittedWidth = (img.naturalWidth || 1) * ratio; fittedHeight = (img.naturalHeight || 1) * ratio;
       img.style.width = `${fittedWidth}px`; img.style.height = `${fittedHeight}px`; transform();
     }
@@ -42,7 +46,7 @@
       pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
       try { stage.setPointerCapture?.(event.pointerId); } catch (_) {}
       if (pointers.size === 1) {
-        const limitX = Math.max(0, (fittedWidth * scale - stage.getBoundingClientRect().width) / 2);
+        const limitX = Math.max(0, ((rotation % 180 ? fittedHeight : fittedWidth) * scale - stage.getBoundingClientRect().width) / 2);
         start = {x:event.clientX,y:event.clientY,panX,panY,limitX}; multiTouch = false;
       }
       if (pointers.size === 2) {
@@ -89,12 +93,13 @@
     });
     on(img, 'load', fit);
     const observer = new ResizeObserver(fit); observer.observe(stage); fit();
-    const controller = {zoom, reset:() => zoom(1), get scale() { return scale; }, dispose() {
+    const controller = {zoom, reset:() => zoom(1), rotate() {rotation = (rotation + 90) % 360; scale = 1; panX = panY = 0; fit();}, get scale() { return scale; }, dispose() {
       listeners.forEach(remove => remove()); observer.disconnect(); pointers.clear();
       if (originalStage === null) stage.removeAttribute('style'); else stage.setAttribute('style', originalStage);
       if (originalImage === null) img.removeAttribute('style'); else img.setAttribute('style', originalImage);
       gestures.delete(stage);
       delete stage.dataset.zoom;
+      delete stage.dataset.rotation;
     }};
     gestures.set(stage, controller); return controller;
   }
@@ -113,6 +118,7 @@
     stage.appendChild(img);
     const controls = document.createElement('div');
     controls.className = 'secure-media-controls';
+    if (settings.rotate) controls.classList.add('secure-media-rotatable');
     function button(label, symbol, handler, parent = controls) {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'miniapp-icon-button';
@@ -132,6 +138,7 @@
     button('Zoom out', '−', () => controller.zoom(controller.scale - .5), center);
     button('Reset zoom', '↺', () => controller.reset(), center);
     button('Zoom in', '+', () => controller.zoom(controller.scale + .5), center);
+    if (settings.rotate) button('Rotate preview clockwise', '⟳', () => controller.rotate(), center);
     const next = button('Next page', '›', () => navigate(1));
     next.classList.add('secure-media-next');
     function render() {
@@ -184,9 +191,17 @@
       container.appendChild(node);
     } else if (mimeType.startsWith('image/')) {
       showPages(container, [{src:objectUrl, alt:settings.name}], settings);
-    } else if (mimeType.startsWith('text/html')) {
+    } else if (mimeType.startsWith('text/html') || (settings.rotate && mimeType.includes('pdf'))) {
       // Parse only bounded server-rendered image data; never execute response HTML.
-      blob.text().then(html => {
+      const abort = new AbortController(); pending.set(objectUrl, abort);
+      const deadline = setTimeout(() => abort.abort(), 20000);
+      const preview = mimeType.includes('pdf') ? (() => {
+        const form = new FormData(); form.append('file', blob, settings.name || 'Preview.pdf');
+        return fetch('/api/portal/documents/local-preview/', {method:'POST', body:form, credentials:'same-origin', signal:abort.signal,
+          headers:window.MiniAppUtils?.initDataHeader?.(window.Telegram?.WebApp?.initData || '') || {}})
+          .then(async response => {if (!response.ok) throw new Error('Preview unavailable'); return response.text();});
+      })() : blob.text();
+      preview.then(html => {
         if (active.get(container) !== objectUrl) return;
         const parsed = new DOMParser().parseFromString(html, 'text/html');
         const pages = [...parsed.querySelectorAll('figure img')].filter(img => /^data:image\/(jpeg|png);base64,/i.test(img.getAttribute('src') || '')).map(img => ({src:img.getAttribute('src'),alt:img.alt}));
@@ -194,7 +209,8 @@
         showPages(container, pages, settings);
         const notice = parsed.querySelector('.notice');
         if (notice) {const text = document.createElement('p'); text.className = 'media-viewer-loading'; text.textContent = notice.textContent; container.appendChild(text);}
-      }).catch(() => {if (active.get(container) === objectUrl) container.textContent = 'This preview could not be opened. Close it and retry.';});
+      }).catch(() => {if (active.get(container) === objectUrl) container.textContent = 'This preview could not be opened. Close it and retry.';})
+        .finally(() => {clearTimeout(deadline); pending.delete(objectUrl);});
     } else {
       const frame = document.createElement('iframe');
       frame.className = settings.documentClass || 'media-viewer-document';
@@ -208,6 +224,7 @@
 
   function revoke(objectUrl) {
     if (objectUrl) {
+      pending.get(objectUrl)?.abort(); pending.delete(objectUrl);
       const owner = owners.get(objectUrl);
       owner?.querySelectorAll('.secure-media-stage').forEach(stage => gestures.get(stage)?.dispose());
       if (owner && active.get(owner) === objectUrl) active.delete(owner);
