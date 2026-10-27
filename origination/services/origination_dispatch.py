@@ -109,7 +109,7 @@ def update_signing_notices(package):
 def _perform(operation):
     if operation.operation_type == 'origination_approved_archive':
         from origination.services.origination_esign import archive_signed_package
-        if not OriginationSigningPackage.objects.filter(pk=operation.source_id).exists():
+        if not OriginationSigningPackage.objects.filter(pk=operation.source_id).exclude(application__status='invalidated').exists():
             return {'cancelled': True}
         try:
             package = archive_signed_package(package_id=operation.source_id, actor=operation.requested_by,
@@ -133,7 +133,7 @@ def _perform(operation):
             'The old link and signatures are no longer valid. Please wait for a new signing link.',
             session.phone_normalized, provider=session.sms_provider))
     notice = OriginationReviewerNotice.objects.select_related('recipient', 'application', 'package').filter(pk=operation.source_id).first()
-    if notice is None:
+    if notice is None or notice.application.status == 'invalidated':
         return {'cancelled': True}
     if notice.application.signing_policy_snapshot == 'all_required':
         from origination.services.origination_signing_plans import workspace

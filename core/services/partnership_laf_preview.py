@@ -42,6 +42,12 @@ def _formatted_value(value: Any, spec: dict[str, Any]) -> str:
     if not text:
         return ''
     value_format = str(spec.get('value_format') or '')
+    if value_format == 'number_words':
+        from core.services.number_words import number_words
+        try:
+            return number_words(text)
+        except ValueError as exc:
+            raise PartnershipLafPreviewError(str(exc)) from exc
     if value_format == 'money':
         try:
             return f'{Decimal(text).quantize(Decimal("1"), rounding=ROUND_HALF_UP):,.0f}'
@@ -67,7 +73,7 @@ def _draw_cell(pdf, value: Any, box: dict[str, float], spec: dict[str, Any], def
     width_available = max(float(box['width']), 1)
     while font_size > min_size and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
         font_size -= .25
-    if defaults.get('_strict_values') and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
+    if (defaults.get('_strict_values') or spec.get('value_format') == 'number_words') and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
         raise PartnershipLafPreviewError('A table value does not fit. Shorten it or enlarge its document field.')
     while text and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
         text = text[:-1]
@@ -162,8 +168,8 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, Any, Any
         fit = spec.get('fit', defaults.get('fit', 'shrink'))
         while fit == 'shrink' and font_size > min_size and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
             font_size -= 0.25
-        if (fit != 'overflow' or defaults.get('_strict_values')) and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
-            if defaults.get('_strict_values'):
+        if (fit != 'overflow' or defaults.get('_strict_values') or spec.get('value_format') == 'number_words') and pdfmetrics.stringWidth(value, font_name, font_size) > width_available:
+            if defaults.get('_strict_values') or spec.get('value_format') == 'number_words':
                 raise PartnershipLafPreviewError('A value does not fit. Shorten it or enlarge its document field.')
             while value and pdfmetrics.stringWidth(f'{value}...', font_name, font_size) > width_available:
                 value = value[:-1]

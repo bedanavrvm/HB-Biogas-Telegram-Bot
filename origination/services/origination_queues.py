@@ -9,6 +9,7 @@ STATUS_LABELS = {
     'fully_signed': 'Fully signed', 'signed_pending_approval': 'Awaiting final approval',
     'approved': 'Approved', 'declined': 'Declined', 'expired': 'Expired',
     'cancelled': 'Cancelled', 'completed': 'Completed',
+    'invalidated': 'Invalidated and archived',
 }
 
 STATUS_GROUPS = {
@@ -17,6 +18,7 @@ STATUS_GROUPS = {
     'progress': ('In progress', ['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval']),
     'completed': ('Completed', ['approved', 'completed']),
     'closed': ('Closed', ['declined', 'expired', 'cancelled']),
+    'archived': ('Archived / Invalidated', ['invalidated']),
 }
 
 

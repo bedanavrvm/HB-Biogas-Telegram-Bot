@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
@@ -503,6 +504,9 @@ def portal_origination_applications(request):
         )
         capabilities = queue_capabilities(user=user, access=access)
         scoped = queryset
+        if request.GET.get('status_group') != 'archived' and request.GET.get('status') != 'invalidated':
+            scoped = scoped.exclude(status='invalidated')
+            queryset = scoped
         from origination.services.origination_queues import actionable_applications, STATUS_LABELS
         next_actions = actionable_applications(scoped, user=user, access=access)
         officer_only = capabilities['can_create'] and not any(
@@ -924,6 +928,36 @@ def portal_origination_recall(request, application_id: str):
     return JsonResponse({'ok': True, 'application': serialize_application(recalled, actor=request.origination_user)})
 
 
+def _remove_application_response(request, application_id, *, invalidate):
+    from origination.services.application_lifecycle import remove_application
+    try:
+        body = _body(request)
+        result = remove_application(application_id=application_id, actor=request.origination_user,
+            access=getattr(request, 'origination_access', None), expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body), invalidate=invalidate, reason=body.get('reason', ''))
+        return JsonResponse({'ok': True, **result})
+    except PermissionDenied as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+    except LoanOriginationApplication.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, ValueError, TypeError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_delete_draft(request, application_id):
+    return _remove_application_response(request, application_id, invalidate=False)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_invalidate(request, application_id):
+    return _remove_application_response(request, application_id, invalidate=True)
+
+
 @csrf_exempt
 @require_http_methods(['POST'])
 def portal_origination_preview(request, application_id: str):
@@ -1285,6 +1319,12 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
             if requirement_key not in ID_KEYS or file_obj:
                 raise OriginationError('Choose either an ID PDF or front and back photos.')
             file_obj = prepare_identity_copy(request.FILES.get('front'), request.FILES.get('back'))
+        else:
+            from origination.services.identity_copies import ID_KEYS, combine_identity_files
+            if requirement_key in ID_KEYS:
+                file_obj = combine_identity_files(request.FILES.getlist('file'))
+            elif len(request.FILES.getlist('file')) > 1:
+                raise OriginationError('Choose one file for this document requirement.')
         item, replayed = upload_requirement_evidence(
             application_id=application.pk,
             actor=request.origination_user,

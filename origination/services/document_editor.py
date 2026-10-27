@@ -201,8 +201,22 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
     from origination.services.origination_templates import save_calibration_draft
     require_editor(actor)
     document = OriginationDocumentTemplate.objects.order_by().select_for_update(of=('self',)).get(pk=document.pk)
-    if document.status != 'ready' or document.product_definition_id:
+    if document.status != 'ready':
         raise ValidationError('Open an editable document before changing signers.')
+    if document.product_definition_id:
+        from origination.services.origination_fields import product_schema_revision
+        owner = type(document.product_definition).objects.select_for_update().get(pk=document.product_definition_id)
+        if owner.lifecycle_status != 'draft' or (document.document_role == 'primary' and product_schema_revision(owner) != schema_revision):
+            raise ValidationError('Open the current editable document before changing signers.')
+        schema, previous_rules = template_form_contract(document)
+        if owner.product_version_id:
+            OriginationDocumentProductEligibility.objects.get_or_create(template=document,
+                product_id=owner.product_version.product_id, defaults={'created_by':actor})
+        document.form_schema, document.signer_rules = schema, previous_rules
+        document.product_definition = None
+        document.save(update_fields=['form_schema','signer_rules','product_definition','updated_at'])
+        document.events.create(action='legacy_document_authoring_detached', actor=actor,
+            metadata={'product_definition_id':str(owner.pk)})
     digest = hashlib.sha256(json.dumps([rules, configuration, details, field_pack], sort_keys=True).encode()).hexdigest()
     if not request_id:
         raise ValidationError('A save request key is required.')

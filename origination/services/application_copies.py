@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from django.core import signing
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from origination.models import LoanOriginationApplication
@@ -54,6 +55,10 @@ def _document_key(value):
 
 
 def _approved_package(application):
+    if application.status == 'invalidated':
+        return application.signing_packages.filter(
+            Q(signed_document_hash__gt='') | Q(pending_signed_document__gt=b'')
+        ).order_by('-created_at').first()
     return application.signing_packages.filter(status='fully_signed').order_by('-finalized_at', '-created_at').first()
 
 
@@ -103,9 +108,9 @@ def download_choices(application):
     if application.status in {'declined', 'expired', 'cancelled'}:
         return []
     choices = [{'document_key': '', 'label': 'All documents', 'description': 'Combined PDF', 'available': True}]
-    if application.status == 'approved':
+    if application.status in {'approved', 'invalidated'}:
         package = _approved_package(application)
-        if not package or not package.signed_document_hash:
+        if not package or (not package.signed_document_hash and not package.pending_signed_document):
             choices[0].update(available=False, reason='The signed application is not available yet.')
             return choices
         try:
@@ -185,12 +190,19 @@ def _selected_document(application, document_key):
 def _copy_result(application, *, allow_incomplete=False, document_key=''):
     if application.status in {'declined', 'expired', 'cancelled'}:
         raise OriginationError('This application is closed. A new application copy cannot be downloaded.')
-    if application.status == 'approved':
+    if application.status in {'approved', 'invalidated'}:
         package = _approved_package(application)
         if not package:
             raise OriginationError('The signed application is not available yet.')
         from origination.services.origination_esign import signed_package_content
-        package, content = signed_package_content(package_id=package.pk)
+        if application.status == 'invalidated' and not package.signed_document_hash:
+            event = application.events.filter(action='application_invalidated').order_by('-occurred_at').first()
+            content = bytes(package.pending_signed_document or b'')
+            expected = (event.metadata.get('historical_copies') or {}).get(str(package.pk)) if event else ''
+            if not expected or hashlib.sha256(content).hexdigest() != expected:
+                raise OriginationError('The historical signed copy failed its integrity check.')
+        else:
+            package, content = signed_package_content(package_id=package.pk)
         if not document_key:
             return content, 'SIGNED', '', None
         content, selected = signed_document_content(package, content, document_key)

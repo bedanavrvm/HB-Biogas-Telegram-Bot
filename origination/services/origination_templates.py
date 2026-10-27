@@ -391,6 +391,12 @@ def validate_template_configuration(
         if not isinstance(spec, dict) or not str(spec.get('context_key') or '').strip():
             raise OriginationTemplateError(f'Field {key} requires a context key.')
         render_as = str(spec.get('render_as') or 'text')
+        schema_field = next((item for item in schema_fields if str(item.get('key') or '') == str(spec.get('context_key') or '')), None)
+        if spec.get('value_format') == 'number_words':
+            numeric_type = schema_field.get('type') if schema_field else OriginationDataField.objects.filter(
+                key=spec.get('context_key')).values_list('data_type',flat=True).first()
+            if numeric_type not in {'number', 'money', 'amount'}:
+                raise OriginationTemplateError(f'Field {key} must use a numeric value for words formatting.')
         if render_as not in {'text', 'checkbox', 'repeating_table'}:
             raise OriginationTemplateError(f'Field {key} has an unsupported rendering mode.')
         if render_as == 'repeating_table':
@@ -402,6 +408,9 @@ def validate_template_configuration(
                 str(item.get('key') or '') for item in ((schema_field.get('structure') or {}).get('columns') or [])
                 if isinstance(item, dict)
             }
+            column_types = {item['key']: item.get('type') for item in (schema_field.get('structure') or {}).get('columns', [])}
+            if any(item.get('value_format') == 'number_words' and column_types.get(item.get('key')) not in {'number', 'money', 'amount'} for item in columns or []):
+                raise OriginationTemplateError(f'Field {key} words formatting requires a numeric table column.')
             configured_columns = {
                 str(item.get('key') or '') for item in (columns or []) if isinstance(item, dict)
             }

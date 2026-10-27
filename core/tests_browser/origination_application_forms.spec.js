@@ -547,6 +547,30 @@ function identityFixture(app) {
   app.identity_copies=[{key:'borrower_id_copy',label:'Borrower ID copy',type:'document',identity_role:'borrower',identity_field:'applicant_id_number',subject_sha256:'synthetic-only'}];
 }
 
+test('signed invalidation requires a reason and keeps the retry key',async({page},info)=>{
+  await boot(page,{configure:app=>{app.lifecycle={can_invalidate:true};}});
+  await page.locator('#origination-remove').click();
+  await page.locator('#origination-removal-confirm').click();
+  await expect(page.locator('#origination-removal-error')).toContainText('Enter a reason');
+  await page.locator('#origination-invalidation-reason').fill('Synthetic duplicate application');
+  const requests=[];
+  await page.route('**/invalidate/',route=>{requests.push(route.request().postDataJSON());return route.fulfill({status:503,json:{ok:false,error:'Synthetic unavailable'}});});
+  await page.locator('#origination-removal-confirm').click();
+  await expect(page.locator('#origination-removal-error')).toContainText('Synthetic unavailable');
+  await page.locator('#origination-removal-confirm').click();
+  await expect.poll(()=>requests.length).toBe(2);
+  expect(requests[1].client_request_id).toBe(requests[0].client_request_id);
+  expect(requests[0].reason).toBe('Synthetic duplicate application');
+  await page.screenshot({path:info.outputPath('signed-invalidation-reason.png'),fullPage:true});
+});
+
+test('archived application shows reason and no editing or removal action',async({page})=>{
+  await boot(page,{configure:app=>{app.status='invalidated';app.lifecycle={invalidation:{reason:'Synthetic duplicate'}};}});
+  await expect(page.locator('.wizard-card')).toContainText('Invalidated and archived');
+  await expect(page.locator('.wizard-card')).toContainText('Synthetic duplicate');
+  await expect(page.locator('#origination-remove')).toHaveCount(0);
+});
+
 test('cancelling an incomplete bundle closes preview without a false error or readiness',async({page})=>{
   await boot(page);
   let requests=0;
@@ -574,43 +598,41 @@ test('camera captures both sides, retakes and stops tracks without losing photos
   await boot(page,{width:390,configure:identityFixture});
   await section(page,'Product requirements');
   await page.locator('[data-id-capture]').click();
-  for(const side of ['front','back','front']) {
-    await page.locator(`[data-id-camera=${side}]`).click();
+  for(let i=0;i<2;i++) {
     await expect(page.locator('#evidence-camera-capture')).toBeEnabled();
     await page.locator('#evidence-camera-capture').click();
-    await expect(page.locator(`[data-id-image=${side}]`)).toBeVisible();
-    await expect(page.locator('#origination-sheet-overlay')).toBeVisible();
+    await expect(page.locator('#identity-captured-photos img')).toHaveCount(i+1);
   }
-  expect(await page.evaluate(()=>__cameraStreams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended')))).toBe(true);
+  await page.locator('[data-id-retake="0"]').click();
+  await page.locator('#evidence-camera-capture').click();
+  await expect(page.locator('#identity-captured-photos img')).toHaveCount(2);
   await page.screenshot({path:info.outputPath('captured-front-back.png'),fullPage:true});
   const uploads=[];
   await page.route('**/requirements/borrower_id_copy/evidence/',route=>{
     uploads.push(route.request().postDataBuffer().toString());
     return route.fulfill({status:502,json:{ok:false,error:'Synthetic upload failed.'}});
   });
-  await page.locator('[data-id-upload]').click();
-  await expect(page.locator('[data-id-status]')).toContainText('Synthetic upload failed');
-  await expect(page.locator('[data-id-image=front]')).toBeVisible();
-  await expect(page.locator('[data-id-image=back]')).toBeVisible();
-  await page.locator('[data-id-upload]').click();
+  await page.locator('#identity-camera-save').click();
+  await expect(page.locator('#miniapp-shared-toast')).toContainText('Synthetic upload failed');
+  await expect(page.locator('#identity-captured-photos img')).toHaveCount(2);
+  await page.locator('#identity-camera-save').click();
   await expect.poll(()=>uploads.length).toBe(2);
-  expect(uploads[0]).toContain('name="front"');expect(uploads[0]).toContain('name="back"');
+  expect(uploads[0].match(/name="file"/g)).toHaveLength(2);
   const requestKey=body=>body.match(/name="request_id"\r\n\r\n([^\r]+)/)?.[1];
   expect(requestKey(uploads[1])).toBe(requestKey(uploads[0]));
+  await page.getByRole('button',{name:'Close camera',exact:true}).click();
+  expect(await page.evaluate(()=>__cameraStreams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended')))).toBe(true);
 });
 
-test('camera denied and unavailable leave file fallback and existing ID photos usable',async({page})=>{
+test('camera denial leaves direct multiple-file upload available',async({page})=>{
   await page.addInitScript(()=>navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Synthetic denial','NotAllowedError');});
   await boot(page,{configure:identityFixture});await section(page,'Product requirements');
   await page.locator('[data-id-capture]').click();
-  await page.locator('[data-id-camera=front]').click();
   await expect(page.locator('#miniapp-shared-toast')).toContainText('Camera access was unavailable');
-  await expect(page.locator('#origination-sheet-overlay')).toBeVisible();
-  await page.locator('[data-id-side=front]').setInputFiles({name:'synthetic-front.png',mimeType:'image/png',buffer:fs.readFileSync(path.join(root,'core/static/miniapp/jawabu-logo.png'))});
+  await expect(page.locator('[data-id-upload]')).toHaveAttribute('multiple','');
   await page.evaluate(()=>navigator.mediaDevices.getUserMedia=undefined);
-  await page.locator('[data-id-camera=back]').click();
+  await page.locator('[data-id-capture]').click();
   await expect(page.locator('#miniapp-shared-toast')).toContainText('Use Choose file instead');
-  await expect(page.locator('[data-id-image=front]')).toBeVisible();
 });
 
 test('queue identity slots remain aligned with absent data and show the readable reference',async({page},info)=>{
@@ -828,10 +850,10 @@ test('cancelled pending camera permission releases the eventual stream',async({p
     });
   });
   await boot(page,{configure:identityFixture});await section(page,'Product requirements');
-  await page.locator('[data-id-capture]').click();await page.locator('[data-id-camera=front]').click();
+  await page.locator('[data-id-capture]').click();
   await page.getByRole('button',{name:'Close camera',exact:true}).click();
   await page.evaluate(()=>__releaseCamera());
   await expect.poll(()=>page.evaluate(()=>__cameraStopped)).toBe(1);
   await expect(page.locator('.camera-capture-dialog')).toHaveCount(0);
-  await expect(page.locator('#origination-sheet-overlay')).toBeVisible();
+  await expect(page.locator('[data-id-capture]')).toBeVisible();
 });

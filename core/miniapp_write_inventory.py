@@ -202,6 +202,14 @@ _add(
     domain_replay='Locked application; deterministic revision/update-plan key; confirmed signatures freeze the bundle',
 )
 _add(
+    'loan_origination_delete_draft loan_origination_invalidate',
+    authentication=_ORIGINATION_AUTH,
+    capability='origination.application.delete or origination.application.invalidate',
+    scope=_ORIGINATION_SCOPE + '; assigned officer or scoped Origination IT',
+    request_key_binding=_ORIGINATION_KEY,
+    domain_replay='Revision and actor bound independent audit result survives physical deletion; signed history requires reasoned invalidation',
+)
+_add(
     'loan_origination_preview loan_origination_document_preview '
     'loan_origination_packet_preview loan_origination_review_packet_preview',
     authentication=_ORIGINATION_AUTH,

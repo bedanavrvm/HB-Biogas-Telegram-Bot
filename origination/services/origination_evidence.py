@@ -219,13 +219,16 @@ def _reserve_upload(
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before uploading evidence.')
     max_files = int(getattr(settings, 'ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT', 5))
-    if application.requirement_evidence_files.filter(
+    if not binding and application.requirement_evidence_files.filter(
         requirement_key=requirement_key,
         status=OriginationRequirementEvidence.STATUS_UPLOADED,
     ).count() >= max_files:
         raise OriginationError(f'Upload at most {max_files} files for this requirement.')
     total_limit = int(getattr(settings, 'ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB', 30)) * 1024 * 1024
-    current_total = sum(application.requirement_evidence_files.filter(
+    current_files = application.requirement_evidence_files.filter(status=OriginationRequirementEvidence.STATUS_UPLOADED)
+    if binding:
+        current_files = current_files.exclude(requirement_key=requirement_key)
+    current_total = sum(current_files.filter(
         status=OriginationRequirementEvidence.STATUS_UPLOADED,
     ).values_list('byte_size', flat=True))
     if current_total + byte_size > total_limit:
@@ -294,13 +297,31 @@ def upload_requirement_evidence(
         item.upload_error = 'Drive upload failed; select the file and retry.'
         item.save(update_fields=['status', 'upload_error', 'updated_at'])
         return item, False
-    item.status = item.STATUS_UPLOADED
-    item.drive_file_id = file_id
-    item.drive_url = url
-    item.upload_error = ''
-    item.save(update_fields=[
-        'status', 'drive_file_id', 'drive_url', 'upload_error', 'updated_at',
-    ])
+    with transaction.atomic():
+        application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+        item.refresh_from_db()
+        if requirement_key in ID_KEYS and collection_enabled(application):
+            from origination.services.identity_copies import subject_binding
+            from origination.services.loan_origination import _record_event
+            original = application.events.get(action='evidence_upload_started', after_values__evidence_id=str(item.pk))
+            binding = subject_binding(application, requirement_key)
+            if application.status not in {'draft', 'correction_required', 'reviewed'} or binding['subject_sha256'] != original.metadata.get('subject_sha256'):
+                item.status = item.STATUS_FAILED
+                item.upload_error = 'The application or saved identity changed. Reopen the ID copy and retry.'
+                item.save(update_fields=['status', 'upload_error', 'updated_at'])
+                return item, False
+            previous = list(application.requirement_evidence_files.filter(requirement_key=requirement_key,
+                status=item.STATUS_UPLOADED).exclude(pk=item.pk).values_list('pk', flat=True))
+            application.requirement_evidence_files.filter(pk__in=previous).update(
+                status=item.STATUS_REMOVED, removed_by=actor, removed_at=timezone.now())
+            from origination.services.loan_origination import _slot_request_id
+            _record_event(application, 'identity_copy_replaced', actor=actor, request_id=_slot_request_id(request_id, 'identity-replaced'),
+                after={'evidence_id': str(item.pk), 'previous_evidence_ids': [str(pk) for pk in previous]})
+        item.status = item.STATUS_UPLOADED
+        item.drive_file_id = file_id
+        item.drive_url = url
+        item.upload_error = ''
+        item.save(update_fields=['status', 'drive_file_id', 'drive_url', 'upload_error', 'updated_at'])
     return item, False
 
 

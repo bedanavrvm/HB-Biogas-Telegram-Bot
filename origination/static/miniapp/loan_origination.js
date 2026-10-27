@@ -37,6 +37,7 @@
   const APPLICATION_PAGE_SIZE = 10;
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1, pageSize: APPLICATION_PAGE_SIZE };
   let current = null;
+  const identityUploads = new Map();
   let step = 0;
   let sectionNavigationInFlight = false;
   let saveTimer = null;
@@ -1318,7 +1319,8 @@
     }
     if (current?.form_projection_version === 1 || current?.value_contract_version === 2) sections = sections.filter(section => fieldsFor(section.key).length);
     const terms = current?.product_terms || {};
-    const requirements = [...(terms.requirements || []), ...(current?.identity_copies || [])].filter(item => !item.workflow || item.workflow === 'loan_origination');
+    const copies = new Map((current?.identity_copies || []).map(item => [item.key,item]));
+    const requirements = [...(terms.requirements || []).map(item => copies.has(item.key) ? {...item,...copies.get(item.key),required:item.required,enforcement_stage:item.enforcement_stage} : item), ...[...copies.values()].filter(item => !(terms.requirements || []).some(row => row.key === item.key))].filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
     if (requirements.length || attributes.length || (terms.fees || []).some(item => !item.mandatory)) {
       sections.push({
@@ -1494,7 +1496,7 @@
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
         const itemEditable = evidenceEditable && !item.stale_only && correctionAllows('requirement', item.key);
         const upload = itemEditable ? item.identity_role
-          ? `<div class="evidence-upload-actions"><button type="button" class="evidence-upload" data-id-capture="${escapeHtml(item.key)}">Front &amp; back</button><label class="evidence-upload"><input type="file" accept="application/pdf" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF</span></label></div>`
+          ? `<div class="evidence-upload-actions"><button type="button" class="evidence-upload" data-id-capture="${escapeHtml(item.key)}">Camera</button><label class="evidence-upload"><input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" data-id-upload="${escapeHtml(item.key)}"><span>Upload</span></label>${identityUploads.has(`${current.id}:${item.key}`) ? `<button type="button" data-id-retry="${escapeHtml(item.key)}">Retry upload</button>` : ''}</div>`
           : `<div class="evidence-upload-actions"><button type="button" class="evidence-upload evidence-camera" data-evidence-camera="${escapeHtml(item.key)}"><span>Take photo</span></button><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
         const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.identity_changed ? 'ID changed · earlier copy' : file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}" data-evidence-name="${escapeHtml(file.filename)}" data-evidence-mime="${escapeHtml(file.mime_type || '')}">View</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
         return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}</div>`;
@@ -2526,15 +2528,19 @@
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
     const restartAction = editable && application.status === 'draft'
       ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
+    if (application.status === 'invalidated') content = `<aside role="status"><h3>Invalidated and archived</h3><p>${escapeHtml(application.lifecycle?.invalidation?.reason || '')}</p><p>This application is read-only. Its earlier signatures no longer authorize further processing.</p></aside><button type="button" class="btn btn-secondary" id="origination-completed-download">Download historical signed copy</button>`;
+    const removal = application.lifecycle?.can_delete || application.lifecycle?.can_invalidate
+      ? `<button type="button" class="btn btn-secondary" id="origination-remove">${application.lifecycle.can_delete ? 'Delete application' : 'Invalidate application'}</button>` : '';
     root().innerHTML = `<header class="editor-summary">
       <div class="editor-context">
         <button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button>
         <div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small class="editor-product">${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div>
         <div class="editor-document-actions" role="group" aria-label="Document actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
       </div>${editable ? progressMarkup() : ''}
-    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}`;
+    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}${removal}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    root().querySelector('#origination-remove')?.addEventListener('click', removeCurrentApplication);
     refreshEditorIdentity();
     root().querySelectorAll('.preview-link').forEach(button => {
       const label = button.textContent.trim();
@@ -2910,73 +2916,69 @@
     return uploadEvidenceFile(file, requirementKey, input);
   }
 
-  async function openIdentityCapture(requirementKey, trigger) {
+  async function uploadIdentityFiles(requirementKey, files = null, {keepCamera = false} = {}) {
     const option = current.identity_copies?.find(item => item.key === requirementKey);
-    if (!option) return;
-    const photos = {}; const urls = {};
-    let uploadKey = requestKey('id-copy');
-    openSheet({mode: 'id-capture', title: option.label, eyebrow: '',
-      hint: 'Optional. Add both sides to save one PDF.', trigger,
-      body: `<div class="identity-capture-pair">${['front','back'].map(side => `<div><strong>${side === 'front' ? 'Front' : 'Back'}</strong><img data-id-image="${side}" alt="${side} of ID" hidden><button type="button" class="btn btn-secondary" data-id-camera="${side}" aria-label="Take ${side} photo">${iconSvg('camera')}<span data-id-caption="${side}">Take photo</span></button><label class="btn btn-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" data-id-side="${side}" hidden><span>Choose photo</span></label></div>`).join('')}</div><p role="status" data-id-status></p>`,
-      footer: '<button type="button" class="btn btn-secondary" data-id-cancel>Cancel</button><button type="button" class="btn btn-primary" data-id-upload>Save ID copy</button>',
-    });
-    const cleanup = () => Object.values(urls).forEach(url => URL.revokeObjectURL(url));
-    sheetCleanup = cleanup;
-    document.querySelector('[data-id-cancel]').onclick = () => {cleanup();closeSheet();};
-    const setPhoto = (side, file) => {
-      if (!file) return;
-      if (urls[side]) URL.revokeObjectURL(urls[side]);
-      photos[side] = file; urls[side] = URL.createObjectURL(file);
-      uploadKey = requestKey('id-copy');
-      const image = document.querySelector(`[data-id-image="${side}"]`);
-      image.src = urls[side];image.hidden = false;
-      image.onclick = () => {
-        const dialog = document.createElement('dialog');dialog.className = 'identity-photo-preview';
-        dialog.innerHTML = '<header><strong>ID photo</strong><button type="button" aria-label="Close photo preview">×</button></header><nav class="identity-photo-controls" aria-label="Photo navigation"><button type="button" aria-label="Previous photo">‹</button><span></span><button type="button" aria-label="Next photo">›</button></nav><div tabindex="0"><img alt="ID photo preview"></div>';
-        document.body.append(dialog);
-        let active = side;
-        const stage = dialog.querySelector('div'), preview = dialog.querySelector('img');
-        const display = () => {preview.src=urls[active];dialog.querySelector('span').textContent=active==='front'?'Front':'Back';};
-        const navigate = () => {const next=active==='front'?'back':'front';if(urls[next]){active=next;display();gestures?.reset();}};
-        const gestures = window.SecureMediaViewer?.bindImageGestures(stage,preview,{navigateAtEdges:true,onNavigate:navigate});
-        dialog.querySelector('[aria-label="Previous photo"]').onclick = navigate;
-        dialog.querySelector('[aria-label="Next photo"]').onclick = navigate;
-        dialog.querySelector('[aria-label="Close photo preview"]').onclick = () => dialog.close();
-        dialog.addEventListener('close',()=>{gestures?.dispose?.();dialog.remove();image.focus?.();},{once:true});
-        display();dialog.showModal();
-      };
-      document.querySelector(`[data-id-caption="${side}"]`).textContent = 'Retake';
-      tg?.HapticFeedback?.notificationOccurred?.('success');
-      showToast(`${side === 'front' ? 'Front' : 'Back'} photo ready.`, 'success');
-    };
-    document.querySelectorAll('[data-id-side]').forEach(input => input.onchange = () => setPhoto(input.dataset.idSide, input.files?.[0]));
-    document.querySelectorAll('[data-id-camera]').forEach(button => button.onclick = () =>
-      openEvidenceCamera(requirementKey, button, file => setPhoto(button.dataset.idCamera, file)));
-    document.querySelector('[data-id-upload]').onclick = async event => {
-      const status = document.querySelector('[data-id-status]');
-      if (!photos.front || !photos.back) {status.textContent = 'Add both the front and back.';return;}
-      await window.MiniAppUtils.runButtonAction(event.currentTarget, async () => {
-        if (!await saveDraft(true)) {status.textContent = 'Your photos are kept. Save the application, then retry.';return;}
-        if (current.form_payload?.[option.identity_field] !== undefined && !current.identity_copies?.some(item => item.key === requirementKey && item.subject_sha256 === option.subject_sha256)) {
-          status.textContent = 'This person’s ID changed. Cancel and open their ID copy again.';return;
-        }
-        const data = new FormData();data.append('front', photos.front);data.append('back',photos.back);
-        data.append('revision',String(current.revision));data.append('request_id',uploadKey);
-        const response = await fetch(`/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`, {
-          method:'POST',headers:{'X-Telegram-Init-Data':tg?.initData || ''},body:data,
-        });
-        const result = await response.json();
-        if (result.application) current = result.application;
-        if (!response.ok || !result.ok) {
-          if (result.evidence?.status === 'failed') uploadKey = requestKey('id-copy-retry');
-          status.textContent = result.error || 'Could not save. Your photos are kept; retry.';showToast(status.textContent,result.pending?'info':'error');return;
-        }
-        cleanup();closeSheet();renderEditor(current,step);showToast('ID copy saved.');
-      }, {loadingLabel:'Saving…'}).catch(() => {status.textContent='Could not connect. Your photos are kept; retry.';showToast(status.textContent,'error');});
-    };
+    if (!option) return false;
+    const key = `${current.id}:${requirementKey}`;
+    const previous=identityUploads.get(key);
+    if (files && (!previous || files.length!==previous.files.length || files.some((file,index)=>file!==previous.files[index]))) identityUploads.set(key, {files, requestId:requestKey('id-copy'), subject:option.subject_sha256});
+    const pending = identityUploads.get(key);
+    if (!pending || !pending.files.length) return false;
+    if (pending.busy) return false;
+    pending.busy = true;
+    try {
+      if (!await saveDraft(true)) return false;
+      if (!current.identity_copies?.some(item => item.key === requirementKey && item.subject_sha256 === pending.subject)) {
+        showToast('This person?s ID changed. Select the files again for the saved identity.', true);return false;
+      }
+      const data = new FormData();
+      pending.files.forEach(file => data.append('file',file));
+      data.append('revision',String(current.revision));data.append('request_id',pending.requestId);
+      const response = await fetch(`/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`, {
+        method:'POST',headers:{'X-Telegram-Init-Data':tg?.initData || '', 'Idempotency-Key':pending.requestId},body:data,
+      });
+      const result = await response.json();
+      if (result.application) current=result.application;
+      if (!response.ok || !result.ok) {
+        if (result.evidence?.status === 'failed') pending.requestId=requestKey('id-copy-retry');
+        showToast(result.error || 'ID files kept. Retry upload.',true);
+        if (!keepCamera) renderEditor(current,step);
+        return false;
+      }
+      identityUploads.delete(key);
+      if (!keepCamera) renderEditor(current,step);
+      showToast('ID copy saved.');return true;
+    } catch (_error) {
+      showToast('Could not connect. Your ID files are kept; retry upload.',true);
+      if (!keepCamera) renderEditor(current,step);
+      return false;
+    } finally {pending.busy=false;}
   }
 
-  async function openEvidenceCamera(requirementKey, trigger, onCapture = null) {
+  async function openIdentityCapture(requirementKey, trigger) {
+    return openEvidenceCamera(requirementKey,trigger,null,true);
+  }
+
+  async function removeCurrentApplication() {
+    window.clearTimeout(saveTimer);
+    if(saveInFlight) await saveInFlight;
+    const invalidate=Boolean(current.lifecycle?.can_invalidate);
+    openSheet({mode:'remove-application',title:invalidate?'Invalidate application?':'Delete application?',
+      body:`<p>${invalidate?'This closes signing and archives the application. Signed documents and audit history are retained.':'This permanently deletes this unsigned application. Shared products and templates are kept.'}</p>${invalidate?'<label>Reason<textarea id="origination-invalidation-reason" maxlength="500" required></textarea></label>':''}<p role="status" id="origination-removal-error"></p>`,
+      footer:'<button type="button" class="btn btn-secondary" id="origination-removal-cancel">Cancel</button><button type="button" class="btn btn-danger" id="origination-removal-confirm">Confirm</button>'});
+    document.getElementById('origination-removal-cancel').onclick=()=>closeSheet();
+    const requestId=requestKey('remove-application'), applicationId=current.id, revision=current.revision;
+    document.getElementById('origination-removal-confirm').onclick=event=>window.MiniAppUtils.runButtonAction(event.currentTarget,async()=>{
+      const reason=document.getElementById('origination-invalidation-reason')?.value.trim() || '';
+      if(invalidate && !reason) {document.getElementById('origination-removal-error').textContent='Enter a reason.';return;}
+      window.clearTimeout(saveTimer);
+      const result=await postJson(`/applications/${applicationId}/${invalidate?'invalidate':'delete-draft'}/`,{revision,reason,client_request_id:requestId});
+      if(!result.ok) {document.getElementById('origination-removal-error').textContent=result.data?.error || 'Could not complete this action. Retry.';return;}
+      closeSheet();dirty=false;await loadApplications();renderList();showToast(invalidate?'Application invalidated and archived.':'Application deleted.');
+    },{loadingLabel:'Saving?'});
+  }
+
+  async function openEvidenceCamera(requirementKey, trigger, onCapture = null, identity = false) {
     if (!navigator.mediaDevices?.getUserMedia) {
       return showToast('This Telegram WebView cannot open the camera directly. Use Choose file instead.', true);
     }
@@ -2985,6 +2987,15 @@
     dialog.className = 'camera-capture-dialog';
     dialog.setAttribute('aria-labelledby', 'camera-capture-title');
     dialog.innerHTML = '<header><h2 id="camera-capture-title">Take photo</h2><button type="button" class="icon-button" data-camera-cancel aria-label="Close camera">'+iconSvg('close')+'</button></header><p>Keep the whole document in the frame.</p><div class="evidence-camera-stage"><video autoplay playsinline muted></video><canvas hidden></canvas></div><footer><button type="button" class="btn btn-secondary" data-camera-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture" disabled>Use photo</button></footer>';
+    const photos=[], urls=[];
+    let retake=-1;
+    if(identity) {
+      dialog.classList.add('identity-camera');
+      dialog.querySelector('p').textContent='Capture the front and back, or a complete ID copy, then Save.';
+      dialog.querySelector('footer').insertAdjacentHTML('beforebegin','<div class="evidence-upload-actions" id="identity-captured-photos"></div>');
+      dialog.querySelector('footer').insertAdjacentHTML('beforeend','<button type="button" class="btn btn-primary" id="identity-camera-save" disabled>Save</button>');
+      dialog.querySelector('#evidence-camera-capture').textContent='Take photo';
+    }
     document.body.append(dialog);
     cameraDialog = dialog;
     let stream = null, closed = false;
@@ -2992,6 +3003,7 @@
       if (closed) return;
       closed = true;
       stream?.getTracks().forEach(track => track.stop());
+      urls.forEach(url=>URL.revokeObjectURL(url));
       if (activeCameraStream === stream) activeCameraStream = null;
       if (cameraDialog === dialog) cameraDialog = null;
       dialog.remove();
@@ -3001,6 +3013,22 @@
     dialog.addEventListener('close', cleanup, {once:true});
     dialog.querySelectorAll('[data-camera-cancel]').forEach(button => button.onclick = () => {dialog.close();cleanup();});
     const capture = dialog.querySelector('#evidence-camera-capture');
+    const save = dialog.querySelector('#identity-camera-save');
+    const renderPhotos=()=>{
+      urls.splice(0).forEach(url=>URL.revokeObjectURL(url));
+      dialog.querySelector('#identity-captured-photos').innerHTML=photos.map((file,index)=>{
+        const url=URL.createObjectURL(file);urls.push(url);
+        return `<span><img src="${url}" alt="ID photo ${index+1}" width="80" height="60"><button type="button" data-id-retake="${index}">Retake ${index+1}</button><button type="button" data-id-remove-photo="${index}">Remove</button></span>`;
+      }).join('');
+      dialog.querySelectorAll('[data-id-retake]').forEach(button=>button.onclick=()=>{retake=Number(button.dataset.idRetake);capture.textContent=`Retake photo ${retake+1}`;});
+      dialog.querySelectorAll('[data-id-remove-photo]').forEach(button=>button.onclick=()=>{photos.splice(Number(button.dataset.idRemovePhoto),1);retake=-1;renderPhotos();});
+      save.disabled=!photos.length;
+    };
+    if(save) save.onclick=()=>window.MiniAppUtils.runButtonAction(save,async()=>{
+      capture.disabled=true;
+      if(await uploadIdentityFiles(requirementKey,[...photos],{keepCamera:true})) {dialog.close();renderEditor(current,step);}
+      else capture.disabled=false;
+    },{loadingLabel:'Saving…'});
     const video = dialog.querySelector('video');
     dialog.showModal();syncTelegramControls();
     try {
@@ -3029,6 +3057,12 @@
       if (closed) return;
       if (!blob) { capture.disabled = false; return showToast('The photo could not be captured. Try again.', true); }
       const file = new File([blob], `evidence-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      if(identity) {
+        if(retake>=0) photos[retake]=file;
+        else if(photos.length<10) photos.push(file);
+        else showToast('Capture at most 10 photos for one ID.',true);
+        retake=-1;capture.textContent='Take photo';capture.disabled=false;renderPhotos();return;
+      }
       dialog.close();cleanup();
       if (onCapture) onCapture(file);
       else await uploadEvidenceFile(file, requirementKey, trigger);
@@ -3234,6 +3268,8 @@
       if (item) item.instruction = input.value;
     });
     root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
+    root().querySelectorAll('[data-id-upload]').forEach(input => input.onchange = () => {const files=[...input.files];input.value='';uploadIdentityFiles(input.dataset.idUpload,files);});
+    root().querySelectorAll('[data-id-retry]').forEach(button => button.onclick = () => uploadIdentityFiles(button.dataset.idRetry));
     root().querySelectorAll('[data-evidence-camera]').forEach(button => button.onclick = () => openEvidenceCamera(button.dataset.evidenceCamera, button));
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
     root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen, button.dataset.evidenceName, button.dataset.evidenceMime));

@@ -21,7 +21,7 @@ from origination.services.origination_value_contracts import request_fingerprint
 
 def refresh_block_reason(application):
     """Evidence anywhere in the application's history locks the entire bundle."""
-    if application.status in {'cancelled', 'declined', 'expired'}:
+    if application.status in {'cancelled', 'declined', 'expired', 'invalidated'}:
         return 'This application is closed.'
     if application.status in {'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved'}:
         return 'A document has already been signed. Its document version cannot be updated.'

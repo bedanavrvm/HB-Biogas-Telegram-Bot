@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}{% load static %}
 {% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=6"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=5">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=7"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=5">{% endblock %}
 {% block content %}
 <main class="osw-page"><header class="osw-hero"><div><h1>{{ definition.name }}</h1><span class="osw-status">{% if published_readonly %}Published{% else %}Draft{% endif %}</span></div><nav><a href="{% url 'admin:origination_origination_setup_workspace' definition.pk %}">Product</a><details><summary>Advanced</summary><a href="{{ advanced_url }}">Records</a></details></nav></header>
 {% include "admin/origination/product_task_nav.html" %}
@@ -20,4 +20,4 @@
 <details><summary>Choose documents</summary><form method="post" data-osw-autosave>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}<div class="osw-field">{{ form.templates.label_tag }}{{ form.templates }}{{ form.templates.errors }}</div>{% if form.approval_mode %}<div class="osw-field">{{ form.approval_mode.label_tag }}{{ form.approval_mode }}{{ form.approval_mode.errors }}</div>{% endif %}{% if form.default_signers %}<div class="osw-field">{{ form.default_signers.label_tag }}{{ form.default_signers }}{{ form.default_signers.errors }}</div>{% endif %}</form></details><a class="osw-secondary" href="{{ document_new_url }}">New document</a>{% if maintenance.changes %}<p>Document choices have unpublished changes.</p>{% endif %}
 {% else %}<dl class="osw-summary"><dt>Amount</dt><dd>{{ terms_summary.currency }} {{ terms_summary.min_amount }}–{{ terms_summary.max_amount }}</dd><dt>Interest</dt><dd>{{ terms_summary.interest_rate }}</dd></dl><p>Publish when all three tasks are done. Existing applications stay unchanged.</p>{% endif %}
 </section>{% include "admin/origination/product_publish.html" %}</main>{% endblock %}
-{% block footer %}{{ block.super }}<script src="{% static 'admin/origination_setup.js' %}?v=5"></script><script src="{% static 'admin/origination_product_autosave.js' %}?v=2"></script>{% endblock %}
+{% block footer %}{{ block.super }}<script src="{% static 'admin/origination_setup.js' %}?v=5"></script><script src="{% static 'admin/origination_product_autosave.js' %}?v=3"></script>{% endblock %}

@@ -18,6 +18,7 @@ const fs = require('node:fs');
     await expect(page.locator('#calibration-duplicate')).toBeEnabled();
     const url = new URL(await page.locator('#calibration-app').getAttribute('data-signers-url'), target);
     const saved = page.waitForResponse(response => response.url() === url.href && response.request().method() === 'POST');
+    await page.getByRole('button',{name:'Filled sample',exact:true}).click();
     await page.locator('#calibration-duplicate').click();
     const response = await saved;
     expect(response.status()).toBe(200);

@@ -12,6 +12,8 @@
 .osw-task[aria-current=page] {outline:2px solid var(--osw-blue);outline-offset:1px;}
 .osw-primary:disabled {opacity:.55;cursor:not-allowed;}
 .osw-publish-bar form {margin-left:auto;}
+.osw-publish-checklist {min-width:0;flex:1;overflow-wrap:anywhere;}
+.osw-publish-checklist ul {margin:6px 0 0;padding-left:18px;font-size:.85rem;}
 .osw-save-feedback {overflow-wrap:anywhere;border:0;background:transparent;color:inherit;padding:0;font:inherit;text-align:left;}
 .osw-maintenance-document {display:flex;align-items:center;justify-content:space-between;gap:10px;}
 @media(max-width:700px) {.osw-task-list {grid-template-columns:1fr;}.osw-task small {display:none;}.osw-task[aria-current="page"] small {display:block;}.osw-publish-bar {flex-wrap:wrap;}.osw-publish-bar form {margin-left:auto;}}

@@ -2,6 +2,8 @@ from django.urls import path
 from core.api.legacy_routes import legacy_get_redirect
 from .auth import origination_auth_required
 from .views import (
+    portal_origination_delete_draft,
+    portal_origination_invalidate,
     portal_origination_phone_identity_checks,
     portal_origination_signature_preview,
     origination_signer_signature_preview,
@@ -74,6 +76,8 @@ urlpatterns = [
     path('origination/api/applications/<str:application_id>/submit/', origination_auth_required(portal_origination_submit), name='loan_origination_submit'),
     path('origination/api/applications/<str:application_id>/confirm-signing/', origination_auth_required(portal_origination_confirm_signing), name='loan_origination_confirm_signing'),
     path('origination/api/applications/<str:application_id>/recall/', origination_auth_required(portal_origination_recall), name='loan_origination_recall'),
+    path('origination/api/applications/<str:application_id>/delete-draft/', origination_auth_required(portal_origination_delete_draft), name='loan_origination_delete_draft'),
+    path('origination/api/applications/<str:application_id>/invalidate/', origination_auth_required(portal_origination_invalidate), name='loan_origination_invalidate'),
     path('origination/api/applications/<str:application_id>/restart/', origination_auth_required(portal_origination_restart), name='loan_origination_restart'),
     path('origination/api/applications/<str:application_id>/preview/', origination_auth_required(portal_origination_preview), name='loan_origination_preview'),
     path('origination/api/applications/<str:application_id>/documents/selection/', origination_auth_required(portal_origination_document_selection), name='loan_origination_document_selection'),

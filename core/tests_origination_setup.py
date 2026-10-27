@@ -21,6 +21,17 @@ from origination.services.origination_setup import (
 
 
 class OriginationSetupWorkspaceTests(TestCase):
+    def test_publish_footer_names_each_remaining_task_and_links_to_its_step(self):
+        self.test_terms_can_save_without_forcing_optional_repeatable_rows()
+        definition=OriginationProductDefinition.objects.get(product_key='optional_rows_loan')
+        response=self.client.get(reverse('admin:origination_origination_setup_workspace',args=[definition.pk]))
+        self.assertEqual(response.context['outstanding_count'],1)
+        self.assertContains(response,'1 thing left')
+        from html import escape
+        task=next(task for task in response.context['tasks'] if not task['valid'])
+        self.assertEqual(task['key'],'documents')
+        self.assertContains(response,f'<li><a href="{task["url"]}">{task["label"]}</a>: {escape(task["detail"])}</li>',html=True)
+
     def test_origination_requirements_edit_reuses_published_financial_terms(self):
         original, _document = self._published_maintenance_product()
         before = type(original.product_version).objects.values().get(pk=original.product_version_id)

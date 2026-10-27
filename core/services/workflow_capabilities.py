@@ -30,6 +30,8 @@ def _roles(*roles: str) -> frozenset[str]:
 
 
 _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
+    CapabilityDefinition('origination.application.delete', 'loan_origination', 'Delete own unsigned application', 'Origination', _roles('JBL_OFFICER', 'IT'), ('origination.view',)),
+    CapabilityDefinition('origination.application.invalidate', 'loan_origination', 'Invalidate own signed application', 'Origination', _roles('JBL_OFFICER', 'IT'), ('origination.view',)),
     CapabilityDefinition('origination.identity.phone.verify', 'loan_origination', 'Check Applicant phone registration (IT pilot)', 'Applicant identity', _roles('IT'), ('origination.view',)),
     # Jawabu Portal: a view capability owns a screen; write capabilities own
     # consequential actions on that screen.

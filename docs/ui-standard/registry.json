@@ -497,21 +497,21 @@
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "5fd072796a12fbf318f6905a27e9d8e21a0fbdeaaa3a5315907224eee18e0cb8",
-      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
-      "reason": "User-requested compact numbered cards matching TAT typography, with source-bound evidence in origination-compact-cards.md; immediate saved-data-safe preview loading and blank-name rejection. Real-shell synthetic responsive screenshots and failure/retry contracts accompany these scoped refinements. Existing header, forms, automatic document refresh, role rules and signed bytes remain; no Phase 6 or baseline approval."
+      "sha256": "0671af4cd60f89de38e7aa2d5d5e524d675b7d784e1bd94c8d3d79a36b779f0a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "bd148523b4571e34a09091791260c5bf66a074b4cf7dac194d188bb81072b0b9",
-      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
-      "reason": "Scoped user-requested compact numbered cards (TAT source font roles) and two-column review with a full-width preview action. Mobile light/dark and enlarged-text screenshots/geometry accompany the candidate; form scale, existing header and tap targets remain. No shared tokens or Phase 6 migration."
+      "sha256": "d31ffb340d147ba3cfff95cec6c878d125ea1c89c9f5d684c7f76ae8c9edcfe0",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "9554ffec16286231c41b0b1b28431932208996f6f31424b29589092b1548e85f",
-      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
-      "reason": "Nonvisual cache-version change for compact cards, review and preview/download corrections. No template layout, candidate tokens, baseline status or Phase 6 migration changes."
+      "sha256": "0e54c8be6f9728e26c49fd595112410f22e67165e67b711680f1f6e56477e96d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
@@ -809,9 +809,9 @@
     },
     {
       "path": "origination/static/admin/origination_calibration.js",
-      "sha256": "4383acad9db7b0c7e646b80b13808dd3cc5228edcf132070049607b69b7b4c18",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-main-laf-shared-signing.md",
-      "reason": "User-requested Main LAF borrower reuse uses the existing Admin signer select and autosave. Real-shell synthetic browser evidence covers selection, reload and template versions. No baseline, token or Phase 6 changes."
+      "sha256": "1c875c34ff2457f8f3a0b50f2e9817fa647a7e24f2ebe17b002d2c02672969ea",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
     },
     {
       "path": "origination/templates/admin/core/origination_setup/detail.html",
@@ -821,15 +821,39 @@
     },
     {
       "path": "origination/templates/admin/core/origination_setup/workspace.html",
-      "sha256": "dca4ce1ed79efa34481d54063911834bfde6403230ab1247652db88c43d4b9ab",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
-      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+      "sha256": "a0dd5a8e04b30133f0c4f67c0bb403e01008a8162844714ce6f49ec49cd202df",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
     },
     {
       "path": "origination/templates/admin/core/originationdocumenttemplate/calibrate.html",
-      "sha256": "cc57d7c7b242718503fb9907c3af80c3d8b31bb795ad7d98d1e554fbd70eb32c",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-main-laf-shared-signing.md",
-      "reason": "Cache refresh for the user-requested shared-borrower correction; existing Admin layout retained. Real-shell synthetic browser evidence recorded. No baseline, token or Phase 6 changes."
+      "sha256": "681c3b568aa78bd4c483713d37d4df590b22f512d52c6801c0fb4c4716e20821",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
+    },
+    {
+      "path": "origination/static/admin/origination_product_autosave.js",
+      "sha256": "9b058b2f1f5823015eeac4ef791072f243b47bc81eef9f1394a419007ab4c54c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
+    },
+    {
+      "path": "origination/static/admin/origination_setup.css",
+      "sha256": "8276399942bda7e7c3f69d3e7ca0ff58d9d0f72d1d0e34428d061615a512e68c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
+    },
+    {
+      "path": "origination/templates/admin/origination/product_publish.html",
+      "sha256": "895d360d95bc9f79cea6fdd8b2ce9d348c98d0efdfa3e7960c52d46defc89597",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
+    },
+    {
+      "path": "origination/templates/admin/origination/product_tasks.html",
+      "sha256": "e8b5000163f55fc3ab8779797698f21c82adabf14cc2db6d42d77ddf94b0c85a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
+      "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
     }
   ],
   "source_roots": [

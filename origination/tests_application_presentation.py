@@ -270,7 +270,7 @@ class ApplicationPresentationTests(TestCase):
         request.origination_user = self.officer; request.origination_access = user_access(self.officer, 'loan_origination')
         data = json.loads(portal_origination_applications(request).content)
         self.assertEqual(data['filter_options']['products'], [{'product_key':self.definition.product_key, 'name':self.definition.name}])
-        self.assertEqual([row['value'] for row in data['filter_options']['statuses']], ['draft','changes','progress','completed','closed'])
+        self.assertEqual([row['value'] for row in data['filter_options']['statuses']], ['draft','changes','progress','completed','closed','archived'])
 
     def test_staff_date_uses_one_verified_timestamp_in_nairobi(self):
         from datetime import datetime, timezone as dt_timezone
@@ -373,7 +373,7 @@ class ApplicationPresentationTests(TestCase):
             self.assertEqual(response.status_code, 200, response.content)
             data = json.loads(response.content)
             self.assertTrue(all(item['status'] in statuses for item in data['applications']))
-            self.assertEqual(len(data['status_group_options']), 5)
+            self.assertEqual(len(data['status_group_options']), 6)
         self.assertEqual(read({'status_group':'invented'}).status_code, 400)
         data = json.loads(read({'status':'approved'}).content)
         self.assertEqual({item['status'] for item in data['applications']}, {'approved'})

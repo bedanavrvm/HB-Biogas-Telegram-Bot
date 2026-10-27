@@ -18,7 +18,15 @@
       const row=document.querySelector(`[data-task="${task.key}"]`);
       if(row) {row.classList.toggle('complete',task.valid);row.querySelector('[data-task-status]').textContent=task.status_label;row.querySelector('[data-task-detail]').textContent=task.detail;}
     }
-    const count=document.querySelector('[data-outstanding]');if(count) count.textContent=data.outstanding_count ? `${data.outstanding_count} things left` : 'Ready';
+    const count=document.querySelector('[data-outstanding]');if(count) count.textContent=data.outstanding_count ? `${data.outstanding_count} thing${data.outstanding_count===1?'':'s'} left` : 'Ready';
+    const items=document.querySelector('[data-outstanding-items]');
+    if(items) {
+      items.replaceChildren();items.hidden=!data.outstanding_count;
+      for(const task of data.tasks.filter(task=>!task.valid)) {
+        const row=document.createElement('li'),link=document.createElement('a');
+        link.href=task.url;link.textContent=task.label;row.append(link,document.createTextNode(`: ${task.detail}`));items.append(row);
+      }
+    }
     const publish=document.querySelector('[data-product-publish] button');if(publish) publish.disabled=!data.can_publish || dirty || failed;
   };
   async function save() {

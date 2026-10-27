@@ -2925,7 +2925,7 @@ def serialize_application(
             payload['download_ready'] = application.status not in {'declined','expired','cancelled'}
             payload['download_choices'] = download_choices(application)
             payload['download_requires_confirmation'] = (
-                payload['download_ready'] and application.status != 'approved' and bool(copy_readiness(application)))
+                payload['download_ready'] and application.status not in {'approved','invalidated'} and bool(copy_readiness(application)))
         package = latest_package if not (application.signing_policy_snapshot == 'all_required' and application.status == 'draft') else None
         if package:
             from origination.services.origination_signing import active_test_stamps, serialize_test_signing
@@ -2961,6 +2961,8 @@ def serialize_application(
         else:
             payload['signing_package'] = None
     if include_payload and presentation == 'full':
+        from origination.services.application_lifecycle import lifecycle_metadata
+        payload['lifecycle'] = lifecycle_metadata(application, actor)
         from origination.services.phone_identity import projection as phone_check_projection
         phone_checks = phone_check_projection(application, actor)
         if phone_checks is not None:

@@ -519,6 +519,10 @@
   }
 
   async function renderPage({ quiet = false } = {}) {
+    if (mode === 'filled' && (signersDirty || detailsDirty)) {
+      await autosave();
+      if (autosaveFailed || signersDirty || detailsDirty) return;
+    }
     if (pageUrl) URL.revokeObjectURL(pageUrl);
     if (!quiet) $('calibration-save-state').textContent = mode === 'filled' ? 'Rendering preview…' : dirty ? 'Unsaved' : `Saved r${revision}`;
     const options = mode === 'filled' ? { method: 'POST', body: JSON.stringify({ configuration, page }) } : undefined;
@@ -941,6 +945,8 @@
     const padding = typeof spec.padding === 'object' ? spec.padding : { x: spec.padding || 0, y: spec.padding || 0 };
     $('cal-padding-x').value = padding.x || 0; $('cal-padding-y').value = padding.y || 0;
     $('cal-text-case').value = spec.text_case || 'none';
+    $('cal-number-words-wrap').hidden = !['number','money','amount'].includes(contextKeys.find(item => item.key === spec.context_key)?.type);
+    $('cal-number-words').checked = spec.value_format === 'number_words';
     $('cal-align').value = spec.align || 'left'; $('cal-vertical').value = spec.vertical_align || 'bottom'; $('cal-fit').value = spec.fit || 'shrink';
     renderTableControls(spec);
     populateCheckboxControls(spec);
@@ -956,7 +962,7 @@
     const catalogue = contextKeys.find(item => item.key === spec.context_key);
     const labels = new Map((catalogue?.structure_schema?.columns || []).map(column => [column.key, column.label || column.key]));
     $('cal-table-columns').innerHTML = columns.map((column, index) => `
-      <label class="calibration-table-column"><strong>${escapeHtml(labels.get(column.key) || column.key)}</strong><span><input type="number" min="0.1" max="100" step="0.1" data-table-column="${index}" value="${Math.round(Number(column.width_ratio || 0) * 1000) / 10}">%</span></label>
+      <label class="calibration-table-column"><strong>${escapeHtml(labels.get(column.key) || column.key)}</strong><span><input type="number" min="0.1" max="100" step="0.1" data-table-column="${index}" value="${Math.round(Number(column.width_ratio || 0) * 1000) / 10}">%</span>${['number','money','amount'].includes((catalogue?.structure_schema?.columns || []).find(item => item.key === column.key)?.type) ? `<span><input type="checkbox" data-table-words="${index}" ${column.value_format === 'number_words' ? 'checked' : ''}>Display in words</span>` : ''}</label>
     `).join('');
   }
 
@@ -972,6 +978,13 @@
     spec.rows = Math.max(1, Math.min(50, Number($('cal-table-rows').value) || 1));
     let offset = 0;
     spec.columns.forEach((column, index) => {
+      const words = $('cal-table-columns').querySelector(`[data-table-words="${index}"]`);
+      if (words?.checked) column.value_format = 'number_words';
+      else if (words && column.value_format === 'number_words') {
+        const catalogue = contextKeys.find(item => item.key === spec.context_key);
+        const type = (catalogue?.structure_schema?.columns || []).find(item => item.key === column.key)?.type;
+        column.value_format = ['money','amount'].includes(type) ? 'money' : '';
+      }
       column.width_ratio = widths[index] / 100;
       column.x_ratio = offset / 100;
       offset += widths[index];
@@ -1016,6 +1029,9 @@
     if (!spec || selectedKind !== 'field') return;
     const before = configurationHash(configuration);
     spec.context_key = $('cal-context').value;
+    const type = contextKeys.find(item => item.key === spec.context_key)?.type;
+    if (['number','money','amount'].includes(type) && $('cal-number-words').checked) spec.value_format = 'number_words';
+    else if (spec.value_format === 'number_words') spec.value_format = ['money','amount'].includes(type) ? 'money' : '';
     spec.font = $('cal-font').value;
     spec.font_size = Number($('cal-font-size').value);
     spec.min_font_size = Number($('cal-min-font-size').value);
@@ -1351,7 +1367,7 @@
   }
 
   ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
-  ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
+  ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-number-words', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
   $('cal-table-rows').addEventListener('change', updateRepeatableTable);
   $('cal-table-columns').addEventListener('change', updateRepeatableTable);
   $('cal-sample-value').addEventListener('change', () => {

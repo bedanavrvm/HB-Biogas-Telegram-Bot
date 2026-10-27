@@ -672,6 +672,7 @@ class LoanOriginationApplication(models.Model):
     STATUS_DECLINED = 'declined'
     STATUS_EXPIRED = 'expired'
     STATUS_CANCELLED = 'cancelled'
+    STATUS_INVALIDATED = 'invalidated'
     STATUS_CHOICES = [
         (STATUS_DRAFT, 'Draft'),
         (STATUS_READY_FOR_REVIEW, 'Ready for review'),
@@ -686,6 +687,7 @@ class LoanOriginationApplication(models.Model):
         (STATUS_DECLINED, 'Declined'),
         (STATUS_EXPIRED, 'Expired'),
         (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_INVALIDATED, 'Invalidated and archived'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Id (UUIDField).')

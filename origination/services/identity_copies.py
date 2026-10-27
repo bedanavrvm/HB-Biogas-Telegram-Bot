@@ -82,3 +82,61 @@ def prepare_identity_copy(front, back):
     except (VisitDocumentError, KeyError) as exc:
         raise OriginationError(str(exc) if isinstance(exc, VisitDocumentError)
                                else 'Add the front and back of the ID.') from exc
+
+
+def combine_identity_files(files):
+    """One bounded, deterministic PDF from ordered photos and/or existing PDFs."""
+    from io import BytesIO
+    from django.conf import settings
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from pypdf import PdfReader, PdfWriter
+    from PIL import Image
+    from core.services.jbl_visit_documents import validated_image, VisitDocumentError
+    from origination.services.origination_evidence import validate_evidence_file
+    from origination.services.loan_origination import OriginationError
+    files = list(files)
+    if not 1 <= len(files) <= 10:
+        raise OriginationError('Choose between 1 and 10 images or PDFs for this ID.')
+    if sum(item.size for item in files) > settings.ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB * 1024 * 1024:
+        raise OriginationError('These ID files exceed the total upload limit.')
+    writer = PdfWriter()
+    try:
+        for item in files:
+            if str(item.name).lower().endswith('.webp'):
+                if item.size > settings.ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB * 1024 * 1024:
+                    raise OriginationError('An ID image exceeds the file size limit.')
+                image = validated_image(item, field='identity')
+                stream = BytesIO()
+                Image.open(BytesIO(image)).save(stream, format='PDF', resolution=150)
+                source = stream
+            else:
+                mime, _, _ = validate_evidence_file(item)
+                source = item
+                if mime.startswith('image/'):
+                    image = validated_image(item, field='identity')
+                    stream = BytesIO()
+                    Image.open(BytesIO(image)).save(stream, format='PDF', resolution=150)
+                    source = stream
+            source.seek(0)
+            reader = PdfReader(source, strict=False)
+            if reader.is_encrypted or not reader.pages:
+                raise OriginationError('Choose an unencrypted PDF with at least one page.')
+            if len(writer.pages) + len(reader.pages) > 20:
+                raise OriginationError('An ID copy can contain at most 20 pages.')
+            for page in reader.pages:
+                writer.add_page(page)
+        writer.add_metadata({})
+        output = BytesIO()
+        writer.write(output)
+        content = output.getvalue()
+        if len(content) > settings.ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB * 1024 * 1024:
+            raise OriginationError('The combined ID PDF exceeds the file size limit. Choose smaller clear files.')
+        return SimpleUploadedFile('National-ID.pdf', content, content_type='application/pdf')
+    except (OriginationError, VisitDocumentError) as exc:
+        raise OriginationError(str(exc)) from exc
+    except Exception as exc:
+        raise OriginationError('An ID file is damaged or unsupported. Choose a clear image or unencrypted PDF.') from exc
+    finally:
+        writer.close()
+        for item in files:
+            item.seek(0)

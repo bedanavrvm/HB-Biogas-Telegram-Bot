@@ -37,7 +37,7 @@ def application_presentation_mode(application, *, user, access):
         return workflow_access_decision(user, WORKFLOW, key, access=access, resource=application)
     if any(decision(key).allowed for key in ('origination.review', 'origination.signing.start')):
         return FULL
-    signed_by_viewer = application.status == application.STATUS_APPROVED and application.signing_packages.filter(
+    signed_by_viewer = application.status in {application.STATUS_APPROVED, 'invalidated'} and application.signing_packages.filter(
         actions__actor=user, actions__mode='verified', actions__invalidation__isnull=True,
     ).exists()
     if (_staff_signing_status(application) or signed_by_viewer) and decision('origination.signing.staff').allowed:
@@ -67,7 +67,7 @@ def scope_application_queryset(queryset, *, user, access):
         elif capability == 'origination.signing.staff':
             scoped = scoped.filter(Q(status__in=[queryset.model.STATUS_SIGNING_PENDING,
                                                  queryset.model.STATUS_PARTIALLY_SIGNED]) |
-                Q(status=queryset.model.STATUS_APPROVED, signing_packages__actions__actor=user,
+                Q(status__in=[queryset.model.STATUS_APPROVED, 'invalidated'], signing_packages__actions__actor=user,
                   signing_packages__actions__mode='verified', signing_packages__actions__invalidation__isnull=True))
         elif capability == 'origination.view':
             # Presentation rules below decide whether this grant actually exposes a row.

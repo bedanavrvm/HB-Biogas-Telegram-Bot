@@ -1,5 +1,7 @@
 <footer class="osw-publish-bar">
-  <span data-outstanding>{% if published_readonly and not maintenance.changes %}Published{% elif outstanding_count %}{{ outstanding_count }} thing{{ outstanding_count|pluralize }} left{% else %}Ready{% endif %}</span>
+  <div class="osw-publish-checklist"><span data-outstanding>{% if published_readonly and not maintenance.changes %}Published{% elif outstanding_count %}{{ outstanding_count }} thing{{ outstanding_count|pluralize }} left{% else %}Ready{% endif %}</span>
+    <ul data-outstanding-items {% if not outstanding_count %}hidden{% endif %}>{% for task in tasks %}{% if not task.valid %}<li><a href="{{ task.url }}">{{ task.label }}</a>: {{ task.detail }}</li>{% endif %}{% endfor %}</ul>
+  </div>
   <button type="button" class="osw-save-feedback" aria-live="polite" data-save-feedback></button>
   <form method="post" action="{{ product_publish_url }}" data-product-publish data-stop-new="{% if maintenance.unavailable and maintenance.changes %}true{% else %}false{% endif %}">
     {% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}

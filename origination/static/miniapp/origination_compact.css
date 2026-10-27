@@ -144,6 +144,14 @@ body.origination-editor-open .origination-header{display:none!important}
 .camera-capture-dialog p{font-size:.8rem;color:var(--laf-muted)}
 .camera-capture-dialog video{display:block;width:100%;max-height:60dvh;object-fit:contain}
 .camera-capture-dialog footer{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.camera-capture-dialog.identity-camera{overflow-y:auto}
+.identity-camera .evidence-camera-stage{aspect-ratio:auto;height:min(34dvh,320px)}
+.identity-camera .evidence-camera-stage video{height:100%;max-height:100%;object-fit:contain}
+.camera-capture-dialog.identity-camera footer{grid-template-columns:repeat(3,minmax(0,1fr));position:sticky;bottom:0;background:var(--laf-surface);padding:8px 0 0}
+#identity-captured-photos{display:flex;gap:8px;max-height:130px;overflow:auto;margin-top:8px}
+#identity-captured-photos>span{flex:0 0 115px;display:grid;grid-template-columns:1fr 1fr;gap:3px}
+#identity-captured-photos img{grid-column:1/-1;width:100%;height:60px;object-fit:contain}
+#identity-captured-photos button{min-height:36px;padding:3px;font-size:11px}
 .identity-photo-preview{padding:8px;width:min(96vw,800px);height:85vh;background:var(--laf-surface,#fff);color:var(--laf-dark,#17231e);border:0;border-radius:12px}
 .identity-photo-preview::backdrop{background:#000b}
 .identity-photo-preview header{display:flex;gap:8px;align-items:center}
