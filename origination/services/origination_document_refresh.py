@@ -209,7 +209,7 @@ def refresh_documents(*, application_id, actor, expected_revision, request_id, u
                 new_fields.setdefault(field['key'], field)
     application.form_payload, cleared = _retain_answers(application.form_payload, old_fields, new_fields)
     for flag in ('acknowledgement_version', 'identity_copy_policy', 'document_completion_version',
-                 'application_input_fields', 'commercial_contract_version'):
+                 'application_input_fields', 'commercial_contract_version', 'signer_binding_version'):
         if flag in application.schema_snapshot:
             main['schema'][flag] = application.schema_snapshot[flag]
     main['schema']['form_projection_version'] = 2

@@ -53,3 +53,27 @@ reset is required. Back up local configuration before rolling back the new colum
 reverse migration drops that configuration, while existing application snapshots
 and shared financial terms survive. This change does not restore products affected
 by a historical reset; recovery requires examining that reset's audit records.
+
+27 October signing correction: the selected documents define participants; an
+application does not need an additional universal Applicant-plus-JBL signer pair.
+Applicable Main LAF signers remain in initial defaults even when product defaults
+list only staff. Incomplete OTP mappings permit drafting, while actual link
+dispatch still requires the saved signer's valid phone and the existing consent,
+review, authorization and placement checks.
+
+New catalogue applications capture `signer_binding_version=1`. A supporting
+borrower reuses the selected Main LAF borrower's identity and participant, including
+legacy `customer` role aliases. Several Main LAF borrowers require an explicit
+participant choice in the existing Document editor before freezing the packet.
+Other external roles remain independent. The editor does not create duplicate
+borrower identity inputs on supporting PDFs.
+
+Each selected document retains its own signature placement and action. One signer
+reviews the complete frozen packet and completes one session for all their slots;
+a previously signed application is never used as consent for a new document.
+Where raw slot names collide across roles, frozen action keys are qualified and
+retain their original PDF `placement_key`. Rendering uses those captured keys.
+Historical snapshots without the marker retain their original participant/slot
+mapping; existing packages never resolve new live document configuration. Unsigned
+document adoption preserves the captured marker and uses existing revision/link
+invalidation rules. This correction adds no model, migration or deployment setting.

@@ -779,7 +779,7 @@ def validate_signing_placements(application, participants):
                 continue
             document = documents.get(slot.get('document_key', 'primary'))
             config = (document.template_snapshot or {}).get('configuration', {}) if document else application.template_configuration_snapshot or {}
-            key = participant['role'] + '.' + slot['key']
+            key = slot.get('placement_key') or participant['role'] + '.' + slot['key']
             placement = (config.get('signature_overlay_manifest') or {}).get('slots', {}).get(key)
             try:
                 box = placement.get('allowed_area') or placement.get('box') or placement
@@ -798,15 +798,35 @@ def validate_signing_placements(application, participants):
 
 def packet_signers(application: LoanOriginationApplication) -> list[dict[str, Any]]:
     roles: dict[str, dict[str, Any]] = {}
-    documents = application.packet_documents.filter(selected=True)
-    if not documents.exists():
+    documents = list(application.packet_documents.filter(selected=True))
+    if not documents:
         return application.signer_rules_snapshot
+    reuse_main = (application.schema_snapshot or {}).get('signer_binding_version') == 1
+    if reuse_main:
+        documents.sort(key=lambda item: item.document_role != 'primary')
+    main = next((item for item in documents if item.document_role == 'primary'), None)
+    main_borrowers = {(str(rule.get('participant_key') or rule['role'])
+                      if application.signing_policy_snapshot == 'all_required' else rule['role']): rule
+        for rule in (main.signer_rules_snapshot if main else []) or []
+        if isinstance(rule, dict) and rule.get('role') in {'borrower', 'customer'}}
     for document in documents:
-        for raw in document.signer_rules_snapshot or []:
+        for source in document.signer_rules_snapshot or []:
+            raw = deepcopy(source)
             role = str(raw.get('role') or '').strip() if isinstance(raw, dict) else ''
             if not role:
                 continue
             participant_key = str(raw.get('participant_key') or role) if application.signing_policy_snapshot == 'all_required' else role
+            shared = None
+            if reuse_main and document is not main and role in {'borrower', 'customer'}:
+                shared = main_borrowers.get(participant_key)
+                if shared is None and participant_key in {'borrower', 'customer'} and len(main_borrowers) == 1:
+                    participant_key, shared = next(iter(main_borrowers.items()))
+                if shared:
+                    role = shared['role']
+                    raw['role'] = role
+                    raw['identity_fields'] = deepcopy(shared.get('identity_fields') or {})
+                elif main_borrowers:
+                    raw['main_laf_binding_required'] = True
             existing = roles.get(participant_key)
             if existing and existing.get('role') != role:
                 from origination.services.loan_origination import OriginationError
@@ -817,12 +837,14 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             for slot in raw.get('slots') or []:
                 normalized_slot = {'key': slot} if isinstance(slot, str) else dict(slot)
                 normalized_slot.setdefault('document_key', document.document_key)
+                if source['role'] != role:
+                    normalized_slot['placement_key'] = source['role'] + '.' + normalized_slot['key']
                 identity = (normalized_slot.get('document_key'), normalized_slot.get('key'))
                 if not any((item.get('document_key'), item.get('key')) == identity for item in slots if isinstance(item, dict)):
                     slots.append(normalized_slot)
             resolved['slots'] = slots
             bindings = raw.get('identity_fields') if isinstance(raw.get('identity_fields'), dict) else {}
-            context = document_context(application, document)
+            context = document_context(application, main if shared else document)
             identity = dict(existing.get('identity') or {}) if existing else {}
             from origination.services.origination_value_contracts import enabled
             if enabled(application.schema_snapshot):
@@ -871,4 +893,26 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
         participant['applicable'] = applicable
         if applicable or application.signing_policy_snapshot == 'all_required':
             participants.append(participant)
+    if not reuse_main:
+        return participants
+    # Actions are keyed by document and slot, while PDF placements also include the role.
+    counts = {}
+    for participant in participants:
+        for slot in participant.get('slots') or []:
+            identity = (slot.get('document_key', 'primary'), slot['key'])
+            counts[identity] = counts.get(identity, 0) + 1
+    for participant in participants:
+        replacements = {}
+        for slot in participant.get('slots') or []:
+            identity = (slot.get('document_key', 'primary'), slot['key'])
+            if counts[identity] > 1:
+                slot.setdefault('placement_key', participant['role'] + '.' + slot['key'])
+                qualified = participant['role'] + '.' + slot['key']
+                replacements[identity] = qualified if len(qualified) <= 80 else 'slot-' + hashlib.sha256(
+                    slot['placement_key'].encode()).hexdigest()[:48]
+        for slot in participant.get('slots') or []:
+            document_key = slot.get('document_key', 'primary')
+            slot['key'] = replacements.get((document_key, slot['key']), slot['key'])
+            if slot.get('signature_key'):
+                slot['signature_key'] = replacements.get((document_key, slot['signature_key']), slot['signature_key'])
     return participants

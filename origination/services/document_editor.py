@@ -28,6 +28,24 @@ def authoring_products():
     ).distinct()
 
 
+def main_laf_signers(document):
+    if document.document_role != 'supporting':
+        return []
+    products = list(document.eligible_products.values_list('pk', flat=True))
+    if document.product_definition_id and document.product_definition.product_version_id:
+        products.append(document.product_definition.product_version.product_id)
+    templates = OriginationDocumentTemplate.objects.filter(document_role='primary', status='active',
+        published_configuration_revision__isnull=False, product_eligibilities__product_id__in=products
+    ).distinct().order_by('name', '-version')
+    choices = {}
+    for template in templates:
+        for rule in template_form_contract(template)[1]:
+            if rule['role'] in {'borrower', 'customer'}:
+                key = str(rule.get('participant_key') or rule['role'])
+                choices.setdefault(key, {'key': key, 'label': rule.get('label') or key.replace('_', ' ').title()})
+    return list(choices.values())
+
+
 def create_document(*, actor, request_id, source, name, role, products, pdf):
     from origination.services.origination_templates import validate_template_pdf, initial_template_configuration
     from origination.services.origination_setup_documents import _upload_reserved_document
@@ -278,7 +296,8 @@ def save_signers(*, document, rules, actor, schema_revision, revision, configura
             if placement in placements:
                 raise ValidationError('Each person needs a distinct signature placement.')
             placements.add(placement)
-        if role not in staff:
+        reuse_main_borrower = document.document_role == 'supporting' and role in {'borrower', 'customer'}
+        if role not in staff and not reuse_main_borrower:
             identity = rule.setdefault('identity_fields', {})
             if not isinstance(identity, dict) or any(
                 not isinstance(value, str) or not value.strip()

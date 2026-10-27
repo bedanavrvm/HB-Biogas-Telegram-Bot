@@ -190,7 +190,7 @@ class OriginationDocumentCatalogueTests(TestCase):
         self.assertTrue(support.product_eligibilities.filter(product=self.product_record).exists())
 
     @override_settings(ORIGINATION_ESIGN_ENABLED=True)
-    def test_published_main_with_unfinished_otp_mapping_can_attach_but_is_not_application_ready(self):
+    def test_published_main_with_unfinished_otp_mapping_allows_drafting_but_not_dispatch(self):
         from origination.services.origination_setup_documents import select_documents as attach, document_readiness
         document = self._template(family='unfinished_main', name='Unfinished Main LAF', eligible=False)
         document.signer_rules = [{'role': 'borrower', 'required': True,
@@ -199,7 +199,14 @@ class OriginationDocumentCatalogueTests(TestCase):
         actor = get_user_model().objects.create_superuser('unfinished-main-editor', password='test-only')
         attach(definition=self.definition, templates=[document], actor=actor, request_id='unfinished-main')
         self.assertEqual(document_readiness(self.definition)[1], [])
-        self.assertFalse(catalogue_for_product(self.definition)['ready'])
+        catalogue = catalogue_for_product(self.definition)
+        self.assertTrue(catalogue['ready'])
+        application, _ = create_application(product_key=self.definition.product_key, officer=self.officer,
+            branch=self.branch.name, client_request_id='unfinished-main-draft', primary_template_id=document.pk,
+            expected_catalogue_revision=catalogue['catalogue_revision'])
+        from origination.services.origination_documents import packet_signers
+        self.assertEqual(application.status, 'draft')
+        self.assertFalse(packet_signers(application)[0]['dispatch_ready'])
 
     def test_published_support_with_unfinished_meaning_can_attach_without_hiding_known_type_conflicts(self):
         from origination.services.origination_setup_documents import select_documents as attach, document_readiness

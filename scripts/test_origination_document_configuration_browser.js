@@ -22,9 +22,12 @@ const path = require('node:path');
     await page.locator('#document-signers').evaluate(element => {element.open=true;});
     await expect(page.locator('body')).not.toContainText('Review signer: asset owner');
     await page.locator('[data-signer-edit="0"]').click();
-    const phone = page.locator('[data-signer-identity="phone"]').first();
-    await expect(phone).toHaveValue('synthetic_main_phone');
-    await expect(phone.locator('option:checked')).toContainText('from application/Main LAF');
+    const borrower = page.locator('[data-signer-participant="0"]');
+    await expect(borrower).toHaveValue('borrower');
+    await expect(borrower.locator('option:checked')).toContainText('Application borrower (Main LAF)');
+    await expect(page.locator('[data-signer-identity="phone"]')).toHaveCount(0);
+    await borrower.selectOption('joint_borrower');
+    await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
     await page.locator('[data-nav-action="select"][data-kind="signature"][data-key="officer.signature"]').click();
     await page.locator('#calibration-delete').click();
     await expect(page.locator('#calibration-save-state')).toHaveText('Saved');
@@ -39,12 +42,20 @@ const path = require('node:path');
     await page.locator('#document-signers').evaluate(element => {element.open=true;});
     await expect(page.locator('#document-signer-list .document-signer-row')).toHaveCount(1);
     await page.locator('[data-signer-edit="0"]').click();
-    await expect(page.locator('[data-signer-identity="phone"]').first()).toHaveValue('synthetic_main_phone');
+    await expect(page.locator('[data-signer-participant="0"]')).toHaveValue('joint_borrower');
+    await expect(page.locator('[data-signer-identity="phone"]')).toHaveCount(0);
     for (const width of [390, 1280]) {
       await page.setViewportSize({width,height:900});
+      if (width < 740) await page.locator('#cal-mobile-fields').click();
+      await page.locator('[data-signer-participant="0"]').scrollIntoViewIfNeeded();
+      await expect(page.locator('[data-signer-participant="0"]')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({path:path.join(output,`document-contract-${width}.png`),fullPage:true});
     }
+    await page.goto(new URL('/admin/origination/originationdocumenttemplate/', target).href);
+    await expect(page.locator('th.column-version')).toContainText('Version');
+    await expect(page.locator('td.field-version')).toHaveCount(2);
+    await page.screenshot({path:path.join(output,'document-template-versions.png'),fullPage:true});
     expect(errors).toEqual([]);
     console.log('PASS: shared Main LAF identity retained, last officer signature removes obligation, later autosave and reload preserve changes.');
   } finally {

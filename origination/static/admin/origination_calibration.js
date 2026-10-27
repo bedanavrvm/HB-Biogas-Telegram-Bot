@@ -42,6 +42,7 @@
   let pendingWriteKeys = {};
   let serverReadiness = {tasks: [], can_publish: false};
   let signerRules = [], signerRoles = [], signersDirty = false;
+  let documentRole = '', mainLafSigners = [];
   let detailsDirty = false, documentDetails = {};
   let autosaveTimer = null, autosaveFailed = false, armedPlacement = null;
   const TAP_DISTANCE = 10;
@@ -341,6 +342,7 @@
       signatureCatalog = state.signature_slots || [];
       serverReadiness = state.readiness || serverReadiness;
       signerRules = state.signers || []; signerRoles = state.signer_roles || [];
+      documentRole = state.document_role; mainLafSigners = state.main_laf_signers || [];
       renderSigners();
       documentDetails=state.details || {};
       $('document-name').value=documentDetails.name || '';
@@ -1676,6 +1678,12 @@
     row?.scrollIntoView({block:'nearest'}); row?.focus();
   }
   function signerIdentityMarkup(rule, index) {
+    if (documentRole === 'supporting' && ['borrower','customer'].includes(rule.role)) {
+      const selected = rule.participant_key || rule.role;
+      const options = [{key:rule.role,label:'Application borrower (Main LAF)'}, ...mainLafSigners.filter(item => !['borrower','customer'].includes(item.key))];
+      if (!options.some(item => item.key === selected)) options.push({key:selected,label:selected.replaceAll('_',' ')});
+      return `<label>Main LAF borrower<select data-signer-participant="${index}" ${published ? 'disabled' : ''}>${options.map(item => `<option value="${escapeHtml(item.key)}" ${item.key === selected ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}</select></label><p class="help">Uses this person's details from the selected Main LAF. This PDF keeps its own signature placements. If the Main LAF has several borrowers, choose the person who signs here.</p>`;
+    }
     if (!rule.identity_fields) return '<p class="help">Staff identity uses the selected staff account.</p>';
     return [['name','Name field','text'],['phone','OTP phone field','phone'],['national_id','ID field','national_id']].map(([kind,label,type]) => {
       const selected = rule.identity_fields[kind];
@@ -1712,6 +1720,9 @@
     event.target.value='';renderSigners();signerChanged();
   });
   $('document-signer-list')?.addEventListener('change',event => {
+    if(event.target.hasAttribute('data-signer-participant')) {
+      signerRules[Number(event.target.dataset.signerParticipant)].participant_key = event.target.value;
+    }
     if(event.target.hasAttribute('data-signer-identity')) {
       const rule = signerRules[Number(event.target.dataset.signerIndex)];
       rule.identity_fields[event.target.dataset.signerIdentity] = event.target.value || null;
@@ -1767,6 +1778,7 @@
           const data=await jsonRequest(app.dataset.signersUrl,{method:'POST',body:JSON.stringify({signers:rules,details,configuration:snapshot,schema_revision:schemaRevision,revision,client_request_id:key})});
           revision=data.revision;schemaRevision=data.schema_revision;signerRules=data.signers;
           signatureCatalog=data.signature_slots;contextKeys=data.context_keys;formSections=data.form_sections;
+          documentRole=data.document_role;mainLafSigners=data.main_laf_signers || [];
           serverReadiness=data.readiness;sharedReview=data.shared_review;signersDirty=false;detailsDirty=false;
           documentDetails=data.details;$('document-name').value=data.details.name;
           if ($('document-shared-values')) {

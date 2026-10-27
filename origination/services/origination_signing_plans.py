@@ -35,7 +35,7 @@ def default_choices(application):
                                 else choices.get(key, {}).get('staff_user_id')))
             for key, value in available.items()
             if value.get('required') or any(slot.get('required') for slot in value.get('slots', []))
-                or key in choices or (not defaults and value.get('applicable', True))]
+                or key in choices or value.get('applicable', True)]
 
 
 def _validate_choices(application, choices):
@@ -50,10 +50,7 @@ def _validate_choices(application, choices):
         raise OriginationError('Each signer must use a distinct participant defined by the selected documents.')
     if any((value.get('required') or any(slot.get('required') for slot in value.get('slots', []))) and key not in keys for key, value in available.items()):
         raise OriginationError('A required document signer cannot be removed. Choose a compatible document instead.')
-    roles = [available[key]['role'] for key in keys]
-    if not any(role in {'borrower', 'customer'} for role in roles) or not any(role in STAFF_SIGNER_ROLES for role in roles):
-        raise OriginationError('Include an applicant and at least one JBL signer.')
-    used_slots, staff_ids = set(), set()
+    used_slots, used_placements, staff_ids = set(), set(), set()
     result = []
     for choice in choices:
         key = str(choice['participant_key'])
@@ -64,9 +61,11 @@ def _validate_choices(application, choices):
             raise OriginationError('Every participant needs a signature placement in the document editor.')
         for slot in slots:
             identity = (slot.get('document_key', 'primary'), slot['key'])
-            if identity in used_slots:
+            placement = (identity[0], slot.get('placement_key') or role + '.' + slot['key'])
+            if identity in used_slots or placement in used_placements:
                 raise OriginationError('Two people cannot share the same signature placement.')
             used_slots.add(identity)
+            used_placements.add(placement)
         staff = None
         if choice.get('staff_user_id'):
             if role not in STAFF_SIGNER_ROLES:
@@ -197,6 +196,8 @@ def freeze_plan(application):
     for key in ids:
         row = rows[key]
         config = deepcopy(available[row.participant_key])
+        if config.get('main_laf_binding_required'):
+            raise OriginationError('Choose which Main LAF borrower signs this supporting document in the Document editor before sending.')
         original = row.configuration
         if config.get('slots') != original.get('slots') or config['role'] != row.role:
             raise OriginationError('The selected documents changed. Update the signers in Admin.')

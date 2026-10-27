@@ -476,6 +476,8 @@ def render_test_package(package: OriginationSigningPackage) -> bytes:
     content = frozen_unsigned_package_content(package)
     manifest = package.document_manifest_snapshot or []
     actions = list(package.actions.select_related('stamp_asset').all())
+    placement_keys = {(slot['document_key'], slot['key']): slot.get('placement_key') or slot['role'] + '.' + slot['key']
+                      for slot in _slot_catalog(package)}
     actions_by_document: dict[str, list[OriginationSigningAction]] = {}
     for action in actions:
         actions_by_document.setdefault(action.document_key, []).append(action)
@@ -485,7 +487,7 @@ def render_test_package(package: OriginationSigningPackage) -> bytes:
         config = ((document.get('template') or {}).get('configuration') or {})
         slots = ((config.get('signature_overlay_manifest') or {}).get('slots') or {})
         for action in actions_by_document.get(str(document.get('key') or ''), []):
-            spec = slots.get(f'{action.signer_role}.{action.slot_key}')
+            spec = slots.get(placement_keys.get((action.document_key, action.slot_key), f'{action.signer_role}.{action.slot_key}'))
             if isinstance(spec, dict):
                 page_specs.setdefault(offset + int(spec.get('page_number') or 1), []).append((spec, action))
         offset += int(document.get('page_count') or 0)
@@ -510,6 +512,8 @@ def render_verified_package(package: OriginationSigningPackage) -> bytes:
     actions = list(package.actions.filter(
         mode=OriginationSigningAction.MODE_VERIFIED, invalidation__isnull=True,
     ).select_related('stamp_asset'))
+    placement_keys = {(slot['document_key'], slot['key']): slot.get('placement_key') or slot['role'] + '.' + slot['key']
+                      for slot in _slot_catalog(package)}
     actions_by_document: dict[str, list[OriginationSigningAction]] = {}
     for action in actions:
         actions_by_document.setdefault(action.document_key, []).append(action)
@@ -519,7 +523,7 @@ def render_verified_package(package: OriginationSigningPackage) -> bytes:
         config = ((document.get('template') or {}).get('configuration') or {})
         slots = ((config.get('signature_overlay_manifest') or {}).get('slots') or {})
         for action in actions_by_document.get(str(document.get('key') or ''), []):
-            spec = slots.get(f'{action.signer_role}.{action.slot_key}')
+            spec = slots.get(placement_keys.get((action.document_key, action.slot_key), f'{action.signer_role}.{action.slot_key}'))
             if isinstance(spec, dict):
                 page_specs.setdefault(offset + int(spec.get('page_number') or 1), []).append((spec, action))
         offset += int(document.get('page_count') or 0)

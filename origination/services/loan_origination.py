@@ -319,6 +319,7 @@ def validate_product_form_contract(
         )
         if (
             getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)
+            and not allow_shared_identity
             and rule.get('required', False) and has_signature
             and str(rule.get('role') or '') not in {
                 'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager',
@@ -1361,6 +1362,7 @@ def create_application(
             schema_snapshot['identity_copy_policy'] = 1
             if catalogue_selection:
                 schema_snapshot['document_completion_version'] = 1
+                schema_snapshot['signer_binding_version'] = 1
                 from origination.services.origination_commercial_terms import application_loan_inputs
                 schema_snapshot['application_input_fields'] = application_loan_inputs()
                 schema_snapshot['commercial_contract_version'] = 2

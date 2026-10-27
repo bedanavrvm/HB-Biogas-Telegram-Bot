@@ -1371,7 +1371,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
-    list_display = ('name', 'document_role', 'eligible_products_summary', 'status', 'calibrate_link', 'page_count', 'updated_at')
+    list_display = ('name', 'version', 'document_role', 'eligible_products_summary', 'status', 'calibrate_link', 'page_count', 'updated_at')
     list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type', 'product_definition')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates', 'create_editable_selected_template')
@@ -1797,7 +1797,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 samples[key] = field['sample_value']
                 samples.setdefault('_canonical_values', {})[key] = field['sample_canonical_value']
         from origination.services.origination_setup_documents import shared_review
-        from origination.services.document_editor import readiness, authoring_products
+        from origination.services.document_editor import readiness, authoring_products, main_laf_signers
         from origination.services.loan_origination import AUTHORING_SIGNER_ROLE_CATALOG as SIGNER_ROLE_CATALOG
         return JsonResponse({
             'ok': True,
@@ -1810,6 +1810,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                        'shared_values':fields.get('value_contract_version') == 2},
             'product_choices':list(authoring_products().order_by('name').values('id','name')),
             'signers': template_form_contract(obj)[1],
+            'document_role': obj.document_role,
+            'main_laf_signers': main_laf_signers(obj),
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,

@@ -8,7 +8,7 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from origination.models import OriginationDocumentTemplate, OriginationDocumentProductEligibility
 from core.models import Product
-from origination.services.document_editor import require_editor, readiness, save_signers, copy_document, authoring_products
+from origination.services.document_editor import require_editor, readiness, save_signers, copy_document, authoring_products, main_laf_signers
 
 
 def editor_data(document):
@@ -35,6 +35,7 @@ def editor_data(document):
     catalogue = annotate_field_samples(catalogue)
     return {'ok':True, 'readiness':data, 'schema_revision':data['schema_revision'], 'revision':data['revision'],
         'signers':data['signers'], 'context_keys':catalogue,
+        'document_role':document.document_role, 'main_laf_signers':main_laf_signers(document),
         'signature_slots':list(_expected_signature_slots(document.product_definition, document).values()),
         'form_sections':data['form_schema'].get('sections', []), 'shared_review':shared_review(document),
         'configuration':latest.configuration if latest else document.placement_config,

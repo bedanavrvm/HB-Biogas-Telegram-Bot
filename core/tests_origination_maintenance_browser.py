@@ -140,12 +140,21 @@ class OriginationMaintenanceBrowserTests(StaticLiveServerTestCase):
             'page_number': 1, 'box': {'x': 30, 'y': 100 + index * 60, 'width': 120, 'height': 30}}
             for index, role in enumerate(['borrower', 'officer'])}
         pdf = synthetic_pdf()
+        from core.models import Product
+        from origination import tests_configuration_isolation as packet_fixtures
+        self.actor, self.pdf = self.superuser, pdf
+        self.digest = __import__('hashlib').sha256(pdf).hexdigest()
+        self.product = Product.objects.create(code='synthetic_shared_main', name='Synthetic shared Main LAF')
+        packet_fixtures.SelectedPacketTests.template(self, 'synthetic-main-borrower', [
+            {'key': 'synthetic_main_name', 'type': 'text'}, {'key': 'synthetic_main_phone', 'type': 'phone'}],
+            [{**rules[0], 'participant_key': 'joint_borrower', 'label': 'Joint borrower'}])
         document = OriginationDocumentTemplate.objects.create(document_type='synthetic-shared-visit',
             version=1, name='Synthetic Home visit', document_role='supporting', document_key='home_visit',
             status='ready', form_schema={'fields': [], 'sections': [], 'required_signer_roles': ['asset_owner', 'officer']},
             signer_rules=rules, drive_file_id='synthetic', source_filename='synthetic.pdf',
             page_count=1, source_byte_size=len(pdf), source_sha256=__import__('hashlib').sha256(pdf).hexdigest(),
             placement_config=configuration, created_by=self.superuser)
+        document.product_eligibilities.create(product=self.product, created_by=self.superuser)
         save_calibration_draft(template=document, configuration=configuration, actor=self.superuser,
             expected_revision=0, client_request_id='synthetic-contract-initial')
         output = Path(settings.BASE_DIR) / 'test-results/origination-configuration-browser'
@@ -159,4 +168,5 @@ class OriginationMaintenanceBrowserTests(StaticLiveServerTestCase):
         document.refresh_from_db()
         self.assertEqual([rule['role'] for rule in document.signer_rules], ['borrower'])
         self.assertEqual(template_form_contract(document)[1][0]['identity_fields']['phone'], 'synthetic_main_phone')
+        self.assertEqual(document.signer_rules[0]['participant_key'], 'joint_borrower')
         self.assertEqual(document.form_schema['fields'], [])

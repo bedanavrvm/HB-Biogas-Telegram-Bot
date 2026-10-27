@@ -809,9 +809,9 @@
     },
     {
       "path": "origination/static/admin/origination_calibration.js",
-      "sha256": "10ce359771818ee17e6321fbd8a9c0e9b9c8e14d336217aa8317082ce4a7b1d5",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
-      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+      "sha256": "4383acad9db7b0c7e646b80b13808dd3cc5228edcf132070049607b69b7b4c18",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-main-laf-shared-signing.md",
+      "reason": "User-requested Main LAF borrower reuse uses the existing Admin signer select and autosave. Real-shell synthetic browser evidence covers selection, reload and template versions. No baseline, token or Phase 6 changes."
     },
     {
       "path": "origination/templates/admin/core/origination_setup/detail.html",
@@ -827,9 +827,9 @@
     },
     {
       "path": "origination/templates/admin/core/originationdocumenttemplate/calibrate.html",
-      "sha256": "9d04e60a72f5c15685397af716338ed425becd41cb5a94e59ed71a2974056b31",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-origination-configuration-isolation.md",
-      "reason": "User-approved functional correction using existing Admin form, identity select, autosave and confirmation patterns. Synthetic real-shell browser evidence is recorded; no visual baseline, tokens, browser activation or Phase 6 migration changes."
+      "sha256": "cc57d7c7b242718503fb9907c3af80c3d8b31bb795ad7d98d1e554fbd70eb32c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-main-laf-shared-signing.md",
+      "reason": "Cache refresh for the user-requested shared-borrower correction; existing Admin layout retained. Real-shell synthetic browser evidence recorded. No baseline, token or Phase 6 changes."
     }
   ],
   "source_roots": [
