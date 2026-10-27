@@ -13,7 +13,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import BinaryField, F, Func, Q
 from django.utils import timezone
 
 from core.models import ComplianceAuditEvent, IntegrationOperation
@@ -67,7 +67,25 @@ def _key(record):
     return (record._meta.label, str(record.pk))
 
 
-def _owner(record):
+def _records(model):
+    # Keep frozen PDFs out of the retained graph; fingerprint them one at a time.
+    fields = [field for field in model._meta.concrete_fields if isinstance(field, BinaryField)]
+    queryset = model._base_manager.defer(*(field.name for field in fields))
+    if connection.vendor == 'postgresql':
+        # Native sha256(bytea) avoids transferring whole PDFs to the web worker.
+        queryset = queryset.annotate(**{f'_deletion_sha256_{field.attname}':
+            Func(F(field.name), function='sha256', output_field=BinaryField()) for field in fields})
+    return queryset
+
+
+def _group_ids(keys):
+    grouped = defaultdict(list)
+    for label, pk in sorted(keys):
+        grouped[label].append(pk)
+    return grouped
+
+
+def _owner(record, known=None):
     """Promote explicitly selected evidence to its integrity-owning workspace."""
     seen = set()
     while _key(record) not in seen:
@@ -78,7 +96,11 @@ def _owner(record):
             field = 'requisition_batch' if record.requisition_batch_id else 'payment_document'
         if not field or not getattr(record, field + '_id', None):
             return record
-        record = getattr(record, field)
+        target = record._meta.get_field(field).related_model
+        key = (target._meta.label, str(getattr(record, field + '_id')))
+        record = known.get(key) if known is not None and key in known else _records(target).get(pk=key[1])
+        if known is not None:
+            known[key] = record
     raise DeletionError('An evidence ownership cycle needs review.')
 
 
@@ -147,40 +169,47 @@ def _extra_children(record):
 def _closure(roots):
     rows, retain, unlink, blockers = {}, set(), {}, set()
     queue = list(roots)
+    known = {_key(record): record for record in queue}
     while queue:
-        record = queue.pop()
-        key = _key(record)
-        if key in rows:
-            continue
-        rows[key] = record
+        current = defaultdict(dict)
+        for record in queue:
+            key = _key(record)
+            if key not in rows:
+                rows[key] = known[key] = record
+                current[key[0]][str(record.pk)] = record
         if len(rows) > MAX_RECORDS:
             raise DeletionError('This selection affects more than 10,000 records. Use smaller selections.')
-        queue.extend(_extra_children(record))
-        for relation in record._meta.related_objects:
-            if relation.many_to_many:
-                continue  # The explicit through model below owns this link.
-            target = relation.related_model
-            field = relation.field
-            edge = f'{target._meta.label}.{field.name}'
-            children = target._base_manager.filter(**{field.attname: record.pk})
-            if edge in UNLINK:
-                for child in children:
-                    unlink[(_key(child), field.name)] = None
-                continue
-            if target._meta.label in {'requisitions.OrderNumberClaim', 'payments.PaymentNumberClaim'}:
-                for child in children:
-                    unlink[(_key(child), field.name)] = None
-                    unlink[(_key(child), 'retired')] = True
-                continue
-            if target._meta.label in REGISTRY:
-                for child in children:
-                    # Evidence is never orphaned by a deletion of a different FK.
-                    queue.append(_owner(child) if REGISTRY[target._meta.label].kind == 'evidence' else child)
-                    queue.append(child)
-            elif children.exists():
-                if target._meta.label in RETAIN_REFERENCERS:
-                    retain.add(key)
-                else:
+        queue = []
+        for label, parents in current.items():
+            for record in parents.values():
+                queue.extend(_extra_children(record))
+            for relation in apps.get_model(label)._meta.related_objects:
+                if relation.many_to_many:
+                    continue  # The explicit through model below owns this link.
+                target = relation.related_model
+                field = relation.field
+                edge = f'{target._meta.label}.{field.name}'
+                children = _records(target).filter(**{field.attname + '__in': parents})
+                if edge in UNLINK:
+                    for child in children:
+                        unlink[(_key(child), field.name)] = None
+                    continue
+                if target._meta.label in {'requisitions.OrderNumberClaim', 'payments.PaymentNumberClaim'}:
+                    for child in children:
+                        unlink[(_key(child), field.name)] = None
+                        unlink[(_key(child), 'retired')] = True
+                    continue
+                if target._meta.label in REGISTRY:
+                    for child in children.iterator(chunk_size=200):
+                        if _key(child) not in known and len(known) >= MAX_RECORDS:
+                            raise DeletionError('This selection affects more than 10,000 records. Use smaller selections.')
+                        known.setdefault(_key(child), child)
+                        # Evidence retains its reviewed integrity owner.
+                        queue.append(_owner(child, known) if REGISTRY[target._meta.label].kind == 'evidence' else child)
+                        queue.append(child)
+                elif target._meta.label in RETAIN_REFERENCERS:
+                    retain.update((label, str(pk)) for pk in children.values_list(field.attname, flat=True))
+                elif children.exists():
                     blockers.add(f'{target._meta.verbose_name_plural}: relationship not reviewed for testing deletion.')
     return rows, retain, unlink, blockers
 
@@ -189,8 +218,15 @@ def _row_fingerprint(record):
     # Bind every concrete value, including retained bytes, without putting them
     # in the confirmation token, compliance ledger or an operations payload.
     values = {}
+    deferred = record.get_deferred_fields()
     for field in record._meta.concrete_fields:
-        value = getattr(record, field.attname)
+        digest_name = f'_deletion_sha256_{field.attname}'
+        if isinstance(field, BinaryField) and hasattr(record, digest_name):
+            checksum = getattr(record, digest_name)
+            value = bytes(checksum).hex() if checksum is not None else None
+        else:
+            value = (record.__class__._base_manager.filter(pk=record.pk).values_list(field.attname, flat=True).get()
+                     if field.attname in deferred else getattr(record, field.attname))
         if isinstance(value, (bytes, memoryview)):
             value = hashlib.sha256(bytes(value)).hexdigest()
         values[field.attname] = value
@@ -203,7 +239,7 @@ def preview_selection(*, model_label, ids, actor, mode=KEEP):
     selected = _ids(model, ids)
     if mode not in {KEEP, CASCADE}:
         raise DeletionError('Choose whether to keep or delete linked records.')
-    objects = list(model._base_manager.filter(pk__in=selected).order_by('pk'))
+    objects = list(_records(model).filter(pk__in=selected).order_by('pk'))
     if len(objects) != len(selected):
         raise SelectionChanged('The selection changed. Refresh the list.')
     roots = [_owner(item) for item in objects]
@@ -233,7 +269,7 @@ def preview_selection(*, model_label, ids, actor, mode=KEEP):
     for (key, field_name), value in unlink.items():
         if key in deleted:
             continue
-        record = apps.get_model(key[0])._base_manager.get(pk=key[1])
+        record = _records(apps.get_model(key[0])).get(pk=key[1])
         # Number retirement follows removal of its workspace, never a KEEP preview.
         field = record._meta.get_field('batch' if field_name == 'retired' else field_name)
         if (field.related_model._meta.label, str(getattr(record, field.attname))) in deleted:
@@ -248,7 +284,7 @@ def preview_selection(*, model_label, ids, actor, mode=KEEP):
                   'unlink': [(k, v) for k, v in sorted(unlink.items())],
                   'retire': sorted(retire.items()), 'sheets': targets,
                   'facts': [(key, _row_fingerprint(row)) for key, row in sorted(rows.items())]}
-    serialized['surviving_facts'] = [(key, _row_fingerprint(apps.get_model(key[0])._base_manager.get(pk=key[1])))
+    serialized['surviving_facts'] = [(key, _row_fingerprint(_records(apps.get_model(key[0])).get(pk=key[1])))
                                    for key in sorted({key for key, field in unlink})]
     groups = {}
     for name, keys in (('deleted', deleted), ('retained', retained), ('unlinked', {key[0] for key in unlink})):
@@ -271,31 +307,40 @@ def _delete_rows(plan):
     They do not use CASCADE to enlarge the disclosed set.
     """
     pending = set(plan['deleted'])
+    updates = defaultdict(list)
+    dependencies = defaultdict(set)
+    incoming = defaultdict(int)
     for key in sorted(pending):
         record = plan['rows'][key]
         fields = {}
         for field in record._meta.fields:
-            if field.is_relation and field.null:
+            if field.is_relation:
                 target = (field.related_model._meta.label, str(getattr(record, field.attname)))
                 if target in pending:
-                    fields[field.attname] = None
+                    if field.null:
+                        fields[field.attname] = None
+                    elif target != key:
+                        dependencies[key].add(target)
+        for target in dependencies[key]:
+            incoming[target] += 1
         if fields:
-            record.__class__._base_manager.filter(pk=record.pk).update(**fields)
+            updates[(key[0], tuple(sorted(fields)))].append(record.pk)
+    for (label, fields), pks in updates.items():
+        apps.get_model(label)._base_manager.filter(pk__in=pks).update(**dict.fromkeys(fields))
+    leaves = {key for key in pending if not incoming[key]}
     while pending:
-        parents = set()
-        for key in pending:
-            record = plan['rows'][key]
-            for field in record._meta.fields:
-                if field.is_relation and not field.null:
-                    target = (field.related_model._meta.label, str(getattr(record, field.attname)))
-                    if target in pending and target != key:
-                        parents.add(target)
-        leaves = pending - parents
         if not leaves:
             raise DeletionError('A non-null historical dependency cycle needs review. Nothing was deleted.')
-        for label, pk in sorted(leaves):
-            apps.get_model(label)._base_manager.filter(pk=pk)._raw_delete('default')
+        for label, pks in _group_ids(leaves).items():
+            apps.get_model(label)._base_manager.filter(pk__in=pks)._raw_delete('default')
         pending -= leaves
+        next_leaves = set()
+        for key in leaves:
+            for target in dependencies[key]:
+                incoming[target] -= 1
+                if not incoming[target]:
+                    next_leaves.add(target)
+        leaves = next_leaves
 
 
 @transaction.atomic
@@ -317,8 +362,10 @@ def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
         return {**previous.after_values, 'replayed': True}
     plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode)
     lock_keys = set(plan['rows']) | {key[0] for key in plan['unlink']}
-    for label, pk in sorted(lock_keys):
-        apps.get_model(label)._base_manager.select_for_update(of=('self',)).get(pk=pk)
+    for label, pks in _group_ids(lock_keys).items():
+        list(apps.get_model(label)._base_manager.filter(pk__in=pks).order_by('pk')
+             .select_for_update(of=('self',)).values_list('pk', flat=True))
+    del plan
     plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode)
     if plan['fingerprint'] != fingerprint:
         raise SelectionChanged('Related records changed. Review the updated impact before confirming again.')
@@ -337,11 +384,13 @@ def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
             source_model='MiniAppDeletion', source_id=identity, request_id=request_id, requested_by=actor,
             operation_payload=target, metadata={'target': target}, max_attempts=100)
         operation_ids.append(str(operation.pk))
-    for label, pk in sorted(plan['deleted']):
-        IntegrationOperation.objects.get_or_create(deduplication_key=f'miniapp-deleted:{label}:{pk}', defaults={
-            'integration': IntegrationOperation.INTEGRATION_GOOGLE_SHEETS, 'operation_type': MARKER,
-            'source_model': label, 'source_id': pk, 'status': IntegrationOperation.STATUS_SUCCEEDED,
-            'requested_by': actor, 'completed_at': timezone.now()})
+    completed_at = timezone.now()
+    IntegrationOperation.objects.bulk_create([
+        IntegrationOperation(deduplication_key=f'miniapp-deleted:{label}:{pk}',
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS, operation_type=MARKER,
+            source_model=label, source_id=pk, status=IntegrationOperation.STATUS_SUCCEEDED,
+            requested_by=actor, completed_at=completed_at)
+        for label, pk in sorted(plan['deleted'])], ignore_conflicts=True, batch_size=250)
     _delete_rows(plan)
     result = {'deleted': sum(group['count'] for group in plan['groups']['deleted']),
               'retained': sum(group['count'] for group in plan['groups']['retained']),
@@ -359,8 +408,8 @@ def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
 def _cancel_work(plan):
     # Exact model + identity; neither a group-wide nor a fuzzy name cancellation.
     selection = Q(pk__in=[])
-    for label, pk in plan['deleted']:
-        selection |= Q(source_model__in=[label, label.split('.')[-1]], source_id=pk)
+    for label, pks in _group_ids(plan['deleted']).items():
+        selection |= Q(source_model__in=[label, label.split('.')[-1]], source_id__in=pks)
     IntegrationOperation.objects.filter(selection).exclude(
         status=IntegrationOperation.STATUS_SUCCEEDED).update(status=IntegrationOperation.STATUS_DEAD_LETTER,
         last_error_code='source_deleted', last_error='Source removed by confirmed testing deletion.', next_retry_at=None)

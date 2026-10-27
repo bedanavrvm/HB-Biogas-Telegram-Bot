@@ -1,5 +1,6 @@
 """One explicit, manifest-bound testing action shared by reviewed model admins."""
 import logging
+import time
 import uuid
 
 from django.conf import settings
@@ -31,17 +32,23 @@ class TestingDeletionMixin:
     @admin.action(description='Delete selected test records…')
     def delete_testing_selection(self, request, queryset):
         authorize(request.user)
+        started = time.perf_counter()
         label = self.model._meta.label
         ids = sorted(str(pk) for pk in queryset.values_list('pk', flat=True))
         mode = request.POST.get('deletion_mode', 'keep')
         error = ''
+        logger.info('Testing deletion requested: model=%s actor_id=%s selected=%s confirm=%s',
+                    label, request.user.pk, len(ids), bool(request.POST.get('confirm_deletion')))
         if request.POST.get('confirm_deletion'):
             try:
                 bound = signing.loads(request.POST.get('deletion_token', ''), salt=SALT, max_age=3600)
             except signing.BadSignature as exc:
                 raise PermissionDenied('The confirmation expired. Select the records again.') from exc
-            if bound['actor'] != request.user.pk or bound['model'] != label or bound['ids'] != ids:
+            submitted = sorted(set(request.POST.getlist(ACTION_CHECKBOX_NAME)))
+            if bound['actor'] != request.user.pk or bound['model'] != label or bound['ids'] != submitted:
                 raise PermissionDenied('The confirmation does not match this selection.')
+            # The signed selection survives a successful delete whose response was lost.
+            ids = bound['ids']
             if bound['mode'] != mode:
                 error = 'The deletion option changed. Review the updated impact and confirm again.'
             else:
@@ -54,6 +61,10 @@ class TestingDeletionMixin:
                     logger.exception('Testing deletion rolled back: model=%s actor_id=%s', label, request.user.pk)
                     error = 'Nothing was deleted. The records could not be safely removed.'
                 else:
+                    logger.info('Testing deletion completed: model=%s actor_id=%s request_id=%s '
+                                'deleted=%s retained=%s replayed=%s duration_ms=%.1f',
+                                label, request.user.pk, bound['request_id'], result['deleted'], result['retained'],
+                                result.get('replayed', False), (time.perf_counter() - started) * 1000)
                     self.message_user(request,
                         f"Deleted {result['deleted']} record(s); kept {result['retained']} linked record(s). "
                         f"Sheet cleanup: {len(result['sheet_operations'])} queued update(s). Drive files kept.", messages.SUCCESS)
@@ -63,6 +74,8 @@ class TestingDeletionMixin:
         except DeletionError as exc:
             self.message_user(request, str(exc), messages.ERROR)
             return None
+        logger.info('Testing deletion preview ready: model=%s actor_id=%s selected=%s affected=%s duration_ms=%.1f',
+                    label, request.user.pk, len(ids), len(plan['rows']), (time.perf_counter() - started) * 1000)
         token = signing.dumps({'actor': request.user.pk, 'model': label, 'ids': ids, 'mode': mode,
                                'fingerprint': plan['fingerprint'], 'request_id': str(uuid.uuid4())}, salt=SALT)
         return TemplateResponse(request, 'admin/core/miniapp_delete_selection.html', {

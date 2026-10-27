@@ -35,6 +35,24 @@ Historical aggregate metrics and captured recognition snapshots are not rewritte
 
 ## Release and rollback
 
+27 October 2026 resource correction: relationship traversal and row locks are
+batched by model; explicit nullable-edge updates, tombstones, cancellation matches
+and child-before-parent deletes are batched within the same reviewed manifest.
+The retained graph defers binary fields. PostgreSQL computes native SHA-256 over
+the actual stored bytes; the local SQLite fallback reads one deferred value at a
+time. Fingerprints remain identical to full-row fingerprints, including changes
+to frozen or pending signed documents. The graph limit is checked while streaming
+related records. No deletion registry, retention policy or access grant is widened.
+
+Admin confirmation retries use the original actor/model/selection-bound token
+even after the selected rows disappear. The service returns the independently
+audited result for the same request; changed selections still fail closed. Safe
+start/preview/completion timing logs contain counts and request references, not
+customer payloads or confirmation tokens. No new migration, setting, dependency,
+background deletion worker or timeout increase is introduced. Local resource
+evidence and production-diagnosis limits are in
+`docs/runbooks/selected-deletion-502.md`.
+
 Default `MINIAPP_TEST_DELETION_ENABLED=False`. Enable only intentionally for testing,
 back up first and review the confirmation. The existing narrower permanent-product
 action retains its separate gate and policy. Apply payments.0008 and requisitions.0005
