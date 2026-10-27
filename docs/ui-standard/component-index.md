@@ -1,5 +1,11 @@
 # Component index and migration hold
 
+The 27 October Origination header removal action and document-specific setup
+diagnostics reuse existing header icons, confirmation sheets, Admin task links
+and autosave. Source and synthetic behaviour evidence are recorded in
+`reviews/2026-10-27-origination-header-and-setup-errors.md`; approved baselines and
+the Phase 6 hold remain unchanged.
+
 The 26 October Portal corrections reuse the existing settings summaries, HB
 forms/history, shared chart icons/help, scoped recovery controls and secure
 media viewer. Compact reports, launch-bound non-customer preferences, preview

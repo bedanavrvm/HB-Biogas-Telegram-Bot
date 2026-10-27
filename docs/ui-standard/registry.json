@@ -497,21 +497,21 @@
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "0671af4cd60f89de38e7aa2d5d5e524d675b7d784e1bd94c8d3d79a36b779f0a",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
-      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
+      "sha256": "8d5c0f3d84c614995e95ef848a80f594c279abf288570f9017da24b2d0591b05",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md",
+      "reason": "User-requested single red header trash icon before Manage documents, reusing existing accessible icon actions and confirmation. Synthetic real-shell light/dark and workflow checks recorded; no baseline or Phase 6 migration change."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
-      "sha256": "d31ffb340d147ba3cfff95cec6c878d125ea1c89c9f5d684c7f76ae8c9edcfe0",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
-      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
+      "sha256": "467c3b72a054ec367384e010738c9507593cfd924e277fdef7685e9e9c60c12c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md",
+      "reason": "User-requested single red header trash icon before Manage documents, reusing existing accessible icon actions and confirmation. Synthetic real-shell light/dark and workflow checks recorded; no baseline or Phase 6 migration change."
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "0e54c8be6f9728e26c49fd595112410f22e67165e67b711680f1f6e56477e96d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
-      "reason": "User-approved ID camera/upload, audited lifecycle and PDF words controls reuse existing Mini App/Admin patterns. Synthetic source-bound browser evidence recorded; no approved baseline, tokens or Phase 6 migration changes."
+      "sha256": "c88889e2e19db263cff64df86cdf2f9c5195f8e1c3f96ccb302abf81d65e9b2e",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md",
+      "reason": "User-requested single red header trash icon before Manage documents, reusing existing accessible icon actions and confirmation. Synthetic real-shell light/dark and workflow checks recorded; no baseline or Phase 6 migration change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",

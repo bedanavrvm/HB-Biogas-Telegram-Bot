@@ -21,23 +21,32 @@ const path=require('node:path');
   const page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   try{
-    if(mode==='setup') {
+    if(mode==='setup' || mode==='setup-fields') {
       await page.goto(base);
       await expect(page.locator('[data-outstanding]')).toHaveText('1 thing left');
       await expect(page.locator('[data-outstanding-items]')).toContainText('Documents');
       await expect(page.locator('[data-outstanding-items] li')).toHaveCount(1);
+      const details=async()=>{
+        for(const text of ['Home Visit (v3)','Loan Amount (loan_amount)','different information','Loan Application (v1)'])
+          await expect(page.locator('[data-outstanding-items]')).toContainText(text);
+        await expect(page.locator('[data-outstanding-items]')).not.toContainText('Review the highlighted document fields');
+      };
+      if(mode==='setup-fields') await details();
       await page.locator('#id_name').fill('Optional Rows Loan revised');
       await page.locator('#id_name').blur();
       await expect(page.locator('[data-save-feedback]')).toHaveText('Saved');
       await expect(page.locator('[data-outstanding]')).toHaveText('1 thing left');
       await expect(page.locator('[data-outstanding-items]')).toContainText('Documents');
+      if(mode==='setup-fields') await details();
       await page.locator('[data-outstanding-items] a').click();
       await expect(page).toHaveURL(/\/documents\/$/);
-      await page.screenshot({path:path.join(output,'setup-remaining-task-390.png'),fullPage:true});
+      await page.screenshot({path:path.join(output,`${mode}-remaining-task-390.png`),fullPage:true});
       return;
     }
     await page.goto(origin+'/origination/');
     await page.locator('[data-application-open]').first().click();
+    await expect(page.locator('.editor-document-actions > #origination-remove + #origination-restart-laf')).toHaveCount(1);
+    await expect(page.locator('#origination-remove')).toHaveText('');
     await page.locator('#origination-section-picker').click();
     await page.locator('[data-section-index]').filter({hasText:'Product requirements'}).click();
     const borrower=page.locator('[data-product-wrap="requirement:borrower_id_copy"]');

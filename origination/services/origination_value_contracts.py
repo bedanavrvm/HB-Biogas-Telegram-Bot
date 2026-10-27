@@ -189,20 +189,25 @@ def _fields(schema: dict) -> list[dict]:
     return [field for field in schema.get('fields', []) if isinstance(field, dict) and field.get('key')]
 
 
-def build_packet_contract(primary_schema: dict, documents: list[dict]) -> dict:
+def build_packet_contract(primary_schema: dict, documents: list[dict], *, primary_label: str = 'Main LAF') -> dict:
     """Compile the selected snapshot schemas, rejecting semantic conflicts."""
     if not enabled(primary_schema):
         if any(enabled(document['schema']) and _fields(document['schema']) for document in documents):
-            raise ValueContractError('Choose documents with the same shared-value setup.')
+            names = ', '.join(str(document.get('label') or document['key']) for document in documents
+                              if enabled(document['schema']) and _fields(document['schema']))
+            raise ValueContractError(f'{primary_label} and {names}: choose documents with the same shared-value setup.')
         return {'version': 1, 'fields': {}, 'documents': {}}
-    shared, local, errors, ownership = {}, {}, {}, {}
-    for document in [{'key': 'primary', 'schema': primary_schema}, *documents]:
+    shared, local, errors, ownership, field_documents = {}, {}, {}, {}, {}
+    details = []
+    for document in [{'key': 'primary', 'schema': primary_schema, 'label': primary_label}, *documents]:
         schema, document_key = document['schema'], str(document['key'])
+        label = str(document.get('label') or document_key)
         if not enabled(schema):
             if document_key != 'primary' and not _fields(schema):
                 local.setdefault(document_key, {})
                 continue
             errors[document_key] = 'Choose a document with compatible reviewed fields.'
+            details.append(f'{label}: {errors[document_key]}')
             continue
         local.setdefault(document_key, {})
         for field in _fields(schema):
@@ -249,10 +254,14 @@ def build_packet_contract(primary_schema: dict, documents: list[dict]) -> dict:
                 else:
                     item['required_by'] = [document_key] if item.get('required') else []
                     destination[key] = item
+                field_documents.setdefault(key, label)
             except ValueContractError as exc:
                 errors[f'{document_key}.{key}'] = str(exc)
+                compare = f' Compare with {field_documents[key]}.' if key in field_documents else ''
+                field_label = field.get('label') or key
+                details.append(f'{label} — {field_label} ({key}): {exc}{compare}')
     if errors:
-        raise ValueContractError('Review the highlighted document fields.', errors=errors)
+        raise ValueContractError(' '.join(details), errors=errors)
     return {'version': VERSION, 'fields': shared, 'documents': local}
 
 

@@ -121,6 +121,44 @@ async function section(page,label) {
   await expect(page.locator('#origination-section-picker strong')).toHaveText(label);
 }
 
+for(const {width,dark} of [{width:320,dark:false},{width:390,dark:true},{width:1280,dark:false}])
+test(`delete is a single red header icon immediately before manage documents (${width}, dark=${dark})`,async({page},info)=>{
+  await boot(page,{width,dark,configure:app=>{app.lifecycle={can_delete:true,can_invalidate:false};}});
+  for(const label of ['Applicant','Guarantors','Review']) {
+    await section(page,label);
+    const remove=page.getByRole('button',{name:'Delete application',exact:true});
+    await expect(remove).toHaveCount(1);
+    await expect(page.locator('.editor-document-actions > #origination-remove + #origination-restart-laf')).toHaveCount(1);
+    await expect(remove.locator('svg')).toHaveCount(1);
+    expect((await remove.textContent()).trim()).toBe('');
+    expect(await remove.evaluate(button=>getComputedStyle(button).color)).toBe(dark?'rgb(255, 138, 128)':'rgb(165, 42, 29)');
+    await expect(page.locator('.wizard-card #origination-remove,.wizard-submit-actions #origination-remove')).toHaveCount(0);
+    const removeBox=await remove.boundingBox(),manageBox=await page.locator('#origination-restart-laf').boundingBox();
+    expect(removeBox.x+removeBox.width).toBeLessThanOrEqual(manageBox.x);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await page.screenshot({path:info.outputPath('application-header.png'),fullPage:true});
+  await page.getByRole('button',{name:'Delete application',exact:true}).click();
+  await expect(page.locator('#origination-removal-confirm')).toBeVisible();
+  await expect(page.locator('#origination-invalidation-reason')).toHaveCount(0);
+});
+
+test('signed application header uses invalidation and still requires an audit reason',async({page})=>{
+  await boot(page,{configure:app=>{app.status='signed_pending_approval';app.lifecycle={can_delete:false,can_invalidate:true};}});
+  const remove=page.getByRole('button',{name:'Invalidate application',exact:true});
+  await expect(page.locator('.editor-document-actions #origination-remove')).toHaveCount(1);
+  await expect(page.getByRole('button',{name:'Delete application',exact:true})).toHaveCount(0);
+  await remove.click();
+  await expect(page.locator('#origination-invalidation-reason')).toBeVisible();
+  await page.locator('#origination-removal-confirm').click();
+  await expect(page.locator('#origination-removal-error')).toHaveText('Enter a reason.');
+});
+
+test('application removal remains hidden without its own workflow authority',async({page})=>{
+  await boot(page,{configure:app=>{app.lifecycle={can_delete:false,can_invalidate:false};}});
+  await expect(page.locator('#origination-remove')).toHaveCount(0);
+});
+
 for(const dark of [false,true]) test(`unsigned documents update automatically without a confirmation (dark=${dark})`,async({page},info)=>{
   const {app,documentUpdates,runtimeErrors}=await boot(page,{dark,width:dark?390:360,documentUpdate:true,
     configure:app=>{app.auto_update_documents=true;app.status='reviewed';}});

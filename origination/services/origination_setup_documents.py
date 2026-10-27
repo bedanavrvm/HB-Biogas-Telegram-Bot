@@ -536,11 +536,11 @@ def document_readiness(definition):
                 errors.append(f'{template.name}: {exc}')
             finally:
                 template.published_configuration_revision_id = original_revision
-    try:
-        for main in mains:
+    for main in mains:
+        try:
             validate_document_combination(main, [item for item in templates if item not in mains], require_complete=False)
-    except ValueError as exc:
-        errors.append(str(exc))
+        except ValueError as exc:
+            errors.append(str(exc))
     return templates, errors
 
 

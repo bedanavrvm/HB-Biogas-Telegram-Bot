@@ -107,8 +107,9 @@ def validate_catalogue_publication(template: OriginationDocumentTemplate, *, req
                          else template.placement_config or {})
         try:
             reviewed_schema = schema_with_mapped_values(template.form_schema, configuration)
-            build_packet_contract(reviewed_schema, []) if template.document_role == 'primary' else build_packet_contract(
-                {'value_contract_version': 2, 'fields': []}, [{'key':template.document_key, 'schema':reviewed_schema}])
+            label = f'{template.name} (v{template.version})'
+            build_packet_contract(reviewed_schema, [], primary_label=label) if template.document_role == 'primary' else build_packet_contract(
+                {'value_contract_version': 2, 'fields': []}, [{'key':template.document_key, 'schema':reviewed_schema, 'label':label}])
         except ValueContractError as exc:
             raise OriginationError(str(exc), errors=exc.errors) from exc
         if any(field.get('required') and (field.get('value_contract') or {}).get('source') == 'workflow'
@@ -288,9 +289,9 @@ def validate_document_combination(
         supporting_schemas = [mapped_schema(template, template_form_contract(template)[0]) for template in supporting]
         compatible = (lambda schema: schema) if require_complete else _reviewed_compatibility_schema
         build_packet_contract(compatible(primary_schema), [
-            {'key': str(template.pk), 'schema': compatible(schema)}
+            {'key': str(template.pk), 'schema': compatible(schema), 'label': f'{template.name} (v{template.version})'}
             for template, schema in zip(supporting, supporting_schemas)
-        ])
+        ], primary_label=f'{primary.name} (v{primary.version})')
     except ValueContractError as exc:
         raise OriginationError(str(exc), errors=exc.errors) from exc
     known = _field_types(primary_schema)

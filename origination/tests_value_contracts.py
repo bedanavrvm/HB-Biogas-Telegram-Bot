@@ -79,6 +79,19 @@ class ValueResolutionTests(SimpleTestCase):
             with self.subTest(change=change), self.assertRaises(ValueContractError):
                 build_packet_contract(schema(field('name')), [{'key': 'support', 'schema': schema(field('name', **change))}])
 
+    def test_conflict_details_keep_every_document_and_field_without_changing_error_keys(self):
+        with self.assertRaises(ValueContractError) as caught:
+            build_packet_contract(schema(field('name'), field('amount')), [
+                {'key':'visit', 'label':'Home Visit (v2)', 'schema':schema(
+                    field('name', subject='guarantor_1'), field('amount', type='money'))},
+                {'key':'guarantee', 'label':'Guarantee (v4)', 'schema':schema(field('name', scope='document'))},
+            ], primary_label='Loan Application (v1)')
+        self.assertEqual(set(caught.exception.errors), {'visit.name','visit.amount','guarantee.name'})
+        message=str(caught.exception)
+        for text in ['Home Visit (v2) — Name (name)', 'Home Visit (v2) — Amount (amount)',
+                     'Guarantee (v4) — Name (name)', 'Compare with Loan Application (v1)']:
+            self.assertIn(text,message)
+
     def test_generated_values_cannot_be_posted(self):
         contract = build_packet_contract(schema(field('approved', source='workflow', binding='workflow.approved_amount')), [])
         with self.assertRaises(ValueContractError) as caught:
@@ -564,6 +577,21 @@ class ChosenDocumentMeaningTests(TestCase):
     def template(self, **kwargs):
         from core.tests_origination_document_catalogue import OriginationDocumentCatalogueTests
         return OriginationDocumentCatalogueTests._template(self, **kwargs)
+
+    def test_setup_warning_names_document_version_field_and_conflict(self):
+        from origination.services.origination_setup_documents import document_readiness
+        from origination.origination_setup_admin import product_workspace_data
+        main = self.template(family='meaning_main', name='Loan Application', schema=upgrade_schema(self.schema))
+        support = self.template(family='meaning_visit', name='Home Visit', role='supporting', version=3,
+            schema=schema(field('loan_amount', type='money', subject='guarantor_1')))
+        for details in [document_readiness(self.definition)[1],
+                        [task['detail'] for task in product_workspace_data(self.definition)['tasks'] if task['key'] == 'documents']]:
+            message = ' '.join(details)
+            self.assertIn('Home Visit (v3)', message)
+            self.assertIn('Loan Amount (loan_amount)', message)
+            self.assertIn('different information', message)
+            self.assertIn('Loan Application (v1)', message)
+            self.assertNotIn('Review the highlighted document fields', message)
 
     def test_commercial_merge_preserves_exact_reviewed_meanings(self):
         from origination.services.origination_document_catalogue import main_laf_contract

@@ -471,9 +471,10 @@ def product_workspace_data(definition):
             detail = {'identity':'Name and branches saved.', 'terms':'Limits, interest and repayment saved.',
                       'documents':'Published documents selected.'}[row['key']]
         if row['key'] == 'documents':
-            unpublished = [item.name for item in documents if item.status != 'active']
+            unpublished = [f'{item.name} (v{item.version})' for item in documents if item.status != 'active']
             if unpublished:
-                valid, detail = False, 'Publish these documents in the Document editor: '+', '.join(unpublished)
+                detail = (detail + ' ' if not valid else '') + 'Publish these documents in the Document editor: '+', '.join(unpublished)
+                valid = False
         tasks.append({**row, 'label':{'identity':'Details','terms':'Lending terms','documents':'Documents'}[row['key']],
             'status_label':'Done' if valid else 'Not started' if row['key'] == 'documents' and not documents else 'Needs attention',
             'status':'complete' if valid else 'in_progress', 'valid':valid,

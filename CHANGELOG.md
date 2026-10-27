@@ -1,5 +1,22 @@
 # Changelog
 
+## 27 October 2026 - Origination header removal and specific setup warnings
+
+- Move application removal to one red trash icon immediately before Manage
+  documents in the application header. Remove the repeated form-footer button;
+  keep confirmation, current workflow authority and signed invalidation reasons.
+- Name the document/version, field label/key, actual conflict and comparison
+  document in product setup warnings, including after autosave. Keep unfinished
+  field errors when an unpublished-document reminder is also present.
+- Verify 64 Chromium form scenarios, five final header checks and 154 Django
+  checks across scoped runs, including three native Admin/Mini App journeys.
+  Three PostgreSQL-only concurrency checks were skipped on the local SQLite
+  run; PostgreSQL and real Telegram devices were not rechecked in this change.
+- Source-bound evidence and limits are recorded in
+  `docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md`.
+  Deploy code and collect static assets; no migration, new configuration or
+  dependency. No production deployment or real provider writes were performed.
+
 ## 26 October 2026 - Reconcile main into Platform-Interdependence
 
 - Preserve both branches' change/gap records, main's permanent ORG references,

@@ -302,6 +302,7 @@
       chevronDown: '<path d="m6 9 6 6 6-6"/>',
       calendar: '<path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
       close: '<path d="m6 6 12 12M18 6 6 18"/>',
+      trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
       filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
       search: '<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
@@ -2530,14 +2531,14 @@
       ? '<button type="button" class="icon-button" id="origination-restart-laf" title="Manage documents" aria-label="Manage documents"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15l-4-4m5 14H5l4 4"/></svg></button>' : '';
     if (application.status === 'invalidated') content = `<aside role="status"><h3>Invalidated and archived</h3><p>${escapeHtml(application.lifecycle?.invalidation?.reason || '')}</p><p>This application is read-only. Its earlier signatures no longer authorize further processing.</p></aside><button type="button" class="btn btn-secondary" id="origination-completed-download">Download historical signed copy</button>`;
     const removal = application.lifecycle?.can_delete || application.lifecycle?.can_invalidate
-      ? `<button type="button" class="btn btn-secondary" id="origination-remove">${application.lifecycle.can_delete ? 'Delete application' : 'Invalidate application'}</button>` : '';
+      ? `<button type="button" class="icon-button application-remove" id="origination-remove" title="${application.lifecycle.can_delete ? 'Delete application' : 'Invalidate application'}" aria-label="${application.lifecycle.can_delete ? 'Delete application' : 'Invalidate application'}">${iconSvg('trash')}</button>` : '';
     root().innerHTML = `<header class="editor-summary">
       <div class="editor-context">
         <button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button>
         <div class="editor-identity"><strong>${escapeHtml(application.applicant_summary?.name || 'New applicant')}</strong><div class="editor-identity-meta"><small class="editor-product">${escapeHtml(application.product_name)}</small>${contextChip || contextStatus}</div></div>
-        <div class="editor-document-actions" role="group" aria-label="Document actions">${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="editor-document-actions" role="group" aria-label="Application actions">${removal}${restartAction}<button type="button" class="icon-button" id="origination-preview-early" title="Preview application" aria-label="Preview application"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
       </div>${editable ? progressMarkup() : ''}
-    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}${removal}`;
+    </header>${application.signing_workspace && !editable ? '' : persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}<section class="wizard-card">${content}${!editable ? readOnlyPhoneChecksMarkup() : ''}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     root().querySelector('#origination-remove')?.addEventListener('click', removeCurrentApplication);

@@ -50,3 +50,27 @@ class OriginationImprovementsBrowserTests(StaticLiveServerTestCase):
             env={**os.environ,'QA_SESSION_ID':self.client.cookies[settings.SESSION_COOKIE_NAME].value},
             capture_output=True,text=True,timeout=90)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
+    def test_setup_footer_names_conflicting_document_and_field_after_autosave(self):
+        from core import tests_origination_document_catalogue as catalogue
+        from origination.tests_value_contracts import field, schema, upgrade_schema
+        from django.urls import reverse
+        fixture = catalogue.OriginationDocumentCatalogueTests
+        fixture.setUp(self)
+        self.actor.is_staff=True
+        self.actor.save(update_fields=['is_staff'])
+        self.client.force_login(self.actor)
+        fixture._template(self, family='meaning_main', name='Loan Application', schema=upgrade_schema(self.schema))
+        fixture._template(self, family='meaning_visit', name='Home Visit', role='supporting', version=3,
+            schema=schema(field('loan_amount', type='money', subject='guarantor_1')))
+        self.definition.lifecycle_status='draft'
+        self.definition.save(update_fields=['lifecycle_status'])
+        type(self.product_version).objects.filter(pk=self.product_version.pk).update(status='draft')
+        url=self.live_server_url+reverse('admin:origination_origination_setup_step',args=[self.definition.pk,'identity'])
+        output=Path(settings.BASE_DIR)/'test-results/origination-improvements-live'
+        output.mkdir(parents=True,exist_ok=True)
+        result=subprocess.run(['node',str(Path(settings.BASE_DIR)/'scripts/test_origination_improvements_browser.js'),
+            url,str(output),'setup-fields'],cwd=settings.BASE_DIR,
+            env={**os.environ,'QA_SESSION_ID':self.client.cookies[settings.SESSION_COOKIE_NAME].value},
+            capture_output=True,text=True,timeout=90)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)

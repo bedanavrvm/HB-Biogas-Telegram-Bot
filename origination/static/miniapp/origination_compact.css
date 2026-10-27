@@ -6,6 +6,8 @@ body.origination-editor-open .origination-header{display:none!important}
 .editor-context{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:4px;align-items:center;padding:6px;margin:0;border:0}
 .editor-identity{flex:1;min-width:0;overflow-wrap:anywhere}
 .editor-context .editor-document-actions{display:flex!important;flex:0 0 auto;flex-direction:row!important;gap:0;align-items:center;flex-wrap:nowrap}
+.editor-document-actions .application-remove{color:var(--laf-danger)!important}
+:root[data-telegram-theme=dark] .editor-document-actions .application-remove{color:var(--tg-theme-destructive-text-color,#ff8a80)!important}
 .origination-app .editor-summary .icon-button,.origination-app .origination-header .icon-button{width:44px!important;min-width:44px;max-width:44px;flex-basis:44px;height:44px;border:0!important;background:transparent!important;box-shadow:none;padding:10px;border-radius:6px}
 .editor-summary button:focus-visible{outline:2px solid var(--laf-accent-text);outline-offset:-2px}
 .editor-summary .icon-button:active,.editor-summary .icon-button:hover:not(:disabled){background:var(--laf-green-soft)!important}
