@@ -1,5 +1,21 @@
 # Changelog
 
+## 27 October 2026 - Allow supporting documents to reuse the entered applicant name
+
+- Fix a false document-compatibility warning when the Main LAF collects an
+  applicant-name field and a supporting document fetches the same field through
+  the reviewed Applicant full name projection. Keep one Main LAF input and
+  reject attempts to edit that automatic supporting field through its save API.
+- Retain subject, ownership, type, units, reporting-period and financial-source
+  checks. Existing templates/application snapshots and signed bytes are not
+  rewritten; no configuration change, migration, reseed or republish is needed.
+- Verify 221 focused checks passed, with five database-specific skips on SQLite,
+  covering setup readiness, source ownership, saves, document updates, downloads,
+  editor behaviour and frozen signing contexts. No PostgreSQL, real-provider or
+  production deployment was performed for this correction. Deploy the backend
+  and refresh product setup; operator details are in
+  `docs/origination/value-contracts.md`.
+
 ## 27 October 2026 - Origination header removal and specific setup warnings
 
 - Move application removal to one red trash icon immediately before Manage

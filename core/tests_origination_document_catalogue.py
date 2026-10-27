@@ -68,7 +68,7 @@ class OriginationDocumentCatalogueTests(TestCase):
             document_type='legacy-only', lifecycle_status='published', is_active=True,
         )
 
-    def _template(self, *, family, name, role='primary', schema=None, eligible=True, version=1):
+    def _template(self, *, family, name, role='primary', schema=None, eligible=True, version=1, configuration=None):
         template = OriginationDocumentTemplate.objects.create(
             product_definition=None,
             document_key='primary' if role == 'primary' else family,
@@ -80,7 +80,7 @@ class OriginationDocumentCatalogueTests(TestCase):
             document_type=family, name=name, version=version, status='active',
             source_filename=f'{family}.pdf', source_sha256=(family[0] * 64),
             source_byte_size=100, page_count=1,
-            placement_config={'field_overlay_manifest': {'fields': {'x': {'context_key': 'loan_amount'}}}},
+            placement_config=configuration if configuration is not None else {'field_overlay_manifest': {'fields': {'x': {'context_key': 'loan_amount'}}}},
             drive_file_id=f'drive-{family}', created_by=self.officer,
         )
         revision = OriginationTemplateConfigurationRevision.objects.create(

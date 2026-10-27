@@ -92,6 +92,50 @@ class ValueResolutionTests(SimpleTestCase):
                      'Guarantee (v4) — Name (name)', 'Compare with Loan Application (v1)']:
             self.assertIn(text,message)
 
+    def test_main_laf_name_projection_keeps_one_input_and_each_support_read_only(self):
+        from origination.services.loan_origination import APPLICANT_NAME_KEYS
+        for key in APPLICANT_NAME_KEYS:
+            with self.subTest(key=key):
+                main=schema(field(key))
+                support=schema(field(key,source='calculated',binding='system.borrower_full_name',required=True))
+                original=deepcopy((main,support))
+                contract=build_packet_contract(main,[{'key':name,'schema':support} for name in ['visit','guarantee']])
+                self.assertEqual(list(contract['fields']),[key])
+                self.assertEqual(contract['fields'][key]['value_contract']['source'],'entered')
+                self.assertTrue(contract['fields'][key]['required'])
+                self.assertEqual(contract['fields'][key]['read_only_in'],['visit','guarantee'])
+                self.assertEqual((main,support),original)
+                changed,_=normalize_changes(contract,{key:'New name'},{key:'Original'})
+                self.assertEqual(changed[key],'New name')
+                for document in ['visit','guarantee']:
+                    with self.assertRaises(ValueContractError):
+                        normalize_changes(contract,{key:'Override'},changed,document_key=document)
+
+    def test_name_projection_does_not_relax_other_field_meanings(self):
+        for changed in [
+            {'subject':'guarantor_1'}, {'scope':'document'}, {'type':'money'},
+            {'source':'workflow','binding':'workflow.approved_amount'},
+            {'source':'calculated','binding':'system.loan_officer_name'},
+            {'unit':'KES'}, {'period':'monthly'},
+        ]:
+            with self.subTest(changed=changed),self.assertRaises(ValueContractError):
+                projection=field('applicant_full_name',source='calculated',binding='system.borrower_full_name')
+                for name,value in changed.items():
+                    if name=='type': projection[name]=value
+                    else: projection['value_contract'][name]=value
+                build_packet_contract(schema(field('applicant_full_name')),[{'key':'visit','schema':schema(projection)}])
+
+    def test_name_projection_requires_a_matching_main_laf_input(self):
+        projection=field('applicant_full_name',source='calculated',binding='system.borrower_full_name')
+        with self.assertRaises(ValueContractError):
+            build_packet_contract(schema(),[
+                {'key':'guarantee','schema':schema(field('applicant_full_name'))},
+                {'key':'visit','schema':schema(projection)}])
+        for key in ['guarantor_1_name','applicant_address']:
+            with self.subTest(key=key),self.assertRaises(ValueContractError):
+                build_packet_contract(schema(field(key)),[{'key':'visit','schema':schema(
+                    field(key,source='calculated',binding='system.borrower_full_name'))}])
+
     def test_generated_values_cannot_be_posted(self):
         contract = build_packet_contract(schema(field('approved', source='workflow', binding='workflow.approved_amount')), [])
         with self.assertRaises(ValueContractError) as caught:
@@ -242,6 +286,32 @@ class PacketValueSaveTests(TestCase):
     def save(self, payload, key='synthetic-save'):
         return save_document_fields(application_id=self.application.pk, document_key='visit', actor=self.officer,
                                     payload=payload, expected_revision=self.application.revision, request_id=key)
+
+    def test_support_name_projection_reuses_main_input_and_cannot_overwrite_it(self):
+        self.application.schema_snapshot=schema(field('applicant_full_name'))
+        self.application.form_payload={'applicant_full_name':'Original applicant'}
+        self.application.save(update_fields=['schema_snapshot','form_payload'])
+        self.document.schema_snapshot=schema(field('applicant_full_name',source='calculated',binding='system.borrower_full_name'))
+        self.document.save(update_fields=['schema_snapshot'])
+        place_fixture_fields(self.application,self.document)
+        before_main=deepcopy(self.application.schema_snapshot)
+        before_support=deepcopy(self.document.schema_snapshot)
+        result=serialize_application(self.application,include_payload=True)
+        inputs=[item for item in result['form_schema']['fields'] if item['key']=='applicant_full_name']
+        self.assertEqual(len(inputs),1)
+        self.assertEqual(inputs[0]['input_owner']['kind'],'main')
+        self.assertEqual(document_context(self.application,self.document)['applicant_full_name'],'Original applicant')
+        self.application=save_application_fields(application_id=self.application.pk,actor=self.officer,
+            payload={'applicant_full_name':'Updated applicant'},expected_revision=self.application.revision,request_id='save-main-projected-name')
+        self.assertEqual(document_context(self.application,self.document)['applicant_full_name'],'Updated applicant')
+        with self.assertRaises(OriginationError) as caught:
+            self.save({'applicant_full_name':'Supporting override'},key='reject-projection-write')
+        self.assertIn('automatically',caught.exception.errors['applicant_full_name'])
+        self.application.refresh_from_db();self.document.refresh_from_db()
+        self.assertEqual(self.application.form_payload['applicant_full_name'],'Updated applicant')
+        self.assertEqual(self.document.field_payload,{})
+        self.assertEqual(self.application.schema_snapshot,before_main)
+        self.assertEqual(self.document.schema_snapshot,before_support)
 
     def test_support_save_updates_shared_values_once_and_keeps_local_values_local(self):
         saved = self.save({'applicant_name': 'Changed', 'extra_shared': 'Shared', 'visit_notes': 'Local'})
@@ -577,6 +647,26 @@ class ChosenDocumentMeaningTests(TestCase):
     def template(self, **kwargs):
         from core.tests_origination_document_catalogue import OriginationDocumentCatalogueTests
         return OriginationDocumentCatalogueTests._template(self, **kwargs)
+
+    def test_main_entered_name_and_supporting_main_laf_projection_are_compatible(self):
+        from origination.services.origination_setup_documents import document_readiness
+        from origination.services.origination_document_catalogue import validate_document_combination
+        from origination.origination_setup_admin import product_workspace_data
+        main_schema=upgrade_schema(self.schema)
+        main_schema['fields'].append(field('applicant_full_name',required=True))
+        main=self.template(family='projection_main',name='SME-LOGBOOK LAF',schema=main_schema,version=3)
+        support_schema=schema(field('applicant_full_name',source='calculated',binding='system.borrower_full_name',required=True))
+        support=self.template(family='projection_visit',name='Home visit',role='supporting',schema=support_schema,version=2,
+            configuration={'field_overlay_manifest':{'fields':{'name':{'context_key':'applicant_full_name'}}}})
+        self.assertEqual(document_readiness(self.definition)[1],[])
+        document_task=next(task for task in product_workspace_data(self.definition)['tasks'] if task['key']=='documents')
+        self.assertTrue(document_task['valid'],document_task['detail'])
+        validate_document_combination(main,[support])
+        contract=build_packet_contract(main_schema,[{'key':'home_visit','schema':support_schema}])
+        self.assertEqual(contract['fields']['applicant_full_name']['value_contract']['source'],'entered')
+        resolved=resolve_values(contract,{'applicant_full_name':'Synthetic Applicant'},quote={},
+            system={'borrower_full_name':'Stale generated name'},workflow={})
+        self.assertEqual(resolved['values']['applicant_full_name'],'Synthetic Applicant')
 
     def test_setup_warning_names_document_version_field_and_conflict(self):
         from origination.services.origination_setup_documents import document_readiness

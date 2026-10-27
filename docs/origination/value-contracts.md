@@ -19,6 +19,17 @@ period. Selection rejects inconsistent meanings, types, choices and repeating
 structures. The smallest schema or mapped table capacity governs row limits.
 Rendering fails explicitly instead of dropping rows or truncating values.
 
+An applicant name entered on the Main LAF can also be placed on a supporting
+document using **Value comes from: Applicant full name**. When both use the same
+reviewed applicant-name key (`applicant_full_name`, `borrower_full_name` or
+`customer_name`), the entered Main LAF value remains the single input and the
+supporting projection is read-only, including at the save API. This difference
+in presentation source is compatible. Subject, ownership, type, units and period
+must still match; another person's name or a financial/event calculation cannot
+use this exception. Saved template/application schemas and signed bytes are not
+rewritten. This correction needs a backend deployment and page refresh, not a
+reseed or a new document version.
+
 Quote values use the frozen Decimal quote. A requested amount never substitutes
 for approval, disbursement, receipt or visit evidence. Existing final approval may
 project its exact approved terms; this change adds no new collection workflow for

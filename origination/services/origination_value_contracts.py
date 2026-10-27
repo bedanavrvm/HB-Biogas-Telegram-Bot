@@ -198,6 +198,7 @@ def build_packet_contract(primary_schema: dict, documents: list[dict], *, primar
             raise ValueContractError(f'{primary_label} and {names}: choose documents with the same shared-value setup.')
         return {'version': 1, 'fields': {}, 'documents': {}}
     shared, local, errors, ownership, field_documents = {}, {}, {}, {}, {}
+    primary_keys = {str(field['key']) for field in _fields(primary_schema)}
     details = []
     for document in [{'key': 'primary', 'schema': primary_schema, 'label': primary_label}, *documents]:
         schema, document_key = document['schema'], str(document['key'])
@@ -227,6 +228,17 @@ def build_packet_contract(primary_schema: dict, documents: list[dict], *, primar
                 if previous:
                     previous_meaning = {k: v for k, v in previous['value_contract'].items() if k != 'definition'}
                     current_meaning = {k: v for k, v in meaning.items() if k != 'definition'}
+                    if (document_key != 'primary' and key in primary_keys
+                            and previous_meaning.get('subject') == 'applicant'
+                            and previous.get('type') in {'text', 'textarea'}
+                            and previous_meaning.get('source') == 'entered'
+                            and meaning.get('source') == 'calculated'
+                            and meaning.get('binding') == 'system.borrower_full_name'):
+                        from origination.services.loan_origination import APPLICANT_NAME_KEYS
+                        if key in APPLICANT_NAME_KEYS:
+                            # This reviewed projection reads the Main LAF input; it does not own a new value.
+                            current_meaning = {**current_meaning, 'source': 'entered', 'binding': ''}
+                            previous.setdefault('read_only_in', []).append(document_key)
                     if previous.get('type') != item.get('type') or previous_meaning != current_meaning:
                         raise ValueContractError('These documents use this field for different information.')
                     previous_structure, structure = previous.get('structure') or {}, item.get('structure') or {}
@@ -461,7 +473,7 @@ def normalize_changes(contract: dict, payload: Any, current: dict, *, document_k
         if not field:
             errors[key] = 'This field is not part of the selected documents.'
             continue
-        if field['value_contract']['source'] != 'entered':
+        if field['value_contract']['source'] != 'entered' or document_key in field.get('read_only_in', []):
             errors[key] = 'This value is supplied automatically and cannot be edited.'
             continue
         (shared if key in fields else local)[key] = deepcopy(value)
