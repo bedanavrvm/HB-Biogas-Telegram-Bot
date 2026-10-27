@@ -1,5 +1,30 @@
 # Changelog
 
+## 27 October 2026 - Conditional production browser access for Complaints
+
+- Add same-origin staff sign-in/Complaints routes and an integrity-checked native
+  production artifact, built with pinned Node 22 during Render image preparation.
+  Both browser flags remain default-off; enabled releases require the real build,
+  HTTPS origin, reviewed invitation sender and PostgreSQL native security state.
+- Add audited Superuser Admin handoffs for existing browser admission/revocation/
+  MFA recovery and private, expiring setup invitations through the existing Resend
+  transport. Mailbox verification preserves existing passwords, including the
+  user-selected first account `bedan`; first-password setup stays separately bounded.
+- Preserve PostgreSQL native cooldown history when enrollment passwords/codes
+  are rejected. Existing MFA/audit rollback and owning Complaint permissions stay
+  enforced. Update stale browser workflow checks for the current detail pages,
+  report filters and mobile result cards; retain explicit denial/retry checks.
+- Add migration `staff_auth.0005_browser_setup_purpose`, database metadata and a
+  guarded reversal. Roll back browser flags first; keep the additive schema when
+  mailbox-verification grants exist. See `docs/runbooks/staff-browser-production.md`
+  for configuration, first sign-in, support, verification and exact reversal steps.
+- Production deployment, real email receipt and live MFA commissioning remain
+  pending. Portal, Origination and TAT do not gain browser routes in this release.
+- Final PostgreSQL run: 282/283 checks pass; the existing duplicate Requisition
+  index test remains failing. Both real browser journeys pass. The repository
+  artifact audit also has existing unresolved findings; exact evidence and gates
+  are in `docs/runbooks/staff-browser-release-checks-2026-10-27.md`.
+
 ## 27 October 2026 - Allow supporting documents to reuse the entered applicant name
 
 - Fix a false document-compatibility warning when the Main LAF collects an

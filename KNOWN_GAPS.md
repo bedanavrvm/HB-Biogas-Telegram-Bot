@@ -1,5 +1,28 @@
 # Known Gaps and Verified Workarounds
 
+## Complaints browser production commissioning - 27 October 2026
+
+ADR 0075 adds conditional real routes, the native production build and existing-
+staff invitation/Admin handoff. Defaults remain off. Follow
+`docs/runbooks/staff-browser-production.md`; the user selected `bedan` for the
+first live check, retaining the existing password. Native PostgreSQL tests caught
+and fixed enrollment rejection rollback of rate-limit history.
+
+The final combined run passes 282 of 283 checks, including both real browser
+journeys. The remaining test exposes the existing duplicate Requisition order
+index. The whole-repository artifact audit also reports 17 existing hash
+mismatches and 2,416 unreviewed controlled assets. These are not bypassed; see
+`docs/runbooks/staff-browser-release-checks-2026-10-27.md` before rollout.
+
+No production deployment, admission change or provider send was performed.
+Render integration is available but not connected in this session. Actual service
+configuration, mailbox receipt, supervised MFA/recovery, deployed multiworker/
+cookie/CSP behavior, physical devices and assistive technology need commissioning.
+Agree ongoing identity-verification/support ownership before admitting more staff.
+Accounts with conflicting/multiple native addresses still need the existing
+verified support process; setup does not replace verified addresses or reset usable
+passwords. Telegram remains separate; other Mini Apps have no new browser adapter.
+
 ## Main integration and migration join - 26 October 2026
 
 Conflict resolution retains both Origination 0012 migrations; the new 0013

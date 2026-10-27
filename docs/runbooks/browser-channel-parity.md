@@ -1,5 +1,13 @@
 # Browser and Telegram channel rollout
 
+27 October release update: [ADR 0075](../adr/0075-complaints-browser-production-activation.md)
+adds conditional real production URLs, an integrity-bound native build and
+audited Admin invitations/onboarding. Defaults remain off. Follow
+[the production runbook](staff-browser-production.md) for deployment, `bedan`'s
+first sign-in, MFA support and rollback. No production deployment/admission has
+been performed. The dated sections below retain earlier candidate evidence and
+exclusions; their unmounted-route statements describe those historical slices.
+
 22 October 2026. Implementation candidate under [ADR 0073](../adr/0073-browser-channel-and-complaints-parity.md).
 
 ## Release boundary

@@ -91,6 +91,11 @@ class BrowserJSONAuthenticationTests(TestCase):
             self.assertNotIn(forbidden, response.json().get('user', {}))
         self.assertEqual(response['Cache-Control'], 'no-store, private')
 
+    def test_changed_canonical_email_invalidates_existing_browser_assurance(self):
+        self.complete()
+        get_user_model().objects.filter(pk=self.user.pk).update(email='changed@example.invalid')
+        self.assertFalse(self.bootstrap().json()['is_authenticated'])
+
     def test_csrf_wrong_origin_mixed_credentials_and_extra_fields_denied(self):
         data = {'username': self.user.username, 'password': PASSWORD}
         response = self.client.post('/test-staff-auth/v1/login/', data=json.dumps(data), content_type='application/json')
@@ -226,7 +231,8 @@ class BrowserJSONAuthenticationTests(TestCase):
     @override_settings(STAFF_BROWSER_AUTH_ENABLED=False)
     def test_disabled_boundary_and_production_routes_are_unavailable(self):
         self.assertEqual(self.bootstrap().status_code, 404)
-        for url in ('/api/staff/auth/v1/login/', '/test-staff-auth/v1/login/', '/accounts/login/'):
+        self.assertEqual(resolve('/api/staff/auth/v1/login/',urlconf='config.urls').url_name,'staff_browser_login')
+        for url in ('/test-staff-auth/v1/login/', '/accounts/login/'):
             with self.assertRaises(Resolver404):
                 resolve(url, urlconf='config.urls')
 

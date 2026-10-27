@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
 from allauth.mfa.totp.internal.auth import TOTP, generate_totp_secret
-from django.conf import global_settings, settings
+from django.conf import settings
 from django.contrib.auth import SESSION_KEY, get_user_model
 from django.core.cache import CacheKeyWarning, cache
 from django.core.cache.backends.base import default_key_func
@@ -29,10 +29,11 @@ from .tests_enrollment import EnrollmentJourney, key
 
 
 class NativeCachePrivacyTests(SimpleTestCase):
-    def test_default_cache_changes_only_the_native_key_hook(self):
+    def test_configured_cache_keeps_the_privacy_hook_on_reviewed_adapters(self):
         configured = dict(settings.CACHES['default'])
         self.assertEqual(configured.pop('KEY_FUNCTION'), PRIVACY_KEY_FUNCTION)
-        self.assertEqual(configured, global_settings.CACHES['default'])
+        self.assertIn(configured['BACKEND'], {'django.core.cache.backends.locmem.LocMemCache',
+            'staff_auth.security_cache.PostgresSecurityCache'})
 
     def test_only_native_namespaces_change_and_prefix_version_secret_are_bound(self):
         for key in ('origination:template:one', 'daraja_access_token', 'diagnostics:test', 123):
@@ -58,7 +59,8 @@ class NativeCachePrivacyTests(SimpleTestCase):
         self.assertFalse(any(issubclass(item.category, CacheKeyWarning) for item in captured))
         self.assertTrue(all(re.fullmatch(r'staff-auth:v1:[a-f0-9]{64}', key) for key in local._cache))
 
-    @override_settings(STAFF_BROWSER_AUTH_ENABLED=True, STAFF_MFA_ENCRYPTION_KEYS=[TEST_KEY], DEBUG=True)
+    @override_settings(STAFF_BROWSER_AUTH_ENABLED=True, STAFF_MFA_ENCRYPTION_KEYS=[TEST_KEY], DEBUG=True,
+        CACHES={'default':{'BACKEND':'django.core.cache.backends.locmem.LocMemCache','KEY_FUNCTION':PRIVACY_KEY_FUNCTION}})
     def test_activation_requires_shared_backend_and_privacy_without_connecting(self):
         with patch('socket.socket.connect', side_effect=AssertionError('No readiness network access')):
             self.assertEqual({issue.id for issue in staff_browser_checks(None)}, {'staff_auth.E006', 'staff_auth.E007'})

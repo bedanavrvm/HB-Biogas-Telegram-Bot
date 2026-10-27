@@ -8,7 +8,7 @@ MODEL_METADATA = {
     },
     'staff_auth.StaffBrowserSetupGrant': {
         'domain': 'staff_auth',
-        'purpose': 'Closed, expiring preparation/mailbox-proof/first-password state for the exact existing admitted non-Admin account; no login or workflow authority.',
+        'purpose': 'Expiring mailbox-proof and optional first-password state for the exact existing admitted account. Existing passwords are never replaced; no login or workflow authority.',
         'classification': 'security_state',
         'source_of_truth': True,
         'lifecycle': 'temporary',

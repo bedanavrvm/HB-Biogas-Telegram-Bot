@@ -18,6 +18,13 @@ class SubmissionError(Exception):
 def send_email(payload, *, key):
     if not settings.REPORT_EMAIL_DELIVERY_ENABLED or not settings.RESEND_API_KEY or not settings.REPORT_EMAIL_FROM:
         raise SubmissionError('delivery_not_configured')
+    return submit_email(payload,key=key)
+
+
+def submit_email(payload, *, key):
+    """Shared fixed-endpoint transport; each caller owns its delivery enable/sender policy."""
+    if not settings.RESEND_API_KEY:
+        raise SubmissionError('delivery_not_configured')
     try:
         response = requests.post(
             'https://api.resend.com/emails', json=payload,

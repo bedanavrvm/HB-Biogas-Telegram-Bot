@@ -26,7 +26,7 @@ from .abuse import AbuseControlUnavailable, consume_network
 from .browser_api import _body, _rate_limited, _response, _throttle, browser_endpoint
 from .crypto import MFASecretUnavailable, decrypt_secret
 from .enrollment_state import request_uuid
-from .initial_setup import PROOF_SALT, SETUP_SECONDS, InitialSetupError, binding_digest, canonical_address, require_initial_account
+from .initial_setup import PROOF_SALT, SETUP_SECONDS, InitialSetupError, binding_digest, canonical_address, require_setup_account
 from .models import StaffBrowserAdmission, StaffBrowserSetupGrant
 from .session_protection import SETUP_CONTEXT_KEY
 
@@ -87,7 +87,7 @@ def _locked_setup(setup_id):
         grant = StaffBrowserSetupGrant.objects.select_for_update().filter(pk=setup_id).first()
         if (
             user is None or admission is None or grant is None or not user.is_active
-            or user.is_staff or user.is_superuser or not admission.enabled
+            or (grant.purpose == StaffBrowserSetupGrant.INITIAL_PASSWORD and (user.is_staff or user.is_superuser)) or not admission.enabled
             or grant.admission_id != admission.pk
             or admission.user_id != user.pk or admission.revision != grant.admission_revision
             or grant.expires_at <= timezone.now()
@@ -100,6 +100,7 @@ def _locked_setup(setup_id):
             'email_address_id': grant.email_address_id, 'email_fingerprint': grant.email_fingerprint,
             'password_fingerprint': grant.password_fingerprint, 'expires_at': grant.expires_at.isoformat(),
         }
+        if grant.purpose != StaffBrowserSetupGrant.INITIAL_PASSWORD: expected['purpose']=grant.purpose
         if preparation is None or preparation.after_values != expected:
             raise _Rejected()
         email = canonical_address(user)
@@ -111,7 +112,7 @@ def _locked_setup(setup_id):
         if address is None or address.email.lower() != email:
             raise _Rejected()
         if grant.state != StaffBrowserSetupGrant.COMPLETED:
-            require_initial_account(user, admission)
+            require_setup_account(user, admission,grant.purpose)
             if not constant_time_compare(binding_digest('password-state', user.password), grant.password_fingerprint):
                 raise _Rejected()
             if EmailAddress.objects.filter(user_id=user.pk).exclude(pk=address.pk).exists():
@@ -171,6 +172,10 @@ def _execute(request, fields, operation):
 @sensitive_variables()
 def _verify(request, data, grant, user, address):
     if grant.state == StaffBrowserSetupGrant.COMPLETED:
+        if (grant.purpose == StaffBrowserSetupGrant.VERIFY_EMAIL and _session_matches(request,grant)
+                and grant.completed_request_key == data['request_key']
+                and _receipt(grant,'completed',grant.completed_audit_id,user.pk)):
+            return _response('reauthentication_required',username=user.username,replayed=True)
         raise _Rejected('setup_completed')
     if not constant_time_compare(decrypt_secret(grant.confirmation_cipher), data['confirmation_key']):
         raise _Rejected('setup_invalid', 400)
@@ -203,6 +208,14 @@ def _verify(request, data, grant, user, address):
         grant.save(update_fields=['state', 'verify_request_key', 'session_digest', 'verify_audit_id'])
         replayed = False
     request.session[SETUP_CONTEXT_KEY] = {'setup_id': str(grant.pk), 'verify_audit_id': str(grant.verify_audit_id)}
+    if grant.purpose == StaffBrowserSetupGrant.VERIFY_EMAIL:
+        event=_audit(grant,user,'completed',data['request_key'])
+        grant.state=StaffBrowserSetupGrant.COMPLETED
+        grant.completed_request_key=data['request_key']
+        grant.completed_audit_id=event.pk
+        grant.confirmation_cipher=''
+        grant.save(update_fields=['state','completed_request_key','completed_audit_id','confirmation_cipher'])
+        return _response('reauthentication_required',username=user.username,replayed=False)
     return _response('password_required', receipt_id=str(grant.verify_audit_id), replayed=replayed)
 
 
@@ -213,6 +226,7 @@ def _notify_password_set(request, user):
 
 @sensitive_variables()
 def _password(request, data, grant, user, address):
+    if grant.purpose != StaffBrowserSetupGrant.INITIAL_PASSWORD: raise _Rejected()
     if not address.verified or not _session_matches(request, grant):
         raise _Rejected()
     if _receipt(grant, 'verified', grant.verify_audit_id, user.pk) is None:

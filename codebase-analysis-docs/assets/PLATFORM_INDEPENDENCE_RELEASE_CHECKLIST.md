@@ -1,5 +1,44 @@
 # Platform-independence phase, merge and deployment checklist
 
+## 27 October: conditional production Complaints browser release
+
+- [x] User-authorized implementation: ADR 0075; same-origin native routes and
+  separately integrity-bound `dist-production`, with notices, source/lock hashes
+  and CSP. Preview/simulator/test URLconfs are excluded from production routing.
+- [x] Existing identity and owning Complaint authority retained. Browser flags
+  default off; admission never supplies workflow grants. PostgreSQL native
+  rate limits/replay, secure sessions, CSRF and encrypted MFA remain mandatory.
+- [x] Narrow active-Superuser Admin controls reuse audited admission/suspension/
+  session-revocation/MFA-reset services. Review confirmation binds actor, account
+  and revision. No raw credential editor or automatic live account mutation.
+- [x] Private, expiring, grant-keyed invitation sender reuses the fixed Resend
+  transport. Existing passwords, including `bedan`'s, survive mailbox proof.
+  Provider acceptance is distinct from inbox receipt; retries retain delivery keys.
+- [x] Additive migration `staff_auth.0005_browser_setup_purpose` and metadata.
+  Default preserves historical grants. No customer, financial or signed-data
+  migration. Normal release/backup controls still apply.
+- [x] Reversal documented: disable browser workers first; retain additive schema
+  by default. Only if no `verify_email` grants exist, reverse using
+  `python manage.py migrate staff_auth 0004_staffbrowsersecuritystate`.
+- [x] Render build pins Node 22.23.3 and installs locked build dependencies.
+  CI adds real production-route Playwright/PostgreSQL checks. No new dependency.
+- [x] Scoped local verification: final combined PostgreSQL run executes 283 checks;
+  282 pass and one existing duplicate Requisition index test fails. Both real
+  production-route browser journeys pass (87 workflow + eight access captures).
+  Migration reverse/reapply and its mailbox-purpose guard pass on a disposable
+  PostgreSQL clone; types/lint/build/dependencies, UI ratchet, architecture,
+  migration drift/graph, generated catalogue and write-route checks pass.
+- [ ] Repository-wide release gates: existing duplicate index; 17 existing artifact
+  hash mismatches and 2,416 unreviewed controlled assets. No allowlist/baseline
+  bypass or unrelated schema change. Details and evidence:
+  `docs/runbooks/staff-browser-release-checks-2026-10-27.md`.
+- [ ] Production deployment/configuration, actual mailbox delivery, `bedan`'s
+  supervised sign-in/MFA, deployed multiworker/CSP/cookie checks, physical-device
+  and assistive-technology checks. No live release or operational acceptance claimed.
+- [x] Operator steps, support/recovery, monitoring and first rollback flags:
+  `docs/runbooks/staff-browser-production.md`. Portal/Origination/TAT browser
+  availability and Telegram UI migration remain outside this release.
+
 Use a change-specific copy at **every phase handoff and every proposed/completed merge or deployment**. Do not report unchecked items as passed. “Not applicable” requires a reason. Branch creation, implementation approval and passing CI do not authorize a merge, production deployment, migration, access-policy change or real external side effect.
 
 Use the existing `docs/production-release-record.md` and `PRODUCTION_RUNBOOK.md` for actual production governance. Keep completed private records, user/cohort identities, credentials and production screenshots outside Git. Link this checklist rather than creating competing release records.

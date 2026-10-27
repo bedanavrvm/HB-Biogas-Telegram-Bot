@@ -1,4 +1,4 @@
-"""Closed operations contract; intentionally unmounted in production."""
+"""Native operations contract; gated by browser and Complaint release flags."""
 from django.urls import path
 from . import browser_complaint_operations as views
 

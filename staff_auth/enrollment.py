@@ -165,8 +165,9 @@ def _begin(request, data, channel, row):
         valid = form.is_valid()
     if not valid:
         if form.has_error('password', 'too_many_login_attempts'):
-            raise _Rejected('rate_limited', 429)
-        raise _Rejected('invalid_credentials', 400)
+            return _rate_limited()
+        # Commit native PostgreSQL attempt history while denying the operation.
+        return _response('invalid_credentials', 400)
     try:
         validate_can_add_authenticator(row.user)
     except ValidationError:
@@ -222,8 +223,8 @@ def _confirm(request, data, channel, row):
         valid = form.is_valid()
     if not valid:
         if form.has_error('code', 'rate_limited'):
-            raise _Rejected('rate_limited', 429)
-        raise _Rejected('invalid_code', 400)
+            return _rate_limited()
+        return _response('invalid_code', 400)
     totp, recovery = activate_totp(request, form)
     if recovery is None:
         raise _Rejected('enrollment_unavailable')

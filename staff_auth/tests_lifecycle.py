@@ -159,7 +159,7 @@ class BrowserLifecycleTests(TestCase):
         self.assertNotIn('secret', json.dumps(event.after_values))
 
     def test_unreviewed_orm_and_admin_edits_are_blocked(self):
-        self.assertFalse(admin.site.is_registered(StaffBrowserAdmission))
+        self.assertTrue(admin.site.is_registered(StaffBrowserAdmission))
         with self.assertRaises(PermissionDenied):
             StaffBrowserAdmission.objects.create(user=self.target, subject_user_id=self.target.pk)
         self.apply()

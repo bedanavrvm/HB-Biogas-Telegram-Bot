@@ -38,6 +38,7 @@ const titles: Record<State, string> = {
   setup_codes: 'Save your recovery codes', setup_invalid: 'Reopen your setup invitation',
 };
 const failureMessages: Record<string, Feedback> = {
+  separate_session: { title:'Open a separate browser session',message:'Open this staff address in a private window, or sign out of Django Admin and reload this page. Your current session has been kept.' },
   invalid_credentials: { title: 'We could not verify your details', message: 'Check your staff username and password, then try again.' },
   invalid_enrollment_code: { title: 'We could not verify your code', message: 'Enter the current code from the authenticator account you just added.' },
   invalid_code: { title: 'We could not verify your code', message: 'Enter a current authenticator code or an unused recovery code.' },
@@ -161,7 +162,7 @@ export function StaffAccess({ invitation = null, renderAuthenticated, retainWork
       {state === 'checking' && <Box role="status"><Text as="p">Checking access with the company service.</Text></Box>}
       {state === 'uncertain' && <Button appearance="primary" onClick={() => void run()} isLoading={busy}>Check session</Button>}
       {state === 'signed_out' && details.setupId && <Button onClick={() => void run()}>Continue account setup</Button>}
-      {state === 'setup_verify' && <><Text as="p">Continue to verify your invitation and create a password for your existing staff account.</Text>{cancel}<Button appearance="primary" isLoading={busy} onClick={() => { const proof = invitationRef.current; if (proof) void run('setup/verify-email', { ...proof }); }}>Continue setup</Button></>}
+      {state === 'setup_verify' && <><Text as="p">Verify your email to finish setting up staff browser access. Any existing password stays unchanged.</Text>{cancel}<Button appearance="primary" isLoading={busy} onClick={() => { const proof = invitationRef.current; if (proof) void run('setup/verify-email', { ...proof }); }}>Continue setup</Button></>}
       {form && <>
         <Text as="p">{state === 'signed_out' ? 'Use your existing staff account to continue.' : passwordForm ? 'Choose a strong, unique password. Your password manager can create and save it.' : enrollmentForm ? details.enrollment ? 'Scan this QR code with your authenticator app, then enter its code.' : 'Confirm your password to continue authenticator setup.' : recovery ? 'Each recovery code can only be used once.' : 'Enter the current code from your authenticator app.'}</Text>
         {state === 'mfa_required' && <Inline space="space.100" shouldWrap><Button appearance="subtle" onClick={() => { setRecovery(value => !value); setFormEpoch(value => value + 1); }}>{recovery ? 'Use your authenticator' : 'Use a recovery code'}</Button><Button appearance="subtle" onClick={() => void run('logout', {})}>Cancel sign in</Button></Inline>}

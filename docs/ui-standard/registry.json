@@ -593,15 +593,15 @@
     },
     {
       "path": "browser/src/auth-transport.ts",
-      "sha256": "d94fcaa3ba992323845f14eb9bec68c5524ba8360ecd14b6ba8b03f282a80e65",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#12-p1c6--guided-closed-onboarding",
-      "reason": "ADR 0068: guided native initial-password, QR enrollment and one-time recovery handoff in the separate dormant auth build. Same ADS forms/tokens; native credential QR image is transient and masked in captures. Isolated synthetic tests only; no human acceptance, operational mount, workflow authority or Telegram migration."
+      "sha256": "ce58cf3ef77e38445593953f9b58ef87080659758339e6d83440b2bc67a6dd69",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-browser-production-access.md",
+      "reason": "ADR 0075: user-authorized conditional native Complaints production access; reuse ADS access forms for mailbox-only verification and separate Admin-session guidance. No approved baseline, Telegram UI or Phase 6 migration changes."
     },
     {
       "path": "browser/src/staff-access.tsx",
-      "sha256": "174855e2143a0640ac269be4b14632beccd6bd9647cc5edc6750971142a0b909",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "e0ed8db2a8c50b4732d5a82345cbd62dfb66ae4567049cca7df4c2accf8bac6e",
+      "review_reference": "docs/ui-standard/reviews/2026-10-27-browser-production-access.md",
+      "reason": "ADR 0075: user-authorized conditional native Complaints production access; reuse ADS access forms for mailbox-only verification and separate Admin-session guidance. No approved baseline, Telegram UI or Phase 6 migration changes."
     },
     {
       "path": "browser/src/complaints.html",

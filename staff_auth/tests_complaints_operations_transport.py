@@ -70,8 +70,12 @@ class ComplaintsOperationsTransportTests(transport.ComplaintsTransportTests):
                 resolution_text=f'Synthetic older note {index:03d}')
 
     def test_native_authenticated_complaints_workspace(self):
-        from .transport_test_urls import assets
-        assets(operations=True)
+        if settings.ROOT_URLCONF == 'config.urls':
+            from .production import load_build
+            load_build()
+        else:
+            from .transport_test_urls import assets
+            assets(operations=True)
         AccessGrant.objects.create(user=self.user, workflow='complaint_cases', role='IT', group_configuration=self.group)
         root = Path(settings.BASE_DIR)
         result = subprocess.run([os.environ.get('STAFF_BROWSER_TEST_NODE', 'node'),

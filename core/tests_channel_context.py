@@ -10,7 +10,6 @@ from urllib.parse import urlencode
 
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
-from django.urls import Resolver404, resolve
 
 from core.services.channel_context import ChannelRequestMiddleware, audit_context, bind_verified_channel
 from staff_auth.checks import staff_browser_checks
@@ -18,11 +17,10 @@ from staff_auth.checks import staff_browser_checks
 
 class ChannelContextTests(SimpleTestCase):
     @override_settings(ROOT_URLCONF='config.urls', STAFF_BROWSER_AUTH_ENABLED=False, STAFF_BROWSER_COMPLAINTS_ENABLED=False)
-    def test_production_routes_remain_unmounted(self):
+    def test_production_routes_remain_closed_with_flags_off(self):
         for url in ('/staff/app/complaints/', '/api/staff/auth/v1/session/',
                     '/api/staff/complaints/operations/v1/groups/1/bootstrap/'):
-            with self.assertRaises(Resolver404):
-                resolve(url)
+            self.assertEqual(self.client.get(url).status_code,404)
 
     def request(self, view, **headers):
         request = RequestFactory().get('/api/staff/complaints/operations/v1/?q=PRIVATE_CUSTOMER', **headers)

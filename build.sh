@@ -12,6 +12,14 @@ pip install -r requirements.txt
 python -m origination.services.signature_appearance
 python -c "from weasyprint import HTML; assert HTML(string='<p>PDF preflight</p>').write_pdf().startswith(b'%PDF')"
 
+echo "Building the native staff browser client..."
+node -e "if (!process.version.startsWith('v22.')) { throw new Error('Use the pinned Node 22 runtime from .node-version'); }"
+npm --prefix browser ci --include=dev
+npm --prefix browser run check:dependencies
+npm --prefix browser run typecheck
+npm --prefix browser run lint
+npm --prefix browser run build -- --complaints-operations --production-browser
+
 echo "Checking Django configuration and migrations..."
 python manage.py check
 python manage.py makemigrations --check --dry-run

@@ -290,3 +290,28 @@ jobs:
           python manage.py migrate --noinput
           python manage.py makemigrations --check --dry-run
           python manage.py test origination core.tests_reliability core.tests_portal_publication_scheduler core.tests_portal_engineering core.tests_pipeline.JblPipelineServiceTestCase payments hb_operations requisitions ui_review staff_auth --noinput --verbosity 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Build and test real browser routes on PostgreSQL
+        env:
+          RUN_STAFF_BROWSER_E2E: "1"
+          STAFF_BROWSER_TEST_NODE: node
+        run: |
+          npm ci
+          npm --prefix browser ci --include=dev
+          npx playwright install --with-deps chromium
+          npm --prefix browser run typecheck
+          npm --prefix browser run lint
+          node browser/scripts/build.cjs --complaints-operations --production-browser
+          python manage.py test staff_auth.tests_production staff_auth.tests_production_transport staff_auth.tests_security_cache staff_auth.tests_abuse staff_auth.tests_enrollment staff_auth.tests_browser_api staff_auth.tests_initial_setup --settings=staff_auth.acceptance_test_settings --noinput
+      - name: Retain synthetic production-route evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: complaints-production-route-tests
+          path: |
+            test-results/browser-production-native/
+            test-results/complaints-browser-operations/dist-production/
+          retention-days: 14
+          if-no-files-found: warn

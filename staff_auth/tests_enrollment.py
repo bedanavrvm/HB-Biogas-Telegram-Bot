@@ -345,9 +345,10 @@ class BrowserEnrollmentTests(EnrollmentJourney, TestCase):
     def test_flag_and_production_url_mounts_remain_closed(self):
         self.assertEqual(self.post('enrollment/begin', {'request_key': key(), 'password': PASSWORD}).status_code, 404)
         for action in ('begin', 'confirm', 'recovery-codes'):
-            for prefix in ('/api/staff/auth/', '/test-staff-auth/'):
-                with self.assertRaises(Resolver404):
-                    resolve(f'{prefix}v1/enrollment/{action}/', urlconf='config.urls')
+            with override_settings(ROOT_URLCONF='config.urls'):
+                self.assertEqual(self.client.get(f'/api/staff/auth/v1/enrollment/{action}/').status_code,404)
+            with self.assertRaises(Resolver404):
+                resolve(f'/test-staff-auth/v1/enrollment/{action}/', urlconf='config.urls')
 
 
 @override_settings(

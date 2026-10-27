@@ -1,5 +1,13 @@
 # JBL standalone browser client
 
+27 October release: `npm run build -- --complaints-operations --production-browser`
+builds the real native client into `dist-production`, served conditionally by
+Django at `/staff/` and `/staff/login/`. Use
+[the production runbook](../docs/runbooks/staff-browser-production.md) for the
+reviewed Render release and existing-staff email/MFA onboarding. Flags default
+off; no live deployment is claimed. Historical local candidates below remain
+separate and must never be used as production entrypoints.
+
 Latest recovery/acceptance work (23 October): settings, schedule editors and
 report-email requests use the same owner-bound, memory-only task recovery as
 complaint forms. ADR 0074 selects PostgreSQL-only native authentication state;

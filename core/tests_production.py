@@ -388,14 +388,14 @@ class ConditionalApprovalProductionReadinessTests(TestCase):
         })
         return SimpleNamespace(**values)
 
-    def test_conditional_approval_requires_an_active_integrity_checked_policy(self):
+    def test_conditional_approval_checks_retained_policy_without_requiring_legacy_consent(self):
         configured = self._settings()
         missing_codes = {
             issue.code for issue in production_security_readiness_issues(
                 configured, check_database=True,
             )
         }
-        self.assertIn('conditional-approval-consent-policy', missing_codes)
+        self.assertNotIn('conditional-approval-consent-policy', missing_codes)
 
         approver = get_user_model().objects.create_superuser(
             username='conditional-readiness-approver', password='unused-test-password',

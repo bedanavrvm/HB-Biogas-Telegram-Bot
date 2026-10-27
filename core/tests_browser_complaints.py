@@ -198,8 +198,9 @@ class BrowserComplaintReadTests(TestCase):
         self.assertEqual(self.client.post(BASE + 'groups/', {}, HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value).status_code, 405)
 
     def test_off_switch_and_production_routes_stay_closed(self):
-        with override_settings(STAFF_BROWSER_AUTH_ENABLED=False):
+        with override_settings(STAFF_BROWSER_AUTH_ENABLED=False,ROOT_URLCONF='config.urls'):
             self.assertEqual(self.queue().status_code, 404)
-        for url in (BASE + 'groups/', f'{BASE}groups/1/cases/', '/complaints.html'):
-            with self.assertRaises(Resolver404):
-                resolve(url, urlconf='config.urls')
+            for url in (BASE+'groups/',f'{BASE}groups/1/cases/'):
+                self.assertEqual(self.client.get(url).status_code,404)
+        with self.assertRaises(Resolver404):
+            resolve('/complaints.html',urlconf='config.urls')

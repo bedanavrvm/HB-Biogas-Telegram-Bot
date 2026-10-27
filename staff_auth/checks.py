@@ -49,8 +49,10 @@ def staff_browser_checks(app_configs, **kwargs):
         or settings.SESSION_ENGINE == 'django.contrib.sessions.backends.signed_cookies'
     ):
         errors.append(Error('Company browser sessions require secure server-side cookies and CSRF.', id='staff_auth.E005'))
-    # P1a is only a dormant foundation, not a provision/enroll/recover product.
-    errors.append(Error('P1a has no approved browser login/enrollment/recovery routes. Keep STAFF_BROWSER_AUTH_ENABLED=False.', id='staff_auth.E006'))
+    from .production import release_errors
+    release = release_errors(settings)
+    if release:
+        errors.append(Error(' '.join(message for _code,message in release),id='staff_auth.E006'))
     default_cache = settings.CACHES.get('default', {})
     postgres_security = (default_cache.get('BACKEND') == 'staff_auth.security_cache.PostgresSecurityCache'
                          and settings.DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql')

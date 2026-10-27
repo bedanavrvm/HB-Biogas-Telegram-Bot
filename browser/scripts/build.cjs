@@ -58,11 +58,13 @@ async function main() {
   const development = process.argv.includes('--development');
   const complaintsDemo = process.argv.includes('--complaints-demo');
   const operations = process.argv.includes('--complaints-operations');
+  const productionBrowser = process.argv.includes('--production-browser');
   const complaints = process.argv.includes('--complaints');
   if (complaintsDemo && (operations || complaints || process.argv.includes('--authentication'))) throw new Error('Build the synthetic Complaints demo separately.');
   if (operations && complaints) throw new Error('Build restricted reads and operations separately.');
   const authentication = process.argv.includes('--authentication') || complaints || operations;
-  const dist = path.join(root, operations ? (development ? 'dist-complaints-operations-development' : 'dist-complaints-operations') : complaintsDemo ? (development ? 'dist-complaints-demo-development' : 'dist-complaints-demo') : complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
+  if (productionBrowser && (!operations || development || complaintsDemo)) throw new Error('Production browser delivery requires the native production Complaints operations entry.');
+  const dist = path.join(root, productionBrowser ? 'dist-production' : operations ? (development ? 'dist-complaints-operations-development' : 'dist-complaints-operations') : complaintsDemo ? (development ? 'dist-complaints-demo-development' : 'dist-complaints-demo') : complaints ? (development ? 'dist-complaints-development' : 'dist-complaints') : authentication ? (development ? 'dist-authentication-development' : 'dist-authentication') : (development ? 'dist-development' : 'dist'));
   const parcel = new Parcel({
     entries: operations ? [path.join(root, 'src/complaints-operations.html')] : complaintsDemo ? [path.join(root, 'src/complaints-demo.html')] : complaints ? [path.join(root, 'src/complaints.html')] : authentication ? [path.join(root, 'src/access.html')] : [path.join(root, 'src/index.html'), path.join(root, 'src/review.html')],
     defaultConfig: require.resolve('@parcel/config-default'),
@@ -72,7 +74,7 @@ async function main() {
     targets: { preview: {
       context: 'browser',
       distDir: dist,
-      publicUrl: '/',
+      publicUrl: productionBrowser ? '/staff/assets/' : '/',
       includeNodeModules: true,
       isLibrary: false,
       sourceMap: false,
@@ -111,7 +113,7 @@ async function main() {
     path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
-  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, productionBrowser, assetPrefix: productionBrowser ? '/staff/assets/' : '/', mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
   console.log(`Built real React/ADS ${development ? 'development' : 'production'} ${authentication ? 'closed authentication' : 'demo'}: ${files.length} assets, ${owners.size} noticed packages, ${files.reduce((n, file) => n + file.bytes, 0)} bytes; no excluded assets.`);
 }
 

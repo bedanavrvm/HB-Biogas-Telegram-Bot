@@ -1,4 +1,4 @@
-"""Constrained JSON authentication adapter; production URLs remain unmounted."""
+"""Constrained native JSON authentication; production access is default-off."""
 import json
 import math
 import time
@@ -20,6 +20,7 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.sessions.backends.base import UpdateError
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.db import DatabaseError
+from django.db.models import F
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import csrf_protect
@@ -86,7 +87,8 @@ def _admission(user_id):
 
 
 def _verified(user_id):
-    return EmailAddress.objects.filter(user_id=user_id, primary=True, verified=True).exists()
+    return EmailAddress.objects.filter(user_id=user_id, primary=True, verified=True,
+        email__iexact=F('user__email')).exclude(email='').exists()
 
 
 def _channel(request):
@@ -274,7 +276,8 @@ def _complete(request):
 
 @browser_endpoint(('GET',))
 def session_state(request):
-    return _response(_state(request), csrf_token=get_token(request))
+    return _response(_state(request), csrf_token=get_token(request),
+        separate_session_required=request.user.is_authenticated and not _owns_browser_session(request))
 
 
 @browser_endpoint(('POST',))

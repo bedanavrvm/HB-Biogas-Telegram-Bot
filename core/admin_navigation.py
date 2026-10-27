@@ -320,6 +320,7 @@ def get_admin_navigation(request) -> list[dict]:
     configuration = [
         _staff_approvals_item(request),
         _model_item("auth.User", "Users", "group"),
+        _model_item("staff_auth.StaffBrowserAdmission", "Staff browser access", "computer"),
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),
         _model_item("core.TatPresentationSettings", "TAT display settings", "timer"),

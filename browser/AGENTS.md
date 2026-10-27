@@ -1,5 +1,11 @@
 # Standalone browser UI
 
+ADR 0075 supersedes the historical unmounted-route boundary below for the
+user-authorized conditional Complaints release. Read
+`docs/runbooks/staff-browser-production.md` before production routing, onboarding
+or deployment. Flags remain default-off until explicit release approval; local
+demo/preview graphs and Telegram migration approval remain separate.
+
 Follow the root repository rules and `DESIGN.md`. The user explicitly requires
 consulting the current official Atlassian documentation for every browser UI
 change. Read the relevant usage/design guidance and the exact installed APIs;

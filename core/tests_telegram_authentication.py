@@ -147,6 +147,8 @@ class CanonicalTelegramAuthenticationTests(TestCase):
         COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH=False,
     )
     def test_explicit_test_mode_can_use_logged_in_user_without_unsigned_identity(self):
+        from core.tests_browser_complaints import seed_complaint_policy
+        seed_complaint_policy()
         group = GroupSheetConfiguration.objects.create(
             group_id='-100-phase-three-local',
             sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'},

@@ -50,12 +50,13 @@ async function main() {
     const dismiss=page.getByRole('button',{name:'Dismiss notification',exact:true});if(await dismiss.count())await dismiss.click();
   }
   async function select(label, option) {
-    if (!(await page.getByLabel(label, {exact:true}).isVisible()) && await page.getByRole('button',{name:/^(More filters|Filters)/}).count()) await page.getByRole('button',{name:/^(More filters|Filters)/}).click();
+    const labelPattern=new RegExp('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:\\s*\\*)?$');
+    if (!(await page.getByLabel(labelPattern).isVisible()) && !(await page.getByRole('dialog').count()) && await page.getByRole('button',{name:/^(More filters|Filters)/}).count()) await page.getByRole('button',{name:/^(More filters|Filters)/}).click();
     const scope = await page.getByRole('dialog').count() ? page.getByRole('dialog') : page;
-    const box = scope.getByLabel(label, { exact: true }); await box.fill(option);
+    const box = scope.getByLabel(labelPattern); await box.fill(option);
     const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     await scope.getByRole('option', { name: new RegExp('^' + escaped + '(?:$| - )') }).click();
-    if(option!=='Custom dates'&&await page.getByRole('dialog',{name:/^Filter (reports|complaints)$/}).count()) await page.getByRole('button',{name:'Done',exact:true}).click();
+    if(option!=='Custom dates'&&await page.getByRole('dialog',{name:/^Filter (reports|complaints)$/}).count()) await page.getByRole('button',{name:/^(Done|Apply filters)$/}).click();
   }
   async function saveAutomaticDraft() {
     if(await page.getByRole('button',{name:'Retry draft',exact:true}).count()) {await page.getByRole('button',{name:'Retry draft',exact:true}).click();return;}
@@ -72,9 +73,10 @@ async function main() {
   async function preferenceChecks() {
     await page.setViewportSize({ width: 1366, height: 900 }); await page.emulateMedia({ colorScheme: 'light' });
     const previousUrl=page.url();
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button',{name:'Workspace tools',exact:true}).click();
+    await page.getByRole('menuitem',{name:'Settings',exact:true}).click();
     assert.equal(await page.getByRole('grid').count(),0,'Settings must not be stacked above Reports');
-    await page.getByRole('button', {name:'Closed',exact:true}).click(); await select('Default branch', 'Synthetic Other Branch');
+    await select('Default status','Closed'); await select('Default branch', 'Synthetic Other Branch');
     const saving = page.waitForResponse(response => response.url().endsWith('/preferences/') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
     assert.deepEqual((await (await saving).json()).default_filters, { status: 'resolved', branch: 'Synthetic Other Branch' });
@@ -90,10 +92,11 @@ async function main() {
     assert.equal(response.request().postDataJSON().status, 'resolved', 'Restored request must use the saved status');
     assert.equal((await response.json()).pagination.total, 4, 'Saved branch must include the synthetic cases');
     await heading('4 complaints');
-    await page.getByRole('button', {name:/Branch: Synthetic Other Branch/}).waitFor();
+    await page.getByRole('button', {name:/Synthetic Other Branch/}).waitFor();
     await page.goto(origin.origin + '/staff/app/complaints/?status=pending'); await heading('7 complaints');
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByRole('button', {name:'Open + Reopened',exact:true}).click(); await select('Default branch', 'All branches');
+    await page.getByRole('button',{name:'Workspace tools',exact:true}).click();
+    await page.getByRole('menuitem',{name:'Settings',exact:true}).click();
+    await select('Default status','Open + Reopened'); await select('Default branch', 'All branches');
     await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
     await page.getByText('Preferences saved.', { exact: true }).waitFor();
     await page.goto(origin.origin + '/staff/app/complaints/'); await heading('7 complaints');
@@ -175,12 +178,13 @@ async function main() {
     assert.equal(await page.getByText(/^Synthetic older note \d{3}$/).count(), 61);
     assert.equal(await page.getByRole('button', { name: 'Load older activity', exact: true }).count(), 0);
     await capture('history-all-loaded');
+    await page.getByRole('button',{name:'← Back to complaints',exact:true}).click();
     await page.getByRole('link', { name: /^Synthetic Customer 00/ }).click();
     await heading('Synthetic Customer 00');
     assert.match(page.url(), /staff\/app\/complaints\/cases\/[a-f\d-]+\//);
     assert.equal(await page.locator('a[href^="tel:"]').count(), 1);
     await page.getByRole('button', {name:'Add note',exact:true}).click();
-    await page.getByLabel(/^Resolution comment/).fill('Synthetic browser follow-up.');
+    await page.getByLabel(/^Feedback note/).fill('Synthetic browser follow-up.');
     const submissions=[];
     await page.route('**/cases/*/comment/',async route=>{
       submissions.push(route.request().postData());
@@ -189,7 +193,7 @@ async function main() {
     },{times:1});
     await page.getByRole('dialog').getByRole('button', { name: 'Add note', exact: true }).click();
     await page.getByRole('button',{name:'Retry previous save',exact:true}).waitFor();
-    assert.equal(await page.getByLabel(/^Resolution comment/).getAttribute('readonly'),'');
+    assert.equal(await page.getByLabel(/^Feedback note/).getAttribute('readonly'),'');
     await recoveryCaptures('recovery-uncertain-save');
     await page.route('**/cases/*/comment/',async route=>{submissions.push(route.request().postData());await route.continue();},{times:1});
     await page.getByRole('button',{name:'Retry previous save',exact:true}).click();
@@ -206,6 +210,7 @@ async function main() {
       }
     }
     await page.setViewportSize({ width: 1366, height: 900 }); await page.emulateMedia({ colorScheme: 'light' });
+    await page.getByRole('button',{name:'← Back to complaints',exact:true}).click();
     await page.getByRole('tab', {name:/^Queue/}).click();
     await page.getByLabel('Search name, ID, phone or branch').fill('999999999999');
     await page.waitForTimeout(450); await heading('7 complaints');
@@ -241,7 +246,7 @@ async function main() {
     assert.equal(await page.getByLabel(/^Customer name/).inputValue(), 'Synthetic retained draft');
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({state:'detached'});
-    assert.equal(await page.evaluate(()=>document.activeElement?.textContent), 'Create complaint');
+    assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')), 'Create complaint');
 
     await page.getByRole('tab', {name:'Reports',exact:true}).click();
     await page.getByRole('grid', {name:'Complaint results'}).waitFor();
@@ -262,10 +267,10 @@ async function main() {
     if(!(await page.getByRole('dialog',{name:'Filter reports',exact:true}).count())) await page.getByRole('button',{name:/^(More filters|Filters)/}).click();
     await page.getByLabel('From',{exact:true}).fill('2026-12-31');
     await page.getByLabel('To',{exact:true}).fill(input.month_start);await page.getByLabel('To',{exact:true}).press('Tab');
-    await page.getByText('End date must be on or after the start date.',{exact:true}).waitFor();
+    await page.getByText('Enter valid dates. The end date must be on or after the start date.',{exact:true}).waitFor();
     const customRows=page.waitForResponse(response=>response.url().endsWith('/reports/')&&response.request().postDataJSON()?.date_from===input.month_start);
-    await page.getByLabel('From',{exact:true}).fill(input.month_start);await page.getByLabel('From',{exact:true}).press('Tab');await customRows;
-    await page.getByRole('button',{name:'Done',exact:true}).click();
+    await page.getByLabel('From',{exact:true}).fill(input.month_start);await page.getByLabel('From',{exact:true}).press('Tab');
+    await page.getByRole('button',{name:'Apply filters',exact:true}).click();await customRows;
     await select('Date range','All dates');await heading('11 complaints');
     async function reportCaptures(view) {
       for (const theme of ['light','dark']) {
@@ -282,7 +287,7 @@ async function main() {
           const title=await chart.getAttribute('aria-label');await chart.scrollIntoViewIfNeeded();
           await capture('chart-'+view+'-'+width+'-'+title.replace(/[^a-zA-Z]+/g,'-'),true);
         }
-        await page.getByRole('grid',{name:'Complaint results'}).scrollIntoViewIfNeeded();
+        await (width<768?page.getByLabel('Search report table',{exact:true}):page.getByRole('grid',{name:'Complaint results'})).scrollIntoViewIfNeeded();
         await capture('table-'+view+'-'+width,true);
       }
       await page.setViewportSize({width:1366,height:900});
@@ -362,6 +367,6 @@ async function main() {
     assert.deepEqual(errors, []);
     fs.writeFileSync(path.join(output, 'layout.json'), JSON.stringify(layouts, null, 2));
     process.stdout.write(JSON.stringify({ passed: true, captures }));
-  } catch(error) { await page.screenshot({path:path.join(output,'failure.png'),fullPage:true});fs.writeFileSync(path.join(output,'failure.txt'),(await page.locator('body').innerText()).slice(0,20000));throw error; } finally { await browser.close(); }
+  } catch(error) { await page.screenshot({path:path.join(output,'failure.png'),fullPage:true,mask:[page.locator('[data-sensitive], input[type="password"], input[autocomplete="one-time-code"]')]});fs.writeFileSync(path.join(output,'failure.txt'),(await page.locator('body').innerText()).slice(0,20000));throw error; } finally { await browser.close(); }
 }
 main().catch(error => { console.error(error.stack); process.exitCode = 1; });

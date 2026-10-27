@@ -104,11 +104,16 @@ class StaffBrowserSecurityState(models.Model):
 
 
 class StaffBrowserSetupGrant(models.Model):
+    INITIAL_PASSWORD = 'initial_password'
+    VERIFY_EMAIL = 'verify_email'
     PREPARED = 'prepared'
     VERIFIED = 'verified'
     COMPLETED = 'completed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Opaque initial-setup identifier; never sufficient to authenticate.')
+    purpose = models.CharField(max_length=20, default=INITIAL_PASSWORD,
+        choices=[(INITIAL_PASSWORD,'First password'),(VERIFY_EMAIL,'Verify existing account email')],
+        db_comment='Captured setup purpose. Mailbox-only proof never replaces an existing password or grants login assurance.')
     admission = models.ForeignKey(
         StaffBrowserAdmission, on_delete=models.PROTECT, related_name='initial_setup_grants',
         db_comment='Existing browser admission retained on user deletion; no new staff identity or workflow grant.',
@@ -116,7 +121,7 @@ class StaffBrowserSetupGrant(models.Model):
     admission_revision = models.PositiveBigIntegerField(db_comment='Exact admission generation authorized for this setup; later changes revoke it.')
     email_address_id = models.PositiveBigIntegerField(db_comment='Native address ID, deliberately not an FK so native credential deletion remains independent; rechecked on every request.')
     email_fingerprint = models.CharField(max_length=64, db_comment='Keyed fingerprint of the approved current canonical address; no plaintext address.')
-    password_fingerprint = models.CharField(max_length=64, db_comment='Keyed fingerprint of the original unusable encoded password; never a new-password verifier.')
+    password_fingerprint = models.CharField(max_length=64, db_comment='Keyed fingerprint of the original password state; never a new-password verifier.')
     confirmation_cipher = models.TextField(db_comment='Dedicated-key ciphertext of the issued native mailbox proof; erased on completion, never exported to operators.')
     prepared_audit_id = models.UUIDField(db_comment='Immutable preparation receipt ID; resolved against the compliance ledger without deletion coupling.')
     state = models.CharField(max_length=12, default=PREPARED, choices=[(PREPARED, 'Prepared'), (VERIFIED, 'Verified'), (COMPLETED, 'Completed')], db_comment='Server-owned initial-setup progress; never login or MFA assurance.')
@@ -130,12 +135,13 @@ class StaffBrowserSetupGrant(models.Model):
 
     class Meta:
         db_table = 'staff_auth_browser_setup_grant'
-        db_table_comment = 'Temporary closed initial-setup capability for an existing admitted non-Admin account; no operational mail delivery or login authority.'
+        db_table_comment = 'Expiring mailbox-proof and first-password capability for an existing admitted account; never login or workflow authority.'
         indexes = [models.Index(fields=['expires_at'], name='staff_setup_expiry_idx')]
         constraints = [
             models.CheckConstraint(condition=Q(admission_revision__gte=1), name='staff_setup_revision_positive'),
             models.CheckConstraint(condition=Q(email_address_id__gte=1), name='staff_setup_address_positive'),
             models.CheckConstraint(condition=Q(state__in=['prepared', 'verified', 'completed']), name='staff_setup_known_state'),
+            models.CheckConstraint(condition=Q(purpose__in=['initial_password','verify_email']),name='staff_setup_known_purpose'),
             models.CheckConstraint(
                 condition=Q(state='prepared') | (Q(verify_audit_id__isnull=False) & ~Q(verify_request_key='') & ~Q(session_digest='')),
                 name='staff_setup_verified_receipt',

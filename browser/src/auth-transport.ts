@@ -9,7 +9,7 @@ export type Result = { state: AccessState; failure?: string; retryAfter?: number
 export class TransportError extends Error {
   constructor(public kind: 'network' | 'csrf' | 'unavailable' | 'protocol') { super('Staff access request could not be confirmed.'); }
 }
-type Reply = { state: string; is_authenticated: boolean; csrf_token?: string; username?: string; setup_id?: string; otpauth_uri?: string; qr_data?: string; recovery_codes?: unknown; field_errors?: unknown };
+type Reply = { state: string; is_authenticated: boolean; separate_session_required?: boolean; csrf_token?: string; username?: string; setup_id?: string; otpauth_uri?: string; qr_data?: string; recovery_codes?: unknown; field_errors?: unknown };
 
 export function consumeInvitation(): Invitation | null {
   const fragment = new URLSearchParams(window.location.hash.slice(1));
@@ -47,6 +47,7 @@ function enrollment(reply: Reply): Result['enrollment'] {
 }
 export async function checkSession(signal: AbortSignal): Promise<Result> {
   const reply = await session(signal);
+  if (reply.separate_session_required) return { state:'signed_out',failure:'separate_session' };
   if (['enrollment_required', 'recovery_codes_required', 'reauthentication_required'].includes(reply.state)) {
     const draft = await request('enrollment/session', signal);
     if (draft.response.status !== 200 || !sessionStates.some(state => state === draft.reply.state)) throw new TransportError('protocol');
@@ -56,6 +57,7 @@ export async function checkSession(signal: AbortSignal): Promise<Result> {
 }
 export async function resumeAccess(signal: AbortSignal, invitation: Invitation | null): Promise<Result> {
   const result = await checkSession(signal);
+  if (result.failure === 'separate_session') return result;
   if (result.state !== 'signed_out') return result;
   const progress = await request('setup/session', signal);
   // A stale browser-owned Django cookie can still authenticate request.user.
@@ -86,6 +88,7 @@ export async function submit(action: Action, body: Record<string, string>, signa
   const { response, reply } = await post(action, body, signal);
   if (response.status === 429) return { ...await resumeAccess(signal, null), failure: 'rate_limited', retryAfter: Math.min(600, Math.max(1, Number(response.headers.get('Retry-After')) || 60)) };
   if (action === 'setup/verify-email') {
+    if (response.status === 200 && reply.state === 'reauthentication_required') return { state:'signed_out',username:reply.username };
     if (response.status !== 200 || reply.state !== 'password_required') return { state: 'setup_invalid', failure: 'setup_invalid' };
     return resumeAccess(signal, null);
   }
@@ -112,5 +115,5 @@ export async function submit(action: Action, body: Record<string, string>, signa
   if (response.status === 400) return { ...after, failure: reply.state === 'invalid_credentials' ? 'invalid_credentials' : action === 'enrollment/confirm' ? 'invalid_enrollment_code' : action === 'mfa' ? 'invalid_code' : 'setup_invalid' };
   if (![200, 202, 401, 409].includes(response.status)) throw new TransportError('protocol');
   if (response.status === 409 && action.startsWith('enrollment/')) return { ...after, failure: 'enrollment_restart' };
-  return { ...after, ...(action !== 'logout' && after.state === 'signed_out' ? { failure: 'session_ended' } : {}) };
+  return { ...after, ...(action !== 'logout' && after.state === 'signed_out' ? { failure: after.failure || 'session_ended' } : {}) };
 }

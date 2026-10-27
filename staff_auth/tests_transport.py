@@ -53,14 +53,17 @@ class TransportClosureTests(SimpleTestCase):
         StaffAccountAdapter(request).add_message(request, messages.SUCCESS, message='Synthetic native feedback')
         self.assertEqual([str(item) for item in messages.get_messages(request)], ['Synthetic native feedback'])
 
-    def test_production_routes_stay_unmounted(self):
-        for url in ('/staff/', '/access.html', '/api/staff/auth/v1/session/', '/test-context/identity/',
+    @override_settings(ROOT_URLCONF='config.urls',STAFF_BROWSER_AUTH_ENABLED=False)
+    def test_production_routes_remain_closed_with_flag_off(self):
+        for url in ('/staff/', '/api/staff/auth/v1/session/',
                     '/api/staff/auth/v1/setup/session/', '/api/staff/auth/v1/setup/verify-email/',
                     '/api/staff/auth/v1/setup/password/', '/api/staff/auth/v1/enrollment/session/',
                     '/api/staff/auth/v1/enrollment/begin/', '/api/staff/auth/v1/enrollment/confirm/',
                     '/api/staff/auth/v1/enrollment/recovery-codes/'):
-            with self.subTest(url=url), self.assertRaises(Resolver404):
-                resolve(url, urlconf='config.urls')
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code,404)
+        for url in ('/access.html','/test-context/identity/'):
+            with self.assertRaises(Resolver404): resolve(url,urlconf='config.urls')
 
     def test_harness_refuses_non_test_configuration(self):
         from .transport_test_urls import _guard

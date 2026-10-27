@@ -150,6 +150,7 @@
         "core/services/user_hard_delete.py",
         "origination/migrations/0003_independent_capabilities.py",
         "origination/migrations/0011_phone_identity_pilot_capability.py",
+        "origination/migrations/0015_application_invalidation.py",
         "report_delivery/one_off.py"
       ]
     },
@@ -175,7 +176,9 @@
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
         "origination/tests_phone_identity.py",
+        "origination/tests_references.py",
         "origination/tests_signing_presentation.py",
+        "origination/tests_workflow_improvements.py",
         "report_delivery/tests.py",
         "report_delivery/tests_complaint_reports.py",
         "report_delivery/tests_one_off.py",
@@ -240,8 +243,10 @@
         "origination/tests_approval.py",
         "origination/tests_migrations.py",
         "origination/tests_phone_identity.py",
+        "origination/tests_references.py",
         "origination/tests_signing_plans.py",
         "origination/tests_signing_presentation.py",
+        "origination/tests_workflow_improvements.py",
         "report_delivery/one_off.py",
         "report_delivery/services.py",
         "report_delivery/tests.py",
@@ -683,7 +688,9 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/compliance_audit.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests_application_downloads.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_identity_copies.py",
@@ -696,6 +703,8 @@
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_production.py",
+        "staff_auth/tests_production_transport.py",
         "staff_auth/tests_security_cache.py",
         "staff_auth/tests_transport.py",
         "staff_auth/transport_test_runner.py"
@@ -711,7 +720,9 @@
       "table": "core_complianceauditchainstate",
       "used_by": [
         "core/services/compliance_audit.py",
+        "hb_operations/tests_deposits.py",
         "origination/tests_application_downloads.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_identity_copies.py",
@@ -724,6 +735,8 @@
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_production.py",
+        "staff_auth/tests_production_transport.py",
         "staff_auth/tests_security_cache.py",
         "staff_auth/tests_transport.py",
         "staff_auth/transport_test_runner.py"
@@ -763,6 +776,8 @@
       "direct_orm_writers": [
         "core/services/compliance_audit.py",
         "core/services/portal_maintenance.py",
+        "origination/tests_workflow_improvements.py",
+        "staff_auth/tests_production.py",
         "staff_auth/transport_test_runner.py"
       ],
       "django_model": "core.ComplianceAuditEvent",
@@ -796,13 +811,16 @@
         "core/services/product_permanent_deletion.py",
         "core/services/tat_full_reset.py",
         "core/services/user_hard_delete.py",
+        "origination/services/application_lifecycle.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_laf_bootstrap.py",
         "origination/tests_laf_bootstrap.py",
+        "origination/tests_workflow_improvements.py",
         "payments/receipt_batches.py",
         "staff_auth/browser_api.py",
         "staff_auth/enrollment_state.py",
         "staff_auth/initial_setup.py",
+        "staff_auth/invitations.py",
         "staff_auth/lifecycle.py",
         "staff_auth/setup_api.py",
         "staff_auth/tests_abuse.py",
@@ -810,6 +828,7 @@
         "staff_auth/tests_enrollment.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_production.py",
         "staff_auth/tests_replay.py",
         "staff_auth/tests_transport.py",
         "staff_auth/transport_test_runner.py"
@@ -1106,6 +1125,7 @@
         "requisitions/tests.py",
         "requisitions/tests_operations_api.py",
         "staff_auth/tests_complaints_transport.py",
+        "staff_auth/tests_production_transport.py",
         "staff_auth/tests_transport.py"
       ],
       "django_model": "core.GroupSheetConfiguration",
@@ -1197,6 +1217,7 @@
         "requisitions/tests.py",
         "requisitions/tests_operations_api.py",
         "staff_auth/tests_complaints_transport.py",
+        "staff_auth/tests_production_transport.py",
         "staff_auth/tests_transport.py",
         "staff_auth/transport_test_urls.py"
       ]
@@ -1250,7 +1271,8 @@
         "origination/tests_advanta_sms.py",
         "origination/tests_approval.py",
         "origination/tests_laf_bootstrap.py",
-        "origination/tests_phone_identity.py"
+        "origination/tests_phone_identity.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "core.IntegrationOperation",
       "domain": "integration",
@@ -1299,7 +1321,8 @@
         "origination/tests_approval.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_phone_identity.py",
-        "origination/tests_signing_migrations.py"
+        "origination/tests_signing_migrations.py",
+        "origination/tests_workflow_improvements.py"
       ]
     },
     {
@@ -1859,7 +1882,7 @@
         "payments.PaymentReceiptItem"
       ],
       "classification": "authoritative_record",
-      "column_count": 97,
+      "column_count": 98,
       "cross_domain_parents": [
         "core.GroupSheetConfiguration",
         "core.OperationalLocation",
@@ -1952,6 +1975,7 @@
         "core/services/workflow_sla.py",
         "core/services/workflow_timeline.py",
         "hb_operations/deposits.py",
+        "hb_operations/management/commands/backfill_invoice_serials.py",
         "hb_operations/management/commands/reconcile_hb_deposit_holds.py",
         "hb_operations/models.py",
         "hb_operations/services.py",
@@ -2256,7 +2280,7 @@
         "origination.OriginationSigningParticipant"
       ],
       "classification": "authoritative_record",
-      "column_count": 40,
+      "column_count": 41,
       "cross_domain_parents": [
         "auth.User",
         "core.GroupSheetConfiguration",
@@ -2275,8 +2299,10 @@
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
         "origination/tests_phone_identity.py",
+        "origination/tests_references.py",
         "origination/tests_signing_plans.py",
-        "origination/tests_value_contracts.py"
+        "origination/tests_value_contracts.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "origination.LoanOriginationApplication",
       "domain": "origination",
@@ -2310,12 +2336,16 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/migrations/0007_originationsigningparticipant_and_more.py",
+        "origination/migrations/0012_application_display_references.py",
         "origination/migrations/0012_remove_legacy_authoring_models.py",
         "origination/models.py",
         "origination/services/application_copies.py",
+        "origination/services/application_lifecycle.py",
+        "origination/services/application_references.py",
         "origination/services/loan_origination.py",
         "origination/services/origination_commercial_terms.py",
         "origination/services/origination_consent.py",
+        "origination/services/origination_document_refresh.py",
         "origination/services/origination_documents.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_evidence.py",
@@ -2330,15 +2360,18 @@
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
         "origination/tests_document_management.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_identity_copies.py",
         "origination/tests_legacy_cleanup.py",
         "origination/tests_migrations.py",
         "origination/tests_phone_identity.py",
+        "origination/tests_references.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
         "origination/tests_value_contracts.py",
+        "origination/tests_workflow_improvements.py",
         "origination/views.py"
       ]
     },
@@ -2628,6 +2661,7 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/fresh_database_baseline.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_unsigned_applications.py",
@@ -2652,7 +2686,6 @@
         "core/services/jawabu_pipeline.py",
         "core/services/location_catalog.py",
         "core/services/locations.py",
-        "core/services/portal_report_insights.py",
         "core/services/product_availability.py",
         "core/services/spin_credit.py",
         "core/services/tat_tracker.py",
@@ -2661,6 +2694,7 @@
         "origination/models.py",
         "origination/origination_setup_forms.py",
         "origination/services/origination_templates.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_unsigned_applications.py",
@@ -2692,7 +2726,7 @@
       "table": "core_operationallocationalias",
       "used_by": [
         "core/services/location_catalog.py",
-        "core/services/portal_report_insights.py"
+        "core/services/locations.py"
       ]
     },
     {
@@ -3084,6 +3118,7 @@
         "origination/services/origination_main_laf_seeds.py",
         "origination/services/origination_setup_documents.py",
         "origination/services/origination_templates.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_unsigned_applications.py"
       ],
       "django_model": "origination.OriginationDocumentProductEligibility",
@@ -3117,6 +3152,7 @@
         "origination/services/origination_setup_documents.py",
         "origination/services/origination_templates.py",
         "origination/tests.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_unsigned_applications.py"
       ]
@@ -3147,7 +3183,9 @@
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_signing_plans.py",
@@ -3189,6 +3227,7 @@
         "origination/services/origination_consent.py",
         "origination/services/origination_document_catalogue.py",
         "origination/services/origination_document_choices.py",
+        "origination/services/origination_document_refresh.py",
         "origination/services/origination_documents.py",
         "origination/services/origination_fields.py",
         "origination/services/origination_god_mode.py",
@@ -3199,7 +3238,9 @@
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
         "origination/tests_approval.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_laf_bootstrap.py",
@@ -3267,7 +3308,8 @@
       "direct_orm_writers": [
         "origination/services/origination_esign.py",
         "origination/services/origination_sms_delivery.py",
-        "origination/tests_advanta_sms.py"
+        "origination/tests_advanta_sms.py",
+        "origination/tests_document_refresh.py"
       ],
       "django_model": "origination.OriginationOtpChallenge",
       "domain": "origination",
@@ -3289,7 +3331,8 @@
         "origination/services/origination_esign.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_sms_delivery.py",
-        "origination/tests_advanta_sms.py"
+        "origination/tests_advanta_sms.py",
+        "origination/tests_document_refresh.py"
       ]
     },
     {
@@ -3301,7 +3344,7 @@
         "origination.OriginationProductDefinitionEvent"
       ],
       "classification": "configuration",
-      "column_count": 22,
+      "column_count": 23,
       "cross_domain_parents": [
         "auth.User",
         "core.ProductVersion"
@@ -3318,6 +3361,7 @@
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_approval.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
@@ -3325,7 +3369,8 @@
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
-        "origination/tests_value_contracts.py"
+        "origination/tests_value_contracts.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "origination.OriginationProductDefinition",
       "domain": "origination",
@@ -3354,6 +3399,7 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/migrations/0012_remove_legacy_authoring_models.py",
+        "origination/migrations/0014_originationproductdefinition_workflow_configuration.py",
         "origination/models.py",
         "origination/origination_setup_admin.py",
         "origination/origination_setup_forms.py",
@@ -3370,6 +3416,7 @@
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_approval.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_simplification.py",
         "origination/tests_field_rules.py",
         "origination/tests_identity_copies.py",
@@ -3380,6 +3427,7 @@
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
         "origination/tests_value_contracts.py",
+        "origination/tests_workflow_improvements.py",
         "origination/views.py"
       ]
     },
@@ -3520,7 +3568,8 @@
       ],
       "direct_orm_writers": [
         "origination/services/loan_origination.py",
-        "origination/services/origination_dispatch.py"
+        "origination/services/origination_dispatch.py",
+        "origination/services/origination_document_refresh.py"
       ],
       "django_model": "origination.OriginationReviewerNotice",
       "domain": "origination",
@@ -3540,8 +3589,10 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/models.py",
+        "origination/services/application_lifecycle.py",
         "origination/services/loan_origination.py",
         "origination/services/origination_dispatch.py",
+        "origination/services/origination_document_refresh.py",
         "origination/services/origination_god_mode.py",
         "origination/tests.py",
         "origination/views.py"
@@ -3560,9 +3611,12 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "origination/services/application_lifecycle.py",
         "origination/services/origination_esign.py",
         "origination/tests_approval.py",
-        "origination/tests_signing_plans.py"
+        "origination/tests_document_refresh.py",
+        "origination/tests_signing_plans.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "origination.OriginationSignerSession",
       "domain": "origination",
@@ -3584,15 +3638,19 @@
         "origination/migrations/0001_domain_ownership.py",
         "origination/migrations/0007_originationsigningparticipant_and_more.py",
         "origination/models.py",
+        "origination/services/application_lifecycle.py",
         "origination/services/origination_dispatch.py",
+        "origination/services/origination_document_refresh.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_production.py",
         "origination/services/recovery.py",
         "origination/tests_approval.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_production_readiness.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
+        "origination/tests_workflow_improvements.py",
         "origination/views.py"
       ]
     },
@@ -3610,7 +3668,9 @@
       "direct_orm_writers": [
         "origination/services/origination_esign.py",
         "origination/services/origination_signing.py",
-        "origination/tests_approval.py"
+        "origination/tests_approval.py",
+        "origination/tests_document_refresh.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "origination.OriginationSigningAction",
       "domain": "origination",
@@ -3635,12 +3695,16 @@
         "origination/migrations/0001_domain_ownership.py",
         "origination/migrations/0007_originationsigningparticipant_and_more.py",
         "origination/models.py",
+        "origination/services/application_lifecycle.py",
         "origination/services/origination_approval.py",
+        "origination/services/origination_document_refresh.py",
         "origination/services/origination_esign.py",
         "origination/services/origination_final_review.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_signing.py",
-        "origination/tests_approval.py"
+        "origination/tests_approval.py",
+        "origination/tests_document_refresh.py",
+        "origination/tests_workflow_improvements.py"
       ]
     },
     {
@@ -3653,7 +3717,8 @@
       ],
       "direct_orm_writers": [
         "origination/services/loan_origination.py",
-        "origination/services/origination_final_review.py"
+        "origination/services/origination_final_review.py",
+        "origination/tests_document_refresh.py"
       ],
       "django_model": "origination.OriginationSigningActionInvalidation",
       "domain": "origination",
@@ -3675,7 +3740,8 @@
         "origination/models.py",
         "origination/services/loan_origination.py",
         "origination/services/origination_final_review.py",
-        "origination/services/origination_god_mode.py"
+        "origination/services/origination_god_mode.py",
+        "origination/tests_document_refresh.py"
       ]
     },
     {
@@ -3693,7 +3759,9 @@
       "direct_orm_writers": [
         "origination/services/origination_esign.py",
         "origination/tests_application_downloads.py",
-        "origination/tests_approval.py"
+        "origination/tests_approval.py",
+        "origination/tests_document_refresh.py",
+        "origination/tests_workflow_improvements.py"
       ],
       "django_model": "origination.OriginationSigningPackage",
       "domain": "origination",
@@ -3718,6 +3786,7 @@
         "origination/catalogue.py",
         "origination/migrations/0001_domain_ownership.py",
         "origination/models.py",
+        "origination/services/application_lifecycle.py",
         "origination/services/loan_origination.py",
         "origination/services/origination_dispatch.py",
         "origination/services/origination_esign.py",
@@ -3729,10 +3798,12 @@
         "origination/services/recovery.py",
         "origination/tests_application_downloads.py",
         "origination/tests_approval.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_legacy_cleanup.py",
         "origination/tests_migrations.py",
         "origination/tests_signing_migrations.py",
         "origination/tests_signing_plans.py",
+        "origination/tests_workflow_improvements.py",
         "origination/views.py"
       ]
     },
@@ -3825,6 +3896,7 @@
         "origination/services/document_editor.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_templates.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
         "origination/tests_document_simplification.py",
         "origination/tests_unsigned_applications.py"
@@ -3852,7 +3924,9 @@
         "origination/services/document_editor.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_templates.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_management.py",
+        "origination/tests_document_refresh.py",
         "origination/tests_document_simplification.py",
         "origination/tests_unsigned_applications.py"
       ]
@@ -3900,6 +3974,7 @@
         "core/services/portal_full_reset.py",
         "core/services/portal_reporting.py",
         "core/services/workflow_timeline.py",
+        "hb_operations/management/commands/backfill_invoice_serials.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
         "payments/invoice_agreements.py",
@@ -4326,6 +4401,7 @@
       "direct_orm_writers": [
         "core/services/product_catalog_full_reset.py",
         "origination/tests.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_simplification.py",
         "origination/tests_unsigned_applications.py"
       ],
@@ -4384,6 +4460,7 @@
         "origination/services/origination_templates.py",
         "origination/services/origination_terminology.py",
         "origination/tests.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_document_simplification.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_unsigned_applications.py",
@@ -4426,6 +4503,7 @@
         "core/services/product_availability.py",
         "core/services/product_catalog_full_reset.py",
         "origination/origination_setup_admin.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_unsigned_applications.py"
       ],
       "django_model": "core.ProductAvailability",
@@ -4448,6 +4526,7 @@
         "core/services/product_deletion.py",
         "core/services/tat_full_reset.py",
         "origination/origination_setup_admin.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_unsigned_applications.py"
       ]
     },
@@ -4457,7 +4536,9 @@
       "classification": "authoritative_record",
       "column_count": 12,
       "cross_domain_parents": [],
-      "direct_orm_writers": [],
+      "direct_orm_writers": [
+        "origination/tests_configuration_isolation.py"
+      ],
       "django_model": "core.ProductCustomAttribute",
       "domain": "catalog",
       "explicit_indexes": [],
@@ -4473,7 +4554,10 @@
         "core/services/miniapp_deletion_registry.py",
         "core/services/product_catalog.py",
         "core/services/product_deletion.py",
-        "origination/origination_setup_forms.py"
+        "origination/migrations/0014_originationproductdefinition_workflow_configuration.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/origination_product_configuration.py",
+        "origination/tests_configuration_isolation.py"
       ]
     },
     {
@@ -4563,7 +4647,9 @@
       "classification": "authoritative_record",
       "column_count": 12,
       "cross_domain_parents": [],
-      "direct_orm_writers": [],
+      "direct_orm_writers": [
+        "origination/tests_configuration_isolation.py"
+      ],
       "django_model": "core.ProductRequirement",
       "domain": "catalog",
       "explicit_indexes": [],
@@ -4578,8 +4664,12 @@
       "used_by": [
         "core/services/miniapp_deletion_registry.py",
         "core/services/product_catalog.py",
+        "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
-        "origination/origination_setup_forms.py"
+        "origination/migrations/0014_originationproductdefinition_workflow_configuration.py",
+        "origination/origination_setup_forms.py",
+        "origination/services/origination_product_configuration.py",
+        "origination/tests_configuration_isolation.py"
       ]
     },
     {
@@ -4637,6 +4727,7 @@
         "origination/origination_setup_admin.py",
         "origination/services/origination_god_mode.py",
         "origination/tests.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_unsigned_applications.py"
       ],
       "django_model": "core.ProductVersion",
@@ -4676,8 +4767,10 @@
         "origination/services/origination_commercial_terms.py",
         "origination/services/origination_god_mode.py",
         "origination/services/origination_main_laf_seeds.py",
+        "origination/services/origination_product_configuration.py",
         "origination/services/origination_setup.py",
         "origination/tests.py",
+        "origination/tests_configuration_isolation.py",
         "origination/tests_unsigned_applications.py"
       ]
     },
@@ -5759,7 +5852,8 @@
         "core/services/workflow_pilot_purge.py",
         "core/services/workflow_recognition.py",
         "credit_assessments/tests.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "origination/tests_configuration_isolation.py"
       ],
       "django_model": "core.TatTrackerCase",
       "domain": "tat",
@@ -5815,7 +5909,8 @@
         "credit_assessments/services.py",
         "credit_assessments/tests.py",
         "credit_assessments/views.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "origination/tests_configuration_isolation.py"
       ]
     },
     {
@@ -5986,6 +6081,7 @@
       "direct_orm_writers": [
         "core/services/staff_lifecycle.py",
         "core/services/staff_telegram_onboarding.py",
+        "origination/tests_phone_identity.py",
         "staff_auth/tests_initial_setup.py"
       ],
       "django_model": "core.UserProfile",
@@ -6006,6 +6102,7 @@
         "core/services/staff_telegram_onboarding.py",
         "core/services/telegram_identity.py",
         "core/services/user_hard_delete.py",
+        "origination/tests_phone_identity.py",
         "staff_auth/tests_initial_setup.py"
       ]
     },
@@ -6163,6 +6260,7 @@
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
+        "origination/tests_references.py",
         "origination/tests_signing_presentation.py",
         "report_delivery/tests_one_off.py"
       ],
@@ -6188,9 +6286,11 @@
         "hb_operations/tests_deposits.py",
         "origination/migrations/0003_independent_capabilities.py",
         "origination/migrations/0011_phone_identity_pilot_capability.py",
+        "origination/migrations/0015_application_invalidation.py",
         "origination/tests.py",
         "origination/tests_application_downloads.py",
         "origination/tests_application_presentation.py",
+        "origination/tests_references.py",
         "origination/tests_signing_presentation.py",
         "report_delivery/tests_one_off.py"
       ]
@@ -6815,7 +6915,8 @@
       "direct_orm_writers": [
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
-        "hb_operations/services.py"
+        "hb_operations/services.py",
+        "hb_operations/tests.py"
       ],
       "django_model": "hb_operations.HomeBiogasAction",
       "domain": "homebiogas_operations",
@@ -6842,12 +6943,42 @@
         "core/services/portal_full_reset.py",
         "core/services/sheet_publication.py",
         "hb_operations/admin.py",
+        "hb_operations/management/commands/backfill_invoice_serials.py",
         "hb_operations/migrations/0001_initial.py",
         "hb_operations/migrations/0002_simplify_fulfilment_states.py",
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
         "hb_operations/views.py"
+      ]
+    },
+    {
+      "application_area": "Origination",
+      "children": [],
+      "classification": "processing_record",
+      "column_count": 2,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "origination/services/application_references.py",
+        "origination/tests_references.py"
+      ],
+      "django_model": "origination.OriginationApplicationReferenceSequence",
+      "domain": "origination",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [],
+      "purpose": "Permanent deployment-wide ORG application reference allocator.",
+      "retention": "Permanent; excluded from application/testing deletion and never reset.",
+      "source_of_truth": true,
+      "table": "origination_application_reference_state",
+      "used_by": [
+        "origination/catalogue.py",
+        "origination/migrations/0012_application_display_references.py",
+        "origination/models.py",
+        "origination/services/application_references.py",
+        "origination/tests.py",
+        "origination/tests_legacy_cleanup.py",
+        "origination/tests_references.py"
       ]
     },
     {
@@ -7859,6 +7990,7 @@
         "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_initial_setup.py",
         "staff_auth/tests_lifecycle.py",
+        "staff_auth/tests_production.py",
         "staff_auth/tests_transport.py"
       ]
     },
@@ -7895,12 +8027,14 @@
       "application_area": "Staff Auth",
       "children": [],
       "classification": "security_state",
-      "column_count": 16,
+      "column_count": 17,
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "staff_auth/initial_setup.py",
         "staff_auth/management/commands/purge_staff_browser_setups.py",
-        "staff_auth/tests_initial_setup.py"
+        "staff_auth/tests_initial_setup.py",
+        "staff_auth/tests_production.py",
+        "staff_auth/tests_production_transport.py"
       ],
       "django_model": "staff_auth.StaffBrowserSetupGrant",
       "domain": "staff_auth",
@@ -7911,7 +8045,7 @@
       "parents": [
         "staff_auth.StaffBrowserAdmission"
       ],
-      "purpose": "Closed, expiring preparation/mailbox-proof/first-password state for the exact existing admitted non-Admin account; no login or workflow authority.",
+      "purpose": "Expiring mailbox-proof and optional first-password state for the exact existing admitted account. Existing passwords are never replaced; no login or workflow authority.",
       "retention": "Erase native proof at completion. Purge only expired grants with bounded preview-first purge_staff_browser_setups; retain native addresses/passwords and immutable compliance receipts. No automatic scheduler until operational owner acceptance.",
       "source_of_truth": true,
       "table": "staff_auth_browser_setup_grant",
@@ -7919,11 +8053,15 @@
         "staff_auth/admin.py",
         "staff_auth/catalogue.py",
         "staff_auth/initial_setup.py",
+        "staff_auth/invitations.py",
         "staff_auth/management/commands/purge_staff_browser_setups.py",
         "staff_auth/migrations/0003_staffbrowsersetupgrant.py",
+        "staff_auth/migrations/0005_browser_setup_purpose.py",
         "staff_auth/models.py",
         "staff_auth/setup_api.py",
         "staff_auth/tests_initial_setup.py",
+        "staff_auth/tests_production.py",
+        "staff_auth/tests_production_transport.py",
         "staff_auth/tests_transport.py"
       ]
     },

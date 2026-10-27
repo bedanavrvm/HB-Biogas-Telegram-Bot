@@ -101,13 +101,16 @@ class MFAEncryptionTests(SimpleTestCase):
                 self.assertNotIn(TEST_KEY, str(raised.exception))
 
 
+@override_settings(CACHES={'default':{'BACKEND':'django.core.cache.backends.locmem.LocMemCache',
+    'KEY_FUNCTION':'staff_auth.cache_keys.native_cache_key'}})
 class DormantConfigurationTests(SimpleTestCase):
     def test_generic_admin_registration_cannot_reexpose_identity_editors(self):
         from core.admin_utils import auto_register_unregistered_models
         from .models import StaffBrowserAdmission
         for app_label in ('staff_auth', 'account', 'mfa'):
             self.assertEqual(auto_register_unregistered_models(app_label=app_label), [])
-        for model in (StaffBrowserAdmission, Authenticator, EmailAddress):
+        self.assertTrue(admin.site.is_registered(StaffBrowserAdmission))
+        for model in (Authenticator, EmailAddress):
             self.assertFalse(admin.site.is_registered(model))
 
     def test_vendor_credential_editors_are_not_exposed_in_admin(self):
@@ -118,7 +121,7 @@ class DormantConfigurationTests(SimpleTestCase):
         self.assertFalse(get_account_adapter().is_open_for_signup(RequestFactory().get('/')))
         for enabled in (False, True):
             with override_settings(STAFF_BROWSER_AUTH_ENABLED=enabled):
-                for url in ('/accounts/login/', '/staff/login/', '/staff-browser/login/', '/test-accounts/login/'):
+                for url in ('/accounts/login/', '/staff-browser/login/', '/test-accounts/login/'):
                     with self.subTest(enabled=enabled, url=url), self.assertRaises(Resolver404):
                         resolve(url, urlconf='config.urls')
 
@@ -130,7 +133,7 @@ class DormantConfigurationTests(SimpleTestCase):
     def test_even_safe_configuration_cannot_activate_incomplete_browser_product(self):
         self.assertEqual([issue.id for issue in staff_browser_checks(None)], ['staff_auth.E006', 'staff_auth.E007'])
         issues = production_security_readiness_issues(settings, check_database=False)
-        self.assertIn('staff-browser-foundation-only', [issue.code for issue in issues])
+        self.assertTrue(any(issue.code.startswith('staff-browser-') for issue in issues))
 
     @override_settings(STAFF_BROWSER_AUTH_ENABLED=True, STAFF_MFA_ENCRYPTION_KEYS=[])
     def test_unsafe_configuration_has_explicit_failures(self):

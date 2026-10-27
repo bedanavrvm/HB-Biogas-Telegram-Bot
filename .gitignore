@@ -98,6 +98,7 @@ browser/dist-complaints-demo/
 browser/dist-complaints-demo-development/
 browser/dist-complaints-operations/
 browser/dist-complaints-operations-development/
+browser/dist-production/
 coverage.json
 coverage-subsystems.json
 .coverage

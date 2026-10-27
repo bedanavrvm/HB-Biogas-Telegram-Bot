@@ -49,6 +49,10 @@ def require_initial_account(user, admission):
         raise InitialSetupError('Initial setup requires an active existing non-Admin staff account.')
     if user.has_usable_password() or Authenticator.objects.filter(user_id=user.pk).exists():
         raise InitialSetupError('Existing credentials require their separate verified support procedure.')
+    return _account_email(user,admission)
+
+
+def _account_email(user,admission):
     if admission is None or not admission.enabled or admission.user_id != user.pk:
         raise InitialSetupError('Explicit current browser admission is required before initial setup.')
     email = canonical_address(user)
@@ -60,6 +64,15 @@ def require_initial_account(user, admission):
     return email
 
 
+def require_setup_account(user,admission,purpose):
+    if purpose == StaffBrowserSetupGrant.INITIAL_PASSWORD:
+        return require_initial_account(user,admission)
+    if (purpose != StaffBrowserSetupGrant.VERIFY_EMAIL or user is None
+            or not user.is_active or not user.has_usable_password()):
+        raise InitialSetupError('Mailbox verification requires the exact active existing account with its current password.')
+    return _account_email(user,admission)
+
+
 def _address_rows(user, email):
     rows = list(EmailAddress.objects.filter(user_id=user.pk).order_by('pk'))
     if rows and (len(rows) != 1 or rows[0].email.lower() != email or rows[0].verified):
@@ -67,8 +80,8 @@ def _address_rows(user, email):
     return rows
 
 
-def _snapshot(user, admission):
-    email = require_initial_account(user, admission)
+def _snapshot(user, admission, *, purpose=StaffBrowserSetupGrant.INITIAL_PASSWORD):
+    email = require_setup_account(user, admission,purpose)
     rows = _address_rows(user, email)
     values = {
         'target_user_id': user.pk, 'admission_id': str(admission.pk), 'revision': admission.revision,
@@ -76,6 +89,7 @@ def _snapshot(user, admission):
         'password_fingerprint': binding_digest('password-state', user.password),
         'native_addresses': [{'id': row.pk, 'primary': row.primary, 'verified': row.verified} for row in rows],
     }
+    if purpose != StaffBrowserSetupGrant.INITIAL_PASSWORD: values['purpose']=purpose
     return values, hashlib.sha256(json.dumps(values, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -90,14 +104,14 @@ def _target_id(value):
         raise InitialSetupError('Choose the exact existing staff user ID.')
 
 
-def preview_setup(*, actor, target_user_id):
+def preview_setup(*, actor, target_user_id,purpose=StaffBrowserSetupGrant.INITIAL_PASSWORD):
     _target_id(target_user_id)
     User = get_user_model()
     if not User.objects.filter(pk=_actor_id(actor), is_active=True, is_superuser=True).exists():
         raise PermissionDenied('Only a currently active Django Superuser may prepare initial setup.')
     user = User.objects.filter(pk=target_user_id).first()
     admission = StaffBrowserAdmission.objects.filter(user_id=target_user_id).first()
-    values, fingerprint = _snapshot(user, admission)
+    values, fingerprint = _snapshot(user, admission,purpose=purpose)
     return {
         'target_user_id': target_user_id, 'admission_id': values['admission_id'],
         'revision': values['revision'], 'snapshot_fingerprint': fingerprint,
@@ -106,7 +120,8 @@ def preview_setup(*, actor, target_user_id):
 
 
 @sensitive_variables()
-def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerprint, request_key, reason):
+def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerprint, request_key, reason,
+                  purpose=StaffBrowserSetupGrant.INITIAL_PASSWORD):
     _target_id(target_user_id)
     actor_id = _actor_id(actor)
     if type(expected_revision) is not int or not 1 <= expected_revision < 9223372036854775807:
@@ -120,6 +135,7 @@ def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerpr
     reason = reason.strip()
     payload = dict(actor_id=actor_id, target_user_id=target_user_id, expected_revision=expected_revision,
                    snapshot_fingerprint=snapshot_fingerprint, reason=reason)
+    if purpose != StaffBrowserSetupGrant.INITIAL_PASSWORD: payload['purpose']=purpose
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     deduplication_key = f'staff-browser-setup-prepared:{actor_id}:{request_key}'
     with transaction.atomic(), admission_mutation():
@@ -137,7 +153,7 @@ def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerpr
                 raise InitialSetupError('This request key belongs to a different setup preparation.')
             return {**existing.after_values, 'audit_event_id': str(existing.pk), 'replayed': True}
         admission = StaffBrowserAdmission.objects.select_for_update().filter(user_id=user.pk).first()
-        values, current_fingerprint = _snapshot(user, admission)
+        values, current_fingerprint = _snapshot(user, admission,purpose=purpose)
         if admission.revision != expected_revision or not constant_time_compare(current_fingerprint, snapshot_fingerprint):
             raise InitialSetupError('Staff setup changed; review a fresh preview before applying.')
         email = canonical_address(user)
@@ -162,6 +178,7 @@ def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerpr
             'email_address_id': address.pk, 'email_fingerprint': values['email_fingerprint'],
             'password_fingerprint': values['password_fingerprint'], 'expires_at': expires_at.isoformat(),
         }
+        if purpose != StaffBrowserSetupGrant.INITIAL_PASSWORD: after['purpose']=purpose
         event, _ = record_event(
             workflow='access_control', action='staff_browser.setup_prepared', category='identity',
             subject_type='staff_browser_setup', subject_id=str(grant_id), actor=current_actor,
@@ -170,7 +187,7 @@ def prepare_setup(*, actor, target_user_id, expected_revision, snapshot_fingerpr
             after_values=after, metadata={'request_fingerprint': fingerprint, 'reason': reason}, sensitive=True,
         )
         StaffBrowserSetupGrant.objects.create(
-            id=grant_id, admission=admission, admission_revision=admission.revision,
+            id=grant_id, purpose=purpose, admission=admission, admission_revision=admission.revision,
             email_address_id=address.pk, email_fingerprint=values['email_fingerprint'],
             password_fingerprint=values['password_fingerprint'], confirmation_cipher=confirmation,
             prepared_audit_id=event.pk, expires_at=expires_at,

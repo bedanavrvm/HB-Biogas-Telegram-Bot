@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="module aligned">
+  <h1>{{ title }}</h1>
+  <p>Use existing staff accounts. Browser admission never supplies Complaints or other workflow permissions.</p>
+  <p>Staff browser address: <a href="{{ browser_url }}">{{ browser_url }}</a></p>
+  {% if error %}<p class="errornote" role="alert">{{ error }}</p>{% endif %}
+  {% if review %}
+    <h2>Review {{ review.username }}</h2>
+    <p>Action: {{ review.action }}. {% if review.action == 'invite' %}Send a private setup link to {{ review.email }}. Existing passwords stay unchanged.{% endif %}</p>
+    <p>Reason: {{ review.reason }}</p>
+    {% if review.action == 'reset_mfa' %}<p>Remove {{ review.factors_to_remove }} MFA factors and require fresh enrollment. Verification reference: {{ review.verification_reference }}.</p>{% endif %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="review" value="{{ review_token }}"><div class="submit-row"><input type="submit" class="default" value="Confirm action"><a href="{% url 'admin:staff_browser_manage' %}">Review another action</a></div></form>
+  {% else %}
+    <form method="post" novalidate>{% csrf_token %}{{ form.non_field_errors }}
+      {% for field in form %}<div class="form-row">{{ field.errors }}<label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}</div>{% endfor %}
+      <div class="submit-row"><input type="submit" class="default" value="Review action"></div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

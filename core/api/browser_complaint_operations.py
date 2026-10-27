@@ -1,7 +1,7 @@
-"""Dormant native browser operations over the canonical Complaints services.
+"""Native browser operations over the canonical Complaints services.
 
-Separate from the intentionally restricted v1 read projection. Never mounted by
-config.urls before release acceptance; no Telegram credential/session fallback.
+Separate from the intentionally restricted v1 read projection. ADR 0075's
+production mount retains release flags; no Telegram credential/session fallback.
 """
 import json
 from uuid import UUID

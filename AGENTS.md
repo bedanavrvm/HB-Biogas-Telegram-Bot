@@ -28,8 +28,12 @@ Changes can affect operational data, customer records, approvals, financial valu
 
 For browser authentication cache, concurrency or release-readiness work, read
 ADR 0074 and `docs/runbooks/browser-channel-parity.md`: the approved route is
-PostgreSQL-only native security state. Keep production browser access disabled;
-verify the checked-in migration and independent-worker tests before acceptance.
+PostgreSQL-only native security state. For production routes, onboarding or
+deployment, also read ADR 0075 and `docs/runbooks/staff-browser-production.md`.
+The user authorized conditional Complaints delivery; keep default-off flags until
+the reviewed deployment and existing-staff admission are explicitly approved.
+Verify migrations and independent-worker tests before acceptance. Earlier dormant
+slice descriptions below are historical; no Portal/Origination/TAT activation follows.
 
 If you read nothing else, follow these:
 

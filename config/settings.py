@@ -73,11 +73,13 @@ INSTALLED_APPS = [
     'staff_auth',
 ]
 
-# P1a is deliberately dormant: no account/login or browser business URLs are
-# mounted. This flag never disables Telegram's independent signed credentials.
+# ADR 0075 conditionally serves the native Complaints browser client. Default-off
+# flags never disable Telegram's independent signed credentials.
 STAFF_BROWSER_AUTH_ENABLED = config('STAFF_BROWSER_AUTH_ENABLED', default=False, cast=bool)
 STAFF_BROWSER_COMPLAINTS_ENABLED = config('STAFF_BROWSER_COMPLAINTS_ENABLED', default=False, cast=bool)
 STAFF_BROWSER_DEMO_ENABLED = config('STAFF_BROWSER_DEMO_ENABLED', default=False, cast=bool)
+STAFF_BROWSER_INVITATIONS_ENABLED = config('STAFF_BROWSER_INVITATIONS_ENABLED',default=False,cast=bool)
+STAFF_BROWSER_EMAIL_FROM = config('STAFF_BROWSER_EMAIL_FROM',default='')
 STAFF_MFA_ENCRYPTION_KEYS = [
     value.strip() for value in config('STAFF_MFA_ENCRYPTION_KEYS', default='').split(',') if value.strip()
 ]
