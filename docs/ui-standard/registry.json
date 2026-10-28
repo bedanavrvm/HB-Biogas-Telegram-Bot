@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "cc5e00dff85bd54f4f221652f09ea513942da00300cab62611e71f85dd5ebe90",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "4b4d4849e87217c1c802297b1ebd807189a376a304bec20980c8481c74dc6646",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "be77a0012d0e667bd3a6ac2152a9f7eafd885e68314c9b45d251dfae90a86e5b",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "77569bba7a91d51887676e0afd4264c4e520419763d331c58f36502042b17976",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -701,9 +701,9 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "510bcd0722a7d9057da78c245f5b67f1bcba626e052f4bc2b30801cffa673b91",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "a7558910fcae3cbddce685012cb00bfa623478d5871cd67d9f5892f55f01a88f",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
@@ -713,9 +713,9 @@
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "32c0095333b7e599bd28783af71ece1421d41e3c4c9ecb9131ebe1e359389213",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "d77681a870e091f3c15bf45a254eb7beb75a8b4a83b97716f18b00c36c121949",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -914,6 +914,18 @@
       "sha256": "9db5400af52fcf3fb1d4fb4aef1affe5873387a4f4cbc6e0f8bb3eba1debb915",
       "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
       "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+    },
+    {
+      "path": "browser/src/complaints-queue-page.tsx",
+      "sha256": "3bc1e401ca5c66afdef4b8d7158d3ccd56cc02689f8ca0ccc4a53cab0edf9df0",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+    },
+    {
+      "path": "browser/src/complaints-queue.css",
+      "sha256": "83fe6d58765d37d613f112c343ce26133be7293508226bda0b6cf61a0111b735",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
+      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
     }
   ],
   "source_roots": [

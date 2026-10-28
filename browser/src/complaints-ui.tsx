@@ -95,7 +95,7 @@ export function AdaptiveSelect<Option extends {label:string;value:string|number}
   return <Box ref={root} xcss={styles.fit}><Select {...props} isSearchable menuPortalTarget={dialog.root||undefined} menuPosition="fixed" menuPlacement="auto" maxMenuHeight={maxHeight} menuShouldScrollIntoView={false} captureMenuScroll onMenuOpen={()=>{setOpen(true);props.onMenuOpen?.();}} onMenuClose={()=>{setOpen(false);props.onMenuClose?.();}}/></Box>;
 }
 /** Native modal focus/inert/Escape semantics with the existing ADS content. */
-export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false, placement="center" }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean;placement?:"center"|"top" }) {
+export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false, placement="center" }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean;placement?:"center"|"top"|"bottom" }) {
   const ref = useRef<HTMLDialogElement|null>(null), heading = useId();
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{const update=()=>setOnline(navigator.onLine);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
@@ -137,7 +137,7 @@ export function ConfirmationHost() {
 }
 
 type MenuItem = { label: string; run: ()=>void|Promise<void>; disabled?: boolean; selected?: boolean };
-export function ActionMenu({label,icon,items,heading}:{label:string;icon?:React.ComponentProps<typeof IconButton>['icon'];items:MenuItem[];heading?:string}) {
+export function ActionMenu({label,icon,items,heading,text}:{label:string;text?:string;icon?:React.ComponentProps<typeof IconButton>['icon'];items:MenuItem[];heading?:string}) {
   const [open,setOpen]=useState(false),anchor=useRef<HTMLDivElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
   useEffect(()=>{
     if(!open)return;const node=panel.current!;node.setAttribute('popover','auto');
@@ -150,7 +150,7 @@ export function ActionMenu({label,icon,items,heading}:{label:string;icon?:React.
   },[open]);
   const close=()=>{setOpen(false);anchor.current?.querySelector<HTMLButtonElement>('button')?.focus();};
   const keyboard=(event:React.KeyboardEvent<HTMLDivElement>)=>{const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));const index=buttons.indexOf(document.activeElement as HTMLButtonElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}else if(event.key==='Escape'){event.preventDefault();close();}};
-  return <Box ref={anchor} xcss={styles.menuAnchor}>{icon?<IconButton appearance="subtle" label={label} icon={icon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}/>:<Button iconAfter={ChevronDownIcon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{label}</Button>}{open&&<Box ref={panel} id={id} role="menu" aria-label={label} xcss={styles.menu} onKeyDown={keyboard}><Stack space="space.050">{heading&&<Box role="presentation"><Text weight="semibold">{heading}</Text></Box>}{items.map(item=><Button key={item.label} appearance="subtle" shouldFitContainer role={item.selected===undefined?'menuitem':'menuitemradio'} aria-checked={item.selected} isDisabled={item.disabled} isSelected={item.selected} onClick={()=>{close();void item.run();}}>{item.label}</Button>)}</Stack></Box>}</Box>;
+  return <Box ref={anchor} xcss={styles.menuAnchor}>{text?<button type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{icon&&React.createElement(icon,{label:""})}<span>{text}</span></button>:icon?<IconButton appearance="subtle" label={label} icon={icon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}/>:<Button iconAfter={ChevronDownIcon} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} onClick={()=>setOpen(value=>!value)}>{label}</Button>}{open&&<Box ref={panel} id={id} role="menu" aria-label={label} xcss={styles.menu} onKeyDown={keyboard}><Stack space="space.050">{heading&&<Box role="presentation"><Text weight="semibold">{heading}</Text></Box>}{items.map(item=><Button key={item.label} appearance="subtle" shouldFitContainer role={item.selected===undefined?'menuitem':'menuitemradio'} aria-checked={item.selected} isDisabled={item.disabled} isSelected={item.selected} onClick={()=>{close();void item.run();}}>{item.label}</Button>)}</Stack></Box>}</Box>;
 }
 
 /** Match actual control boxes; does not restyle ADS labels, colours or focus. */

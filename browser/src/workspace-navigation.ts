@@ -40,12 +40,12 @@ export function readRoute(): WorkspaceRoute {
   const selected = /^\/staff\/app\/complaints\/cases\/([a-f\d-]{36})\/$/.exec(path)?.[1] || '';
   return { view: path === '/staff/app/complaints/new/' ? 'new' : path === '/staff/app/complaints/settings/' ? 'settings' : path === '/staff/app/complaints/reports/' ? 'reports' : 'queue',
     group: /^\d+$/.test(url.searchParams.get('workspace') || '') ? url.searchParams.get('workspace')! : '', selected,
-    status: ['pending', 'resolved', 'all'].includes(url.searchParams.get('status') || '') ? url.searchParams.get('status')! : 'pending',
+    status: ['pending', 'needs_details', 'resolved', 'all'].includes(url.searchParams.get('status') || '') ? url.searchParams.get('status')! : 'all',
     page: pageNumber(url.searchParams.get('page')), order:choose(url.searchParams.get('order'),['oldest','newest','priority','overdue'],''), report: reportLocation(url) };
 }
 export function initialQueuePreferences(route: WorkspaceRoute, preferences: QueuePreferences, entryUrl: string) {
   const explicit = new URL(entryUrl).searchParams.has('status');
-  return { ...route, status: explicit ? route.status : choose(preferences.default_filters.status, ['pending', 'resolved', 'all'], 'pending') };
+  return { ...route, status: explicit ? route.status : choose(preferences.default_filters.status, ['pending', 'needs_details', 'resolved', 'all'], 'all') };
 }
 export function writeRoute(route: WorkspaceRoute, replace = false) {
   const path = '/staff/app/complaints/' + (route.view === 'queue' ? (route.selected ? 'cases/' + route.selected + '/' : '') : route.view + '/');

@@ -4,6 +4,11 @@ The current component-adoption decisions are in
 [`STITCH-DESIGN-DECISIONS.md`](STITCH-DESIGN-DECISIONS.md), including the new
 Stitch state references and the user's explicit backend-feature choices.
 
+The queue now follows `Stitch/Main Page/code.html`, `screen.png` and `DESIGN.md`.
+[Main Page review](../docs/ui-standard/reviews/2026-10-28-complaints-main-page.md)
+records its live card/search/filter/pagination/navigation behavior and adaptations.
+The previously corrected case detail remains its separate destination.
+
 ## Current styling authority (28 October 2026)
 
 The user explicitly replaced ADS styling for this and future browser work.

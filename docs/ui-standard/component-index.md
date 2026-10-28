@@ -307,3 +307,11 @@ responsive message chains, visible HB Feedback, right-aligned overflow, grey fie
 cards, map footer, symmetric tabs, top notices and anchored copy feedback.
 Ongoing UI acceptance uses browser previews/screenshots and user feedback only;
 no automated test or baseline update is part of this visual iteration.
+
+## Complaints Main Page
+
+`complaints-queue-page.tsx` and its scoped CSS implement the supplied Main Page
+queue: cards, status pills, search/sort, paging and bottom navigation. Queue
+actions reuse the existing forms; the small read projection remains governed by
+current Complaint authority. Decisions and visual-only evidence:
+[Main Page review](reviews/2026-10-28-complaints-main-page.md).

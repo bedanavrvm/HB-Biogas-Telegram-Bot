@@ -2312,6 +2312,8 @@ def _filter_status(cases, status: str):
         return cases.filter(complaint_status='Closed')
     if status == 'pending':
         return cases.exclude(complaint_status='Closed')
+    if status == 'needs_details':
+        return cases.filter(complaint_status='Review Needed')
     return cases
 
 

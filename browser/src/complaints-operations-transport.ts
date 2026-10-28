@@ -24,7 +24,8 @@ export type StaffComment = {id:string;body:string;author:string;affiliation:stri
   reply_to:{id:string;author:string;excerpt:string}|null;mentions:{id:string;label:string}[];evidence:Evidence[];
   reaction:{count:number;active:boolean;revision:number}};
 export type ConversationData = {items:StaffComment[];total:number;next_cursor:string;can_post:boolean;attachment_failure?:boolean;background_publication?:boolean};
-export type Queue = { items: Complaint[]; pagination: { page: number; pages: number; total: number; page_size?:number }; filter_options: Record<'branches' | 'categories', { label: string; count: number }[]>; navigation?:{position:number;total:number;previous:QueueNeighbour|null;next:QueueNeighbour|null}|null };
+export type QueueItem = Complaint & {actions:string[];evidence_count:number;map_url:string};
+export type Queue = { items: QueueItem[]; pagination: { page: number; pages: number; total: number; page_size?:number }; filter_options: Record<'branches' | 'categories', { label: string; count: number }[]>; navigation?:{position:number;total:number;previous:QueueNeighbour|null;next:QueueNeighbour|null}|null };
 export class OperationError extends Error {
   constructor(public status: number, message: string, public fields: Record<string, string> = {}, public currentRevision?: number) { super(message); }
 }

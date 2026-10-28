@@ -111,3 +111,33 @@ and mocked providers do not establish deployment or live-provider commissioning.
   publisher-health warning appears when replying. Health diagnostics stay with IT.
 
 Visual review: [detail corrections](../docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md).
+
+## Main Page queue
+
+`Stitch/Main Page/code.html`, `screen.png` and `DESIGN.md` supply the queue's
+compact workspace header, title/count, green New complaint action, status pills,
+search/filter/sort strip, stacked triage cards, pagination and bottom navigation.
+The image governs resting density; the HTML governs menus, search and creation
+entry. The existing full creation form supplies the actual required fields.
+
+The first card initially shows its contact inset. Each card menu can show/hide
+contact details, open the case and perform its authorized existing actions.
+Resolve uses the existing revision-checked dialog and leaves the user in the
+queue after a confirmed save. Counts, deadlines, maps, files and pagination come
+from current authorized records; no sample values or client-only filtering.
+
+The queue has five records per page. All complaints is the default unless an
+explicit URL or saved staff preference selects another queue. Open preserves
+the existing unresolved scope, including Reopened and historical Needs details;
+the Needs details pill is a subset, not a new workflow status. Resolved displays
+the existing Closed state. Existing roles remain independent.
+
+Queue/Search/Reports/Profile navigation uses existing queue search, Reports and
+account/settings/sign-out capabilities. Reports is shown only with its existing
+permission. Assignment, new In Progress states and the notification centre stay
+excluded by prior decisions. **Customer verified is omitted**, as explicitly
+confirmed by the user for this reference; no verification workflow is added.
+No mock Closed by attribution, March 2025 filter or unsupported identity claims
+are displayed. The existing local wordmark/font/icons replace remote demo assets.
+
+Review: [Main Page](../docs/ui-standard/reviews/2026-10-28-complaints-main-page.md).

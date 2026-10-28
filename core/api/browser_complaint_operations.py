@@ -191,13 +191,32 @@ def queue(request, group, actor):
             UUID(params['selected'])
         except ValueError:
             raise cases.ComplaintCaseError('Select a valid complaint.')
-    if len(params.get('q', '')) > 150 or params.get('status', 'pending') not in {'pending', 'resolved', 'all'}:
+    if len(params.get('q', '')) > 150 or params.get('status', 'pending') not in {'pending', 'needs_details', 'resolved', 'all'}:
         raise cases.ComplaintCaseError('Review the search or status filter.')
     result = cases.list_cases_page(group, actor=actor, query=params.get('q', ''),
         status=params.get('status', 'pending'), branch=params.get('branch', ''),
-        category=params.get('category', ''), page=params.get('page', 1), page_size=10,
+        category=params.get('category', ''), page=params.get('page', 1), page_size=5,
         order=params.get('order', ''), focus_key=params.get('selected', ''))
-    return JsonResponse({'items': [project(item) for item in result['items']],
+    from django.db.models import Count
+    from core.models import ComplaintCaseEvidence
+    records = {str(case.pk): case for case in ParsedMessage.objects.filter(pk__in=[item['id'] for item in result['items']])}
+    file_counts = dict(ComplaintCaseEvidence.objects.filter(parsed_message_id__in=records).values(
+        'parsed_message_id').annotate(total=Count('pk')).values_list('parsed_message_id', 'total'))
+    items = []
+    for item in result['items']:
+        case = records[item['id']]
+        data = project(item)
+        data['actions'] = [name for name, (capability, _) in ACTIONS.items()
+            if name in {'resolve', 'comment', 'reopen', 'complete-details'} and cases.actor_can(group, actor, capability, case)]
+        data['evidence_count'] = file_counts.get(case.pk, 0) if cases.actor_can(group, actor, 'complaint.case.evidence.view', case) else 0
+        location = cases.location_for_case(case)
+        try:
+            latitude, longitude = float(location['latitude']), float(location['longitude'])
+            data['map_url'] = cases.google_maps_url(latitude, longitude) if -90 <= latitude <= 90 and -180 <= longitude <= 180 else ''
+        except (TypeError, ValueError):
+            data['map_url'] = ''
+        items.append(data)
+    return JsonResponse({'items': items,
                          'pagination': result['pagination'], 'filter_options': result['filter_options'],
                          'navigation': result.get('navigation')})
 
