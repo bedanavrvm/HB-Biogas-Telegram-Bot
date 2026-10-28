@@ -179,10 +179,6 @@ def post_comment(group, actor, case_key, fields, files):
             if CaseUpdate.objects.filter(parsed_message=case, client_request_id=request_id).exists():
                 raise cases.ComplaintCaseError('This retry identifier belongs to another complaint action.')
             parent = comment_target(case, fields['reply_to']) if fields.get('reply_to') else None
-            if parent:
-                context = CommentContext.objects.filter(update=parent).first()
-                if context and context.reply_to_id:
-                    parent = context.reply_to
             people = eligible_people(group, actor, case, selected=selected)
             if {person['id'] for person in people} != set(selected):
                 raise cases.ComplaintCaseError('One of the selected staff members no longer has access to this complaint.')

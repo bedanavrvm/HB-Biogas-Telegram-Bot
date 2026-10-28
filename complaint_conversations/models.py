@@ -12,7 +12,7 @@ class CommentContext(models.Model):
     author_label = models.CharField(max_length=255, db_comment='Author name captured at posting, never trusted from the client.')
     affiliation = models.CharField(max_length=8, db_comment='Captured JBL, HB or IT staff affiliation.')
     reply_to = models.ForeignKey('core.CaseUpdate', null=True, blank=True, on_delete=models.SET_NULL,
-        related_name='conversation_replies', db_comment='Same-case root comment being answered; child text survives parent removal.')
+        related_name='conversation_replies', db_comment='Exact same-case parent comment being answered; child text survives parent removal.')
     payload_hash = models.CharField(max_length=64, db_comment='Hash binding a retry to text, parent, mentions and exact attachment bytes.')
     text_format = models.CharField(max_length=16, default='bold_v1', db_comment='Versioned minimal bold presentation; legacy comments remain plain text.')
 

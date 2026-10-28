@@ -2,6 +2,7 @@ import React,{useContext,useEffect,useRef,useState} from 'react';
 import Button from '@atlaskit/button/default/button';
 import {operation,OperationError,type Publication,type Sla} from './complaints-operations-transport';
 import {TaskSession} from './workspace-task';
+import {notify,dismissNotice} from './browser-interactions';
 
 export function LoadingSkeletons({label}:{label:string}){
   return <div className="stitch-loading" role="status" aria-label={label} aria-busy="true"><span>{label}…</span>{[0,1].map(index=><div key={index} className="stitch-skeleton" aria-hidden="true"><i/><i/><i/></div>)}</div>;
@@ -27,47 +28,60 @@ export function SlaDisplay({value,compact=false,refresh}:{value?:Sla;compact?:bo
   return <div className="stitch-sla"><span className="stitch-label">Resolution SLA</span><span className="stitch-sla-value" data-state={state}>{text}</span><details><summary aria-label="SLA information">ⓘ</summary><p>{value&&value.state!=='unavailable'?`Target: ${value.target_hours} elapsed calendar hours. ${stamp?'Deadline: '+stamp+' EAT. ':''}Reopening retains the original deadline.`:'The retained timing facts are incomplete or invalid; no deadline is inferred.'}</p></details></div>;
 }
 
-const labels:Record<string,string>={waiting:'Waiting for receipt',received:'Received in Django',queued:'Queued for publication',publishing:'Publishing to Drive',retrying:'Retry scheduled',needs_attention:'Needs Complaints IT attention',published:'Published'};
+export const FilePublicationContext=React.createContext<Publication['files']>([]);
 const ongoing=(value?:Publication)=>Boolean(value&&(value.files.some(file=>!['published','needs_attention'].includes(file.stage))||(value.sheet.tracked&&['pending','retryable_failure','running'].includes(value.sheet.status))));
 
-export function PublicationPanel({group,caseKey,initial,changed}:{group:string;caseKey:string;initial?:Publication;changed:()=>void}){
-  const [data,setData]=useState(initial),[error,setError]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0);
+export function usePublication(group:string,caseKey:string,initial:Publication|undefined,changed:()=>void){
+  const [data,setData]=useState(initial),[refresh,setRefresh]=useState(0);
   const recheck=useContext(TaskSession),callback=useRef(changed);callback.current=changed;
   useEffect(()=>setData(initial),[initial]);
   useEffect(()=>{
     let active=true,timer:ReturnType<typeof setTimeout>|undefined,request:AbortController|undefined;
-    let previous=initial?JSON.stringify([initial.files.map(file=>file.stage),initial.sheet.status]):'';
+    let previous=initial?JSON.stringify([initial.files.map(file=>[file.id,file.stage]),initial.sheet.status]):'';
     const load=async()=>{
       if(document.hidden||!navigator.onLine)return;
       request?.abort();const controller=new AbortController();request=controller;
       try{
         const value=await operation<Publication>(group,`cases/${caseKey}/publication/`,controller.signal);
-        if(!active)return;setData(value);setError('');
-        const signature=JSON.stringify([value.files.map(file=>file.stage),value.sheet.status]);
+        if(!active)return;setData(value);
+        const signature=JSON.stringify([value.files.map(file=>[file.id,file.stage]),value.sheet.status]);
         if(signature!==previous){previous=signature;callback.current();}
         if(ongoing(value))timer=setTimeout(()=>{void load();},2000);
-      }catch(issue){if(active&&!controller.signal.aborted){if(issue instanceof OperationError&&issue.status===401)recheck();else setError(issue instanceof OperationError?issue.message:'Publication status could not be loaded. Your saved record is retained.');}}
+      }catch(issue){if(active&&!controller.signal.aborted){if(issue instanceof OperationError&&issue.status===401)recheck();else timer=setTimeout(()=>{void load();},10000);}}
     };
     const resume=()=>{clearTimeout(timer);void load();};
     if(ongoing(initial)||refresh)void load();
     document.addEventListener('visibilitychange',resume);window.addEventListener('online',resume);
     return()=>{active=false;clearTimeout(timer);request?.abort();document.removeEventListener('visibilitychange',resume);window.removeEventListener('online',resume);};
   },[group,caseKey,refresh,initial]);
-  if(!data||(!data.files.length&&!data.sheet.tracked))return null;
-  const attention=data.needs_attention||data.files.some(file=>file.stage==='needs_attention')||data.sheet.status==='dead_letter';
-  return <section className="stitch-card stitch-publication" aria-label="Background publication"><header className="stitch-card-heading"><h2>Saved in Django</h2><Button appearance="subtle" onClick={()=>setRefresh(value=>value+1)}>Refresh publication</Button></header>
-    <p>You can leave this page. Files and enabled register updates publish in the background.</p>
-    {data.files.map(file=><div key={file.id} className="stitch-file-progress"><div><strong>{file.name}</strong><span>{file.percent}% · {labels[file.stage]||file.stage}</span></div><progress max={100} value={file.percent} aria-label={'Publication progress for '+file.name}/>{file.next_retry_at&&<small>Retry scheduled; {file.attempts} {file.attempts===1?'attempt':'attempts'} recorded.</small>}</div>)}
-    {data.sheet.tracked&&<p>Google Sheets: {data.sheet.status==='succeeded'?'Published':data.sheet.status==='dead_letter'?'Needs Complaints IT attention':data.sheet.status==='retryable_failure'?'Retry scheduled':data.sheet.status==='running'?'Publishing':data.sheet.status==='paused'?'Paused by workspace configuration':'Queued'}.</p>}
-    {ongoing(data)&&!data.runner_healthy&&<p role="status">The background publisher is not reporting. Ask Complaints IT to check it; your saved record and files are retained.</p>}
-    {attention&&<p role="status">Publication needs Complaints IT attention. Your saved complaint and unpublished files are retained.</p>}
-    {attention&&data.can_retry&&<Button isLoading={busy} onClick={async()=>{setBusy(true);setError('');try{await operation(group,`cases/${caseKey}/retry-publication/`,new AbortController().signal,{client_request_id:crypto.randomUUID()});setRefresh(value=>value+1);callback.current();}catch(issue){setError(issue instanceof OperationError?issue.message:'Retry could not be confirmed. Refresh publication before trying again.');}finally{setBusy(false);}}}>Retry failed publication</Button>}
-    {error&&<div role="alert">{error}<Button onClick={()=>setRefresh(value=>value+1)}>Retry status</Button></div>}
-  </section>;
+  const fileFailures=data?.files.filter(file=>file.stage==='needs_attention').map(file=>file.id).sort().join(',')||'';
+  const sheetFailure=data?.sheet.tracked&&data.sheet.status==='dead_letter'?data.sheet.key||'register':'';
+  useEffect(()=>{
+    if(!fileFailures&&!sheetFailure)return;
+    const text=fileFailures&&sheetFailure?'Your complaint is saved. Some files and the register update need Complaints IT attention.':fileFailures?'Your message is saved. Some files need Complaints IT attention.':'Your complaint is saved. The register update needs Complaints IT attention.';
+    const id=notify(text,'warning',{dedupeKey:`publication:${caseKey}:${fileFailures}:${sheetFailure}`});return()=>dismissNotice(id);
+  },[caseKey,fileFailures,sheetFailure]);
+  return {data,refresh:()=>setRefresh(value=>value+1)};
+}
+
+export function FileProgress({evidence,commentKey}:{evidence:string;commentKey?:string}){
+  const file=useContext(FilePublicationContext).find(file=>file.evidence===evidence&&(!commentKey||file.comment_key===commentKey));
+  if(!file)return null;
+  const label=file.stage==='published'?'Ready':file.stage==='needs_attention'?'Saved \u00b7 needs IT attention':file.stage==='retrying'?'Saved \u00b7 retrying file publication':file.stage==='publishing'?'Preparing file preview':'Saved \u00b7 preparing file';
+  return <div className="stitch-file-progress" data-stage={file.stage} role="status"><span>{file.percent}% &middot; {label}</span>{file.stage!=='published'&&<progress value={file.percent} max={100} aria-label="File publication progress"/>}</div>;
+}
+
+export function RegisterStatus({group,caseKey,data,refresh}:{group:string;caseKey:string;data?:Publication;refresh:()=>void}){
+  const [busy,setBusy]=useState(false),recheck=useContext(TaskSession);
+  if(!data?.sheet.tracked)return null;
+  const status=data.sheet.status,label=status==='succeeded'?'Register up to date':status==='dead_letter'?'Register update needs IT attention':status==='paused'?'Register sync paused':status==='retryable_failure'?'Register update retrying':'Register update pending';
+  return <div className="stitch-register-status" data-state={status}><span role="status">{label}</span>{status==='dead_letter'&&data.can_retry&&<Button appearance="subtle" isLoading={busy} onClick={async()=>{setBusy(true);try{await operation(group,`cases/${caseKey}/retry-publication/`,new AbortController().signal,{client_request_id:crypto.randomUUID()});refresh();}catch(issue){if(issue instanceof OperationError&&issue.status===401)recheck();else notify(issue instanceof OperationError?issue.message:'Retry could not be confirmed. Refresh the complaint before retrying.','error');}finally{setBusy(false);}}}>Retry register update</Button>}</div>;
 }
 
 export function PublicationAttention({group,open}:{group:string;open:(key:string)=>void}){
-  const [data,setData]=useState<{key:string;reference:string;name:string}[]>(),[error,setError]=useState(''),[refresh,setRefresh]=useState(0);
-  useEffect(()=>{const request=new AbortController();void operation<{items:{key:string;reference:string;name:string}[]}>(group,'publications/attention/',request.signal).then(value=>setData(value.items)).catch(issue=>{if(!request.signal.aborted)setError(issue instanceof OperationError?issue.message:'Publication attention could not be loaded.');});return()=>request.abort();},[group,refresh]);
-  return <div className="stitch-attention"><p>Failed browser publications assigned to Complaints IT in this workspace. Saved complaint records are retained.</p><Button onClick={()=>{setError('');setRefresh(value=>value+1);}}>Refresh attention</Button>{!data&&!error&&<LoadingSkeletons label="Loading publication attention"/>}{error&&<p role="alert">{error}</p>}{data?.length===0&&<p>No browser publication failures need attention.</p>}{data?.map(row=><div key={row.key}><strong>{row.reference}</strong><span>{row.name}</span><Button onClick={()=>open(row.key)}>Review publication</Button></div>)}</div>;
+  type Attention={key:string;reference:string;name:string;failed:boolean;state:Publication};
+  const [data,setData]=useState<Attention[]>(),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[busy,setBusy]=useState('');
+  const recheck=useContext(TaskSession);
+  useEffect(()=>{const request=new AbortController();void operation<{items:Attention[]}>(group,'publications/attention/',request.signal).then(value=>setData(value.items)).catch(issue=>{if(!request.signal.aborted){if(issue instanceof OperationError&&issue.status===401)recheck();else setError(issue instanceof OperationError?issue.message:'Publication attention could not be loaded.');}});return()=>request.abort();},[group,refresh]);
+  return <div className="stitch-attention"><p>Review register and file publication issues in this workspace. Saved records are retained.</p><Button onClick={()=>{setError('');setRefresh(value=>value+1);}}>Refresh attention</Button>{!data&&!error&&<LoadingSkeletons label="Loading publication attention"/>}{error&&<p role="alert">{error}</p>}{data?.length===0&&<p>No browser publication failures need attention.</p>}{data?.map(row=><div key={row.key}><strong>{row.reference}</strong><span>{row.name}</span>{!row.state.runner_healthy&&<p>The background publisher is not reporting. Check the scheduled worker.</p>}<Button onClick={()=>open(row.key)}>Open complaint</Button>{row.failed&&row.state.can_retry&&<Button isLoading={busy===row.key} isDisabled={Boolean(busy)} onClick={async()=>{setBusy(row.key);try{await operation(group,`cases/${row.key}/retry-publication/`,new AbortController().signal,{client_request_id:crypto.randomUUID()});setRefresh(value=>value+1);notify('Publication retry queued.');}catch(issue){if(issue instanceof OperationError&&issue.status===401)recheck();else notify(issue instanceof OperationError?issue.message:'Retry could not be confirmed.','error');}finally{setBusy('');}}}>Retry failed publication</Button>}</div>)}</div>;
 }

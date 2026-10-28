@@ -19,7 +19,7 @@ import Heading from '@atlaskit/heading';
 import { Root } from '@atlaskit/navigation-system/layout/root';
 import { Main } from '@atlaskit/navigation-system/layout/main';
 import { TopNav, TopNavStart } from '@atlaskit/navigation-system/layout/top-nav';
-import { BrowserActions, notify, useViewportPane } from './browser-interactions';
+import { BrowserActions, notify, dismissNotice, useViewportPane } from './browser-interactions';
 import { Box } from '@atlaskit/primitives/compiled/box';
 import { Grid } from '@atlaskit/primitives/compiled/grid';
 import { Inline } from '@atlaskit/primitives/compiled/inline';
@@ -69,7 +69,7 @@ const styles = cssMap({
 });
 const queueOrderLabels:Record<string,string>={oldest:'Oldest first',newest:'Newest first',priority:'Highest priority',overdue:'Overdue first'};
 const statuses = [{ value: 'pending', label: 'Open + Reopened' }, { value: 'resolved', label: 'Closed' }, { value: 'all', label: 'All complaints' }];
-const actionLabels: Record<string, string> = { resolve: 'Resolve complaint', comment: 'HB feedback', reopen: 'Reopen complaint', 'complete-details': 'Complete missing details', 'retry-publication': 'Retry Sheet sync' };
+const actionLabels: Record<string, string> = { resolve: 'Resolve complaint', comment: 'HB Feedback', reopen: 'Reopen complaint', 'complete-details': 'Complete missing details', 'retry-publication': 'Retry failed publication' };
 /** Align real wrapped ADS labels per row without shrinking type or reserving blank rows. */
 function AlignedFields({children}:{children:React.ReactNode}) {
     const ref=useRef<HTMLDivElement>(null);
@@ -115,13 +115,15 @@ function useRead<T>(group: string, path: string, refresh: number, body?: Record<
             setState({ key, context, error }); }).finally(() => clearTimeout(timer));
         return () => { active = false; controller.abort(); clearTimeout(timer); };
     }, [group, path, refresh, bodyKey]);
-    return state.key === key || state.context === context ? state : {};
+    return {...(state.key === key || state.context === context ? state : {}), replace:(data:T)=>setState({key,context,data})};
 }
 function Feedback({ error, retry }: {
     error?: unknown;
     retry?:()=>void;
 }) {
     const recheck = React.useContext(SessionRecheck);
+    const message=error?failure(error):'';
+    useEffect(()=>{if(!message)return;const id=notify(message,'error',{action:retry?{label:'Retry',run:retry}:undefined});return()=>dismissNotice(id);},[message]);
     return error ? <Box role="alert"><SectionMessage appearance="error" title="Action could not be completed" headingLevel="h2"><Text as="p">{failure(error)}</Text>{retry&&<Button onClick={retry}>Retry</Button>}{error instanceof OperationError && error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}</SectionMessage></Box> : null;
 }
 function Choice({ id, label, value, options, onChange, error, required=false, isDisabled=false, hint }: {
@@ -212,7 +214,7 @@ function PreviousSave({ state, leave }: { state: ReturnType<typeof useSave>; lea
     useEffect(() => { if (state.uncertain) { message.current?.scrollIntoView({ block: 'nearest' }); message.current?.focus({ preventScroll: true }); } }, [state.uncertain]);
     return state.uncertain ? <Box ref={message} role="alert" tabIndex={-1}><SectionMessage appearance="warning" title="Check the previous save" headingLevel="h3"><Text as="p">It may already be saved. Retry the same update to confirm before making changes.</Text><Inline shouldWrap space="space.100">{state.error instanceof OperationError && state.error.status === 401 && <Button onClick={recheck}>Sign in again</Button>}<Button isLoading={state.busy} onClick={async () => { void state.retry(); }}>Retry previous save</Button><Button isDisabled={state.busy} appearance="subtle" onClick={async () => { if (await confirmAction('The previous save may already have completed. Leave this form and check the complaint list before submitting again?')) { state.abandon(); leave(); } }}>Leave without checking</Button></Inline></SectionMessage></Box> : null;
 }
-function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot, categories }: {
+function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot, categories, refresh }: {
     group: string;
     item: Detail;
     saved: (item: Complaint, next?:boolean) => void;
@@ -220,6 +222,7 @@ function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot, catego
     markDirty: (value: boolean, pending?: boolean) => void;
     slot: RecoverySlot;
     categories: string[];
+    refresh:()=>void;
 }) {
     const formId=useId();
     const [action, setAction] = useRetainedValue(slot, 'action', ''), [values, setValues] = useRetainedValue<Record<string, string>>(slot, 'values', {}), [files, setFiles] = useRetainedValue<File[]>(slot, 'files', []);
@@ -229,12 +232,12 @@ function CaseActions({ group, item, saved, voiceEnabled, markDirty, slot, catego
     const state = useSave(group, value=>{const next=action==='resolve'&&openNext;setAction('');setValues({});setFiles([]);markDirty(false);saved(value,next);}, slot);
     useEffect(() => { markDirty(Boolean(Object.keys(values).length || files.length || state.busy || state.uncertain), state.busy || state.uncertain); return () => markDirty(false); }, [values, files, state.busy, state.uncertain, markDirty]);
     useValidationFocus(formId,state.errors);
-    const available = item.actions.filter(name => name in actionLabels && (name === 'retry-publication' ? ['failed', 'pending'].includes(item.sync_status) : name === 'complete-details' ? item.needs_details : name === 'reopen' ? item.status === 'CLOSED' : item.status !== 'CLOSED' && !item.needs_details));
-    const closeAction=async()=>{if(state.busy||state.uncertain)return;if((Object.keys(values).length||files.length)&&!await confirmAction('Discard this unfinished update?'))return;setAction('');setValues({});setFiles([]);};
+    const available = item.actions.filter(name => name in actionLabels && (name === 'retry-publication' ? Boolean(item.publication?.needs_attention)||item.sync_status==='failed' : name === 'complete-details' ? item.needs_details : name === 'reopen' ? item.status === 'CLOSED' : item.status !== 'CLOSED' && !item.needs_details));
+    const closeAction=async()=>{if(state.busy||state.uncertain)return;if((Object.keys(values).length||files.length)&&!await confirmAction('Discard this unfinished update?'))return;state.setErrors({});setAction('');setValues({});setFiles([]);};
     const begin=(name:string)=>{setRevision(item.revision);setAction(name);setValues({});setFiles([]);setOpenNext(false);state.setErrors({});};
-    const secondary=available.filter(name=>['comment','retry-publication'].includes(name));
+    const secondary=available.filter(name=>name==='retry-publication');
     return <Stack space="space.150">
-    <Inline shouldWrap space="space.100" aria-label="Complaint actions">{available.filter(name=>!secondary.includes(name)).map(name=><ActionButton tone={name==='resolve'||name==='complete-details'?'positive':'neutral'} key={name} iconBefore={name==='resolve'?SuccessIcon:undefined} isDisabled={state.busy||state.uncertain} onClick={()=>begin(name)}>{actionLabels[name]}</ActionButton>)}{secondary.length>0&&<ActionMenu label="More complaint actions" icon={MoreIcon} items={secondary.map(name=>({label:actionLabels[name],disabled:state.busy||state.uncertain,run:()=>begin(name)}))}/>}</Inline>
+    <Inline shouldWrap space="space.100" aria-label="Complaint actions">{available.filter(name=>!secondary.includes(name)).map(name=><ActionButton tone={name==='resolve'||name==='complete-details'?'positive':'neutral'} key={name} iconBefore={name==='resolve'?SuccessIcon:undefined} isDisabled={state.busy||state.uncertain} onClick={()=>begin(name)}>{actionLabels[name]}</ActionButton>)}<div className="stitch-case-overflow"><ActionMenu label="More complaint actions" icon={MoreIcon} items={[...secondary.map(name=>({label:actionLabels[name],disabled:state.busy||state.uncertain,run:()=>begin(name)})),{label:"Refresh complaint",disabled:state.busy||state.uncertain,run:refresh}]}/></div></Inline>
     {action && <TaskDialog title={actionLabels[action]} compact hasStatus close={closeAction}>
     <Text weight="semibold">{item.reference} · {item.customer_name}</Text>
     <DialogStatus><DraftStatus state={state.busy?'saving':state.error?'error':!navigator.onLine?'offline':'draft'}/></DialogStatus>
@@ -469,6 +472,7 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
   const error = groupError || bootstrap.error || queue.error || detail.error;
   useEffect(() => { if (error instanceof OperationError && error.status === 401) recheck(); else if (error instanceof OperationError && error.status === 403) recovery.clear(); }, [error, recheck]);
   const saved = async (item: Complaint, openNext = false) => {
+    if(detail.data?.case.key===item.key)detail.replace({case:{...detail.data.case,...item}});
     const following=openNext?queue.data?.navigation?.next:null, context=routeRef.current;
     if (item.key===context.selected && (!openNext || !following || detailDirty.current.conversation?.dirty)) {
       setNotice(openNext&&detailDirty.current.conversation?.dirty?`${item.reference}: changes saved. Your unfinished staff comment is retained; review it before opening another complaint.`:`${item.reference}: changes saved.`);
@@ -505,7 +509,7 @@ export function ComplaintsOperationsWorkspace({ signOut, recheck, recovery }: { 
         {queue.data && queue.data.pagination.pages > 1 && <Inline spread="space-between" alignBlock="center" space="space.100"><Text size="small">Page {queue.data.pagination.page} of {queue.data.pagination.pages}</Text><Inline space="space.100"><Button isDisabled={route.page <= 1} onClick={() => navigate({...route, page: route.page - 1, selected: ''})}>Previous</Button><Button isDisabled={route.page >= queue.data.pagination.pages} onClick={() => navigate({...route, page: route.page + 1, selected: ''})}>Next</Button></Inline></Inline>}
       </Box></Box>
       {route.selected&&<Box as="section" aria-label="Complaint detail" ref={detailPanel} tabIndex={-1}>{detail.data ? <ComplaintDetailPage key={detail.data.case.key} group={route.group} item={detail.data.case} bootstrap={bootstrap.data} back={()=>{void navigate({...route,selected:''});}} slot={slot} markDirty={markConversationDirty} changed={()=>setDetailRefresh(value=>value+1)} notice={notice.startsWith(detail.data.case.reference+':')?notice:''} dismissNotice={()=>setNotice('')}
-        actions={ownerReady&&recovery.bound(bootstrap.data?.continuity_key||'')&&<CaseActions slot={actionSlot} key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} item={detail.data.case} categories={bootstrap.data?.categories||[]} saved={saved} voiceEnabled={Boolean(bootstrap.data?.voice_input?.enabled)} markDirty={markActionDirty}/>}
+        actions={ownerReady&&recovery.bound(bootstrap.data?.continuity_key||'')&&<CaseActions slot={actionSlot} key={`${detail.data.case.key}-${detail.data.case.revision}`} group={route.group} item={detail.data.case} categories={bootstrap.data?.categories||[]} refresh={()=>setDetailRefresh(value=>value+1)} saved={saved} voiceEnabled={Boolean(bootstrap.data?.voice_input?.enabled)} markDirty={markActionDirty}/>}
         navigation={queue.data?.navigation&&<Inline alignBlock="center" space="space.050"><IconButton appearance="subtle" label="Previous complaint" icon={PreviousIcon} isDisabled={!queue.data.navigation.previous} onClick={()=>{const item=queue.data!.navigation!.previous;if(item)navigate({...route,selected:item.key,page:item.page});}}/><Text size="small">{queue.data.navigation.position} of {queue.data.navigation.total}</Text><IconButton appearance="subtle" label="Next complaint" icon={NextIcon} isDisabled={!queue.data.navigation.next} onClick={()=>{const item=queue.data!.navigation!.next;if(item)navigate({...route,selected:item.key,page:item.page});}}/></Inline>}/>:detail.error?null:<LoadingSkeletons label="Loading complaint"/>}</Box>}
 
     </Grid>

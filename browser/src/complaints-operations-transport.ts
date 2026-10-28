@@ -3,8 +3,8 @@ import { ComplaintReadError, readComplaints, type Group } from './complaints-tra
 const prefix = '/api/staff/complaints/operations/v1/groups/';
 export { type Group };
 export type Sla = {state:'on_track'|'due_soon'|'overdue'|'closed'|'unavailable';target_hours:number;started_at:string|null;deadline_at:string|null;resolved_at:string|null;server_now:string;remaining_seconds:number|null;on_time:boolean|null;resolution_hours:number|null};
-export type PublishedFile = {id:string;name:string;size:number;stage:string;percent:number;received:boolean;evidence:string;attempts:number;next_retry_at:string|null};
-export type Publication = {files:PublishedFile[];needs_attention:boolean;sheet:{tracked:boolean;status:string;attempts:number;next_retry_at:string|null};runner_healthy:boolean;can_retry:boolean};
+export type PublishedFile = {id:string;name:string;size:number;stage:string;percent:number;received:boolean;evidence:string;attempts:number;next_retry_at:string|null;origin?:'case'|'conversation';comment_key?:string};
+export type Publication = {files:PublishedFile[];needs_attention:boolean;sheet:{key?:string;tracked:boolean;status:string;attempts:number;next_retry_at:string|null};runner_healthy:boolean;can_retry:boolean};
 export type Complaint = {
   key: string; reference: string; customer_name: string; customer_phone: string; secondary_phone: string;
   customer_id: string; county: string; constituency: string; village: string; branch: string;

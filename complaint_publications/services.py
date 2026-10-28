@@ -325,12 +325,18 @@ def case_state(group, actor, case):
     files = []
     if cases.actor_can(group, actor, 'complaint.case.evidence.view', case):
         rows = UploadFile.objects.filter(evidence__parsed_message=case
-            ).select_related('operation', 'evidence').order_by(F('published_at').desc(nulls_first=True), '-received_at', 'position')[:100]
+            ).select_related('operation', 'evidence', 'attempt').order_by(F('published_at').desc(nulls_first=True), '-received_at', 'position')[:100]
+        comments = dict(CaseUpdate.objects.filter(parsed_message=case, source='browser_staff_comment',
+            client_request_id__in=[row.attempt.request_key for row in rows]).values_list('client_request_id', 'pk'))
         seen = set()
         for row in rows:
-            if row.evidence_id not in seen:
-                seen.add(row.evidence_id)
-                files.append(file_state(row))
+            origin = 'conversation' if row.attempt.action_path.endswith('/conversation/post/') else 'case'
+            comment_key = str(comments.get(row.attempt.request_key, '')) if origin == 'conversation' else ''
+            identity = (row.evidence_id, origin, comment_key)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            files.append({**file_state(row), 'origin': origin, 'comment_key': comment_key})
     sheet = IntegrationOperation.objects.filter(operation_type=SHEET_OPERATION,
         source_id=str(control.pk)).order_by('-created_at', '-pk').first()
     from core.models import DurableJobRunnerHeartbeat
@@ -339,7 +345,8 @@ def case_state(group, actor, case):
     needs_attention = bool(sheet and sheet.status == 'dead_letter') or UploadFile.objects.filter(
         evidence__parsed_message=case, operation__status='dead_letter').exists()
     return {'files': files, 'needs_attention': needs_attention, 'sheet': {
-        'tracked': bool(sheet), 'status': 'paused' if sheet and not cases.complaint_sheet_projection_enabled(group) else sheet.status if sheet else 'not_required' if not cases.complaint_sheet_projection_enabled(group) else control.sync_status,
+        'key': str(sheet.pk) if sheet else '', 'tracked': bool(sheet),
+        'status': 'paused' if sheet and not cases.complaint_sheet_projection_enabled(group) else sheet.status if sheet else 'not_required',
         'attempts': sheet.attempts if sheet else 0,
         'next_retry_at': sheet.next_retry_at.isoformat() if sheet and sheet.next_retry_at else None,
     }, 'runner_healthy': fresh, 'can_retry': is_it(actor) and cases.actor_can(group, actor, 'complaint.case.sync.retry', case)}

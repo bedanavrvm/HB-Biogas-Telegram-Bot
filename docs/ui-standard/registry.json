@@ -653,9 +653,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "6ed21b3fc96058fbab7754d13ab367d8b2fc727208a8271a2ee2a3c0ec4c8521",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "4376b2d6aee9b75cd68c4c42d294dde2f1455b97ecb1960b6c21e4c5b6448ffa",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "20692de84692dc47c6f3b9d4e9d77c1ef787573f577aca05e34c30e42f6398e3",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "417050966d59789a0f10e6d583b70c7006655b951ef09dd1dc88e712e1be27ec",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "e5c00c2fff3a6be1f3abe5ef5402a0f96bbace8f2ce540fa0f9089fc7a3bfcae",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "cc5e00dff85bd54f4f221652f09ea513942da00300cab62611e71f85dd5ebe90",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "786fed64353fbc4d27a7b05574599ca7423a2cc9282bd6a2d886603f2bd4320f",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "be77a0012d0e667bd3a6ac2152a9f7eafd885e68314c9b45d251dfae90a86e5b",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -713,9 +713,9 @@
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "973a388f71a95010bfe70fbe96c9166f96d81bf7d3060a9e7fe5ccb71bbaeaac",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "32c0095333b7e599bd28783af71ece1421d41e3c4c9ecb9131ebe1e359389213",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -725,9 +725,9 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "37be31f0572be76d738a9a210b1e0f8e762b73030155440717c57ddbe8b0f967",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "d1a8ba1429e71f10e7516b3edf5b690bf4f5c602e573012fe26a242256e58141",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
@@ -863,39 +863,39 @@
     },
     {
       "path": "browser/src/complaints-detail-page.tsx",
-      "sha256": "4753f6d804c129278d46234ea09cbb84d6a6d84d67cded086eb32c8eb15d75ac",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "960e6c761f93558b1d79f838cb95978b6580eaa950411910bc33d801da3a1c7e",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-detail-map.tsx",
-      "sha256": "fb41822186d52135c33840dd7847032b9f8d0175dd9b15d5213a5d0cf92e37b6",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "8bea7db3833d21e604c385e69469cf36f95b66482d30f6a8974d1b1b6f11d3df",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-conversation.tsx",
-      "sha256": "eb9166f698d1f1d7e6c1cb742bc6f97fc7b07746c8a033072966b8a1933adc51",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "bbe9abc15dd47431fd479b86f93c683b29a89fb06a4392db4b7bab234a6f935d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-operation-files.tsx",
-      "sha256": "208b662de9b954c32fa9e55a87d668d7679733deb977ffb42a99aef550f9847c",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "d34f3efddd0db8f53912e734de4c2371f2228fd7232fcda7cb13424a23135911",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-stitch.css",
-      "sha256": "c301ecb9531ce82db5962d3c33777dcdeb0af1a8bdccb3f956a78af3293c8adc",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "aab3d7a3d6ebcbd8165b5bf83702684bdce150f6d803533cb15e4a44b8d2855a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "browser/src/complaints-publication.tsx",
-      "sha256": "ac103445d4d7c8f49490a1693642cf865ccd17857f6b02595d7dea119e6babd8",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+      "sha256": "9b90078e20316cfead5cfb994d70cc3d14b3f8933a2e66251225645127a657a1",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     },
     {
       "path": "complaint_publications/templates/admin/complaint_publications/attention.html",
@@ -908,6 +908,12 @@
       "sha256": "9cbf1d1c2abfe104f926eebf8051902a4cbaf2c6ec911ad174b1ad9dc1895664",
       "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
       "reason": "Scoped Complaints IT Admin publication recovery; retained payloads and private resumable URLs excluded. Browser evidence in the component adoption review."
+    },
+    {
+      "path": "browser/src/complaints-copy-button.tsx",
+      "sha256": "9db5400af52fcf3fb1d4fb4aef1affe5873387a4f4cbc6e0f8bb3eba1debb915",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
+      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
     }
   ],
   "source_roots": [

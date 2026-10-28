@@ -694,6 +694,12 @@ This introduces no new design-system dependency or approved baseline.
 
 ## Additional Stitch components, 28 October 2026
 
+The later user-directed [detail corrections](../docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md)
+replace the large publication panel with contextual file progress and a compact
+register status, and revise threads, actions, fields, maps, tabs and notifications.
+For ongoing UI iterations, use browser interaction/screenshots only: no test
+suites, assertion scripts or test files. Builds are only for previewing changes.
+
 The [decision record](STITCH-DESIGN-DECISIONS.md) maps all new supplied references
 to adopted behavior and the user's explicit exclusions. Real skeletons, semantic
 feedback, clipboard confirmation, drop selection, SLA/help and two whole-queue

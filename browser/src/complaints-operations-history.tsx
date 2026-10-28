@@ -28,12 +28,18 @@ function RecordedChanges({item}: {item: HistoryItem}) {
     <Text weight="medium">{change.label}: </Text><Text>{change.previous_recorded !== false && <>{changeValue(change.old_display ?? change.old_value)} → </>}{changeValue(change.new_display ?? change.new_value)}</Text>
   </Box>)}</Stack> : null;
 }
-export function Activity({ group, caseKey, initial, next, reported, report = false }: { group: string; caseKey: string; initial: HistoryItem[]; next: string; reported: string; report?: boolean }) {
+export function Activity({ group, caseKey, initial, next, reported, report = false, refresh = 0 }: { group: string; caseKey: string; initial: HistoryItem[]; next: string; reported: string; report?: boolean;refresh?:number }) {
   const [items, setItems] = useState(initial), [cursor, setCursor] = useState(next), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
   useEffect(()=>{if(error)notify(error,'error');},[error]);
   const request = useRef<AbortController>(), active = useRef(true), inFlight = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; request.current?.abort(); }; }, []);
+  useEffect(()=>{
+    if(!refresh)return;
+    const controller=new AbortController();
+    void operation<{items:HistoryItem[];next_cursor:string}>(group,`${report?'reports/':''}cases/${caseKey}/history/`,controller.signal,{}).then(page=>{if(!controller.signal.aborted){setItems(page.items);setCursor(page.next_cursor);setError('');setExpired(false);}}).catch(issue=>{if(!controller.signal.aborted)setError(issue instanceof OperationError?issue.message:'Activity could not be refreshed.');});
+    return()=>controller.abort();
+  },[group,caseKey,report,refresh]);
   const older = async () => {
     if ((!cursor && !expired) || inFlight.current) return;
     inFlight.current = true; setBusy(true); setError('');

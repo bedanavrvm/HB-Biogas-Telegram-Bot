@@ -4,9 +4,9 @@ import {IconButton} from '@atlaskit/button/new';
 import AddIcon from '@atlaskit/icon/core/add';
 import MinusIcon from '@atlaskit/icon/core/minus';
 import RefreshIcon from '@atlaskit/icon/core/refresh';
+import LinkExternalIcon from '@atlaskit/icon/core/link-external';
 import {Box} from '@atlaskit/primitives/compiled/box';
 import {Text} from '@atlaskit/primitives/compiled/text';
-import {Anchor} from '@atlaskit/primitives/compiled/anchor';
 import type {Detail,MapConfig} from './complaints-operations-transport';
 
 type MapInstance = {remove:()=>void;invalidateSize:()=>void;setView:(point:number[],zoom:number)=>MapInstance;zoomIn:()=>void;zoomOut:()=>void};
@@ -56,6 +56,6 @@ export function DetailMap({item,config}:{item:Detail;config?:MapConfig}) {
     {coordinates&&config?.enabled&&<div className="stitch-map-view"><div className="stitch-map-toolbar"><IconButton icon={AddIcon} appearance="subtle" label="Zoom in map" onClick={()=>map.current?.zoomIn()}/><IconButton icon={MinusIcon} appearance="subtle" label="Zoom out map" onClick={()=>map.current?.zoomOut()}/><IconButton icon={RefreshIcon} appearance="subtle" label="Refresh map location" onClick={()=>{if(map.current){map.current.setView([lat,lng],18);redraw.current?.();}else setRetry(value=>value+1);}}/></div><div ref={node} className="stitch-map-canvas" aria-label="Interactive recorded complaint location"/>{item.village&&<div className="stitch-map-landmark">{item.village}</div>}</div>}
     {failure&&<Box role="status"><Text>{failure}</Text><Button appearance="subtle" onClick={()=>setRetry(value=>value+1)}>Retry map</Button></Box>}
     {(!coordinates||!config?.enabled)&&<Text size="small" color="color.text.subtle">{coordinates?'Interactive map is unavailable for this workspace.':'No recorded map coordinates.'}</Text>}
-    <div className="stitch-map-facts">{[['County',item.county],['Constituency',item.constituency]].map(([label,value])=><div key={label}><span className="stitch-label">{label}</span><span>{value||'Not recorded'}</span></div>)}</div>{link&&<Anchor href={link} target="_blank" rel="noopener noreferrer">Open map pin</Anchor>}{(!coordinates||!config?.enabled)&&item.village&&<Text size="small">{item.village}</Text>}
+    <div className="stitch-map-facts">{[['County',item.county],['Constituency',item.constituency]].map(([label,value])=><div key={label}><span className="stitch-label">{label}</span><span>{value||'Not recorded'}</span></div>)}</div>{link&&<div className="stitch-map-footer"><a className="stitch-map-open" href={link} target="_blank" rel="noopener noreferrer"><LinkExternalIcon label="" size="small"/>Open map pin</a></div>}{(!coordinates||!config?.enabled)&&item.village&&<Text size="small">{item.village}</Text>}
   </div>;
 }

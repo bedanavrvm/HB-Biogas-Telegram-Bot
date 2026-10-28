@@ -75,6 +75,12 @@ this browser change does not authorize that migration or activate production.
 
 ## Acceptance evidence
 
+The user's subsequent UI-only instruction supersedes the automated acceptance
+workflow below for ongoing appearance fixes: use direct browser interaction and
+screenshots, with no test suites, assertion scripts or new test files. Build only
+as needed to display the UI. Iterate from visual review and user feedback.
+Historical checks below describe the earlier publication implementation.
+
 Verify through Playwright against native Django authentication and disposable
 PostgreSQL: both themes, phone/desktop sizes, zoom, hidden/expanded states,
 validation, drafts, allowed/denied roles, SLA boundaries and sorting across pages.
@@ -83,3 +89,25 @@ duplicate and uncertain retries, partial failures, escalation and 24-hour cleanu
 Retain source/build/screenshot hashes and a gallery in the linked review record.
 Build/type/migration/source-ratchet checks supplement browser evidence; screenshots
 and mocked providers do not establish deployment or live-provider commissioning.
+
+## Detail corrections after visual feedback
+
+- HB Feedback is a visible authorized action. The overflow menu stays at the far
+  right; phone layouts wrap the actions rather than hiding feedback.
+- Each metadata label/value pair gets its own light-grey inset card. The map is
+  taller and its external pin link is an outlined footer action. Conversation
+  and History divide their row equally with centred labels.
+- Conversation cards wrap names, dates, content, quotes, files and actions.
+  Replies preserve their exact selected parent, including the author's own
+  replies. Shallow indentation and parent excerpts keep long chains readable.
+  Historical flattened replies are retained as recorded.
+- Notifications stay at the top of the viewport below the app header, including
+  over a dialog. Warning confirmations open near the top. Copy success is a
+  two-second tooltip attached to the clicked control.
+- Internal notes/replies save only to the conversation. Their attachment progress
+  appears on the corresponding message. HB Feedback remains an official register
+  update, along with creation/corrections/resolution/reopen. Register jobs have a
+  compact status by the operational toolbar; no generic publication panel or
+  publisher-health warning appears when replying. Health diagnostics stay with IT.
+
+Visual review: [detail corrections](../docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md).

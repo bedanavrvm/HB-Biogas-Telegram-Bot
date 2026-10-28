@@ -298,3 +298,12 @@ its Admin recovery view excludes raw payloads and private resumable URLs.
 Decisions, exclusions, native-session Playwright evidence and verification limits:
 [component adoption review](reviews/2026-10-28-complaints-stitch-components.md).
 Telegram adoption, operational release and approved baselines remain separate.
+
+## Complaints detail: user-directed visual corrections
+
+The later [detail correction record](reviews/2026-10-28-complaints-ui-corrections.md)
+supersedes the generic publication panel and one-level reply layout. It records
+responsive message chains, visible HB Feedback, right-aligned overflow, grey field
+cards, map footer, symmetric tabs, top notices and anchored copy feedback.
+Ongoing UI acceptance uses browser previews/screenshots and user feedback only;
+no automated test or baseline update is part of this visual iteration.

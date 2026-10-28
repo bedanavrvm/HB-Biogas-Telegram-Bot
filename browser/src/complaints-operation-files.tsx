@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import Button from '@atlaskit/button/default/button';
 import CameraIcon from '@atlaskit/icon/core/camera';
 import AttachmentIcon from '@atlaskit/icon/core/attachment';
+import {notify,dismissNotice} from './browser-interactions';
 import {fileTransfer,watchFileTransfers,type FileTransfer} from './complaints-operations-transport';
 
 export const LockedForm=React.createContext(false);
@@ -15,6 +16,7 @@ function Transfer({file}:{file:File}){
 export function Files({files,setFiles,saveLabel='complaint',compact=false}:{files:File[];setFiles:(value:File[])=>void;saveLabel?:string;compact?:boolean}){
   const locked=React.useContext(LockedForm),picker=useRef<HTMLInputElement>(null),camera=useRef<HTMLInputElement>(null);
   const [error,setError]=useState(''),[dragging,setDragging]=useState(false);
+  useEffect(()=>{if(!error)return;const id=notify(error,'warning');return()=>dismissNotice(id);},[error]);
   const add=(items:FileList|null)=>{
     if(locked)return;
     const selected=Array.from(items||[]),next=[...files,...selected];

@@ -18,6 +18,7 @@ import { Inline } from '@atlaskit/primitives/compiled/inline';
 import { Stack } from '@atlaskit/primitives/compiled/stack';
 import { Text } from '@atlaskit/primitives/compiled/text';
 import { token } from '@atlaskit/tokens';
+import {notify,dismissNotice} from './browser-interactions';
 
 export const statusLabel = (status: string, needs = false) => needs ? 'Needs details' : /^(closed|resolved)$/i.test(status) ? 'Closed' : /^reopened$/i.test(status) ? 'Reopened' : 'Open';
 export const complaintCount = (value: number) => `${value} ${value === 1 ? 'complaint' : 'complaints'}`;
@@ -48,6 +49,7 @@ const styles = cssMap({
   fit: { width: '100%', minWidth: 0 },
   section: { borderBlockStart: `${token('border.width')} solid ${token('color.border')}`, paddingBlockStart: token('space.200') },
   compact: { maxWidth: '32rem' },
+  top: { marginBlockStart: '4.5rem', marginBlockEnd:'auto', maxHeight:'calc(100dvh - 5rem)' },
   medium: { maxWidth: '45rem' },
   wide: { width: '98vw', maxWidth: '90rem' },
   menuAnchor: { display: 'inline-flex', minWidth: 0 },
@@ -66,8 +68,15 @@ export function DialogFooter({children}:{children:React.ReactNode}) {
 }
 export function Section({title,children}:{title:string;children:React.ReactNode}) { return <Box xcss={styles.section}><Stack space="space.150"><Heading as="h3" size="small">{title}</Heading>{children}</Stack></Box>; }
 export function useValidationFocus(formId:string,errors:Record<string,string>) {
-  useEffect(()=>{if(!Object.keys(errors).length)return;const frame=requestAnimationFrame(()=>{const input=document.getElementById(formId)?.querySelector<HTMLElement>('[aria-invalid="true"]');input?.focus();input?.scrollIntoView({block:'nearest'});});return()=>cancelAnimationFrame(frame);},[formId,errors]);
+  const errorKey=JSON.stringify(errors);
+  useEffect(()=>{
+    if(!Object.keys(errors).length)return;
+    const focus=()=>{const input=document.getElementById(formId)?.querySelector<HTMLElement>('[aria-invalid="true"]');input?.focus();input?.scrollIntoView({block:'nearest'});};
+    const frame=requestAnimationFrame(focus),id=notify('Review the highlighted fields before saving.','warning',{dedupeKey:'form-validation:'+formId,action:{label:'Review fields',run:focus}});
+    return()=>{cancelAnimationFrame(frame);dismissNotice(id);};
+  },[formId,errorKey]);
 }
+
 export function ActionButton({tone='positive',...props}:React.ComponentProps<typeof Button>&{tone?:'positive'|'destructive'|'neutral'}) {
   const root=useRef<HTMLDivElement>(null);
   useLayoutEffect(()=>{const node=root.current;if(!node)return;const colors=[['--ds-background-brand-bold',token('color.background.success.bold')],['--ds-background-brand-bold-hovered',token('color.background.success.bold.hovered')],['--ds-background-brand-bold-pressed',token('color.background.success.bold.pressed')]];colors.forEach(([key,value])=>{if(tone==='positive')node.style.setProperty(key,value);else node.style.removeProperty(key);});},[tone]);
@@ -86,7 +95,7 @@ export function AdaptiveSelect<Option extends {label:string;value:string|number}
   return <Box ref={root} xcss={styles.fit}><Select {...props} isSearchable menuPortalTarget={dialog.root||undefined} menuPosition="fixed" menuPlacement="auto" maxMenuHeight={maxHeight} menuShouldScrollIntoView={false} captureMenuScroll onMenuOpen={()=>{setOpen(true);props.onMenuOpen?.();}} onMenuClose={()=>{setOpen(false);props.onMenuClose?.();}}/></Box>;
 }
 /** Native modal focus/inert/Escape semantics with the existing ADS content. */
-export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean }) {
+export function TaskDialog({ title, close, children, compact = false, wide = false, size, hasStatus=false, placement="center" }: { title: string; close: () => void; children: React.ReactNode; compact?: boolean; wide?: boolean; size?:'medium';hasStatus?:boolean;placement?:"center"|"top" }) {
   const ref = useRef<HTMLDialogElement|null>(null), heading = useId();
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{const update=()=>setOnline(navigator.onLine);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
@@ -110,7 +119,7 @@ export function TaskDialog({ title, close, children, compact = false, wide = fal
     const rect = event.currentTarget.getBoundingClientRect();
     return event.target === event.currentTarget && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
   };
-  return <Box as="dialog" ref={bind} aria-labelledby={heading} onPointerDown={event=>{scrimDown.current=outside(event);}} onPointerUp={event=>{const dismiss=scrimDown.current&&outside(event);scrimDown.current=false;if(dismiss)closeRef.current();}} onPointerCancel={()=>{scrimDown.current=false;}} xcss={cx(styles.dialog,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{hasStatus&&!online&&<Box role="status"><Text color="color.text.warning">You are offline. Keep editing and reconnect before saving. Nothing is submitted automatically.</Text></Box>}{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
+  return <Box as="dialog" ref={bind} data-placement={placement} aria-labelledby={heading} onPointerDown={event=>{scrimDown.current=outside(event);}} onPointerUp={event=>{const dismiss=scrimDown.current&&outside(event);scrimDown.current=false;if(dismiss)closeRef.current();}} onPointerCancel={()=>{scrimDown.current=false;}} xcss={cx(styles.dialog,placement==="top"&&styles.top,compact&&styles.compact,size==='medium'&&styles.medium,wide&&styles.wide)}><DialogContext.Provider value={{root,status,footer}}><Box xcss={styles.frame}><Box xcss={styles.header} aria-label="Dialog header"><Inline spread="space-between" alignBlock="start" space="space.150"><Stack space="space.050"><Heading id={heading} as="h2" size="medium">{title}</Heading>{hasStatus&&<Box ref={setStatus} xcss={styles.status} role="status" aria-live="polite" aria-atomic="true" aria-label="Draft save status"/>}</Stack><IconButton label="Close" appearance="subtle" icon={CrossIcon} onClick={close}/></Inline></Box><Box xcss={styles.body} aria-label="Dialog content"><Stack space="space.200">{hasStatus&&!online&&<Box role="status"><Text color="color.text.warning">You are offline. Keep editing and reconnect before saving. Nothing is submitted automatically.</Text></Box>}{children}</Stack></Box><Box ref={setFooter} xcss={styles.footer} aria-label="Dialog actions"/></Box></DialogContext.Provider></Box>;
 }
 
 type Confirmation = { message: string; title: string; accept: string; cancel: string; resolve: (value: boolean) => void };
@@ -124,7 +133,7 @@ export function ConfirmationHost() {
   const answer=(value:boolean)=>{const [request,...remaining]=pending.current;pending.current=remaining;setRequests(remaining);request?.resolve(value);};
   useEffect(()=>{const receive=(event:Event)=>{pending.current=[...pending.current,(event as CustomEvent<Confirmation>).detail];setRequests(pending.current);};window.addEventListener(confirmationEvent,receive);return()=>{window.removeEventListener(confirmationEvent,receive);pending.current.forEach(request=>request.resolve(false));pending.current=[];};},[]);
   const current=requests[0];
-  return current?<TaskDialog title={current.title} compact close={()=>answer(false)}><Text>{current.message}</Text><DialogFooter><Button onClick={()=>answer(false)} autoFocus>{current.cancel}</Button><ActionButton tone="destructive" onClick={()=>answer(true)}>{current.accept}</ActionButton></DialogFooter></TaskDialog>:null;
+  return current?<TaskDialog title={current.title} placement="top" compact close={()=>answer(false)}><Text>{current.message}</Text><DialogFooter><Button onClick={()=>answer(false)} autoFocus>{current.cancel}</Button><ActionButton tone="destructive" onClick={()=>answer(true)}>{current.accept}</ActionButton></DialogFooter></TaskDialog>:null;
 }
 
 type MenuItem = { label: string; run: ()=>void|Promise<void>; disabled?: boolean; selected?: boolean };

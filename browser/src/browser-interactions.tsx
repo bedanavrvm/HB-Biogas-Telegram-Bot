@@ -26,7 +26,7 @@ const styles = cssMap({
   theme: { display: 'flex', justifyContent: 'flex-end' },
   actions: { gridColumn: 3, justifySelf: 'end', display: 'flex', alignItems: 'center', gap: token('space.050') },
 
-  toast: { position: 'fixed', bottom: token('space.200'), left: token('space.200'), margin: 0, width: '90vw', maxWidth: '28rem', maxHeight: '50vh', overflowY: 'auto', boxSizing: 'border-box', padding: 0, font: token('font.body'), color: token('color.text'), backgroundColor: 'transparent', border: 'none' },
+  toast: { position: 'fixed', top: token('space.200'), left: '50%', transform: 'translateX(-50%)', margin: 0, width: '90vw', maxWidth: '28rem', maxHeight: '35vh', overflowY: 'auto', boxSizing: 'border-box', padding: 0, font: token('font.body'), color: token('color.text'), backgroundColor: 'transparent', border: 'none' },
   notice: { padding: token('space.200'), borderWidth: token('border.width'), borderStyle: 'solid', borderRadius: token('radius.medium'), boxShadow: token('elevation.shadow.overlay') },
   success: { backgroundColor: token('color.background.success'), borderColor: token('color.border.success') },
   error: { backgroundColor: token('color.background.danger'), borderColor: token('color.border.danger') },
@@ -55,20 +55,26 @@ export function ToastHost() {
   },[]);
   useEffect(() => {
     if (!queue.length) return;
-    const footer=target.tagName==='DIALOG'?target.querySelector<HTMLElement>('[aria-label="Dialog actions"]'):null;
-    const place=()=>{const element=root.current;if(element)element.style.bottom=`${footer&&footer.getBoundingClientRect().height?Math.max(16,innerHeight-footer.getBoundingClientRect().top+8):16}px`;};
-    const raise=()=>{const element=root.current;if(!element?.isConnected)return;element.setAttribute('popover','manual');element.style.top='auto';if(element.matches(':popover-open'))element.hidePopover();element.showPopover();};
-    place();raise();
-    const resize=new ResizeObserver(place);if(footer)resize.observe(footer);window.addEventListener('resize',place);
-    return () => {resize.disconnect();window.removeEventListener('resize',place);};
+    const header=document.querySelector<HTMLElement>('[role="banner"]');
+    const place=()=>{
+      const element=root.current;if(!element)return;
+      const viewport=window.visualViewport,offset=viewport?.offsetTop||0,height=viewport?.height||innerHeight;
+      const main=document.getElementById('complaints-workspace-main');
+      const anchor=header?.getBoundingClientRect().bottom||main?.getBoundingClientRect().top||offset;
+      element.style.top=`${Math.max(offset+8,Math.min(anchor+8,offset+height-100))}px`;element.style.bottom='auto';element.style.right='auto';element.style.maxHeight=`${height*.35}px`;
+    };
+    const element=root.current;if(element?.isConnected){element.setAttribute('popover','manual');if(element.matches(':popover-open'))element.hidePopover();element.showPopover();}
+    place();const resize=new ResizeObserver(place);if(header)resize.observe(header);
+    window.addEventListener('resize',place);window.visualViewport?.addEventListener('resize',place);window.visualViewport?.addEventListener('scroll',place);
+    return()=>{resize.disconnect();window.removeEventListener('resize',place);window.visualViewport?.removeEventListener('resize',place);window.visualViewport?.removeEventListener('scroll',place);};
   }, [queue.length,target]);
-  return <><ConfirmationHost/>{queue.length ? createPortal(<Box as="div" ref={root} xcss={styles.toast} aria-label="Notifications"><Stack space="space.100">{queue.slice(0,3).map(notice=><ToastCard key={notice.id} notice={notice} dismiss={dismiss}/>)}</Stack></Box>, target) : null}</>;
+  return <><ConfirmationHost/>{queue.length ? createPortal(<Box as="div" ref={root} xcss={styles.toast} aria-label="Notifications"><Stack space="space.100">{queue.map(notice=><ToastCard key={notice.id} notice={notice} dismiss={dismiss}/>)}</Stack></Box>, target) : null}</>;
 }
 function ToastCard({notice,dismiss}:{notice:Notice;dismiss:(id:number)=>void}) {
   const [hovered,setHovered]=useState(false),[focused,setFocused]=useState(false),remaining=useRef(5000),dismissRef=useRef(dismiss);dismissRef.current=dismiss;
   useEffect(()=>{if(hovered||focused||notice.tone==='error'||notice.tone==='warning')return;const started=Date.now(),timer=setTimeout(()=>dismissRef.current(notice.id),remaining.current);return()=>{clearTimeout(timer);remaining.current=Math.max(0,remaining.current-(Date.now()-started));};},[hovered,focused,notice.id,notice.tone]);
   const StatusIcon=notice.tone==='error'?ErrorIcon:notice.tone==='warning'?WarningIcon:notice.tone==='success'?CheckIcon:InfoIcon;
-  return <Box data-stitch="toast" xcss={cx(styles.notice,styles[notice.tone])} role={notice.tone==='error'?'alert':'status'} onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)} onFocus={()=>setFocused(true)} onBlur={(event:React.FocusEvent<HTMLDivElement>)=>{if(!event.currentTarget.contains(event.relatedTarget))setFocused(false);}}><Inline spread="space-between" alignBlock="start" space="space.150"><StatusIcon label=""/><Stack space="space.050"><Text weight="semibold">{notice.title||{success:'Success',error:'Error',warning:'Attention',information:'Information'}[notice.tone]}</Text><Text>{notice.message}</Text>{notice.action&&<Button appearance="subtle" onClick={()=>{void Promise.resolve(notice.action!.run()).catch(()=>notify('The action could not be completed. Try again.','error'));}}>{notice.action.label}</Button>}</Stack><IconButton label="Dismiss notification" appearance="subtle" icon={CrossIcon} onClick={()=>dismiss(notice.id)}/></Inline></Box>;
+  return <Box data-stitch="toast" xcss={cx(styles.notice,styles[notice.tone])} role={notice.tone==='error'?'alert':'status'} onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)} onFocus={()=>setFocused(true)} onBlur={(event:React.FocusEvent<HTMLDivElement>)=>{if(!event.currentTarget.contains(event.relatedTarget))setFocused(false);}}><Inline spread="space-between" alignBlock="start" space="space.150"><StatusIcon label=""/><div className="stitch-notice-copy"><Text weight="semibold">{notice.title||{success:'Success',error:'Error',warning:'Attention',information:'Information'}[notice.tone]}</Text><Text>{notice.message}</Text>{notice.action&&<Button appearance="subtle" onClick={()=>{void Promise.resolve(notice.action!.run()).catch(()=>notify('The action could not be completed. Try again.','error'));}}>{notice.action.label}</Button>}</div><IconButton label="Dismiss notification" appearance="subtle" icon={CrossIcon} onClick={()=>dismiss(notice.id)}/></Inline></Box>;
 }
 export function ThemeControl() {
   const color=useColorMode(),setColor=useSetColorMode();
