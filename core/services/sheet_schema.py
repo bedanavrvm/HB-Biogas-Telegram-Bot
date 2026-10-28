@@ -227,7 +227,7 @@ class SheetSchema:
             complaint_id = ''
         updates = parsed_message.case_updates.filter(
             new_status__in=['Closed', 'Reopened'],
-        ).exclude(source='mini_app_comment').order_by('created_at', 'pk')
+        ).exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('created_at', 'pk')
         history = []
         latest_resolution = ''
         for update in updates:

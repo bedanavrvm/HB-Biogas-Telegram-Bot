@@ -64,7 +64,8 @@ export function writeRoute(route: WorkspaceRoute, replace = false) {
     if (/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(report.selected || '')) params.set('report_case', report.selected!);
   }
   const position = historyPosition() + (replace ? 0 : 1);
-  window.history[replace ? 'replaceState' : 'pushState']({ complaints_position: position }, '', path + '?' + params);
+  const hash = path === window.location.pathname && /^#comment-[a-f0-9-]{36}$/.test(window.location.hash) ? window.location.hash : '';
+  window.history[replace ? 'replaceState' : 'pushState']({ complaints_position: position }, '', path + '?' + params + hash);
 }
 
 /** A numeric same-document cursor only; never form/customer values. */

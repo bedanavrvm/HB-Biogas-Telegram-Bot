@@ -25,7 +25,7 @@ CASE_FIELDS = (
     'customer_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
     'constituency', 'village', 'branch', 'category', 'description', 'status',
     'needs_details', 'reported_at', 'recorded_at', 'age_label', 'revision',
-    'hb_comment_count', 'sync_status', 'days_open',
+    'hb_comment_count', 'sync_status', 'days_open', 'priority',
 )
 CREATE_FIELDS = frozenset((
     'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
@@ -134,7 +134,11 @@ def bootstrap(request, group, actor):
     # This opaque binding is not a token and grants no access to any endpoint.
     continuity = salted_hmac('browser-complaint-recovery-v1',
         f'{actor.user.pk}:{actor.user.get_session_auth_hash()}:{generation}', algorithm='sha256').hexdigest()
+    from urllib.parse import quote
+    map_key = str(getattr(settings, 'CARTO_BASEMAP_API_KEY', '') or '').strip()
     return JsonResponse({**cases.bootstrap_data(group, actor),
+                         'map': {'enabled': bool(map_key), 'tile_url':
+                             'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + quote(map_key, safe='') if map_key else ''},
                          'continuity_key': continuity,
                          'preferences': preference_payload(actor.user, 'complaint_cases')})
 
@@ -180,6 +184,46 @@ def history(request, group, actor, case_key):
     return JsonResponse({'items': [{key: row.get(key, '') for key in (
         'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
     )} for row in data['items']], 'next_cursor': data['next_cursor']})
+
+
+@endpoint(['POST'])
+def conversation(request, group, actor, case_key):
+    from complaint_conversations import services
+    body = payload(request)
+    if set(body) - {'cursor', 'focus'} or any(not isinstance(value, str) for value in body.values()):
+        raise cases.ComplaintCaseError('Refresh the conversation and try again.')
+    return JsonResponse(services.conversation(group, actor, case_key, **body))
+
+
+@endpoint(['POST'], 'complaint.conversation.participate')
+def conversation_post(request, group, actor, case_key):
+    from complaint_conversations import services
+    body = payload(request)
+    if set(body) - {'body', 'mentions', 'reply_to', 'expected_revision', 'client_request_id'}:
+        raise cases.ComplaintCaseError('Review the comment fields.')
+    result = services.post_comment(group, actor, case_key, body, request.FILES.getlist('evidence'))
+    return JsonResponse(result)
+
+
+@endpoint(['POST'], 'complaint.conversation.participate')
+def conversation_people(request, group, actor, case_key):
+    from complaint_conversations import services
+    body = payload(request)
+    if set(body) - {'query'} or not isinstance(body.get('query', ''), str):
+        raise cases.ComplaintCaseError('Enter a staff name.')
+    case = services.accessible_case(group, actor, case_key)
+    if not cases.actor_can(group, actor, services.CAPABILITY, case):
+        raise PermissionDenied
+    return JsonResponse({'people': services.eligible_people(group, actor, case, body.get('query', ''))})
+
+
+@endpoint(['POST'], 'complaint.conversation.participate')
+def conversation_reaction(request, group, actor, case_key, update_key):
+    from complaint_conversations import services
+    body = payload(request)
+    if set(body) - {'active', 'revision', 'client_request_id'}:
+        raise cases.ComplaintCaseError('Refresh the reaction and try again.')
+    return JsonResponse(services.react(group, actor, case_key, update_key, body))
 
 
 @endpoint(['POST'], 'complaint.case.create')

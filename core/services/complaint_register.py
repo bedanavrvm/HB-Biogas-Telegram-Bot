@@ -642,7 +642,7 @@ def register_case(case_uuid: str, *, paged_history=False, cursor='') -> dict[str
         payload['history_next_cursor'] = page['next_cursor']
         return payload
     payload['updates'] = complaint_history(case)
-    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source='mini_app_comment'))
+    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'browser_staff_comment')))
     payload['resolution_comments'] = [serialize_update(update) for update in case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
     reopen = next((item for item in updates if item.new_status == 'Reopened'), None)

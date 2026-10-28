@@ -64,7 +64,7 @@ def hydrate_timing(cases, *, now=None):
             if key in seen:
                 continue
             seen.add(key)
-            closing = item['new_status'] == 'Closed' and item['old_status'] != 'Closed' and item['source'] != 'mini_app_comment'
+            closing = item['new_status'] == 'Closed' and item['old_status'] != 'Closed' and item['source'] not in ('mini_app_comment', 'browser_staff_comment')
             if closing:
                 closures.append(stamp)
             if item['old_status'] == 'Closed' and item['new_status'] == 'Reopened':

@@ -4,6 +4,9 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 
 | Domain | Table | Django model | Classification | Lifecycle | Purpose |
 |---|---|---|---|---|---|
+| complaints | `complaints_comment_context` | `complaint_conversations.CommentContext` | authoritative_record | active | Immutable browser staff-comment authorship, reply and retry bindings over canonical CaseUpdate text. |
+| complaints | `complaints_mention_link` | `complaint_conversations.CommentMention` | authoritative_record | active | Explicit authorized staff mentions retained as comment content; no authority or notification delivery. |
+| complaints | `complaints_reaction_state` | `complaint_conversations.CommentReaction` | authoritative_record | active | Versioned per-actor comment acknowledgement; accepted changes have immutable compliance-audit receipts. |
 | access | `core_accesscontrolchangerequest` | `core.AccessControlChangeRequest` | authoritative_record | active | Maker-checker request for permanent Mini App access changes. |
 | access | `core_accesscontrolcheckerassignment` | `core.AccessControlCheckerAssignment` | business_assignment | active | Auditable appointment of an independent Mini App access checker. Django superusers are root technical approvers and therefore do not need an assignment. Non-superuser checkers are appointed only through the access control service so the designation, its reason, and any later revocation remain visible in the compliance ledger. |
 | access | `core_accesscontrolnotification` | `core.AccessControlNotification` | authoritative_record | active | Delivery ledger; notification failure never undoes an applied control. |
@@ -222,6 +225,39 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 
 ## Relationship and usage details
 
+### `complaints_comment_context`
+
+- Application identity: `complaint_conversations.CommentContext` in **Complaints**
+- Source of truth: **Yes**
+- Retention: Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.
+- Parents: `auth.User`, `core.CaseUpdate`
+- Children: `complaint_conversations.CommentMention`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `complaint_conversations/services.py`
+- Used by: `complaint_conversations/catalogue.py`, `complaint_conversations/migrations/0001_initial.py`, `complaint_conversations/models.py`, `complaint_conversations/services.py`, `core/services/miniapp_deletion_registry.py`
+
+### `complaints_mention_link`
+
+- Application identity: `complaint_conversations.CommentMention` in **Complaints**
+- Source of truth: **Yes**
+- Retention: Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.
+- Parents: `auth.User`, `complaint_conversations.CommentContext`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `complaint_conversations/services.py`
+- Used by: `complaint_conversations/catalogue.py`, `complaint_conversations/migrations/0001_initial.py`, `complaint_conversations/models.py`, `complaint_conversations/services.py`, `core/services/miniapp_deletion_registry.py`
+
+### `complaints_reaction_state`
+
+- Application identity: `complaint_conversations.CommentReaction` in **Complaints**
+- Source of truth: **Yes**
+- Retention: Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.
+- Parents: `auth.User`, `core.CaseUpdate`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `complaint_conversations/services.py`
+- Used by: `complaint_conversations/catalogue.py`, `complaint_conversations/migrations/0001_initial.py`, `complaint_conversations/models.py`, `complaint_conversations/services.py`, `core/services/miniapp_deletion_registry.py`
+
 ### `core_accesscontrolchangerequest`
 
 - Application identity: `core.AccessControlChangeRequest` in **Access**
@@ -286,7 +322,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
 - Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`, `hb_operations/tests_deposits.py`, `origination/tests.py`, `origination/tests_application_downloads.py`, `origination/tests_application_presentation.py`, `origination/tests_approval.py`, `origination/tests_phone_identity.py`, `origination/tests_references.py`, `origination/tests_signing_presentation.py`, `origination/tests_workflow_improvements.py`, `report_delivery/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests_operations_api.py`, `staff_auth/local_complaints_review.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_tasks_transport.py`, `staff_auth/tests_complaints_transport.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`, `hb_operations/tests_deposits.py`, `origination/services/origination_dispatch.py`, `origination/tests.py`, `origination/tests_application_downloads.py`, `origination/tests_application_presentation.py`, `origination/tests_approval.py`, `origination/tests_migrations.py`, `origination/tests_phone_identity.py`, `origination/tests_references.py`, `origination/tests_signing_plans.py`, `origination/tests_signing_presentation.py`, `origination/tests_workflow_improvements.py`, `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests_operations_api.py`, `staff_auth/local_complaints_review.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_tasks_transport.py`, `staff_auth/tests_complaints_transport.py`, `staff_auth/tests_initial_setup.py`, `staff_auth/tests_lifecycle.py`, `staff_auth/tests_transport.py`
+- Used by: `complaint_conversations/services.py`, `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`, `hb_operations/tests_deposits.py`, `origination/services/origination_dispatch.py`, `origination/tests.py`, `origination/tests_application_downloads.py`, `origination/tests_application_presentation.py`, `origination/tests_approval.py`, `origination/tests_migrations.py`, `origination/tests_phone_identity.py`, `origination/tests_references.py`, `origination/tests_signing_plans.py`, `origination/tests_signing_presentation.py`, `origination/tests_workflow_improvements.py`, `report_delivery/one_off.py`, `report_delivery/services.py`, `report_delivery/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_one_off.py`, `report_delivery/tests_settings.py`, `requisitions/tests_operations_api.py`, `staff_auth/local_complaints_review.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_tasks_transport.py`, `staff_auth/tests_complaints_transport.py`, `staff_auth/tests_initial_setup.py`, `staff_auth/tests_lifecycle.py`, `staff_auth/tests_transport.py`
 
 ### `core_branchservicearea`
 
@@ -327,10 +363,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `core.ParsedMessage`
-- Children: `core.ComplaintCaseEvidence`
+- Children: `complaint_conversations.CommentContext`, `complaint_conversations.CommentReaction`, `core.ComplaintCaseEvidence`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
-- Used by: `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/complaint_timing.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/reporting_relationships.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
+- Direct ORM writers: `complaint_conversations/services.py`, `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
+- Used by: `complaint_conversations/catalogue.py`, `complaint_conversations/models.py`, `complaint_conversations/services.py`, `core/services/case_updates.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/complaint_timing.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion_registry.py`, `core/services/reporting_relationships.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
 
 ### `core_complaintcasecontrol`
 
@@ -461,8 +497,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`, `origination/tests_workflow_improvements.py`, `staff_auth/tests_production.py`, `staff_auth/transport_test_runner.py`
-- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/application_lifecycle.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_laf_bootstrap.py`, `origination/tests_workflow_improvements.py`, `payments/receipt_batches.py`, `staff_auth/browser_api.py`, `staff_auth/enrollment_state.py`, `staff_auth/initial_setup.py`, `staff_auth/invitations.py`, `staff_auth/lifecycle.py`, `staff_auth/setup_api.py`, `staff_auth/tests_abuse.py`, `staff_auth/tests_browser_api.py`, `staff_auth/tests_enrollment.py`, `staff_auth/tests_initial_setup.py`, `staff_auth/tests_lifecycle.py`, `staff_auth/tests_production.py`, `staff_auth/tests_replay.py`, `staff_auth/tests_transport.py`, `staff_auth/transport_test_runner.py`
+- Direct ORM writers: `complaint_conversations/services.py`, `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`, `origination/tests_workflow_improvements.py`, `staff_auth/transport_test_runner.py`
+- Used by: `complaint_conversations/services.py`, `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/complaint_timing.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/product_permanent_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`, `origination/services/application_lifecycle.py`, `origination/services/origination_god_mode.py`, `origination/services/origination_laf_bootstrap.py`, `origination/tests_laf_bootstrap.py`, `origination/tests_workflow_improvements.py`, `payments/receipt_batches.py`, `staff_auth/browser_api.py`, `staff_auth/enrollment_state.py`, `staff_auth/initial_setup.py`, `staff_auth/invitations.py`, `staff_auth/lifecycle.py`, `staff_auth/setup_api.py`, `staff_auth/tests_abuse.py`, `staff_auth/tests_browser_api.py`, `staff_auth/tests_enrollment.py`, `staff_auth/tests_initial_setup.py`, `staff_auth/tests_lifecycle.py`, `staff_auth/tests_production.py`, `staff_auth/tests_replay.py`, `staff_auth/tests_transport.py`, `staff_auth/transport_test_runner.py`
 
 ### `core_deleteduseridentity`
 
@@ -1275,8 +1311,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.ProcessedMessage`
 - Children: `core.CaseUpdate`, `core.ComplaintCaseControl`, `core.ComplaintCaseEvidence`, `core.ComplaintCaseImportItem`, `core.PortalVoiceTranscriptionAttempt`
 - Cross-domain parents: None
-- Direct ORM writers: `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `origination/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_settings.py`
-- Used by: `core/api/browser_complaint_operations.py`, `core/api/browser_complaint_views.py`, `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`, `core/services/workflow_links.py`, `origination/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_settings.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
+- Direct ORM writers: `core/api/browser_complaint_operations.py`, `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `origination/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_settings.py`
+- Used by: `complaint_conversations/services.py`, `core/api/browser_complaint_operations.py`, `core/api/browser_complaint_views.py`, `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_publication.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/miniapp_deletion.py`, `core/services/miniapp_deletion_registry.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`, `core/services/workflow_links.py`, `origination/tests.py`, `report_delivery/tests_complaint_reports.py`, `report_delivery/tests_settings.py`, `staff_auth/tests_complaints_operations_transport.py`, `staff_auth/tests_complaints_transport.py`
 
 ### `core_paymentdocument`
 

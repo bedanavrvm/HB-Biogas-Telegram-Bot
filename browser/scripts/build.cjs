@@ -103,7 +103,18 @@ async function main() {
   }
   const noticeFile = path.join(dist, 'THIRD_PARTY_NOTICES.txt');
   fs.writeFileSync(noticeFile, notices(owners, artifacts, root));
-  const files = [...new Set([...bundles.map(bundle => bundle.filePath), noticeFile])].sort().map(filename => {
+  // The native detail map reuses the Portal's exact vendored Leaflet bytes.
+  const vendorSources = [], vendorFiles = [];
+  if (operations) {
+    for (const name of ['vendor-leaflet-1.9.4.js', 'vendor-leaflet-1.9.4.css', 'vendor-leaflet-1.9.4.LICENSE.txt']) {
+      const relative = 'core/static/miniapp/' + name;
+      const raw = fs.readFileSync(path.join(root, '..', relative));
+      fs.writeFileSync(path.join(dist, name), raw);
+      vendorFiles.push(path.join(dist, name));
+      vendorSources.push({path: relative, sha256: crypto.createHash('sha256').update(raw).digest('hex')});
+    }
+  }
+  const files = [...new Set([...bundles.map(bundle => bundle.filePath), noticeFile, ...vendorFiles])].sort().map(filename => {
     const name = path.relative(dist, filename).split(path.sep).join('/');
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt)$/.test(name)) throw new Error('Unexpected output path; do not expose it through the preview server.');
     const raw = fs.readFileSync(filename);
@@ -113,7 +124,7 @@ async function main() {
     path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
-  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, productionBrowser, assetPrefix: productionBrowser ? '/staff/assets/' : '/', mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, productionBrowser, assetPrefix: productionBrowser ? '/staff/assets/' : '/', mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, vendorSources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');
   console.log(`Built real React/ADS ${development ? 'development' : 'production'} ${authentication ? 'closed authentication' : 'demo'}: ${files.length} assets, ${owners.size} noticed packages, ${files.reduce((n, file) => n + file.bytes, 0)} bytes; no excluded assets.`);
 }
 

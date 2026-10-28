@@ -269,3 +269,13 @@ Original audit evidence remains in `reviews/complaints-manual-audit-assets/`,
 with separately prefixed repair captures. The source ratchet records the new
 candidate hashes only; it does not authorize Phase 6, production browser access,
 Telegram appearance changes or screenshot-baseline replacement.
+
+## Complaints browser detail: Stitch candidate, 28 October 2026
+
+`browser/src/complaints-detail-page.tsx` composes the native detail destination;
+`complaints-conversation.tsx` owns the staff thread, `complaints-detail-map.tsx`
+reuses Portal map assets, and `complaints-operation-files.tsx` shares the existing
+file picker. Pinned ADS controls, primitives and tokens retain their own APIs.
+Behaviour, official usage references and evidence:
+[source-bound review](reviews/2026-10-28-complaints-stitch-detail.md).
+Candidate only; existing release and baseline approval boundaries remain.

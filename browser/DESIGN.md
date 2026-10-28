@@ -655,3 +655,16 @@ Each report tab shows its own metrics and timing coverage. Single-point charts
 use complete text; radial legends include swatches. Account names and safe sync
 timestamps come from the existing authorized actor/record projections. No raw
 provider diagnostics, broader access or new workflow state is introduced.
+
+## Complaints detail: Stitch candidate, 28 October 2026
+
+The user-approved detail-first layout supersedes the desktop split for the
+selected native operational complaint. It keeps one vertical stack at every
+width, a compact action toolbar, two-column metadata, read-only description,
+recorded Portal-style map, protected attachments, and Conversation/History tabs.
+The queue remains its own destination with retained in-memory filters.
+
+Current official ADS Comment, Tabs, Form, Button and Modal guidance, applied
+behaviour, deliberate native-input/thread compositions and Playwright evidence
+are recorded in [the source-bound review](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md).
+This introduces no new design-system dependency or approved baseline.

@@ -1,4 +1,13 @@
 erDiagram
+  complaints_comment_context {
+    string id
+  }
+  complaints_mention_link {
+    string id
+  }
+  complaints_reaction_state {
+    string id
+  }
   core_caseupdate {
     string id
   }
@@ -38,6 +47,9 @@ erDiagram
   core_rawmessage {
     string id
   }
+  core_caseupdate ||--o{ complaints_comment_context : contains
+  complaints_comment_context ||--o{ complaints_mention_link : contains
+  core_caseupdate ||--o{ complaints_reaction_state : contains
   core_parsedmessage ||--o{ core_caseupdate : contains
   core_complaintcategory ||--o{ core_complaintcasecontrol : contains
   core_parsedmessage ||--o{ core_complaintcasecontrol : contains

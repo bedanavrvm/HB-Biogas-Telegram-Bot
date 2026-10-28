@@ -1,6 +1,101 @@
 {
   "tables": [
     {
+      "application_area": "Complaints",
+      "children": [
+        "complaint_conversations.CommentMention"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 7,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "complaint_conversations/services.py"
+      ],
+      "django_model": "complaint_conversations.CommentContext",
+      "domain": "complaints",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.CaseUpdate"
+      ],
+      "purpose": "Immutable browser staff-comment authorship, reply and retry bindings over canonical CaseUpdate text.",
+      "retention": "Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.",
+      "source_of_truth": true,
+      "table": "complaints_comment_context",
+      "used_by": [
+        "complaint_conversations/catalogue.py",
+        "complaint_conversations/migrations/0001_initial.py",
+        "complaint_conversations/models.py",
+        "complaint_conversations/services.py",
+        "core/services/miniapp_deletion_registry.py"
+      ]
+    },
+    {
+      "application_area": "Complaints",
+      "children": [],
+      "classification": "authoritative_record",
+      "column_count": 5,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "complaint_conversations/services.py"
+      ],
+      "django_model": "complaint_conversations.CommentMention",
+      "domain": "complaints",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "complaint_conversations.CommentContext"
+      ],
+      "purpose": "Explicit authorized staff mentions retained as comment content; no authority or notification delivery.",
+      "retention": "Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.",
+      "source_of_truth": true,
+      "table": "complaints_mention_link",
+      "used_by": [
+        "complaint_conversations/catalogue.py",
+        "complaint_conversations/migrations/0001_initial.py",
+        "complaint_conversations/models.py",
+        "complaint_conversations/services.py",
+        "core/services/miniapp_deletion_registry.py"
+      ]
+    },
+    {
+      "application_area": "Complaints",
+      "children": [],
+      "classification": "authoritative_record",
+      "column_count": 7,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "complaint_conversations/services.py"
+      ],
+      "django_model": "complaint_conversations.CommentReaction",
+      "domain": "complaints",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.CaseUpdate"
+      ],
+      "purpose": "Versioned per-actor comment acknowledgement; accepted changes have immutable compliance-audit receipts.",
+      "retention": "Retain with the owning complaint and its audit history; no automatic purge. Scoped testing deletion follows the disclosed case closure; external Drive files survive.",
+      "source_of_truth": true,
+      "table": "complaints_reaction_state",
+      "used_by": [
+        "complaint_conversations/catalogue.py",
+        "complaint_conversations/migrations/0001_initial.py",
+        "complaint_conversations/models.py",
+        "complaint_conversations/services.py",
+        "core/services/miniapp_deletion_registry.py"
+      ]
+    },
+    {
       "application_area": "Access",
       "children": [
         "core.AccessControlChangeRequest",
@@ -204,6 +299,7 @@
       "source_of_truth": true,
       "table": "core_accessgrant",
       "used_by": [
+        "complaint_conversations/services.py",
         "core/api/portal_views.py",
         "core/management/commands/check_portal_role_separation.py",
         "core/services/access_control.py",
@@ -350,12 +446,15 @@
     {
       "application_area": "Complaints",
       "children": [
+        "complaint_conversations.CommentContext",
+        "complaint_conversations.CommentReaction",
         "core.ComplaintCaseEvidence"
       ],
       "classification": "authoritative_record",
       "column_count": 20,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_conversations/services.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
@@ -379,6 +478,9 @@
       "source_of_truth": true,
       "table": "core_caseupdate",
       "used_by": [
+        "complaint_conversations/catalogue.py",
+        "complaint_conversations/models.py",
+        "complaint_conversations/services.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_register.py",
@@ -774,10 +876,10 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "complaint_conversations/services.py",
         "core/services/compliance_audit.py",
         "core/services/portal_maintenance.py",
         "origination/tests_workflow_improvements.py",
-        "staff_auth/tests_production.py",
         "staff_auth/transport_test_runner.py"
       ],
       "django_model": "core.ComplianceAuditEvent",
@@ -798,6 +900,7 @@
       "source_of_truth": true,
       "table": "core_complianceauditevent",
       "used_by": [
+        "complaint_conversations/services.py",
         "core/management/commands/sample_compliance_audit.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_timing.py",
@@ -4024,6 +4127,7 @@
       "column_count": 37,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "core/api/browser_complaint_operations.py",
         "core/api/views.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
@@ -4050,6 +4154,7 @@
       "source_of_truth": true,
       "table": "core_parsedmessage",
       "used_by": [
+        "complaint_conversations/services.py",
         "core/api/browser_complaint_operations.py",
         "core/api/browser_complaint_views.py",
         "core/api/views.py",

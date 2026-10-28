@@ -653,9 +653,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "db1f0a4bcaab79ea8adabfccf43a21a3e1e987c455dbdbafb3d7ac5edc67512c",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "6ed21b3fc96058fbab7754d13ab367d8b2fc727208a8271a2ee2a3c0ec4c8521",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "9c1bbe205275e209f16053d9f3243720e216c5c151931b07efdaa97bcda94aac",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "dee43eba5c265ca9f82ca19016a8ca53717a071abaf721f898e8d19fdac12d8d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "e99a5fc83d24d92c0e986b053cd265e26c936c3738d469f40ca510a3b53be722",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "79f92690ee0e4fab38ee03e1a7b015693adde4e60944cf2c7261d06af1766bb8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -701,9 +701,9 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "1ce839fc1e225506b59af0e0189be32306db0dd20a10d0824e9672e8c5f6bf5a",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "ca8ef6ce838d9cfd71f4797705f27b27b8e876c1d1ce5ac27564b1411d5e0558",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
@@ -737,9 +737,9 @@
     },
     {
       "path": "browser/src/workspace-task.tsx",
-      "sha256": "49426153208db680c94ea4bae167519d28efae2e0d381fe830757886138b83e4",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "d6faf3fdb0da8615791819245662d800443efeb8006519210c74fecaaf894986",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     },
     {
       "path": "browser/src/complaints-date-control.tsx",
@@ -860,6 +860,30 @@
       "sha256": "3a30a8a5d0259e5985629071f3d01a72ce3282560c57c1051918b8b45855f70c",
       "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
       "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+    },
+    {
+      "path": "browser/src/complaints-detail-page.tsx",
+      "sha256": "835137661cbc87670ec47bfa162d1ed0c7710004be2f01702e1d30c0bcee04dd",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+    },
+    {
+      "path": "browser/src/complaints-detail-map.tsx",
+      "sha256": "b5757096f720df0149c1909f56bf8d482e8a4121ecdbccff0414403ec8c7d700",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+    },
+    {
+      "path": "browser/src/complaints-conversation.tsx",
+      "sha256": "2705699e8f0c22b481966bad606b0f481fb30d476fdf69e626734024c7185374",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+    },
+    {
+      "path": "browser/src/complaints-operation-files.tsx",
+      "sha256": "ea1735b4f1dea463efccf402ba65c72deca16150545b682d3a30ed0881eaafb4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
+      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
     }
   ],
   "source_roots": [

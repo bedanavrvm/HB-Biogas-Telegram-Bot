@@ -9,7 +9,7 @@ import { type RecoverySlot } from './workspace-recovery';
 import { dismissNotice, notify } from './browser-interactions';
 
 export const TaskSession = React.createContext<() => void>(() => {});
-type Pending = { path: string; body: Record<string, unknown> };
+type Pending = { path: string; body: Record<string, unknown>; files?: File[] };
 
 /** Exact JSON request recovery; no automatic write after reconnect or sign-in. */
 export function useWorkspaceTask<T>(group: string, slot: RecoverySlot, name: string, confirmed: (result: T) => void) {
@@ -34,7 +34,14 @@ export function useWorkspaceTask<T>(group: string, slot: RecoverySlot, name: str
     const control = new AbortController(); controller.current = control;
     const timer = setTimeout(() => control.abort(), 30000);
     try {
-      const result = await operation<T>(group, request.path, control.signal, request.body);
+      let body: Record<string, unknown> | FormData = request.body;
+      if (request.files) {
+        const form = new FormData();
+        Object.entries(request.body).forEach(([key,value]) => form.set(key,String(value)));
+        request.files.forEach(file => form.append('evidence',file));
+        body = form;
+      }
+      const result = await operation<T>(group, request.path, control.signal, body);
       slot.patch({[name + ':pending']: undefined, [name + ':confirmed']: result});
       if (active.current) { setUncertain(false); callback.current(result); slot.patch({[name + ':confirmed']: undefined}); }
     } catch (issue) {
@@ -45,7 +52,7 @@ export function useWorkspaceTask<T>(group: string, slot: RecoverySlot, name: str
   };
   return { busy, error, uncertain,
     reset: () => { if (!dispatching.current) {slot.patch({[name + ':pending']:undefined,[name + ':confirmed']:undefined});setUncertain(false);setError(undefined);if(notice.current!==undefined)dismissNotice(notice.current);} },
-    save: (path: string, body: Record<string, unknown>) => { if (!slot.read()[name + ':pending']) return execute({path, body: structuredClone(body)}); },
+    save: (path: string, body: Record<string, unknown>, files?: File[]) => { if (!slot.read()[name + ':pending']) return execute({path, body: structuredClone(body), files: files ? [...files] : undefined}); },
     retry: () => { const pending = slot.read()[name + ':pending'] as Pending | undefined; if (pending) return execute(pending); },
   };
 }

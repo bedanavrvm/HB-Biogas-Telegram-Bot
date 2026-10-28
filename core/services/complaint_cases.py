@@ -503,14 +503,14 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
         payload['updates'] = page['items']
         payload['history_next_cursor'] = page['next_cursor']
         resolution = case.case_updates.filter(new_status='Closed').order_by('-created_at', '-pk').first()
-        reopen = case.case_updates.filter(new_status='Reopened').exclude(source='mini_app_comment').order_by('-created_at', '-pk').first()
+        reopen = case.case_updates.filter(new_status='Reopened').exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('-created_at', '-pk').first()
     else:
         payload['resolution_comments'] = [serialize_update(update) for update in
                                           case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
         updates = list(case.case_updates.order_by('-created_at', '-pk'))
         payload['updates'] = complaint_history(case, updates)
         resolution = next((item for item in updates if item.new_status == 'Closed'), None)
-        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source != 'mini_app_comment'), None)
+        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source not in ('mini_app_comment', 'browser_staff_comment')), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
@@ -556,7 +556,7 @@ def complaint_history_page(case: ParsedMessage, *, cursor=''):
     more = len(page) > 25
     page = page[:25]
     legacy = not more and bool(case.resolution_details) and not case.case_updates.filter(
-        new_status='Closed').exclude(source='mini_app_comment').exists()
+        new_status='Closed').exclude(source__in=('mini_app_comment', 'browser_staff_comment')).exists()
     rows = complaint_history(case, page, include_legacy_resolution=legacy)
     next_cursor = signing.dumps({'case': str(case.pk), 'at': page[-1].created_at.isoformat(),
                                  'key': str(page[-1].pk)}, salt='complaint-history-page-v1') if more else ''
@@ -1491,7 +1491,7 @@ def record_complaint_update(update: CaseUpdate, case: ParsedMessage, actor: Comp
         workflow='complaint_cases',
         action=action,
         category='workflow_transition' if update.old_status != update.new_status else 'workflow',
-        origin='human' if update.source.startswith('mini_app') else 'external_sync',
+        origin='human' if update.source.startswith('mini_app') or update.source == 'browser_staff_comment' else 'external_sync',
         subject_type='complaint_case',
         subject_id=str(case.pk),
         customer_reference=str(case.message_id),
@@ -1756,7 +1756,7 @@ def append_resolution_note(existing: str, actor_name: str, note: str) -> str:
 
 def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
     entries = []
-    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source='mini_app_comment').order_by('created_at', 'pk')
+    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('created_at', 'pk')
     for update in updates:
         action = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
         local_time = timezone.localtime(update.created_at)
@@ -1846,7 +1846,9 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         upload_status='success',
     ).exclude(drive_url='').first()
     original_filename = str(getattr(file_obj, 'name', '') or '')
-    if duplicate:
+    if existing_for_update:
+        evidence = existing_for_update
+    elif duplicate:
         storage_filename = duplicate.storage_filename or evidence_filename(
             group_config, case, actor, original_filename, index,
         )
@@ -1929,7 +1931,7 @@ def record_complaint_evidence(
         authority_label=actor.name,
         source_model='ComplaintCaseEvidence',
         source_event_id=str(evidence.pk),
-        deduplication_key=f'complaint:ComplaintCaseEvidence:{evidence.pk}',
+        deduplication_key=f'complaint:ComplaintCaseEvidence:{evidence.pk}:{action}',
         after_values={'upload_status': evidence.upload_status},
         metadata={
             'content_hash': evidence.content_hash,
@@ -2061,6 +2063,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'age_label': age_label,
         'source_attribution': source,
         'risk_level': case.risk_level,
+        'priority': control.priority,
         'revision': control.revision,
         'customer_match_status': control.customer_match_status,
         'hb_comment_count': (case.hb_comment_count if hasattr(case, 'hb_comment_count') else
@@ -2079,13 +2082,16 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
         'updated_by': update.updated_by,
         'created_at': format_datetime(update.created_at),
         'gps_link': update.gps_link,
-        'action': 'commented' if update.source == 'mini_app_comment' else '',
+        'action': ('commented' if update.source == 'mini_app_comment' else
+                   'staff_commented' if update.source == 'browser_staff_comment' else ''),
     }
 
 
 def complaint_actor_affiliation(actor: ComplaintCaseActor, update: CaseUpdate) -> str:
     """Capture the role used for this action, not a later live grant."""
     roles = set(actor.roles or (actor.role,))
+    if update.source == 'browser_staff_comment':
+        return 'HB' if 'HB_STAFF' in roles else 'IT' if 'IT' in roles else 'JBL'
     if (update.source == 'mini_app_comment' or update.new_status == 'Closed') and 'HB_STAFF' in roles:
         return 'HB'
     if update.source in {'mini_app_create', 'mini_app_review_completion'} or update.new_status == 'Reopened':
@@ -2163,7 +2169,7 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
             affiliation = ''
         row['actor_affiliation'] = affiliation if affiliation in {'HB', 'JBL'} else ''
         rows.append(row)
-    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source != 'mini_app_comment' for update in updates):
+    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'browser_staff_comment') for update in updates):
         # Some imported complaints predate CaseUpdate; do not lose their note.
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',
@@ -2215,7 +2221,8 @@ def coordinates_from_link(link: str) -> tuple[str, str]:
     text = str(link or '')
     match = re.search(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', text)
     if not match:
-        query = parse_qs(urlparse(text).query).get('q', [''])[0]
+        params = parse_qs(urlparse(text).query)
+        query = (params.get('q') or params.get('query') or [''])[0]
         match = re.match(r'(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', query)
     return (match.group(1), match.group(2)) if match else ('', '')
 

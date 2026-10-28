@@ -232,3 +232,9 @@ brand files remain excluded. Production and native-auth gates are unchanged.
 References: [Atlassian setup](https://atlassian.design/get-started/develop/atlassians),
 [React context](https://react.dev/reference/react/createContext), ADR 0066 and
 `codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md`.
+
+The 28 October Complaints detail candidate also copies the Portal's existing
+Leaflet 1.9.4 JavaScript, CSS and BSD licence into native operations builds.
+`vendorSources` binds those exact source bytes to the served artifact hashes.
+This adds no npm dependency or external script and does not enter synthetic
+preview/demo graphs. See the [detail review](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md).

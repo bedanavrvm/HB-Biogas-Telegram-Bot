@@ -1,5 +1,11 @@
 # JBL standalone browser client
 
+The native Complaints detail candidate based on `Stitch/Create complaint.txt`
+is documented in [the feature/behaviour review](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md).
+Its local Playwright screenshot gallery is
+`test-results/complaints-stitch-detail/index.html` at repository root. Map review
+tiles are visibly synthetic; live cartography requires a configured CARTO key.
+
 27 October release: `npm run build -- --complaints-operations --production-browser`
 builds the real native client into `dist-production`, served conditionally by
 Django at `/staff/` and `/staff/login/`. Use

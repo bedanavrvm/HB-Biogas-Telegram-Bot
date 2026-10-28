@@ -39,10 +39,19 @@ class BrowserProductionAssetsTests(SimpleTestCase):
         lock=self.root/'browser/package-lock.json';lock.write_text('{}')
         files={'complaints-operations.html':b'<html><script src="/staff/assets/app.js"></script></html>',
             'app.js':b'/* synthetic native app */','THIRD_PARTY_NOTICES.txt':b'Synthetic notice'}
+        vendors=[]
+        for suffix in ('js','css','LICENSE.txt'):
+            name='vendor-leaflet-1.9.4.'+suffix
+            vendor=self.root/'core/static/miniapp'/name
+            vendor.parent.mkdir(parents=True,exist_ok=True)
+            raw=b'/* synthetic vendored map asset */'
+            vendor.write_bytes(raw);files[name]=raw
+            vendors.append({'path':'core/static/miniapp/'+name,'sha256':hashlib.sha256(raw).hexdigest()})
         for name,raw in files.items(): (self.build/name).write_bytes(raw)
         self.manifest={'schemaVersion':1,'mode':'production','demoOnly':False,'localComplaintsDemo':False,
             'closedAuthentication':True,'closedComplaintOperations':True,'productionBrowser':True,'assetPrefix':'/staff/assets/',
             'dependencyLock':hashlib.sha256(lock.read_bytes()).hexdigest(),
+            'vendorSources':vendors,
             'sources':[{'path':'browser/src/entry.ts','sha256':hashlib.sha256(source.read_bytes()).hexdigest()}],
             'files':[{'name':name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()} for name,raw in files.items()]}
         self.save_manifest()

@@ -34,6 +34,17 @@ def load_build():
                 or manifest.get('productionBrowser') is not True or manifest.get('assetPrefix') != ASSET_PREFIX
                 or manifest.get('dependencyLock') != hashlib.sha256(lock.encode()).hexdigest()):
             raise ValueError
+        vendor_paths = {'core/static/miniapp/vendor-leaflet-1.9.4.' + suffix for suffix in ('js', 'css', 'LICENSE.txt')}
+        vendors = manifest.get('vendorSources', [])
+        if len(vendors) != 3 or {row['path'] for row in vendors} != vendor_paths:
+            raise ValueError
+        for row in vendors:
+            artifact = next((item for item in manifest['files'] if item['name'] == Path(row['path']).name), {})
+            if artifact.get('sha256') != row['sha256']:
+                raise ValueError
+            source = root / row['path']
+            if source.is_symlink() or hashlib.sha256(source.read_bytes()).hexdigest() != row['sha256']:
+                raise ValueError
         for row in manifest['sources']:
             name = row['path']
             if not name.startswith('browser/src/') or '..' in Path(name).parts:
@@ -124,7 +135,7 @@ def _response(filename):
     response['X-Content-Type-Options']='nosniff'
     response['Content-Security-Policy']=(
         "default-src 'none'; script-src 'self' "+hashes+"; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; img-src blob: data:; frame-src blob:; font-src 'none'; "
+        "connect-src 'self'; img-src 'self' blob: data: https://a.basemaps.cartocdn.com https://b.basemaps.cartocdn.com https://c.basemaps.cartocdn.com; frame-src blob:; font-src 'none'; "
         "form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'"
     )
     return response
