@@ -19,7 +19,7 @@ from core.services.workflow_links import include_record_reference
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Case, When, Value, IntegerField, DateTimeField, F
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.text import get_valid_filename
@@ -409,12 +409,30 @@ def list_cases_page(
         cases = cases.filter(complaint_status='Closed').order_by('-date_resolved', '-timestamp', '-pk')
     else:
         cases = cases.order_by('-timestamp', '-pk')
+    ordering = []
     if order:
-        if order not in {'oldest', 'newest'} or page in (None, ''):
+        if order not in {'oldest', 'newest', 'priority', 'overdue'} or page in (None, ''):
             raise ComplaintCaseError('The requested queue order is invalid.')
         cases = cases.annotate(queue_reported_at=Coalesce('timestamp', 'created_at'))
-        cases = cases.order_by(*(('queue_reported_at', 'pk') if order == 'oldest'
-                                  else ('-queue_reported_at', '-pk')))
+        ordering = ['queue_reported_at', 'pk'] if order == 'oldest' else ['-queue_reported_at', '-pk']
+        if order == 'priority':
+            cases = cases.annotate(queue_priority=Case(
+                When(complaint_control__priority='high', then=Value(0)),
+                When(complaint_control__priority='normal', then=Value(1)),
+                When(complaint_control__priority='low', then=Value(2)),
+                default=Value(3), output_field=IntegerField()))
+            ordering = ['queue_priority', 'queue_reported_at', 'pk']
+        elif order == 'overdue':
+            current = timezone.now()
+            usable = ~Q(complaint_status='Closed') & Q(complaint_control__sla_due_at__isnull=False,
+                complaint_control__sla_started_at__lte=current, complaint_control__sla_target_hours__gt=0)
+            cases = cases.annotate(
+                queue_sla_band=Case(When(usable & Q(complaint_control__sla_due_at__lt=current), then=Value(0)),
+                    When(usable, then=Value(1)), default=Value(2), output_field=IntegerField()),
+                queue_deadline=Case(When(usable, then=F('complaint_control__sla_due_at')),
+                    default=Value(current.replace(year=9999, month=1, day=1)), output_field=DateTimeField()))
+            ordering = ['queue_sla_band', 'queue_deadline', 'queue_reported_at', 'pk']
+        cases = cases.order_by(*ordering)
     if page not in (None, ''):
         try:
             requested_page = max(1, int(page))
@@ -428,16 +446,21 @@ def list_cases_page(
         rows = list(cases[offset:offset + bounded_page_size])
         navigation = None
         if order and focus_key:
-            focus = cases.filter(pk=focus_key).values('queue_reported_at', 'pk').first()
+            fields = [key.lstrip('-') for key in ordering]
+            focus = cases.filter(pk=focus_key).values(*fields).first()
             if focus:
-                before_operator, after_operator = ('lt', 'gt') if order == 'oldest' else ('gt', 'lt')
-                def neighbours(operator):
-                    return cases.filter(Q(**{'queue_reported_at__' + operator: focus['queue_reported_at']}) |
-                        (Q(queue_reported_at=focus['queue_reported_at']) & Q(**{'pk__' + operator: focus['pk']})))
-                before, after = neighbours(before_operator), neighbours(after_operator)
+                def neighbours(before):
+                    condition, equal = Q(pk__in=[]), Q()
+                    for key in ordering:
+                        field = key.lstrip('-')
+                        operator = 'lt' if before != key.startswith('-') else 'gt'
+                        condition |= equal & Q(**{field + '__' + operator: focus[field]})
+                        equal &= Q(**{field: focus[field]})
+                    return cases.filter(condition)
+                before, after = neighbours(True), neighbours(False)
                 position = before.count() + 1
-                previous = before.order_by(*(('queue_reported_at', 'pk') if order == 'newest'
-                                             else ('-queue_reported_at', '-pk'))).values_list('pk', flat=True).first()
+                reverse = [key[1:] if key.startswith('-') else '-' + key for key in ordering]
+                previous = before.order_by(*reverse).values_list('pk', flat=True).first()
                 following = after.values_list('pk', flat=True).first()
                 navigation = {'position': position, 'total': total,
                     'previous': {'key': str(previous), 'page': (position - 2) // bounded_page_size + 1} if previous else None,
@@ -720,6 +743,9 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
                                     field_name=voice_field, case=case, accepted_text=note)
         except Exception:
             logger.warning('Complaint comment voice cleanup pending: update=%s', update.pk)
+    from complaint_publications.services import defer_sheet
+    if projection_enabled and defer_sheet(group_config, case):
+        return case_detail(group_config, case_id, actor)
     if projection_enabled:
         try:
             synced = update_sheet_case(group_config, case, {'resolution_comments': resolution_comments_text(case)})
@@ -1207,6 +1233,9 @@ def complete_review_details(
         raise
     if replayed:
         return case_detail(group_config, case_id, actor)
+    from complaint_publications.services import defer_sheet
+    if projection_enabled and defer_sheet(group_config, case):
+        return case_detail(group_config, case_id, actor)
     if projection_enabled:
         try:
             synced = (
@@ -1461,6 +1490,9 @@ def apply_case_update(
             before_values=before, after_values=control_snapshot(control, case), reason=values['note'],
         )
         record_complaint_update(update, case, actor, action=f'complaint.case.{action}')
+    from complaint_publications.services import defer_sheet
+    if projection_enabled and defer_sheet(group_config, case):
+        return update
     if projection_enabled:
         try:
             synced = update_sheet_case(group_config, case, sheet_updates(case, values, resolution_details, resolved_at))
@@ -1704,6 +1736,9 @@ def finish_created_case(
     if uploaded_files:
         store_evidence(group_config, case, create_update, actor, uploaded_files)
 
+    from complaint_publications.services import defer_sheet
+    if defer_sheet(group_config, case):
+        return case_detail(group_config, case_id, actor)
     if complaint_sheet_projection_enabled(group_config):
         try:
             synced = True if case.synced_to_sheets else sync_new_case_to_sheet(group_config, case)
@@ -1832,6 +1867,7 @@ def store_evidence(group_config, case: ParsedMessage, update: CaseUpdate, actor:
 
 
 def store_evidence_file(group_config, case, update, actor, file_obj, index: int) -> None:
+    from complaint_publications.services import defer_evidence
     detected_mime = detected_upload_type(file_obj)
     content = file_obj.read()
     content_hash = hashlib.sha256(content).hexdigest()
@@ -1839,6 +1875,7 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         case_update=update, content_hash=content_hash,
     ).first()
     if existing_for_update and existing_for_update.upload_status == 'success':
+        defer_evidence(group_config, case, existing_for_update)
         return
     duplicate = ComplaintCaseEvidence.objects.filter(
         parsed_message=case,
@@ -1880,6 +1917,10 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         evidence.upload_error = 'Reused existing evidence upload.'
         evidence.save(update_fields=['drive_file_id', 'drive_url', 'upload_status', 'upload_error'])
         record_complaint_evidence(evidence, case, actor, action='complaint.evidence.reused')
+        defer_evidence(group_config, case, evidence)
+        return
+    if defer_evidence(group_config, case, evidence):
+        record_complaint_evidence(evidence, case, actor, action='complaint.evidence.received')
         return
     try:
         file_id, file_url = GoogleDriveMediaStorage().upload(
@@ -1988,22 +2029,20 @@ def sla_payload(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str,
     now = timezone.now()
     from core.services.complaint_timing import case_timing
     timing = case_timing(control, case, now=now)
-    due = control.sla_due_at
-    elapsed = int(timing['elapsed_seconds'] // 3600) if timing['elapsed_seconds'] is not None else None
+    due, target = control.sla_due_at, control.sla_target_hours
     ended = case.date_resolved if case.complaint_status == 'Closed' else now
-    remaining = int((due - ended).total_seconds() // 3600) if due and ended and timing['elapsed_seconds'] is not None else None
-    if case.complaint_status == 'Closed':
-        state = 'closed'
-    elif due and now > due:
-        state = 'overdue'
-    elif remaining is not None and remaining <= max(1, control.sla_target_hours // 4):
-        state = 'due_soon'
-    else:
-        state = 'on_track'
+    usable = timing['elapsed_seconds'] is not None and due is not None and bool(target and target > 0)
+    remaining = int((due - ended).total_seconds()) if usable and ended else None
+    state = 'unavailable' if not usable else 'closed' if case.complaint_status == 'Closed' else (
+        'overdue' if remaining < 0 else 'due_soon' if remaining <= max(1, target // 4) * 3600 else 'on_track')
     return {
-        'state': state, 'elapsed_hours': elapsed, 'remaining_hours': remaining,
-        'target_hours': control.sla_target_hours, 'due_at': format_datetime(due),
-        'resolution_hours': timing['resolution_hours'], 'on_time': timing['on_time'],
+        'state': state, 'elapsed_hours': int(timing['elapsed_seconds'] // 3600) if timing['elapsed_seconds'] is not None else None,
+        'remaining_hours': remaining // 3600 if remaining is not None else None,
+        'remaining_seconds': remaining, 'target_hours': target, 'due_at': format_datetime(due),
+        'started_at': control.sla_started_at.isoformat() if control.sla_started_at else None,
+        'deadline_at': due.isoformat() if due else None,
+        'resolved_at': case.date_resolved.isoformat() if case.date_resolved else None,
+        'server_now': now.isoformat(), 'resolution_hours': timing['resolution_hours'], 'on_time': timing['on_time'],
     }
 
 
@@ -2064,6 +2103,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'source_attribution': source,
         'risk_level': case.risk_level,
         'priority': control.priority,
+        'sla': sla_payload(control, case),
         'revision': control.revision,
         'customer_match_status': control.customer_match_status,
         'hb_comment_count': (case.hb_comment_count if hasattr(case, 'hb_comment_count') else

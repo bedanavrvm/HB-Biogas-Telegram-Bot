@@ -1,5 +1,9 @@
 # Browser design references and application decisions
 
+The current component-adoption decisions are in
+[`STITCH-DESIGN-DECISIONS.md`](STITCH-DESIGN-DECISIONS.md), including the new
+Stitch state references and the user's explicit backend-feature choices.
+
 ## Current styling authority (28 October 2026)
 
 The user explicitly replaced ADS styling for this and future browser work.
@@ -687,3 +691,15 @@ Current official ADS Comment, Tabs, Form, Button and Modal guidance, applied
 behaviour, deliberate native-input/thread compositions and Playwright evidence
 are recorded in [the source-bound review](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md).
 This introduces no new design-system dependency or approved baseline.
+
+## Additional Stitch components, 28 October 2026
+
+The [decision record](STITCH-DESIGN-DECISIONS.md) maps all new supplied references
+to adopted behavior and the user's explicit exclusions. Real skeletons, semantic
+feedback, clipboard confirmation, drop selection, SLA/help and two whole-queue
+sorts compose the existing single-column browser. Validated browser file receipts
+and canonical saves queue independent Drive/Sheet publication with measured
+progress, retained originals and scoped IT recovery. Telegram publication remains
+unchanged. [Evidence and limits](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md)
+and the [worker runbook](../docs/runbooks/complaints-browser-publications.md)
+describe deployment requirements; no worker or production release is activated.

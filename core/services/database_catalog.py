@@ -17,9 +17,9 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations')
+CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
 USAGE_ROOTS = (
-    ROOT / 'complaint_conversations',
+    ROOT / 'complaint_conversations', ROOT / 'complaint_publications',
     ROOT / 'report_delivery',
     ROOT / 'ui_review',
     ROOT / 'staff_auth',
@@ -522,3 +522,6 @@ from staff_auth.catalogue import MODEL_METADATA as STAFF_AUTH_METADATA
 MODEL_OVERRIDES.update(STAFF_AUTH_METADATA)
 from complaint_conversations.catalogue import MODEL_METADATA as CONVERSATION_METADATA
 MODEL_OVERRIDES.update(CONVERSATION_METADATA)
+
+from complaint_publications.catalogue import MODEL_METADATA as COMPLAINT_PUBLICATION_METADATA
+MODEL_OVERRIDES.update(COMPLAINT_PUBLICATION_METADATA)

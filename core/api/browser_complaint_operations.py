@@ -25,7 +25,7 @@ CASE_FIELDS = (
     'customer_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
     'constituency', 'village', 'branch', 'category', 'description', 'status',
     'needs_details', 'reported_at', 'recorded_at', 'age_label', 'revision',
-    'hb_comment_count', 'sync_status', 'days_open', 'priority',
+    'hb_comment_count', 'sync_status', 'days_open', 'priority', 'sla',
 )
 CREATE_FIELDS = frozenset((
     'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
@@ -60,6 +60,31 @@ def endpoint(methods, capability='complaint.queue.view'):
                 row, actor = _context(user, group_key)
                 group = GroupConfig(**row.as_group_config_kwargs())
                 require(actor, group, capability)
+                if function.__name__ in {'create', 'action', 'conversation_post'}:
+                    from complaint_publications import services as publications
+                    fields = payload(request)
+                    action_path = request.path.split(f'/groups/{group_key}/', 1)[-1]
+                    with publications.browser_write(group, actor, action_path, fields,
+                            uploaded_evidence(request), request.headers.get('X-Complaint-Upload', '')) as state:
+                        request._complaint_files = state['files']
+                        if state['attempt'] and state['attempt'].committed_at:
+                            case = state['attempt'].case
+                            if function.__name__ == 'conversation_post':
+                                from complaint_conversations.services import conversation
+                                result = conversation(group, actor, case.pk)
+                            else:
+                                result = {'case': project_detail(cases.case_detail(group, case.message_id, actor, paged_history=True), actor, group)}
+                            response = JsonResponse(result)
+                        else:
+                            response = function(request, group, actor, **kwargs)
+                        result = json.loads(response.content)
+                        if function.__name__ == 'create':
+                            state['case'] = ParsedMessage.objects.get(pk=result['case']['key'], group_id=group.group_id)
+                            publications.queue_sheet(group, state['case'])
+                        result['background_publication'] = True
+                        if 'case' in result:
+                            result['case']['publication'] = publications.case_state(group, actor, state['case'])
+                        return JsonResponse(result, status=response.status_code)
                 return function(request, group, actor, **kwargs)
             except PermissionDenied:
                 return JsonResponse({'error': 'access_denied'}, status=403)
@@ -93,6 +118,10 @@ def payload(request):
         raise cases.ComplaintCaseError('Review the request and try again.') from None
 
 
+def uploaded_evidence(request):
+    return getattr(request, '_complaint_files', None) if hasattr(request, '_complaint_files') else request.FILES.getlist('evidence')
+
+
 def source_case(group, case_key):
     case = ParsedMessage.objects.filter(pk=case_key, group_id=group.group_id).only('message_id').first()
     if case is None:
@@ -114,13 +143,17 @@ def project_detail(data, actor, group, *, read_only=False):
     )} for row in data['updates'][:100]]
     result['history_truncated'] = bool(data.get('history_next_cursor')) or len(data['updates']) > 100
     result['history_next_cursor'] = data.get('history_next_cursor', '')
+    from complaint_publications.services import is_it
     result['actions'] = [] if read_only else [name for name, (capability, _) in ACTIONS.items()
-                                             if cases.actor_can(group, actor, capability)]
+                                             if cases.actor_can(group, actor, capability) and (name != 'retry-publication' or is_it(actor))]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
     result['evidence'] = [{key: item.get(key, '') for key in (
         'id', 'name', 'mime_type', 'previewable', 'status', 'created_at', 'created_at_iso', 'uploaded_by', 'size',
     )} for item in data['evidence']] if not read_only and cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
     result['location'] = data['location']
+    if not read_only:
+        from complaint_publications.services import case_state
+        result['publication'] = case_state(group, actor, ParsedMessage.objects.get(pk=data['id'], group_id=group.group_id))
     return result
 
 
@@ -151,8 +184,8 @@ def queue(request, group, actor):
         raise cases.ComplaintCaseError('Review the queue filters.')
     if any(not isinstance(params.get(key, ''), str) for key in ('q', 'status', 'branch', 'category', 'order', 'selected')):
         raise cases.ComplaintCaseError('Review the queue filters.')
-    if params.get('order', '') not in {'', 'oldest', 'newest'}:
-        raise cases.ComplaintCaseError('Choose oldest or newest first.')
+    if params.get('order', '') not in {'', 'oldest', 'newest', 'priority', 'overdue'}:
+        raise cases.ComplaintCaseError('Choose a supported queue order.')
     if params.get('selected'):
         try:
             UUID(params['selected'])
@@ -201,7 +234,7 @@ def conversation_post(request, group, actor, case_key):
     body = payload(request)
     if set(body) - {'body', 'mentions', 'reply_to', 'expected_revision', 'client_request_id'}:
         raise cases.ComplaintCaseError('Review the comment fields.')
-    result = services.post_comment(group, actor, case_key, body, request.FILES.getlist('evidence'))
+    result = services.post_comment(group, actor, case_key, body, uploaded_evidence(request))
     return JsonResponse(result)
 
 
@@ -231,7 +264,7 @@ def create(request, group, actor):
     fields = payload(request)
     if set(fields) - CREATE_FIELDS or any(not isinstance(value, str) for value in fields.values()):
         raise cases.ComplaintCaseError('The form contains unsupported fields. Refresh before submitting.')
-    result = cases.create_complaint_case(group, actor, fields, request.FILES.getlist('evidence'))
+    result = cases.create_complaint_case(group, actor, fields, uploaded_evidence(request))
     # A completed form must not be offered later as a second complaint. Never
     # discard another device's newer draft or alter Telegram's recovery slot.
     revision = fields.get('browser_draft_revision', '')
@@ -265,13 +298,17 @@ def action(request, group, actor, case_key, action):
     if set(fields) - allowed:
         raise cases.ComplaintCaseError('Review the complaint action fields.')
     if action == 'retry-publication':
-        data = cases.retry_case_sync(group, actor, case_id, request_id=fields['client_request_id'])
+        from complaint_publications.services import retry_case, queue_sheet
+        source = ParsedMessage.objects.get(message_id=case_id, group_id=group.group_id)
+        retry_case(group, actor, source)
+        queue_sheet(group, source)
+        data = cases.case_detail(group, case_id, actor, paged_history=True)
     elif action == 'finish-created':
         data = cases.finish_created_case(group, actor, case_id,
             creation_request_id=str(fields.get('creation_request_id') or ''),
-            uploaded_files=request.FILES.getlist('evidence'))
+            uploaded_files=uploaded_evidence(request))
     elif action == 'resolve':
-        data = function(group, actor, case_id, fields, request.FILES.getlist('evidence'))
+        data = function(group, actor, case_id, fields, uploaded_evidence(request))
     else:
         data = function(group, actor, case_id, fields)
     return JsonResponse({'case': project_detail(data, actor, group)})

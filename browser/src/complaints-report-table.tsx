@@ -1,4 +1,3 @@
-/* eslint-disable @atlaskit/design-system/no-placeholder -- Spec #18: search placeholder plus accessible name, no redundant label row. */
 import React, { useEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AllCommunityModule, ModuleRegistry, createGrid, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';

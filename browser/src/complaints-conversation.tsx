@@ -56,11 +56,12 @@ export function Conversation({group,item,slot,markDirty,changed,evidenceAllowed,
   const [uploadFailure,setUploadFailure]=useRetainedValue(slot,'comment:uploadFailure',false);
   const [query,setQuery]=useState(''),[people,setPeople]=useState<{id:string;label:string}[]>([]),[mentionOpen,setMentionOpen]=useState(false),[peopleError,setPeopleError]=useState(''),[peopleLoading,setPeopleLoading]=useState(false),[validation,setValidation]=useState('');
   const editor=useRef<HTMLTextAreaElement>(null),active=useRef(true);
+  const evidenceVersion=item.evidence.map(file=>file.id+file.status).join(',');
   const recheck=React.useContext(TaskSession);
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
   const task=useWorkspaceTask<ConversationData>(group,slot,'comment',result=>{
     setData(result);changed();
-    if(result.attachment_failure){setUploadFailure(true);notify('Comment saved. Some attachments failed. Retry the same files below.','warning');}
+    if(result.attachment_failure&&!result.background_publication){setUploadFailure(true);notify('Comment saved. Some attachments failed. Retry the same files below.','warning');}
     else{setBody('');setFiles([]);setMentions([]);setReply(null);setAttempt(null);setUploadFailure(false);saved();}
   });
   const locked=task.busy||task.uncertain||Boolean(attempt);
@@ -82,7 +83,7 @@ export function Conversation({group,item,slot,markDirty,changed,evidenceAllowed,
       if(!controller.signal.aborted){setData(result);if(focus)requestAnimationFrame(()=>{const node=document.getElementById('comment-'+focus);node?.scrollIntoView({block:'center'});node?.focus({preventScroll:true});});}
     }).catch(issue=>{if(!controller.signal.aborted){if(issue instanceof OperationError&&issue.status===401)recheck();else setError(issue instanceof OperationError?issue.message:'Conversation could not be loaded.');}}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return()=>controller.abort();
-  },[group,item.key,item.revision,item.status,refresh]);
+  },[group,item.key,item.revision,item.status,refresh,evidenceVersion]);
   useEffect(()=>{
     if(!mentionOpen)return;
     const controller=new AbortController();setPeopleLoading(true);setPeopleError('');setPeople([]);

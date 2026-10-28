@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     'ui_review',
     'staff_auth',
     'complaint_conversations',
+    'complaint_publications',
 ]
 
 # ADR 0075 conditionally serves the native Complaints browser client. Default-off

@@ -82,7 +82,6 @@ const errors: Partial<Record<Scenario, [string, string]>> = {
 function DemoField({ name, label, value, password = false }: { name: string; label: string; value: string; password?: boolean }) {
   return <Field name={name} label={label} defaultValue={value} component={({ fieldProps }) =>
       // Synthetic preview only. The single screen-level notice explains these fixed values.
-      // eslint-disable-next-line @atlaskit/design-system/no-readonly-or-disabled-inputs
       <Textfield {...fieldProps} isReadOnly type={password ? 'password' : 'text'} autoComplete="off" aria-describedby="demo-notice" />
     } />;
 }

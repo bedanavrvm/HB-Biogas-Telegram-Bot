@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"outline":"#727786","on-secondary-container":"#00734b","on-background":"#051a3e","tertiary":"#a61b18","surface-container-low":"#f1f3ff","tertiary-container":"#c9362e","surface-container-high":"#e1e8ff","background":"#faf9ff","tertiary-fixed-dim":"#ffb4aa","on-surface-variant":"#424654","surface":"#faf9ff","primary-fixed":"#d9e2ff","inverse-on-surface":"#edf0ff","inverse-primary":"#b0c6ff","tertiary-fixed":"#ffdad5","primary-container":"#0c66e4","error-container":"#ffdad6","surface-bright":"#faf9ff","surface-container":"#e9edff","on-secondary-fixed":"#002112","on-primary-fixed":"#001945","on-tertiary-fixed":"#410001","surface-container-lowest":"#ffffff","surface-tint":"#0058ca","on-surface":"#051a3e","on-secondary":"#ffffff","on-primary-fixed-variant":"#00429b","surface-container-highest":"#d8e2ff","outline-variant":"#c2c6d7","on-primary-container":"#ecefff","primary":"#004fb6","secondary-fixed":"#97f6c3","on-tertiary":"#ffffff","on-primary":"#ffffff","secondary-container":"#97f6c3","on-error":"#ffffff","surface-dim":"#ccdaff","secondary":"#006c47","primary-fixed-dim":"#b0c6ff","inverse-surface":"#1d3054","error":"#ba1a1a","secondary-fixed-dim":"#7bd9a8","surface-variant":"#d8e2ff","on-secondary-fixed-variant":"#005234","on-tertiary-container":"#ffece9","on-error-container":"#93000a","on-tertiary-fixed-variant":"#91070c"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin-desktop":"2rem","space-md":"0.75rem","margin":"1rem","gutter-desktop":"1.5rem","space-sm":"0.5rem","space-lg":"1rem","space-xs":"0.25rem","gutter":"1rem","space-xl":"1.5rem"},"fontFamily":{"label-md":["Inter"],"headline-sm":["Inter"],"headline-xl":["Inter"],"body-md":["Inter"],"title-sm":["Inter"],"title-md":["Inter"],"label-sm":["Inter"],"body-sm":["Inter"],"code-sm":["JetBrains Mono"],"headline-lg":["Inter"]},"fontSize":{"label-md":["12px",{"lineHeight":"16px","fontWeight":"600"}],"headline-sm":["16px",{"lineHeight":"22px","fontWeight":"600"}],"headline-xl":["28px",{"lineHeight":"34px","letterSpacing":"-0.01em","fontWeight":"600"}],"body-md":["14px",{"lineHeight":"20px","fontWeight":"400"}],"title-sm":["12px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"600"}],"title-md":["14px",{"lineHeight":"20px","fontWeight":"600"}],"label-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.04em","fontWeight":"700"}],"body-sm":["12px",{"lineHeight":"16px","fontWeight":"400"}],"code-sm":["12px",{"lineHeight":"16px","fontWeight":"400"}],"headline-lg":["22px",{"lineHeight":"28px","letterSpacing":"-0.008em","fontWeight":"600"}]}}}};</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-14 px-margin flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0 flex-1"><button aria-label="Go back" class="w-11 h-11 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors" onclick="history.back()" type="button"><span class="material-symbols-outlined text-[20px]">arrow_back</span></button><div class="flex flex-col min-w-0"><span class="font-label-sm text-label-sm text-primary tracking-wider uppercase truncate">JBL Service Desk</span><span class="font-headline-sm text-headline-sm text-on-surface truncate">Component Inspector</span></div></div><div class="flex items-center gap-space-xs shrink-0"><button aria-label="Search" class="w-11 h-11 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">search</span></button><button aria-label="Notifications" class="w-11 h-11 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface flex-1"><div class="flex flex-col w-full px-margin pb-8 space-y-space-lg">
+<!-- Interactive Control Strip / Trigger Bar -->
+<section class="bg-surface-container-lowest shadow-sm rounded-xl p-space-md flex flex-col space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-space-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-secondary">System Feedback Suite</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">CMP-8941</span>
+</div>
+<!-- Interactive Triggers for Testing Overlays & Toasts -->
+<div class="flex flex-wrap gap-space-xs">
+<button class="flex items-center space-x-1 px-3 py-1.5 bg-surface-container-low hover:bg-surface-container rounded-lg text-primary font-label-md text-label-md transition-all active:scale-95" id="trigger-success-toast" type="button">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span>Toast: Save Changes</span>
+</button>
+<button class="flex items-center space-x-1 px-3 py-1.5 bg-surface-container-low hover:bg-surface-container rounded-lg text-primary font-label-md text-label-md transition-all active:scale-95" id="trigger-gps-toast" type="button">
+<span class="material-symbols-outlined text-[16px]">my_location</span>
+<span>Toast: GPS Fix</span>
+</button>
+<button class="flex items-center space-x-1 px-3 py-1.5 bg-primary text-on-primary rounded-lg font-label-md text-label-md shadow-sm transition-all active:scale-95" id="trigger-drawer" type="button">
+<span class="material-symbols-outlined text-[16px]">history_edu</span>
+<span>History Drawer</span>
+</button>
+</div>
+</section>
+<!-- Live Toast / Banner Notifications Stack -->
+<div class="flex flex-col space-y-space-xs transition-all" id="toast-container">
+<!-- Success Toast #1 (Changes Saved) -->
+<div class="flex items-start justify-between p-space-md bg-secondary-container text-on-secondary-container rounded-xl shadow-md transition-all duration-300" id="toast-saved">
+<div class="flex items-start space-x-space-sm min-w-0">
+<div class="w-6 h-6 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5 text-on-secondary">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex flex-col min-w-0">
+<p class="font-headline-sm text-headline-sm text-on-secondary-container">Success: CMP-12: changes saved.</p>
+<p class="font-body-sm text-body-sm text-on-secondary-container/80">Workflow state synchronized to central dispatch registry.</p>
+</div>
+</div>
+<button aria-label="Dismiss toast" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-secondary/10 transition-colors text-on-secondary-container shrink-0 ml-2" onclick="this.closest('#toast-saved').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<!-- Success Toast #2 (GPS Calibration) -->
+<div class="flex items-start justify-between p-space-md bg-surface-container-lowest rounded-xl shadow-md transition-all duration-300" id="toast-gps">
+<div class="flex items-start space-x-space-sm min-w-0">
+<div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5 text-primary">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">pin_drop</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center space-x-1.5">
+<p class="font-headline-sm text-headline-sm text-on-surface">Location captured</p>
+<span class="px-1.5 py-0.2 rounded font-label-sm text-label-sm bg-secondary-container text-on-secondary-container">±4m acc</span>
+</div>
+<p class="font-code-sm text-code-sm text-on-surface-variant mt-0.5">GPS calibrated: -1.2921°, 36.8219° (Nairobi Central Node)</p>
+</div>
+</div>
+<button aria-label="Dismiss location toast" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant shrink-0 ml-2" onclick="this.closest('#toast-gps').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</div>
+<!-- Primary Complaint Card with Action Kebab Menu & Tooltips -->
+<section class="bg-surface-container-lowest shadow-sm rounded-xl p-space-lg flex flex-col space-y-space-md relative">
+<!-- Header with Badges & Kebab Dropdown -->
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex flex-col min-w-0 space-y-1">
+<div class="flex items-center space-x-2">
+<span class="font-headline-sm text-headline-sm text-primary">CMP-13</span>
+<!-- Atlassian Lozenges -->
+<span class="px-2 py-0.5 rounded font-label-sm text-label-sm bg-surface-container-high text-primary uppercase">In Review</span>
+<span class="px-2 py-0.5 rounded font-label-sm text-label-sm bg-tertiary-fixed text-on-tertiary-fixed-variant uppercase">P1 High</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface truncate">High-voltage circuit breaker drop at Substation 4</h2>
+</div>
+<!-- Action Overflow Kebab Trigger & Floating Dropdown Menu -->
+<div class="relative shrink-0">
+<button aria-expanded="false" aria-label="Complaint options" class="w-9 h-9 rounded-lg flex items-center justify-center bg-surface-container-low text-on-surface hover:bg-surface-container active:bg-surface-container-high transition-colors" id="kebab-menu-button" type="button">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+<!-- Floating Kebab Action Menu Panel -->
+<div class="hidden absolute right-0 top-11 w-64 bg-surface-container-lowest rounded-xl shadow-xl p-1.5 z-40 flex flex-col space-y-0.5" id="kebab-dropdown">
+<div class="px-3 py-1.5 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Quick Actions</div>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md group" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary group-hover:scale-110 transition-transform">task_alt</span>
+<span class="flex-1">Resolve complaint</span>
+</button>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md group" type="button">
+<span class="material-symbols-outlined text-[18px] text-primary group-hover:scale-110 transition-transform">engineering</span>
+<span class="flex-1">Assign to field tech</span>
+</button>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md group" type="button">
+<span class="material-symbols-outlined text-[18px] text-tertiary group-hover:scale-110 transition-transform">replay</span>
+<span class="flex-1">Reopen case</span>
+</button>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md group" id="menu-copy-link" type="button">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant group-hover:scale-110 transition-transform">link</span>
+<span class="flex-1">Copy issue link</span>
+<span class="hidden text-label-sm font-label-sm text-secondary bg-secondary-container px-1.5 rounded" id="link-copied-pill">Copied</span>
+</button>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md group" type="button">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant group-hover:scale-110 transition-transform">print</span>
+<span class="flex-1">Print report</span>
+</button>
+<div class="h-px bg-surface-container my-1"></div>
+<button class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-left text-error hover:bg-error-container/40 transition-colors font-body-md text-body-md group" type="button">
+<span class="material-symbols-outlined text-[18px] text-error group-hover:scale-110 transition-transform">delete_outline</span>
+<span class="flex-1">Delete complaint</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Structured 2-Column Metadata Grid with Copy-to-Clipboard Micro-interaction -->
+<div class="grid grid-cols-2 gap-space-sm p-space-md bg-surface-container-low rounded-xl">
+<!-- National ID Field with Copy Interaction -->
+<div class="flex flex-col min-w-0">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Reporter National ID</span>
+<div class="flex items-center space-x-1.5 mt-0.5 relative">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold tracking-wide" id="national-id-val">38492041</span>
+<button aria-label="Copy National ID" class="w-6 h-6 flex items-center justify-center rounded hover:bg-surface-container transition-colors text-primary active:scale-90" id="copy-national-id" type="button">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+<!-- Animated Tooltip Feedback Bubble -->
+<div class="hidden absolute left-24 -top-6 bg-inverse-surface text-inverse-on-surface px-2 py-0.5 rounded shadow-md font-label-sm text-label-sm flex items-center space-x-1 z-30 transition-all" id="copy-tooltip">
+<span class="material-symbols-outlined text-[12px] text-secondary-fixed">done</span>
+<span>Copied!</span>
+</div>
+</div>
+</div>
+<!-- Reporter Phone -->
+<div class="flex flex-col min-w-0">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Contact Phone</span>
+<span class="font-code-sm text-code-sm text-on-surface font-semibold mt-0.5">+254 712 904 883</span>
+</div>
+<!-- SLA Window with Help Tooltip Trigger -->
+<div class="flex flex-col min-w-0 relative">
+<div class="flex items-center space-x-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Resolution SLA</span>
+<!-- Help Icon with Interactive Tooltip -->
+<button aria-label="SLA Information" class="w-4 h-4 flex items-center justify-center text-on-surface-variant hover:text-primary" id="sla-info-btn" type="button">
+<span class="material-symbols-outlined text-[14px]">info</span>
+</button>
+</div>
+<span class="font-headline-sm text-headline-sm text-tertiary mt-0.5">2h 15m remaining</span>
+<!-- SLA Informative Tooltip Popover -->
+<div class="hidden absolute -top-16 left-0 w-52 bg-inverse-surface text-inverse-on-surface p-2 rounded-xl shadow-xl font-body-sm text-body-sm z-30 leading-snug" id="sla-popover">
+          Reported vs resolved: Displays closed complaints versus incoming intake in the selected 30-day window.
+        </div>
+</div>
+<!-- Branch Node -->
+<div class="flex flex-col min-w-0">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase">Hub Division</span>
+<span class="font-body-md text-body-md text-on-surface mt-0.5 truncate">Industrial Area Yard</span>
+</div>
+</div>
+<!-- Inline Filter & Sort Trigger Ribbon -->
+<div class="flex items-center justify-between pt-1 relative">
+<div class="flex items-center space-x-2">
+<span class="font-label-md text-label-md text-on-surface">Queue activity</span>
+<span class="px-2 py-0.5 bg-surface-container rounded-full font-code-sm text-code-sm text-on-surface-variant">48 events</span>
+</div>
+<!-- Sort Popover Trigger -->
+<div class="relative">
+<button class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-label-md text-label-md transition-colors" id="sort-filter-btn" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary">swap_vert</span>
+<span id="current-sort-label">Sort: Newest first</span>
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+<!-- Sort & Filter Interactive Dropdown -->
+<div class="hidden absolute right-0 top-10 w-56 bg-surface-container-lowest rounded-xl shadow-xl p-1.5 z-30 flex flex-col space-y-1" id="sort-dropdown">
+<button class="sort-option w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-on-surface bg-surface-container-low font-body-md text-body-md" data-sort="Newest first" type="button">
+<span>Newest first</span>
+<span class="material-symbols-outlined text-[16px] text-primary">check</span>
+</button>
+<button class="sort-option w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low font-body-md text-body-md" data-sort="Oldest first" type="button">
+<span>Oldest first</span>
+<span class="material-symbols-outlined text-[16px] text-primary hidden">check</span>
+</button>
+<button class="sort-option w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-on-surface hover:bg-surface-container-low font-body-md text-body-md" data-sort="Highest priority" type="button">
+<span>Highest priority</span>
+<span class="material-symbols-outlined text-[16px] text-primary hidden">check</span>
+</button>
+<button class="sort-option w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-error hover:bg-error-container/30 font-body-md text-body-md" data-sort="Overdue SLA" type="button">
+<span>Overdue SLA</span>
+<span class="material-symbols-outlined text-[16px] text-error hidden">check</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Activity Stream Feed (Collapsed Inline View) -->
+<section class="bg-surface-container-lowest shadow-sm rounded-xl p-space-lg flex flex-col space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary text-[20px]">timeline</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Recent Timeline Entries</h3>
+</div>
+<button class="font-label-md text-label-md text-primary hover:underline" id="open-drawer-link" type="button">
+        Full audit log →
+      </button>
+</div>
+<!-- Feed Items -->
+<div class="space-y-space-md relative">
+<!-- Item 1 -->
+<div class="flex items-start space-x-space-sm relative">
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center shrink-0 text-on-primary-fixed font-label-md text-label-md">
+          SH
+        </div>
+<div class="flex flex-col min-w-0 flex-1 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-baseline justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">Synthetic HB colleague</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 09:10</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mt-1">Feedback added: Global history note 08. Feeder isolator reset requested through substation terminal gate.</p>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex items-start space-x-space-sm relative">
+<div class="w-8 h-8 rounded-full bg-secondary-fixed flex items-center justify-center shrink-0 text-on-secondary-fixed font-label-md text-label-md">
+          JD
+        </div>
+<div class="flex flex-col min-w-0 flex-1 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-baseline justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">James D. (Field Team Alpha)</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 08:44</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mt-1">Feedback added: Global history note 07. Visual insulation burn verified. Dispatched replacement relay module.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Interactive Floating Drawer / Slide-Up Activity History Sheet -->
+<div class="hidden fixed inset-0 bg-inverse-surface/40 backdrop-blur-xs z-50 flex flex-col justify-end transition-opacity duration-300" id="history-drawer-backdrop">
+<!-- Drawer Container -->
+<div class="w-full bg-surface-container-lowest rounded-t-2xl shadow-2xl flex flex-col max-h-[751px] transform transition-transform duration-300 translate-y-full" id="history-drawer-panel">
+<!-- Drawer Grabber Pill -->
+<div class="w-full flex justify-center pt-3 pb-1">
+<div class="w-12 h-1.5 rounded-full bg-surface-variant"></div>
+</div>
+<!-- Drawer Header -->
+<div class="flex items-center justify-between px-space-lg py-space-sm border-b border-surface-container-high/40">
+<div class="flex items-center space-x-2 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">assignment</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center space-x-2">
+<span class="font-headline-sm text-headline-sm text-on-surface truncate">CMP-13</span>
+<span class="font-label-sm text-label-sm px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant uppercase">Audit Ledger</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Full Activity &amp; Feedback History</p>
+</div>
+</div>
+<button class="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface transition-colors" id="close-drawer-btn" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<!-- Drawer Scrollable Body -->
+<div class="overflow-y-auto p-space-lg space-y-space-md flex-1">
+<!-- Activity Stream Item: Most Recent -->
+<div class="flex items-start space-x-space-sm">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0 text-on-primary">
+<span class="material-symbols-outlined text-[16px]">forum</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-center justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">Synthetic HB colleague</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 09:10</span>
+</div>
+<span class="font-label-sm text-label-sm text-primary uppercase mt-1">Feedback Added</span>
+<div class="mt-2 p-space-sm bg-surface-container-lowest rounded-lg shadow-sm">
+<p class="font-body-md text-body-md text-on-surface">"Global history note 08: Escalated voltage spikes to regional distribution command."</p>
+</div>
+</div>
+</div>
+<!-- Activity Stream Item: Step 2 -->
+<div class="flex items-start space-x-space-sm">
+<div class="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0 text-on-secondary">
+<span class="material-symbols-outlined text-[16px]">notes</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-center justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">Synthetic HB colleague</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 09:02</span>
+</div>
+<span class="font-label-sm text-label-sm text-primary uppercase mt-1">Feedback Added</span>
+<div class="mt-2 p-space-sm bg-surface-container-lowest rounded-lg shadow-sm">
+<p class="font-body-md text-body-md text-on-surface">"Global history note 07: Verified feeder isolator impedance values."</p>
+</div>
+</div>
+</div>
+<!-- Interactive Button: Load Older Activity with Badge Count -->
+<div class="flex justify-center py-space-xs">
+<button class="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-surface-container-low hover:bg-surface-container text-primary font-headline-sm text-headline-sm transition-all shadow-sm active:scale-[0.98]" id="btn-load-older" type="button">
+<span class="material-symbols-outlined text-[18px]">history</span>
+<span>Load older activity</span>
+<span class="font-label-sm text-label-sm px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed">+46 older notes</span>
+</button>
+</div>
+<!-- Hidden Older Activity Feed Accordion Target -->
+<div class="hidden space-y-space-md" id="older-notes-container">
+<div class="flex items-start space-x-space-sm">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center shrink-0 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">chat_bubble_outline</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-center justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">Central Monitoring Hub</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 08:15</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mt-1">Automatic triage ping: Trip threshold exceeded by 34%.</p>
+</div>
+</div>
+</div>
+<!-- Earliest Entry: Origin Actor Note -->
+<div class="flex items-start space-x-space-sm opacity-80">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center shrink-0 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">flag</span>
+</div>
+<div class="flex flex-col flex-1 min-w-0 bg-surface-container-low p-space-md rounded-xl">
+<div class="flex items-center justify-between flex-wrap gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface">Complaint recorded</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">28 Oct 2026 07:58</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 italic">
+              Original actor not recorded · Intake captured via IVR phone routing gateway.
+            </p>
+</div>
+</div>
+</div>
+<!-- Drawer Fixed Bottom Action Footer -->
+<div class="p-space-md bg-surface-container-low flex items-center justify-between gap-space-sm">
+<button class="flex-1 py-2 px-4 rounded-lg bg-surface-container-lowest text-on-surface font-label-md text-label-md hover:bg-surface-container transition-colors shadow-sm" id="close-drawer-footer" type="button">
+          Close
+        </button>
+<button class="flex-1 py-2 px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md shadow-sm transition-colors hover:bg-primary-container" onclick="alert('Exporting audit log PDF...')" type="button">
+          Export Log
+        </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Client-side Interactive Behaviors -->
+<script>
+  // Kebab Menu Toggle
+  const kebabBtn = document.getElementById('kebab-menu-button');
+  const kebabDropdown = document.getElementById('kebab-dropdown');
+  const menuCopyLink = document.getElementById('menu-copy-link');
+  const linkCopiedPill = document.getElementById('link-copied-pill');
+
+  kebabBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isHidden = kebabDropdown.classList.contains('hidden');
+    kebabDropdown.classList.toggle('hidden');
+    kebabBtn.setAttribute('aria-expanded', String(isHidden));
+  });
+
+  menuCopyLink.addEventListener('click', (e) => {
+    e.stopPropagation();
+    linkCopiedPill.classList.remove('hidden');
+    setTimeout(() => {
+      linkCopiedPill.classList.add('hidden');
+      kebabDropdown.classList.add('hidden');
+    }, 1200);
+  });
+
+  // Sort & Filter Dropdown Toggle
+  const sortBtn = document.getElementById('sort-filter-btn');
+  const sortDropdown = document.getElementById('sort-dropdown');
+  const sortLabel = document.getElementById('current-sort-label');
+  const sortOptions = document.querySelectorAll('.sort-option');
+
+  sortBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sortDropdown.classList.toggle('hidden');
+  });
+
+  sortOptions.forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sortValue = opt.getAttribute('data-sort');
+      sortLabel.textContent = `Sort: ${sortValue}`;
+      sortOptions.forEach(o => {
+        const check = o.querySelector('.material-symbols-outlined');
+        if (check) check.classList.add('hidden');
+        o.classList.remove('bg-surface-container-low');
+      });
+      const currentCheck = opt.querySelector('.material-symbols-outlined');
+      if (currentCheck) currentCheck.classList.remove('hidden');
+      opt.classList.add('bg-surface-container-low');
+      sortDropdown.classList.add('hidden');
+    });
+  });
+
+  // Close menus on clicking outside
+  document.addEventListener('click', () => {
+    if (!kebabDropdown.classList.contains('hidden')) kebabDropdown.classList.add('hidden');
+    if (!sortDropdown.classList.contains('hidden')) sortDropdown.classList.add('hidden');
+    if (!slaPopover.classList.contains('hidden')) slaPopover.classList.add('hidden');
+  });
+
+  // SLA Tooltip Popover Toggle
+  const slaBtn = document.getElementById('sla-info-btn');
+  const slaPopover = document.getElementById('sla-popover');
+  slaBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    slaPopover.classList.toggle('hidden');
+  });
+
+  // Copy to Clipboard Feedback
+  const copyBtn = document.getElementById('copy-national-id');
+  const copyTooltip = document.getElementById('copy-tooltip');
+  copyBtn.addEventListener('click', () => {
+    copyTooltip.classList.remove('hidden');
+    setTimeout(() => {
+      copyTooltip.classList.add('hidden');
+    }, 1800);
+  });
+
+  // Toast Spawners
+  const triggerSavedToast = document.getElementById('trigger-success-toast');
+  const triggerGpsToast = document.getElementById('trigger-gps-toast');
+  const toastSaved = document.getElementById('toast-saved');
+  const toastGps = document.getElementById('toast-gps');
+
+  triggerSavedToast.addEventListener('click', () => {
+    toastSaved.classList.remove('hidden');
+  });
+  triggerGpsToast.addEventListener('click', () => {
+    toastGps.classList.remove('hidden');
+  });
+
+  // Floating Drawer Bottom Sheet Controls
+  const drawerBackdrop = document.getElementById('history-drawer-backdrop');
+  const drawerPanel = document.getElementById('history-drawer-panel');
+  const triggerDrawerBtn = document.getElementById('trigger-drawer');
+  const openDrawerLink = document.getElementById('open-drawer-link');
+  const closeDrawerBtn = document.getElementById('close-drawer-btn');
+  const closeDrawerFooter = document.getElementById('close-drawer-footer');
+  const btnLoadOlder = document.getElementById('btn-load-older');
+  const olderNotesContainer = document.getElementById('older-notes-container');
+
+  function openDrawer() {
+    drawerBackdrop.classList.remove('hidden');
+    setTimeout(() => {
+      drawerPanel.classList.remove('translate-y-full');
+    }, 10);
+  }
+
+  function closeDrawer() {
+    drawerPanel.classList.add('translate-y-full');
+    setTimeout(() => {
+      drawerBackdrop.classList.add('hidden');
+    }, 280);
+  }
+
+  triggerDrawerBtn.addEventListener('click', openDrawer);
+  openDrawerLink.addEventListener('click', openDrawer);
+  closeDrawerBtn.addEventListener('click', closeDrawer);
+  closeDrawerFooter.addEventListener('click', closeDrawer);
+
+  drawerBackdrop.addEventListener('click', (e) => {
+    if (e.target === drawerBackdrop) closeDrawer();
+  });
+
+  // Accordion: Load Older Activity
+  btnLoadOlder.addEventListener('click', () => {
+    olderNotesContainer.classList.toggle('hidden');
+    btnLoadOlder.classList.add('hidden');
+  });
+</script></main></body></html>

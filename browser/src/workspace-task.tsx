@@ -32,7 +32,7 @@ export function useWorkspaceTask<T>(group: string, slot: RecoverySlot, name: str
     dispatching.current = true; setBusy(true); setError(undefined); if(notice.current!==undefined)dismissNotice(notice.current);
     slot.patch({[name + ':pending']: request});
     const control = new AbortController(); controller.current = control;
-    const timer = setTimeout(() => control.abort(), 30000);
+    const timer = setTimeout(() => control.abort(), request.files?.length?300000:30000);
     try {
       let body: Record<string, unknown> | FormData = request.body;
       if (request.files) {

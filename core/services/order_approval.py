@@ -2218,6 +2218,9 @@ class GoogleDriveMediaStorage:
         record_key: str = '',
         attempt_budget: int | None = None,
         recover_uncertain: bool = False,
+        progress_callback=None,
+        resumable_uri: str = '',
+        publication_key: str = '',
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
         from core.services.external_resilience import execute_operation, reserve_operation
@@ -2231,6 +2234,11 @@ class GoogleDriveMediaStorage:
             stream.seek(0)
         except (AttributeError, OSError):
             pass
+        if progress_callback is not None:
+            if not publication_key:
+                raise ValueError('A durable publication identity is required for progress uploads.')
+            return self._upload_with_progress(stream, filename, mime_type, folder_id,
+                publication_key, resumable_uri, progress_callback)
         media = MediaIoBaseUpload(
             stream,
             mimetype=mime_type,
@@ -2299,6 +2307,47 @@ class GoogleDriveMediaStorage:
             raise ValueError('This upload was already accepted. Reload the record to use its saved document link.')
         file_id = created['id']
         return file_id, created.get('webViewLink') or drive_file_url(file_id)
+
+    def _upload_with_progress(self, stream, filename, mime_type, folder_id, key, uri, progress):
+        from googleapiclient.http import MediaIoBaseUpload
+        stream.seek(0)
+        raw = stream.read()
+        stream.seek(0)
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        metadata = {'name': filename, 'parents': [folder_id], 'appProperties': {'jbl_operation': digest}}
+        fields = 'id,webViewLink,size,md5Checksum'
+        found = self.service.files().list(q=f"trashed = false and '{folder_id}' in parents and appProperties has {{ key='jbl_operation' and value='{digest}' }}",
+            fields=f'files({fields})', pageSize=2, supportsAllDrives=True, includeItemsFromAllDrives=True).execute().get('files', [])
+        if not isinstance(found, list) or len(found) > 1:
+            raise ValueError('The durable upload identity needs reconciliation.')
+        def verified(result):
+            if (not result.get('id') or int(result.get('size', -1)) != len(raw)
+                    or (result.get('md5Checksum') and result['md5Checksum'] != hashlib.md5(raw, usedforsecurity=False).hexdigest())):
+                raise ValueError('The published file could not be verified.')
+            progress(len(raw), '')
+            return result['id'], result.get('webViewLink') or drive_file_url(result['id'])
+        if found:
+            return verified(found[0])
+        media = MediaIoBaseUpload(stream, mimetype=mime_type, chunksize=256 * 1024, resumable=True)
+        request = self.service.files().create(body=metadata, media_body=media, fields=fields, supportsAllDrives=True)
+        if uri:
+            request.resumable_uri = uri
+            request._in_error_state = True
+        acknowledged, result = 0, None
+        try:
+            while result is None:
+                status, result = request.next_chunk(num_retries=0)
+                if status is not None:
+                    acknowledged = status.resumable_progress
+                progress(acknowledged, request.resumable_uri or '')
+            return verified(result)
+        except Exception as error:
+            code = getattr(getattr(error, 'resp', None), 'status', None)
+            if code in (404, 410) and request.resumable_uri:
+                progress(0, '')
+                raise TimeoutError('The resumable upload session expired; retry its retained bytes.') from None
+            progress(acknowledged, request.resumable_uri or '')
+            raise
 
     def download(self, file_id: str) -> bytes:
         """Return an approved Drive media file for an already-authorized viewer.

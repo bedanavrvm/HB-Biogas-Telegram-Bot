@@ -8,6 +8,12 @@ erDiagram
   complaints_reaction_state {
     string id
   }
+  complaints_upload_attempt {
+    string id
+  }
+  complaints_upload_file {
+    string id
+  }
   core_caseupdate {
     string id
   }
@@ -50,6 +56,9 @@ erDiagram
   core_caseupdate ||--o{ complaints_comment_context : contains
   complaints_comment_context ||--o{ complaints_mention_link : contains
   core_caseupdate ||--o{ complaints_reaction_state : contains
+  core_parsedmessage ||--o{ complaints_upload_attempt : contains
+  complaints_upload_attempt ||--o{ complaints_upload_file : contains
+  core_complaintcaseevidence ||--o{ complaints_upload_file : contains
   core_parsedmessage ||--o{ core_caseupdate : contains
   core_complaintcategory ||--o{ core_complaintcasecontrol : contains
   core_parsedmessage ||--o{ core_complaintcasecontrol : contains

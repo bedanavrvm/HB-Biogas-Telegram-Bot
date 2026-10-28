@@ -96,6 +96,79 @@
       ]
     },
     {
+      "application_area": "Complaints",
+      "children": [
+        "complaint_publications.UploadFile"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 10,
+      "cross_domain_parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "direct_orm_writers": [
+        "complaint_publications/services.py"
+      ],
+      "django_model": "complaint_publications.UploadAttempt",
+      "domain": "complaints",
+      "explicit_indexes": [
+        "cmp_upload_expiry_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration",
+        "core.ParsedMessage"
+      ],
+      "purpose": "Browser-only upload command, owner, manifest and idempotency binding.",
+      "retention": "Uncommitted attempts expire after 24 hours; committed metadata follows owning complaint retention.",
+      "source_of_truth": true,
+      "table": "complaints_upload_attempt",
+      "used_by": [
+        "complaint_publications/admin.py",
+        "complaint_publications/catalogue.py",
+        "complaint_publications/migrations/0001_initial.py",
+        "complaint_publications/models.py",
+        "complaint_publications/services.py"
+      ]
+    },
+    {
+      "application_area": "Complaints",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 16,
+      "cross_domain_parents": [
+        "core.IntegrationOperation"
+      ],
+      "direct_orm_writers": [
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py"
+      ],
+      "django_model": "complaint_publications.UploadFile",
+      "domain": "complaints",
+      "explicit_indexes": [
+        "cmp_file_purge_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "complaint_publications.UploadAttempt",
+        "core.ComplaintCaseEvidence",
+        "core.IntegrationOperation"
+      ],
+      "purpose": "Durable private evidence bytes and measured browser/Drive publication progress.",
+      "retention": "Unpublished bytes retained for IT resolution; successful bytes purged 24 hours after verified publication. Metadata follows the case.",
+      "source_of_truth": true,
+      "table": "complaints_upload_file",
+      "used_by": [
+        "complaint_publications/admin.py",
+        "complaint_publications/catalogue.py",
+        "complaint_publications/migrations/0001_initial.py",
+        "complaint_publications/models.py",
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py"
+      ]
+    },
+    {
       "application_area": "Access",
       "children": [
         "core.AccessControlChangeRequest",
@@ -455,6 +528,7 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "complaint_conversations/services.py",
+        "complaint_publications/worker.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
@@ -481,6 +555,8 @@
         "complaint_conversations/catalogue.py",
         "complaint_conversations/models.py",
         "complaint_conversations/services.py",
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_register.py",
@@ -506,6 +582,8 @@
         "core.OperationalLocation"
       ],
       "direct_orm_writers": [
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_publication.py",
         "core/services/group_reset.py",
@@ -532,6 +610,8 @@
       "source_of_truth": true,
       "table": "core_complaintcasecontrol",
       "used_by": [
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/services/complaint_cases.py",
         "core/services/complaint_publication.py",
         "core/services/complaint_register.py",
@@ -578,11 +658,14 @@
     },
     {
       "application_area": "Complaints",
-      "children": [],
+      "children": [
+        "complaint_publications.UploadFile"
+      ],
       "classification": "authoritative_record",
       "column_count": 15,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_publications/services.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "staff_auth/tests_complaints_operations_transport.py"
@@ -603,6 +686,9 @@
       "source_of_truth": true,
       "table": "core_complaintcaseevidence",
       "used_by": [
+        "complaint_publications/models.py",
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "core/services/miniapp_deletion_registry.py",
@@ -1088,6 +1174,7 @@
       "source_of_truth": true,
       "table": "core_durablejobrunnerheartbeat",
       "used_by": [
+        "complaint_publications/services.py",
         "core/services/durable_jobs.py",
         "core/services/portal_publication.py",
         "core/services/tat_full_reset.py",
@@ -1179,6 +1266,7 @@
     {
       "application_area": "Platform",
       "children": [
+        "complaint_publications.UploadAttempt",
         "core.AccessGrant",
         "core.ComplaintCategoryAvailability",
         "core.EmergencyAccessGrant",
@@ -1209,6 +1297,7 @@
       "column_count": 15,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_publications/worker.py",
         "core/services/fca.py",
         "core/services/staff_telegram_onboarding.py",
         "core/services/tat_reporting.py",
@@ -1241,6 +1330,10 @@
       "source_of_truth": true,
       "table": "core_groupsheetconfiguration",
       "used_by": [
+        "complaint_publications/admin.py",
+        "complaint_publications/models.py",
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/api/browser_complaint_operations.py",
         "core/api/browser_complaint_views.py",
         "core/api/complaint_case_views.py",
@@ -1355,6 +1448,7 @@
     {
       "application_area": "Integration",
       "children": [
+        "complaint_publications.UploadFile",
         "origination.OriginationPhoneIdentityCheck"
       ],
       "classification": "authoritative_record",
@@ -1363,6 +1457,7 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "complaint_publications/worker.py",
         "core/api/portal_views.py",
         "core/services/complaint_publication.py",
         "core/services/external_resilience.py",
@@ -1393,6 +1488,9 @@
       "source_of_truth": true,
       "table": "core_integrationoperation",
       "used_by": [
+        "complaint_publications/models.py",
+        "complaint_publications/services.py",
+        "complaint_publications/worker.py",
         "core/api/portal_views.py",
         "core/api/views.py",
         "core/management/commands/drain_portal_publications.py",
@@ -4117,6 +4215,7 @@
     {
       "application_area": "Complaints",
       "children": [
+        "complaint_publications.UploadAttempt",
         "core.CaseUpdate",
         "core.ComplaintCaseControl",
         "core.ComplaintCaseEvidence",
@@ -4127,6 +4226,7 @@
       "column_count": 37,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_publications/worker.py",
         "core/api/browser_complaint_operations.py",
         "core/api/views.py",
         "core/services/complaint_cases.py",
@@ -4155,6 +4255,11 @@
       "table": "core_parsedmessage",
       "used_by": [
         "complaint_conversations/services.py",
+        "complaint_publications/admin.py",
+        "complaint_publications/models.py",
+        "complaint_publications/services.py",
+        "complaint_publications/views.py",
+        "complaint_publications/worker.py",
         "core/api/browser_complaint_operations.py",
         "core/api/browser_complaint_views.py",
         "core/api/views.py",

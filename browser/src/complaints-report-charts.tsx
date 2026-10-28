@@ -110,7 +110,6 @@ export function ReportCharts({ summary, view, grouping, from, to, select }: {
 }
 
 /** Chart geometry is first-party; controls and presentation use the pinned ADS graph. */
-/* eslint-disable @atlaskit/design-system/no-html-button -- Interactive SVG marks have keyboard semantics and a textual alternative; ADS cannot render an SVG mark. See DESIGN.md. */
 function RadialChart({spec,doughnut,select}:{spec:ChartSpec;doughnut:boolean;select:(index:number,series:number)=>void}) {
   const values=spec.rows.map(row=>row.values.reduce<number>((sum,value)=>sum+(value||0),0)),total=values.reduce((sum,value)=>sum+value,0);
   const outside=values.map((value,index)=>{const start=values.slice(0,index).reduce((sum,n)=>sum+n,0),middle=-Math.PI/2+(start+value/2)/Math.max(1,total)*Math.PI*2;return {x:Math.cos(middle)<0?22:338,y:130+Math.sin(middle)*112,small:value/Math.max(1,total)*Math.PI*2<0.4};});
@@ -196,4 +195,3 @@ function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection
     {spec.rows.length>10&&spec.horizontal&&<Box><Label htmlFor={spec.id+'-cases'}>All complaint types</Label><Select inputId={spec.id+'-cases'} value={null} options={spec.rows.map((row,index)=>({value:String(index),label:row.label+' · '+row.values.filter(value=>value!==null).join(', ')}))} onChange={option=>{if(option)activate(Number(option.value),0);}}/></Box>}
   </Stack></Box>;
 }
-/* eslint-enable @atlaskit/design-system/no-html-button */

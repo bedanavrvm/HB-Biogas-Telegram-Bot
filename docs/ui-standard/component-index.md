@@ -287,3 +287,14 @@ file picker. Pinned ADS controls, primitives and tokens retain their own APIs.
 Behaviour, official usage references and evidence:
 [source-bound review](reviews/2026-10-28-complaints-stitch-detail.md).
 Candidate only; existing release and baseline approval boundaries remain.
+
+## Complaints browser: additional Stitch components, 28 October 2026
+
+`complaints-publication.tsx` supplies real loading, SLA/help, per-file progress and
+scoped IT attention. The existing file picker, conversation, detail and queue
+compose the adopted feedback, dropzone, clipboard, menu and sort patterns.
+`complaint_publications` owns durable browser receipts and independent publishing;
+its Admin recovery view excludes raw payloads and private resumable URLs.
+Decisions, exclusions, native-session Playwright evidence and verification limits:
+[component adoption review](reviews/2026-10-28-complaints-stitch-components.md).
+Telegram adoption, operational release and approved baselines remain separate.

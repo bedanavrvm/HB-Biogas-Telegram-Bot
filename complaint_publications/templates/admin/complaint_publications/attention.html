@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Saved Complaint records and unpublished file bytes are retained in Django. Review failures or a stale publisher, then retry. Retries never resend the complaint.</p>
+{% for group in groups %}
+<section class="module" aria-label="{{ group.label }} publication attention">
+  <h2>{{ group.label }}</h2>
+  {% for item in group.items %}
+  <div class="form-row">
+    <p><strong>{{ item.reference }}</strong> {{ item.name }}</p>
+    {% if not item.state.runner_healthy %}<p>The background publisher is not reporting. Restore the scheduled publisher before retrying.</p>{% endif %}
+    <p>Google Sheets: {{ item.state.sheet.status }}</p>
+    {% for file in item.state.files %}<p>{{ file.name }}: {{ file.percent }}% · {{ file.stage }} ({{ file.attempts }} attempts)</p>{% endfor %}
+    {% if item.failed %}<form method="post">{% csrf_token %}
+      <input type="hidden" name="group" value="{{ group.key }}">
+      <input type="hidden" name="case" value="{{ item.key }}">
+      <button type="submit" class="default">Retry failed publication</button>
+    </form>{% endif %}
+  </div>
+  {% empty %}<p>No browser publications need attention.</p>{% endfor %}
+</section>
+{% endfor %}
+{% endblock %}

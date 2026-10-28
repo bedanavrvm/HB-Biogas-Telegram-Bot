@@ -1,12 +1,18 @@
 """Native operations contract; gated by browser and Complaint release flags."""
 from django.urls import path
 from . import browser_complaint_operations as views
+from complaint_publications import views as publications
 
 urlpatterns = [
+    path('uploads/', publications.reserve),
+    path('uploads/<uuid:attempt_key>/', publications.progress),
+    path('uploads/<uuid:attempt_key>/<uuid:file_key>/', publications.receive),
+    path('publications/attention/', publications.attention),
     path('bootstrap/', views.bootstrap),
     path('cases/', views.queue),
     path('cases/create/', views.create),
     path('cases/<uuid:case_key>/', views.detail),
+    path('cases/<uuid:case_key>/publication/', publications.case_progress),
     path('cases/<uuid:case_key>/history/', views.history),
     path('cases/<uuid:case_key>/conversation/', views.conversation),
     path('cases/<uuid:case_key>/conversation/post/', views.conversation_post),

@@ -15,6 +15,8 @@ full-adoption requirement, now and for future browser UI requests. Use the
 user's supplied code/CSS for structure and interactive states and their images
 for visual appearance; inspect both before implementation. Current Complaints
 reference: `Stitch/Create Complaint/code.html`, `screen.png` and `DESIGN.md`.
+For Complaint component adoption, read `STITCH-DESIGN-DECISIONS.md`; it records
+the additional Stitch references, approved behaviors and explicit exclusions.
 Retain the actual workflow permissions, validation, recovery and accessibility
 when adapting a reference. Previously agreed feature exclusions remain unless
 the user changes them. Reuse installed controls where useful; ADS appearance,

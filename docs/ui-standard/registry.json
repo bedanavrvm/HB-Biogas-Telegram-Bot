@@ -431,9 +431,9 @@
     },
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "771ee7f0eb3e92bb0ba5a0a181c4d20c825d4cade95d2b82a72deda2d97c6bd4",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "36eda38d0164728205098a12b0bcd3c0a7785799bde0ea84b950797282520a8b",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "Nonvisual removal of obsolete ADS eslint suppression comments; strict unused-directive reporting remains enabled. Full browser lint and production build verified."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -569,9 +569,9 @@
     },
     {
       "path": "browser/src/preview.tsx",
-      "sha256": "dae1e02704e0208ab5ae8da35f94dcfa187d22a77ea4619fffa91aefc612cb14",
-      "review_reference": "codebase-analysis-docs/assets/BROWSER_REACT_ADS_DECISION.md#10-p1c4--documentation-led-browser-composition",
-      "reason": "User-directed correction against current official ADS usage/design docs: coherent access forms, persistent section feedback/default surfaces, actual navigation frame and separate select-based review entry. Source-bound behavior/visual evidence is a candidate, not human approval, full design conformance or operational auth/Telegram migration."
+      "sha256": "3202edde7e83003393f12532ca91cefd072239ab5a87239d9699f9a43c134be4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "Nonvisual removal of obsolete ADS eslint suppression comments; strict unused-directive reporting remains enabled. Full browser lint and production build verified."
     },
     {
       "path": "browser/src/review.html",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "dee43eba5c265ca9f82ca19016a8ca53717a071abaf721f898e8d19fdac12d8d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "e5c00c2fff3a6be1f3abe5ef5402a0f96bbace8f2ce540fa0f9089fc7a3bfcae",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "d9941c8ba798b030b0e424662acc237747b474f636f7f8a51c8067b7fa9bf882",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "786fed64353fbc4d27a7b05574599ca7423a2cc9282bd6a2d886603f2bd4320f",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -701,15 +701,15 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "ca8ef6ce838d9cfd71f4797705f27b27b8e876c1d1ce5ac27564b1411d5e0558",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "510bcd0722a7d9057da78c245f5b67f1bcba626e052f4bc2b30801cffa673b91",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "a11669e1c325ac269bbcd0638d4869399198e94549d163c53cf8ab4cfe71aee0",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "f00b635a8817f016cac7150694b8e12d341682d4ef5d744e464ba504558666a3",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "Nonvisual removal of obsolete ADS eslint suppression comments; strict unused-directive reporting remains enabled. Full browser lint and production build verified."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
@@ -725,9 +725,9 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "d8fd1fdf3e1485061cfc512cd10e97892943c67683d93b5a2f3425790dab1317",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "37be31f0572be76d738a9a210b1e0f8e762b73030155440717c57ddbe8b0f967",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
@@ -737,9 +737,9 @@
     },
     {
       "path": "browser/src/workspace-task.tsx",
-      "sha256": "d6faf3fdb0da8615791819245662d800443efeb8006519210c74fecaaf894986",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "eab022dc2cc54497a17735ad76d2bff8c7f0de26c5a3389955edeb87523fe453",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-date-control.tsx",
@@ -863,9 +863,9 @@
     },
     {
       "path": "browser/src/complaints-detail-page.tsx",
-      "sha256": "373f15fef27da0f9d3db4d7491ec116af7855f97b372f02ec0ddd6ad6a725491",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "4753f6d804c129278d46234ea09cbb84d6a6d84d67cded086eb32c8eb15d75ac",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-detail-map.tsx",
@@ -875,21 +875,39 @@
     },
     {
       "path": "browser/src/complaints-conversation.tsx",
-      "sha256": "295eb6ee3836d58d3867f59ab595bb4da6c2fe23e410980c6136961bde58e32b",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "eb9166f698d1f1d7e6c1cb742bc6f97fc7b07746c8a033072966b8a1933adc51",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-operation-files.tsx",
-      "sha256": "3e592e51076f022429c9c728b6cc3560507bc6a0d09b4462ebc4ca925544b11c",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "208b662de9b954c32fa9e55a87d668d7679733deb977ffb42a99aef550f9847c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
     },
     {
       "path": "browser/src/complaints-stitch.css",
-      "sha256": "3648bd4f0f31bd836e96e06de722b6cf622ac873a904715c38b3ef79307d9300",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
-      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+      "sha256": "c301ecb9531ce82db5962d3c33777dcdeb0af1a8bdccb3f956a78af3293c8adc",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+    },
+    {
+      "path": "browser/src/complaints-publication.tsx",
+      "sha256": "ac103445d4d7c8f49490a1693642cf865ccd17857f6b02595d7dea119e6babd8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "User-authorized Stitch component adoption with native-session Playwright evidence; approved baselines, release flags and Telegram migration remain unchanged."
+    },
+    {
+      "path": "complaint_publications/templates/admin/complaint_publications/attention.html",
+      "sha256": "265199f9d3d1b0ac884220cfb7916fd4d68deb6b7bf520aabd753afe26086dde",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "Scoped Complaints IT Admin publication recovery; retained payloads and private resumable URLs excluded. Browser evidence in the component adoption review."
+    },
+    {
+      "path": "complaint_publications/templates/admin/complaint_publications/uploadfile/change_list.html",
+      "sha256": "9cbf1d1c2abfe104f926eebf8051902a4cbaf2c6ec911ad174b1ad9dc1895664",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
+      "reason": "Scoped Complaints IT Admin publication recovery; retained payloads and private resumable URLs excluded. Browser evidence in the component adoption review."
     }
   ],
   "source_roots": [
@@ -900,7 +918,8 @@
     "core/templates/complaint_cases",
     "origination/templates/loan_origination",
     "codebase-analysis-docs/assets/browser-access-preview",
-    "browser/src"
+    "browser/src",
+    "complaint_publications/templates"
   ],
   "source_hash_format": "lf-text-v1"
 }
