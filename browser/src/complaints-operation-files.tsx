@@ -19,10 +19,11 @@ const styles=cssMap({
   filename:{minWidth:0,overflowWrap:'anywhere'},
   camera:{'@media (min-width: 64rem)':{display:'none'}},
 });
-export function Files({ files, setFiles, saveLabel = 'complaint' }: {
+export function Files({ files, setFiles, saveLabel = 'complaint', compact = false }: {
     files: File[];
     setFiles: (value: File[]) => void;
     saveLabel?: string;
+    compact?: boolean;
 }) {
     const locked = React.useContext(LockedForm);
     const picker = useRef<HTMLInputElement>(null), camera = useRef<HTMLInputElement>(null);
@@ -38,6 +39,7 @@ export function Files({ files, setFiles, saveLabel = 'complaint' }: {
 
         }
     };
+    if(compact)return <div className="stitch-files-compact"><input type="file" hidden ref={picker} multiple accept=".jpg,.jpeg,.png,.webp,.pdf" aria-label="Choose evidence files" onChange={event=>{add(event.currentTarget.files);event.currentTarget.value='';}}/><input type="file" hidden ref={camera} accept="image/*" capture="environment" aria-label="Capture a photo" onChange={event=>{add(event.currentTarget.files);event.currentTarget.value='';}}/><button type="button" className="stitch-camera" aria-label="Take photo" disabled={locked} onClick={()=>camera.current?.click()}><CameraIcon label="" size="small"/></button><button type="button" aria-label="Attach files" title="Images or PDF ? up to 10 files ? 10 MB each, 30 MB total" disabled={locked} onClick={()=>picker.current?.click()}><AttachmentIcon label="" size="small"/></button>{Boolean(files.length||error)&&<div className="stitch-selected-files">{files.map((file,index)=><div key={`${file.name}-${index}`}><span>{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} disabled={locked} onClick={()=>setFiles(files.filter((_,item)=>item!==index))}>Remove</button></div>)}{files.length>0&&<small>Uploaded when you save the {saveLabel}.</small>}{error&&<span role="alert">{error}</span>}</div>}</div>;
     return <Section title="Attachments"><Stack space="space.150"><Text size="small" color="color.text.subtle">Images or PDF · up to 10 files · 10 MB each, 30 MB total</Text>
     <Box as="input" type="file" hidden ref={picker} multiple accept=".jpg,.jpeg,.png,.webp,.pdf" aria-label="Choose evidence files" onChange={event => { add(event.currentTarget.files); event.currentTarget.value = ''; }}/>
     <Box as="input" type="file" hidden ref={camera} accept="image/*" capture="environment" aria-label="Capture a photo" onChange={event => { add(event.currentTarget.files); event.currentTarget.value = ''; }}/>

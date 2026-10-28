@@ -1,5 +1,24 @@
 # Browser design references and application decisions
 
+## Current styling authority (28 October 2026)
+
+The user explicitly replaced ADS styling for this and future browser work.
+`AGENTS.md` governs this instruction. Complaints follows both the complete
+`Stitch/Create Complaint/code.html` interactive export and `screen.png`.
+Earlier ADS full-adoption requirements below are historical.
+
+The image guides the resting state; the HTML guides expanded attachment,
+thread, mention, recording/transcription and resolve states. Real case content
+replaces sample values; staff initials replace stock portraits. The prior
+read-only description, excluded assignment and staff-only conversation remain.
+Empty attachments do not reserve a card; success feedback requires a confirmed
+operation. Dark mode retains the geometry with readable colors.
+
+Inter 4.1 comes unchanged from the [official font source](https://github.com/rsms/inter/tree/v4.1),
+is served locally with its SIL OFL licence and build/source hashes, and has no
+runtime CDN dependency. See `vendor/inter/README.md` and `DEPENDENCIES.md`.
+Evidence: `../docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md`.
+
 ## Complaint workflow corrections (28 October 2026)
 
 The user authorized correction of the seven audited browser workflow gaps, with

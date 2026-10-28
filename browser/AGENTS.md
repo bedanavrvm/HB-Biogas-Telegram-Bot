@@ -6,18 +6,24 @@ user-authorized conditional Complaints release. Read
 or deployment. Flags remain default-off until explicit release approval; local
 demo/preview graphs and Telegram migration approval remain separate.
 
-Follow the root repository rules and `DESIGN.md`. The user explicitly requires
-consulting the current official Atlassian documentation for every browser UI
-change. Read the relevant usage/design guidance and the exact installed APIs;
-do not rely on memory, import names, lint success or old screenshots as proof
-of design adoption. Record applicable source links and deliberate exceptions.
+Follow the root repository rules and `DESIGN.md`.
 
-Keep focused access tasks separate from the workspace navigation shell and
-the `/review.html` design harness. Use ADS components for their documented
-purpose. Keep essential descriptions/errors in the form reading sequence,
-one primary action, meaningful surfaces and coherent page grids. Do not put
-sunken surfaces on raised/overlay surfaces. Avoid repeated helper warnings,
-disabled mock navigation and button collections that replace selection controls.
+## Styling authority
+
+The user's 28 October 2026 instruction supersedes the earlier ADS styling and
+full-adoption requirement, now and for future browser UI requests. Use the
+user's supplied code/CSS for structure and interactive states and their images
+for visual appearance; inspect both before implementation. Current Complaints
+reference: `Stitch/Create Complaint/code.html`, `screen.png` and `DESIGN.md`.
+Retain the actual workflow permissions, validation, recovery and accessibility
+when adapting a reference. Previously agreed feature exclusions remain unless
+the user changes them. Reuse installed controls where useful; ADS appearance,
+tokens and design-conformance lint are optional. Consult official component API
+docs when changing component behavior. Record deliberate reference adaptations
+and source-bound Playwright evidence in `DESIGN.md` and the UI source ratchet.
+
+Keep focused access tasks separate from workspace navigation and `/review.html`.
+Keep errors in the reading sequence, actions meaningful and layouts responsive.
 
 Check normal/error states visually in both themes and at laptop/mobile sizes.
 Preserve readability, keyboard/focus and enlarged-text scrolling. Viewport fit
@@ -47,8 +53,7 @@ and custom request header. Mutations and uploaded bytes stay in process memory;
 the integrity-checked v2 SQLite seed stays immutable. Persona selection is a
 simulator control, never company identity or real authority. Preserve revision,
 request-key/payload, reset-generation, group and built-in capability checks.
-Native file selection is the narrow documented exception in DESIGN.md; visible
-controls remain ADS. Never connect this write simulator to the native read API.
+Native file selection remains governed by the upload limits in DESIGN.md. Never connect this write simulator to the native read API.
 Keep its build distinct from the zero-connect preview and native staff client.
 This review availability never authorizes production mounting or real staff access.
 

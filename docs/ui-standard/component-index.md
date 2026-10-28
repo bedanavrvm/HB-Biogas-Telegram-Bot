@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+The user's 28 October 2026 styling override makes the supplied Stitch HTML/CSS
+and screenshot authoritative over ADS styling for this and future browser work.
+The Complaint detail uses `browser/src/complaints-stitch.css` and the existing
+native conversation, map, media, file picker and task dialogs. Current evidence
+and reference adaptations are recorded in
+`reviews/2026-10-28-complaints-stitch-visual-match.md`. This changes candidate
+sources only; approved baselines, grants, release flags and Phase 6 remain held.
+
 The 28 October Complaints correction adds shared browser case facts/location and
 restores category completion, recoverable dependent locations, recorded changes,
 HB comment counts, laptop queue navigation and read-only global report details.

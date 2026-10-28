@@ -1,0 +1,454 @@
+<!DOCTYPE html><html lang="en" style=""><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><meta content="mobile_stack" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#faf9ff;}body{overscroll-behavior:none;font-family:'Inter',sans-serif;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: 'class', theme: { extend: { 'colors': { 'surface-container-low': '#f1f3ff', 'outline': '#727786', 'primary-fixed': '#d9e2ff', 'on-tertiary-container': '#ffece9', 'error': '#ba1a1a', 'on-secondary': '#ffffff', 'inverse-on-surface': '#edf0ff', 'surface-container': '#e9edff', 'surface-dim': '#ccdaff', 'error-container': '#ffdad6', 'secondary': '#006c47', 'surface-container-lowest': '#ffffff', 'background': '#faf9ff', 'on-tertiary-fixed-variant': '#91070c', 'on-surface-variant': '#424654', 'surface-bright': '#faf9ff', 'on-surface': '#051a3e', 'outline-variant': '#c2c6d7', 'secondary-container': '#97f6c3', 'surface': '#faf9ff', 'primary': '#004fb6', 'tertiary-fixed': '#ffdad5', 'secondary-fixed': '#97f6c3', 'inverse-surface': '#1d3054', 'on-tertiary': '#ffffff', 'on-secondary-fixed-variant': '#005234', 'tertiary-container': '#c9362e', 'secondary-fixed-dim': '#7bd9a8', 'on-primary-fixed': '#001945', 'tertiary-fixed-dim': '#ffb4aa', 'on-error': '#ffffff', 'on-primary-fixed-variant': '#00429b', 'on-background': '#051a3e', 'surface-container-highest': '#d8e2ff', 'on-error-container': '#93000a', 'primary-fixed-dim': '#b0c6ff', 'on-secondary-container': '#00734b', 'on-primary': '#ffffff', 'surface-tint': '#0058ca', 'surface-container-high': '#e1e8ff', 'on-tertiary-fixed': '#410001', 'primary-container': '#0c66e4', 'surface-variant': '#d8e2ff', 'on-primary-container': '#ecefff', 'on-secondary-fixed': '#002112', 'tertiary': '#a61b18', 'inverse-primary': '#b0c6ff' }, 'borderRadius': { 'DEFAULT': '0.125rem', 'lg': '0.25rem', 'xl': '0.5rem', 'full': '0.75rem' }, 'spacing': { 'space-md': '0.75rem', 'space-lg': '1rem', 'gutter-desktop': '1.5rem', 'margin-desktop': '2rem', 'space-sm': '0.5rem', 'margin': '1rem', 'gutter': '1rem', 'space-xl': '1.5rem', 'space-xs': '0.25rem' }, 'fontFamily': { 'label-md': ['Inter'], 'body-sm': ['Inter'], 'headline-sm': ['Inter'], 'body-md': ['Inter'], 'headline-lg': ['Inter'], 'title-md': ['Inter'], 'headline-xl': ['Inter'], 'title-sm': ['Inter'], 'code-sm': ['JetBrains Mono'], 'label-sm': ['Inter'] }, 'fontSize': { 'label-md': ['12px', { 'lineHeight': '16px', 'fontWeight': '600' }], 'body-sm': ['12px', { 'lineHeight': '16px', 'fontWeight': '400' }], 'headline-sm': ['16px', { 'lineHeight': '22px', 'fontWeight': '600' }], 'body-md': ['14px', { 'lineHeight': '20px', 'fontWeight': '400' }], 'headline-lg': ['22px', { 'lineHeight': '28px', 'letterSpacing': '-0.008em', 'fontWeight': '600' }], 'title-md': ['14px', { 'lineHeight': '20px', 'fontWeight': '600' }], 'headline-xl': ['28px', { 'lineHeight': '34px', 'letterSpacing': '-0.01em', 'fontWeight': '600' }], 'title-sm': ['12px', { 'lineHeight': '16px', 'letterSpacing': '0.02em', 'fontWeight': '600' }], 'code-sm': ['12px', { 'lineHeight': '16px', 'fontWeight': '400' }], 'label-sm': ['11px', { 'lineHeight': '14px', 'letterSpacing': '0.04em', 'fontWeight': '700' }] } } } }</script></head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen" style="background-color: rgb(244, 245, 247);" data-demoway-document-id="dmbt45ec5zdcup7untcbv1io"><header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-14 px-space-sm flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs min-w-0"><button aria-label="Back" class="w-11 h-11 flex items-center justify-center rounded text-on-surface hover:bg-surface-container-high transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back</span></button><img alt="JBL Service Desk Logo" class="h-7 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/AEtjO1X8YXxYU2QPGedpwkIMkRM33Vb4bdCJahXNNENg5VCV1GDArUWSFoB0exgKmFkR9IPELgRD55sb7zOrbRy-2AVznNh7C_QQv_JhtU01ULeSmOB9vhgUclZOBT-fmMrM-PjTEPMLvDr-Q06Hupx_Qp7kybbV0amNOzHgTttIVxITiZdK1AEK5bOAQrYkHDEFb580FAoUbH_7TqutamU5XuiLJYpVY2dCcCBy6Ph736Np"><h1 class="font-title-md text-title-md text-on-surface truncate ml-1">Ticket Detail</h1></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="More actions" class="w-11 h-11 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"><span class="material-symbols-outlined text-[20px]">more_vert</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-safe bg-surface min-h-screen" style="background-color: rgb(244, 245, 247);"><div class="flex flex-col w-full pb-8">
+<!-- Toast Notification (Dismissable Micro-Interaction) -->
+<aside class="mx-space-md mb-space-sm bg-secondary-container text-on-secondary-container px-space-md py-space-sm rounded-lg shadow-sm flex items-center justify-between transition-all duration-300" id="toast-notification">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="material-symbols-outlined text-[18px] text-secondary flex-shrink-0" style="font-variation-settings: &quot;FILL&quot; 1;">check_circle</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md truncate">Success</span>
+<span class="font-body-sm text-body-sm opacity-90 truncate">CMP-1: changes saved successfully</span>
+</div>
+</div>
+<button aria-label="Dismiss toast" class="p-1 rounded hover:bg-black/5 text-on-secondary-container transition-colors" onclick="document.getElementById('toast-notification').classList.add('hidden')">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</aside>
+<!-- Ticket Navigation Ribbon & Status Header -->
+<div class="px-space-md py-space-xs flex items-center justify-between gap-space-sm bg-surface" style="background-color: rgb(255, 255, 255); border-bottom: 1px solid rgb(223, 225, 230);">
+<button class="inline-flex items-center gap-1 text-primary hover:text-on-primary-fixed-variant transition-colors py-1 group" onclick="history.back()">
+<span class="material-symbols-outlined text-[18px] transition-transform group-hover:-translate-x-0.5">arrow_back</span>
+<span class="font-title-sm text-title-sm">Back to queue</span>
+</button>
+<div class="flex items-center gap-space-xs">
+<span class="font-code-sm text-code-sm text-on-surface-variant font-semibold tracking-wide">CMP-1</span>
+<span class="bg-primary-fixed text-primary font-label-sm text-label-sm px-2 py-0.5 rounded tracking-wide font-bold uppercase">Open</span>
+<div class="flex items-center gap-0.5 text-on-surface-variant ml-1 font-body-sm text-body-sm">
+<button aria-label="Previous ticket" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container-high transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">chevron_left</span>
+</button>
+<span class="px-0.5">2 of 48</span>
+<button aria-label="Next ticket" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container-high transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Primary Issue Summary -->
+<div class="px-space-md pt-space-xs pb-space-sm bg-surface" style="background-color: rgb(255, 255, 255); border-bottom: 1px solid rgb(223, 225, 230); padding-top: 0.75rem; padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+<h2 class="font-headline-lg text-headline-lg text-on-surface font-semibold tracking-tight">Synthetic Contact Details</h2>
+</div>
+<!-- Atlassian Quick Action Toolbar -->
+<div class="px-space-md pb-space-md flex items-center gap-space-xs overflow-x-auto no-scrollbar"><div class="flex items-center gap-space-xs flex-shrink-0"><button class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-surface-container text-on-surface rounded-lg font-title-sm text-title-sm hover:bg-surface-container-high transition-colors flex-shrink-0" onclick="focusNoteField()"><span class="material-symbols-outlined text-[18px]">lock</span><span class="">Internal note</span></button><button aria-label="Copy ticket permalink" class="w-9 h-9 flex items-center justify-center bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded-lg transition-colors flex-shrink-0" id="copy-link-btn" onclick="handleCopyLink()" title="Copy link"><span class="material-symbols-outlined text-[18px]">link</span></button><button aria-label="Assign issue" class="w-9 h-9 flex items-center justify-center bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded-lg transition-colors flex-shrink-0" title="Assign issue"><span class="material-symbols-outlined text-[18px]">person_add</span></button></div><button class="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-secondary text-on-secondary rounded-lg font-title-sm text-title-sm hover:opacity-90 active:scale-[0.98] transition-all flex-shrink-0 shadow-sm ml-auto" id="resolve-btn" onclick="toggleResolveModal()"><span class="material-symbols-outlined text-[18px]" style="font-variation-settings: &quot;FILL&quot; 1;">check_circle</span><span class="">Resolve complaint</span></button></div>
+<!-- Main Content Stack -->
+<div class="px-space-md flex flex-col gap-space-md">
+<!-- Card 1: Key Metadata Panel -->
+<section class="rounded-lg shadow-sm p-space-md" style="background-color: rgb(255, 255, 255); border: 1px solid rgb(223, 225, 230);">
+<div class="flex items-center justify-between pb-space-sm mb-space-md" style="border-bottom: 1px solid #EBECF0;">
+<span class="font-label-md text-label-md uppercase tracking-wider flex items-center gap-1.5 font-bold" style="color: rgb(66, 82, 110);">
+<span class="material-symbols-outlined text-[16px] text-primary">badge</span>
+          Customer &amp; Ticket Metadata
+        </span>
+<span class="font-label-sm text-label-sm px-2 py-0.5 rounded-full font-semibold" style="background-color: rgb(235, 236, 240); color: rgb(66, 82, 110); border: 1px solid rgb(223, 225, 230);">Age: Today</span>
+</div>
+<!-- Key-Value Grid -->
+<div class="grid grid-cols-2 gap-x-space-md gap-y-space-md">
+<!-- Reporter -->
+<div class="col-span-2 flex items-center gap-space-sm p-space-sm rounded-lg" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;">
+<img class="w-10 h-10 rounded-full object-cover flex-shrink-0" data-alt="Corporate headshot of applicant 47 against a clean neutral office background with bright daylight and professional styling, matching blue and slate color palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBku4NIXO0nxgBwsYDqdmREcqz-xWIcDimej4TIGdvDS1pPbXJQT0jHz6Bh9ix8ZZp5ExGHfw7l9ZkBF4kas09_frwW8Or_2c754kv2aO_yHQ0ZGCqEog16wmDD11Ilib05s-KRt4V3nlmCH3deZ8cmWcryMFw5CnNfNz8yyKmSmoz2LI4SJN0dHTQ4lHxdEES_QUocztsnMJ-iv8912aA2jw7tC60BLDPCtSVoUnM" style="border: 1px solid rgb(223, 225, 230);">
+<div class="flex flex-col min-w-0 flex-1">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Customer / Reporter</span>
+<span class="font-title-md text-title-md text-on-surface font-semibold truncate">Synthetic Applicant 47</span>
+</div>
+<div class="flex items-center gap-1 px-2 py-1 rounded" style="background-color: #EBECF0; border: 1px solid #DFE1E6; color: #172B4D;">
+<span class="font-code-sm text-code-sm font-semibold">999999991</span>
+<button aria-label="Copy National ID" class="hover:text-primary transition-colors" onclick="navigator.clipboard?.writeText('999999991')" title="Copy National ID">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Phone Primary -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Primary Phone</span>
+<a class="font-body-md text-body-md text-primary hover:underline flex items-center gap-1 truncate pt-0.5" href="tel:+254700000001">
+<span class="material-symbols-outlined text-[16px] flex-shrink-0">call</span>
+<span class="truncate font-medium">+254 700 000 001</span>
+</a>
+</div>
+<!-- Phone Secondary -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Alternative Phone</span>
+<a class="font-body-md text-body-md text-primary hover:underline flex items-center gap-1 truncate pt-0.5" href="tel:+254700000002">
+<span class="material-symbols-outlined text-[16px] flex-shrink-0">phone_android</span>
+<span class="truncate font-medium">+254 700 000 002</span>
+</a>
+</div>
+<!-- Branch -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Branch</span>
+<span class="font-body-md text-body-md text-on-surface font-medium truncate pt-0.5">Synthetic Other Branch</span>
+</div>
+<!-- Complaint Type -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Complaint Type</span>
+<span class="font-body-md text-body-md text-on-surface font-medium truncate pt-0.5">System service</span>
+</div>
+<!-- Reported Date -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Reported</span>
+<span class="font-body-md text-body-md text-on-surface truncate pt-0.5">27 Oct 2026</span>
+</div>
+<!-- Priority / Severity -->
+<div class="flex flex-col min-w-0 p-2 rounded" style="background-color: #FFEBE6; border: 1px solid #FFBDAD;">
+<span class="font-label-sm text-label-sm uppercase font-bold tracking-wider" style="color: rgb(191, 38, 0);">Severity</span>
+<div class="flex items-center gap-1 pt-0.5">
+<span class="material-symbols-outlined text-[16px]" style="color: rgb(191, 38, 0);">arrow_upward</span>
+<span class="font-body-md text-body-md font-bold" style="color: rgb(191, 38, 0);">High Priority</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Card 2: Issue Description -->
+<section class="rounded-lg shadow-sm p-space-md" style="background-color: rgb(255, 255, 255); border: 1px solid rgb(223, 225, 230);"><!-- Header: Active Inline Edit State -->
+<div class="flex items-center justify-between pb-space-sm mb-space-sm" style="border-bottom: 1px solid rgb(235, 236, 240);">
+  <div class="flex items-center gap-2">
+    <span class="material-symbols-outlined text-[16px] text-primary">edit_note</span>
+    <h3 class="font-label-md text-label-md uppercase tracking-wider font-bold" style="color: rgb(66, 82, 110);">
+      Editing Description
+    </h3>
+    <span class="inline-flex items-center gap-1 font-label-sm text-label-sm px-2 py-0.5 rounded-full font-semibold" style="background-color: rgb(222, 235, 255); color: rgb(7, 71, 166); border: 1px solid rgb(179, 212, 255);">
+      <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+      Inline Edit Active
+    </span>
+  </div>
+  <button class="font-label-sm text-label-sm hover:underline font-semibold" style="color: rgb(107, 119, 140);" type="button">
+    Cancel
+  </button>
+</div>
+
+<!-- Rich Editor / Textarea Area -->
+<div class="flex flex-col rounded-lg overflow-hidden mb-space-sm shadow-sm" style="border: 2px solid rgb(76, 154, 255); background-color: rgb(255, 255, 255);">
+  <!-- Editor Mini-Toolbar -->
+  <div class="flex items-center justify-between px-2 py-1" style="background-color: #F4F5F7; border-bottom: 1px solid #DFE1E6;">
+    <div class="flex items-center gap-0.5 text-on-surface-variant">
+      <button type="button" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container transition-colors" title="Bold"><span class="material-symbols-outlined text-[16px]">format_bold</span></button>
+      <button type="button" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container transition-colors" title="Italic"><span class="material-symbols-outlined text-[16px]">format_italic</span></button>
+      <button type="button" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container transition-colors" title="Bullet List"><span class="material-symbols-outlined text-[16px]">format_list_bulleted</span></button>
+      <button type="button" class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-container transition-colors" title="Insert Code"><span class="material-symbols-outlined text-[16px]">code</span></button>
+    </div>
+    <div class="flex items-center gap-1">
+      <span class="font-label-sm text-label-sm flex items-center gap-1 px-1.5 py-0.5 rounded" style="background-color: rgb(234, 230, 255); color: rgb(64, 50, 148);">
+        <span class="material-symbols-outlined text-[14px]">mic</span> Voice-to-Text
+      </span>
+    </div>
+  </div>
+  <!-- Textarea Field -->
+  <textarea id="ticket-description-input" rows="4" class="w-full p-space-sm font-body-md text-body-md text-on-surface outline-none resize-none leading-relaxed" style="background-color: #FFFFFF;">Synthetic digester needs inspection. Feed pressure threshold dropped below standard nominal 1.4 bar over the last operational cycle. Remote diagnostic ping returned partial handshake. Customer reports sensor warning light flashing.</textarea>
+</div>
+
+<!-- Voice Recording & Transcription Integrated Panel -->
+<div class="flex flex-col gap-space-sm p-space-sm rounded-lg mb-space-md" style="background-color: rgb(250, 251, 252); border: 1px solid rgb(223, 225, 230);">
+  <!-- Voice Recording Status & Waveform Bar -->
+  <div class="flex items-center justify-between gap-space-sm p-2 rounded-lg" style="background-color: #FFFFFF; border: 1px solid #DFE1E6;">
+    <div class="flex items-center gap-2 min-w-0">
+      <!-- Live Mic Pulse -->
+      <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style="background-color: #FFEBE6; color: #BF2600;">
+        <span class="material-symbols-outlined text-[18px] animate-pulse" style="font-variation-settings: &quot;FILL&quot; 1;">mic</span>
+      </div>
+      <div class="flex flex-col min-w-0">
+        <div class="flex items-center gap-1.5">
+          <span class="font-title-sm text-title-sm font-semibold text-on-surface">Voice Note Recorded</span>
+          <span class="inline-flex items-center gap-1 font-label-sm text-label-sm px-1.5 py-0.2 rounded font-bold uppercase" style="background-color: rgb(227, 252, 239); color: rgb(0, 102, 68);">Processed</span>
+        </div>
+        <span class="font-code-sm text-code-sm" style="color: rgb(107, 119, 140);">0:24 / 1:00 • 16 kHz Audio</span>
+      </div>
+    </div>
+
+    <!-- Audio Waveform Visualization Simulation -->
+    
+  </div>
+
+  <!-- Live Transcription Preview Card -->
+  <div class="p-space-sm rounded-lg flex flex-col gap-1.5" style="background-color: #EAE6FF; border: 1px solid #C0B6F2;">
+    <div class="flex items-center justify-between">
+      <span class="font-label-sm text-label-sm flex items-center gap-1 font-bold uppercase tracking-wider" style="color: rgb(64, 50, 148);">
+        <span class="material-symbols-outlined text-[15px]">transcribe</span> Speech-to-Text Transcription
+      </span>
+      <span class="font-label-sm text-label-sm font-semibold" style="color: rgb(82, 67, 170);">Confidence: 98%</span>
+    </div>
+    <p class="font-body-md text-body-md italic leading-relaxed" style="color: rgb(37, 56, 88);">
+      “Additional diagnostic note: Intake valve seal shows minor degradation upon physical review. Sensor alarm cleared after reset but pressure remains intermittent at 1.35 bar.”
+    </p>
+  </div>
+
+  <!-- Transcript Insertion & Management Controls -->
+  <div class="flex items-center justify-between flex-wrap gap-space-xs pt-0.5">
+    <div class="flex items-center gap-1.5">
+      <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded font-title-sm text-title-sm font-semibold shadow-sm transition-colors hover:opacity-90" style="background-color: rgb(0, 82, 204); color: rgb(255, 255, 255);" title="Append transcript to current text">
+        <span class="material-symbols-outlined text-[15px]">add</span> Append to Description
+      </button>
+      <button type="button" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded font-title-sm text-title-sm font-semibold transition-colors" style="background-color: rgb(235, 236, 240); color: rgb(23, 43, 77); border: 1px solid rgb(223, 225, 230);" title="Replace existing description with transcript">
+        <span class="material-symbols-outlined text-[15px]">sync_alt</span> Replace
+      </button>
+    </div>
+    <div class="flex items-center gap-1">
+      <button type="button" class="inline-flex items-center gap-1 px-2 py-1.5 rounded font-label-sm text-label-sm font-medium hover:bg-surface-container transition-colors" style="color: rgb(66, 82, 110);" title="Record again">
+        <span class="material-symbols-outlined text-[15px]">replay</span> Retry
+      </button>
+      <button type="button" class="inline-flex items-center gap-1 px-2 py-1.5 rounded font-label-sm text-label-sm font-medium hover:bg-surface-container transition-colors" style="color: rgb(191, 38, 0);" title="Discard voice transcript">
+        <span class="material-symbols-outlined text-[15px]">delete</span> Discard
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Action Controls: Save Changes & Cancel -->
+<div class="flex items-center justify-end gap-space-sm pt-space-xs" style="border-top: 1px solid rgb(235, 236, 240);">
+  <button type="button" class="px-3.5 py-1.5 text-on-surface-variant hover:text-on-surface font-title-sm text-title-sm rounded font-medium transition-colors">
+    Cancel
+  </button>
+  <button type="button" class="px-4 py-1.5 rounded font-title-sm text-title-sm font-semibold shadow-sm hover:opacity-90 transition-opacity flex items-center gap-1" style="background-color: rgb(12, 102, 228); color: rgb(255, 255, 255);">
+    <span class="material-symbols-outlined text-[16px]">save</span> Save changes
+  </button>
+</div></section>
+<!-- Card 3: Location Verification Panel -->
+<section class="rounded-lg shadow-sm p-space-md overflow-hidden" style="background-color: rgb(255, 255, 255); border: 1px solid rgb(223, 225, 230);">
+<div class="flex items-center justify-between pb-space-sm mb-space-sm" style="border-bottom: 1px solid #EBECF0;"><h3 class="font-label-md text-label-md uppercase tracking-wider flex items-center gap-1.5 font-bold" style="color: rgb(66, 82, 110);"><span class="material-symbols-outlined text-[16px] text-secondary">distance</span> Installation Location</h3><div class="flex items-center gap-1"><button type="button" aria-label="Zoom in map" title="Zoom in" class="w-7 h-7 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" style="border: 1px solid rgb(223, 225, 230); background-color: rgb(250, 251, 252);"><span class="material-symbols-outlined text-[16px]">zoom_in</span></button><button type="button" aria-label="Zoom out map" title="Zoom out" class="w-7 h-7 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" style="border: 1px solid rgb(223, 225, 230); background-color: rgb(250, 251, 252);"><span class="material-symbols-outlined text-[16px]">zoom_out</span></button><button type="button" aria-label="Refresh map location" title="Refresh map" class="w-7 h-7 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" style="border: 1px solid rgb(223, 225, 230); background-color: rgb(250, 251, 252);"><span class="material-symbols-outlined text-[16px]">refresh</span></button></div></div>
+<!-- Map Snapshot Container -->
+<div class="w-full h-32 rounded-lg relative overflow-hidden mb-space-sm flex items-end p-space-sm" data-location="Sample County, Kenya" style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuAbfzRVr4K74ihBm6EN6Z_m0yuwLQLOi7cFcqY-Jo8A1sgIa0utH2fo28UwjNWS6_K4Tbwu64vQAE3DfbkDmwfgVxiaWtNsDEILtqDmHEkIAovAYCnSuKEnWB_TDYyKlumVoa34fy4Vu4lxq0c1UK6Pr6p5vpYHgOzSUZMU8FXbyr2xZDapdyRAccFqzuPgKTHHKnJ_BYOZn4Xd24duxKQ2HkVzNw5-PXrT4HPrFNc&quot;); border: 1px solid rgb(223, 225, 230);">
+<div class="px-2 py-1 rounded flex items-center gap-1 shadow-sm" style="background-color: rgba(255,255,255,0.95); border: 1px solid #DFE1E6; color: #172B4D;">
+<span class="material-symbols-outlined text-[14px] text-tertiary">location_on</span>
+<span class="font-label-sm text-label-sm truncate font-medium">Sample village landmark</span>
+</div>
+</div>
+<!-- Location Metadata Fields -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="p-space-sm rounded-lg" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;">
+<span class="font-label-sm text-label-sm block uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">County</span>
+<span class="font-title-sm text-title-sm text-on-surface truncate block font-semibold">Sample County</span>
+</div>
+<div class="p-space-sm rounded-lg" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;">
+<span class="font-label-sm text-label-sm block uppercase font-bold tracking-wider" style="color: rgb(94, 108, 132);">Constituency</span>
+<span class="font-title-sm text-title-sm text-on-surface truncate block font-semibold">Sample Constituency</span>
+</div>
+</div>
+</section>
+<!-- Card 4: Activity & Timeline (Atlassian JSM Stream) -->
+<section class="rounded-lg shadow-sm p-space-md" style="background-color: rgb(255, 255, 255); border: 1px solid rgb(223, 225, 230);"><!-- Tabs Bar -->
+<div class="flex items-center gap-space-xs pb-space-sm overflow-x-auto no-scrollbar" style="border-bottom: 1px solid rgb(235, 236, 240);"><div class="flex items-center justify-between w-full"><button class="font-title-sm text-title-sm text-primary py-1 px-2 border-b-2 border-primary transition-colors flex-shrink-0 flex items-center gap-1.5" id="tab-comments"><span class="material-symbols-outlined text-[16px]">chat_bubble</span><span class="font-semibold">Comments (3)</span></button><span class="font-label-sm text-label-sm text-on-surface-variant">Activity feed</span></div></div>
+
+<!-- Activity Items Feed -->
+<div class="flex flex-col gap-space-md mt-space-md">
+  <!-- Activity 1: Comment with @Mention, Attachment & Threaded Reply -->
+  <article class="flex flex-col gap-space-sm p-space-sm rounded-lg shadow-sm" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;">
+    <div class="flex items-start gap-space-sm">
+      <img class="w-8 h-8 rounded-full object-cover flex-shrink-0 mt-0.5" alt="Amara Kiprono" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAarEoVksaN46L7Clfwjub36Xx8staDw332YzhstmzHM5Tnx2gKKsZNAqkg2MOsIS7lzlNy1xFgPXwp69qjQyTFVMVmL2FcUlshaUzfpqFZ32M_HymjKssMiJQk2RbAcNgYxHtGWRWv9eYNER2jZiVbp4PA1jx4TsuSXBvFBPZd6juM2sGpa28J_ZWEaGUpGOxhpdJgUotinEFO3M9zZfioKokUxng_wsRpbCipvbU" style="border: 1px solid rgb(223, 225, 230);">
+      <div class="flex-1 flex flex-col gap-1 min-w-0">
+        <div class="flex items-center justify-between pb-1 flex-wrap gap-1" style="border-bottom: 1px solid #EBECF0;">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="font-title-sm text-title-sm text-on-surface font-semibold">Amara Kiprono</span>
+            <span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140); font-weight: 500;">(Support Lead)</span>
+            <span class="inline-flex items-center gap-0.5 font-label-sm text-label-sm px-1.5 py-0.5 rounded font-semibold" style="background-color: rgb(227, 252, 239); color: rgb(0, 102, 68); border: 1px solid rgb(171, 245, 209);">
+              <span class="material-symbols-outlined text-[12px]">lock</span> Internal note
+            </span>
+          </div>
+          <span class="font-label-sm text-label-sm flex-shrink-0" style="color: rgb(107, 119, 140);">28 Oct 2026, 08:53</span>
+        </div>
+        <p class="font-body-sm text-body-sm pt-1 leading-relaxed" style="color: rgb(23, 43, 77);">
+          Contacted client via primary phone. <span class="inline-flex items-center font-semibold px-1.5 py-0.5 rounded text-[11px]" style="background-color: rgb(222, 235, 255); color: rgb(7, 71, 166); border: 1px solid rgb(179, 212, 255);">@David Ochieng</span> please inspect intake nozzle valves if pressure fails to rebound within 2 hours.
+        </p>
+        <!-- Attachment Card -->
+        <div class="flex items-center justify-between p-2 rounded mt-1" style="background-color: #FFFFFF; border: 1px solid #DFE1E6;">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-7 h-7 rounded flex items-center justify-center flex-shrink-0" style="background-color: #FFEBE6; color: #BF2600;">
+              <span class="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+            </div>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title-sm text-title-sm truncate font-medium text-on-surface">diagnostic_report_cmp1.pdf</span>
+              <span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140);">1.4 MB • PDF document</span>
+            </div>
+          </div>
+          <button class="flex items-center justify-center w-7 h-7 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors flex-shrink-0" title="Download attachment">
+            <span class="material-symbols-outlined text-[16px]">download</span>
+          </button>
+        </div>
+        <!-- Comment Action Links -->
+        <div class="flex items-center gap-space-md pt-1.5 text-on-surface-variant font-label-sm text-label-sm font-semibold">
+          <button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">reply</span> Reply</button>
+          <button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">add_reaction</span> React</button>
+          <button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">link</span> Copy link</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Scenario 2: Threaded Nested Reply -->
+    <div class="relative pt-2 pl-4 ml-6 flex flex-col gap-space-xs" style="border-left: 2px solid rgb(193, 199, 208);"><div class="absolute -left-[2px] top-6 w-3 h-3 rounded-bl-md border-b-2 border-l-2" style="border-color: #C1C7D0;"></div><div class="flex items-start gap-space-sm p-2 rounded relative z-10" style="background-color: #FFFFFF; border: 1px solid #DFE1E6;"><div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0 text-on-primary font-bold text-[11px]">DO</div><div class="flex-1 flex flex-col gap-1 min-w-0"><div class="flex items-center justify-between pb-1 flex-wrap gap-1" style="border-bottom: 1px solid #F4F5F7;"><div class="flex items-center gap-1 flex-wrap"><span class="font-title-sm text-title-sm text-on-surface font-semibold">David Ochieng</span><span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140); font-weight: 500;">(Field Engineer)</span></div><span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140);">28 Oct 2026, 09:15</span></div><p class="font-body-sm text-body-sm leading-relaxed" style="color: rgb(23, 43, 77);">Understood <span class="inline-flex items-center font-semibold px-1.5 py-0.5 rounded text-[11px]" style="background-color: rgb(222, 235, 255); color: rgb(7, 71, 166); border: 1px solid rgb(179, 212, 255);">@Amara Kiprono</span>. Arriving on site at 10:30. Attaching the valve calibration reading.</p><div class="flex items-center justify-between p-1.5 rounded" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;"><div class="flex items-center gap-2 min-w-0"><div class="w-6 h-6 rounded flex items-center justify-center flex-shrink-0" style="background-color: #E3FCEF; color: #006644;"><span class="material-symbols-outlined text-[15px]">image</span></div><span class="font-title-sm text-title-sm truncate font-medium text-on-surface text-[12px]">valve_sensor_capture.jpg (840 KB)</span></div><button class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors flex-shrink-0" title="Preview image"><span class="material-symbols-outlined text-[14px]">visibility</span></button></div><div class="flex items-center gap-space-md pt-1 text-on-surface-variant font-label-sm text-label-sm font-semibold"><button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">reply</span> Reply</button><button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">add_reaction</span> React</button></div></div></div></div>
+  </article>
+
+  <!-- Activity 3: Another Team Member Comment -->
+  <article class="flex items-start gap-space-sm p-space-sm rounded-lg shadow-sm" style="background-color: #FAFBFC; border: 1px solid #DFE1E6;">
+    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-on-secondary font-bold text-[12px]" style="background-color: rgb(0, 108, 71);">
+      BM
+    </div>
+    <div class="flex-1 flex flex-col gap-1 min-w-0">
+      <div class="flex items-center justify-between pb-1 flex-wrap gap-1" style="border-bottom: 1px solid #EBECF0;">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="font-title-sm text-title-sm text-on-surface font-semibold">Brian Mutua</span>
+          <span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140); font-weight: 500;">(Quality Assurance)</span>
+        </div>
+        <span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140);">28 Oct 2026, 10:05</span>
+      </div>
+      <p class="font-body-sm text-body-sm pt-1 leading-relaxed" style="color: rgb(23, 43, 77);">
+        Noted high variance in batch series 14. Added flag to telemetry dashboard.
+      </p>
+      <div class="flex items-center gap-space-md pt-1.5 text-on-surface-variant font-label-sm text-label-sm font-semibold">
+        <button class="hover:text-primary transition-colors flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">reply</span> Reply</button>
+      </div>
+    </div>
+  </article>
+
+  <!-- Activity 4: Audit History Event -->
+  <article class="flex items-start gap-space-sm p-2 rounded" style="background-color: #FAFBFC; border: 1px solid #EBECF0;">
+    <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style="background-color: #EBECF0;">
+      <span class="material-symbols-outlined text-[10px] text-on-surface-variant">sync</span>
+    </div>
+    <div class="flex-1 flex flex-col">
+      <div class="font-body-sm text-body-sm text-on-surface-variant">
+        <strong class="font-semibold text-on-surface">System Agent</strong> changed status from <span class="px-1.5 py-0.5 rounded text-on-surface font-medium" style="background-color: rgb(235, 236, 240); border: 1px solid rgb(223, 225, 230);">Review Needed</span> to <span class="px-1.5 py-0.5 rounded font-bold uppercase" style="background-color: rgb(222, 235, 255); color: rgb(7, 71, 166); border: 1px solid rgb(179, 212, 255);">Open</span>
+      </div>
+      <span class="font-label-sm text-label-sm" style="color: rgb(107, 119, 140);">27 Oct 2026, 17:15</span>
+    </div>
+  </article>
+</div>
+
+<!-- Quick Add Note / Reply Composer with Tab Mode Toggle -->
+<form class="mt-space-md rounded-lg p-space-sm flex flex-col gap-space-sm shadow-sm" id="note-form" onsubmit="handlePostNote(event)" style="background-color: rgb(250, 251, 252); border: 1px solid rgb(223, 225, 230);">
+  <!-- Mode switch: Public reply vs Internal note -->
+  <div class="flex items-center gap-space-xs pb-1" style="border-bottom: 1px solid #EBECF0;">
+    <button type="button" class="font-label-sm text-label-sm px-2.5 py-1 rounded flex items-center gap-1 font-bold tracking-wide" style="background-color: rgb(227, 252, 240); color: rgb(0, 102, 68); border: 1px solid rgb(171, 245, 209);">
+      <span class="material-symbols-outlined text-[13px]">lock</span>
+      Internal note
+    </button>
+    <button type="button" class="font-label-sm text-label-sm px-2.5 py-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container font-semibold transition-colors">
+      Public reply
+    </button>
+    <span class="text-[11px] text-on-surface-variant ml-auto hidden sm:inline">Visible to agents only</span>
+  </div>
+  <textarea class="w-full text-on-surface font-body-sm text-body-sm p-space-sm rounded-lg outline-none focus:ring-0 placeholder:text-outline" id="internal-note-input" placeholder="Add a comment or internal note... Use @ to mention team members" rows="3" style="background-color: #FFFFFF; border: 1px solid #DFE1E6;"></textarea>
+  <div class="flex items-center justify-between pt-1">
+    <div class="flex items-center gap-1 text-on-surface-variant">
+      <button aria-label="Attach file" class="w-7 h-7 flex items-center justify-center rounded transition-colors" style="background-color: rgb(235, 236, 240); color: rgb(66, 82, 110);" title="Attach file" type="button">
+        <span class="material-symbols-outlined text-[16px]">attach_file</span>
+      </button>
+      <button aria-label="Mention team member" class="w-7 h-7 flex items-center justify-center rounded transition-colors" style="background-color: rgb(235, 236, 240); color: rgb(66, 82, 110);" title="Mention team member" type="button">
+        <span class="material-symbols-outlined text-[16px]">alternate_email</span>
+      </button>
+      <button aria-label="Format text bold" class="w-7 h-7 flex items-center justify-center rounded transition-colors" style="background-color: rgb(235, 236, 240); color: rgb(66, 82, 110);" title="Format Bold" type="button">
+        <span class="material-symbols-outlined text-[16px]">format_bold</span>
+      </button>
+    </div>
+    <button class="px-3.5 py-1.5 rounded font-title-sm text-title-sm hover:opacity-90 transition-opacity font-semibold" style="background-color: rgb(0, 82, 204); color: rgb(255, 255, 255);" type="submit">
+      Save Note
+    </button>
+  </div>
+</form></section>
+</div>
+<!-- Resolution Confirmation Modal / Bottom Drawer (Interactive Delight) -->
+<dialog class="fixed inset-0 m-auto z-50 bg-transparent backdrop:bg-inverse-surface/40 p-space-md max-w-sm w-full" id="resolve-modal">
+<div class="bg-surface-container-lowest rounded-xl shadow-xl p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center gap-space-sm text-secondary">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: &quot;FILL&quot; 1;">task_alt</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Resolve Complaint CMP-1</h3>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+        Confirm resolution code and client contact verification prior to closing this ticket.
+      </p>
+<div class="flex flex-col gap-space-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant font-semibold" for="resolution-code">Resolution Code</label>
+<select class="bg-surface-container-low text-on-surface font-body-md text-body-md p-2 rounded-lg outline-none" id="resolution-code">
+<option>Re-calibrated onsite successfully</option>
+<option>Hardware replaced by field technician</option>
+<option>Remote reset verified with applicant</option>
+<option>Inquiry resolved / False alarm</option>
+</select>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-3 py-2 text-on-surface-variant font-title-sm text-title-sm hover:bg-surface-container-high rounded-lg transition-colors" onclick="toggleResolveModal()">
+          Cancel
+        </button>
+<button class="px-4 py-2 bg-secondary text-on-secondary font-title-sm text-title-sm rounded-lg hover:opacity-95 shadow-sm transition-opacity" onclick="confirmResolve()">
+          Mark as Resolved
+        </button>
+</div>
+</div>
+</dialog>
+</div>
+<script>
+  function toggleResolveModal() {
+    const modal = document.getElementById('resolve-modal');
+    if (modal.open) {
+      modal.close();
+    } else {
+      modal.showModal();
+    }
+  }
+
+  function confirmResolve() {
+    const modal = document.getElementById('resolve-modal');
+    modal.close();
+    const toast = document.getElementById('toast-notification');
+    toast.classList.remove('hidden');
+    toast.querySelector('.truncate.font-body-sm').textContent = 'CMP-1 resolved and status transitioned.';
+  }
+
+  function focusNoteField() {
+    const input = document.getElementById('internal-note-input');
+    input.focus();
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function handlePostNote(e) {
+    e.preventDefault();
+    const input = document.getElementById('internal-note-input');
+    if (!input.value.trim()) return;
+    const toast = document.getElementById('toast-notification');
+    toast.classList.remove('hidden');
+    toast.querySelector('.truncate.font-body-sm').textContent = 'Internal note posted to issue CMP-1.';
+    input.value = '';
+  }
+
+  function handleCopyLink() {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+    }
+    const btn = document.getElementById('copy-link-btn');
+    btn.innerHTML = '<span class="material-symbols-outlined text-[18px] text-secondary">check</span>';
+    setTimeout(() => {
+      btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">link</span>';
+    }, 1800);
+  }
+
+  function selectTab(tabKey) {
+    ['all', 'comments', 'history', 'worklog'].forEach(k => {
+      const el = document.getElementById('tab-' + k);
+      if (k === tabKey) {
+        el.className = 'font-title-sm text-title-sm text-primary py-1 px-2 border-b-2 border-primary transition-colors flex-shrink-0';
+      } else {
+        el.className = 'font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface py-1 px-2 border-b-2 border-transparent transition-colors flex-shrink-0';
+      }
+    });
+  }
+</script></main>
+
+
+
+
+
+
+
+
+
+
+
+
+
+</body></html>

@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "2305f5b1a4457ea0e928f96d4d9e4c78999f93c5ad877be38480d181320e6243",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "20692de84692dc47c6f3b9d4e9d77c1ef787573f577aca05e34c30e42f6398e3",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
@@ -689,9 +689,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "79f92690ee0e4fab38ee03e1a7b015693adde4e60944cf2c7261d06af1766bb8",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "d9941c8ba798b030b0e424662acc237747b474f636f7f8a51c8067b7fa9bf882",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -863,27 +863,33 @@
     },
     {
       "path": "browser/src/complaints-detail-page.tsx",
-      "sha256": "835137661cbc87670ec47bfa162d1ed0c7710004be2f01702e1d30c0bcee04dd",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "373f15fef27da0f9d3db4d7491ec116af7855f97b372f02ec0ddd6ad6a725491",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     },
     {
       "path": "browser/src/complaints-detail-map.tsx",
-      "sha256": "b5757096f720df0149c1909f56bf8d482e8a4121ecdbccff0414403ec8c7d700",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "fb41822186d52135c33840dd7847032b9f8d0175dd9b15d5213a5d0cf92e37b6",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     },
     {
       "path": "browser/src/complaints-conversation.tsx",
-      "sha256": "2705699e8f0c22b481966bad606b0f481fb30d476fdf69e626734024c7185374",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "295eb6ee3836d58d3867f59ab595bb4da6c2fe23e410980c6136961bde58e32b",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     },
     {
       "path": "browser/src/complaints-operation-files.tsx",
-      "sha256": "ea1735b4f1dea463efccf402ba65c72deca16150545b682d3a30ed0881eaafb4",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md",
-      "reason": "User-approved Stitch detail candidate: vertical stack, shared staff conversation, recorded Portal-style map and exact recovery. Native-session PostgreSQL Playwright evidence; no approved baseline or release activation."
+      "sha256": "3e592e51076f022429c9c728b6cc3560507bc6a0d09b4462ebc4ca925544b11c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
+    },
+    {
+      "path": "browser/src/complaints-stitch.css",
+      "sha256": "3648bd4f0f31bd836e96e06de722b6cf622ac873a904715c38b3ef79307d9300",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-visual-match.md",
+      "reason": "User-authorized replacement of ADS styling with the full Stitch HTML/CSS and screenshot reference, including expanded staff conversation, evidence and dialog states. Native-session Playwright evidence; approved baselines and release/access flags remain unchanged."
     }
   ],
   "source_roots": [

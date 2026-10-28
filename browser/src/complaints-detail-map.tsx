@@ -5,12 +5,8 @@ import AddIcon from '@atlaskit/icon/core/add';
 import MinusIcon from '@atlaskit/icon/core/minus';
 import RefreshIcon from '@atlaskit/icon/core/refresh';
 import {Box} from '@atlaskit/primitives/compiled/box';
-import {Inline} from '@atlaskit/primitives/compiled/inline';
-import {Stack} from '@atlaskit/primitives/compiled/stack';
 import {Text} from '@atlaskit/primitives/compiled/text';
 import {Anchor} from '@atlaskit/primitives/compiled/anchor';
-import {cssMap} from '@atlaskit/css';
-import {token} from '@atlaskit/tokens';
 import type {Detail,MapConfig} from './complaints-operations-transport';
 
 type MapInstance = {remove:()=>void;invalidateSize:()=>void;setView:(point:number[],zoom:number)=>MapInstance;zoomIn:()=>void;zoomOut:()=>void};
@@ -31,7 +27,6 @@ function leaflet() {
   });
   return loading;
 }
-const styles=cssMap({map:{height:'19rem',width:'100%',borderRadius:token('radius.medium'),isolation:'isolate',backgroundColor:token('color.background.neutral')},facts:{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:token('space.150'),overflowWrap:'anywhere'}});
 export function DetailMap({item,config}:{item:Detail;config?:MapConfig}) {
   const node=useRef<HTMLDivElement>(null),map=useRef<MapInstance>(),redraw=useRef<()=>void>();
   const [failure,setFailure]=useState(''),[retry,setRetry]=useState(0);
@@ -57,10 +52,10 @@ export function DetailMap({item,config}:{item:Detail;config?:MapConfig}) {
     }).catch(()=>{if(!cancelled)setFailure('The map could not be loaded. Open the saved map pin or retry.');});
     return()=>{cancelled=true;observer?.disconnect();map.current?.remove();map.current=undefined;};
   },[item.key,lat,lng,coordinates,config?.enabled,config?.tile_url,retry]);
-  return <Stack space="space.150">
-    {coordinates&&config?.enabled&&<><Inline shouldWrap alignBlock="center" spread="space-between"><Text size="small" color="color.text.subtle">Recorded location</Text><Inline space="space.050"><IconButton icon={AddIcon} appearance="subtle" label="Zoom in map" onClick={()=>map.current?.zoomIn()}/><IconButton icon={MinusIcon} appearance="subtle" label="Zoom out map" onClick={()=>map.current?.zoomOut()}/><IconButton icon={RefreshIcon} appearance="subtle" label="Refresh map location" onClick={()=>{if(map.current){map.current.setView([lat,lng],18);redraw.current?.();}else setRetry(value=>value+1);}}/></Inline></Inline><Box ref={node} xcss={styles.map} aria-label="Interactive recorded complaint location"/> </>}
+  return <div className="stitch-map">
+    {coordinates&&config?.enabled&&<div className="stitch-map-view"><div className="stitch-map-toolbar"><IconButton icon={AddIcon} appearance="subtle" label="Zoom in map" onClick={()=>map.current?.zoomIn()}/><IconButton icon={MinusIcon} appearance="subtle" label="Zoom out map" onClick={()=>map.current?.zoomOut()}/><IconButton icon={RefreshIcon} appearance="subtle" label="Refresh map location" onClick={()=>{if(map.current){map.current.setView([lat,lng],18);redraw.current?.();}else setRetry(value=>value+1);}}/></div><div ref={node} className="stitch-map-canvas" aria-label="Interactive recorded complaint location"/>{item.village&&<div className="stitch-map-landmark">{item.village}</div>}</div>}
     {failure&&<Box role="status"><Text>{failure}</Text><Button appearance="subtle" onClick={()=>setRetry(value=>value+1)}>Retry map</Button></Box>}
     {(!coordinates||!config?.enabled)&&<Text size="small" color="color.text.subtle">{coordinates?'Interactive map is unavailable for this workspace.':'No recorded map coordinates.'}</Text>}
-    <Box xcss={styles.facts}>{[['County',item.county],['Constituency',item.constituency],['Village / nearest landmark',item.village]].map(([label,value])=><Stack key={label} space="space.050"><Text size="small" color="color.text.subtle">{label}</Text><Text>{value||'Not recorded'}</Text></Stack>)}{link&&<Stack space="space.050"><Text size="small" color="color.text.subtle">Map pin</Text><Anchor href={link} target="_blank" rel="noopener noreferrer">Open map pin</Anchor></Stack>}</Box>
-  </Stack>;
+    <div className="stitch-map-facts">{[['County',item.county],['Constituency',item.constituency]].map(([label,value])=><div key={label}><span className="stitch-label">{label}</span><span>{value||'Not recorded'}</span></div>)}</div>{link&&<Anchor href={link} target="_blank" rel="noopener noreferrer">Open map pin</Anchor>}{(!coordinates||!config?.enabled)&&item.village&&<Text size="small">{item.village}</Text>}
+  </div>;
 }

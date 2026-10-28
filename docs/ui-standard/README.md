@@ -1,5 +1,11 @@
 # Mini App Design Lab
 
+Standalone browser styling now follows `browser/AGENTS.md`: the user's
+28 October 2026 instruction makes supplied code/CSS and screenshots authoritative
+for this and future requests, superseding the historical ADS adoption rule below.
+Verify real interactive states in Playwright. Telegram migration and release
+approval boundaries still apply.
+
 P2a.2 / ADR 0072 extends that separate demo with synthetic role-based creation,
 uploads, feedback/resolution and reopen/completion. ADS forms/Selects and
 side-by-side customer/evidence layout are source-bound candidates; the hidden

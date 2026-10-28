@@ -106,8 +106,11 @@ async function main() {
   // The native detail map reuses the Portal's exact vendored Leaflet bytes.
   const vendorSources = [], vendorFiles = [];
   if (operations) {
-    for (const name of ['vendor-leaflet-1.9.4.js', 'vendor-leaflet-1.9.4.css', 'vendor-leaflet-1.9.4.LICENSE.txt']) {
-      const relative = 'core/static/miniapp/' + name;
+    for (const relative of [
+      ...['vendor-leaflet-1.9.4.js', 'vendor-leaflet-1.9.4.css', 'vendor-leaflet-1.9.4.LICENSE.txt'].map(name => 'core/static/miniapp/' + name),
+      'browser/vendor/inter/InterVariable.woff2', 'browser/vendor/inter/Inter-LICENSE.txt',
+    ]) {
+      const name = path.basename(relative);
       const raw = fs.readFileSync(path.join(root, '..', relative));
       fs.writeFileSync(path.join(dist, name), raw);
       vendorFiles.push(path.join(dist, name));
@@ -116,7 +119,7 @@ async function main() {
   }
   const files = [...new Set([...bundles.map(bundle => bundle.filePath), noticeFile, ...vendorFiles])].sort().map(filename => {
     const name = path.relative(dist, filename).split(path.sep).join('/');
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt)$/.test(name)) throw new Error('Unexpected output path; do not expose it through the preview server.');
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt|woff2)$/.test(name)) throw new Error('Unexpected output path; do not expose it through the preview server.');
     const raw = fs.readFileSync(filename);
     return { name, bytes: raw.length, sha256: crypto.createHash('sha256').update(raw).digest('hex') };
   });

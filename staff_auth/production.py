@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET
 
 ASSET_PREFIX = '/staff/assets/'
 ENTRY = 'complaints-operations.html'
-TYPES = {'.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.txt':'text/plain'}
+TYPES = {'.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.txt':'text/plain', '.woff2':'font/woff2'}
 
 
 @lru_cache(maxsize=1)
@@ -35,8 +35,9 @@ def load_build():
                 or manifest.get('dependencyLock') != hashlib.sha256(lock.encode()).hexdigest()):
             raise ValueError
         vendor_paths = {'core/static/miniapp/vendor-leaflet-1.9.4.' + suffix for suffix in ('js', 'css', 'LICENSE.txt')}
+        vendor_paths |= {'browser/vendor/inter/InterVariable.woff2', 'browser/vendor/inter/Inter-LICENSE.txt'}
         vendors = manifest.get('vendorSources', [])
-        if len(vendors) != 3 or {row['path'] for row in vendors} != vendor_paths:
+        if len(vendors) != len(vendor_paths) or {row['path'] for row in vendors} != vendor_paths:
             raise ValueError
         for row in vendors:
             artifact = next((item for item in manifest['files'] if item['name'] == Path(row['path']).name), {})
@@ -57,7 +58,7 @@ def load_build():
         routes, total = {}, 0
         for row in manifest['files']:
             name = row['name']
-            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt)',name):
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt|woff2)',name):
                 raise ValueError
             source = directory/name
             if source.is_symlink() or source.resolve().parent != directory.resolve():
@@ -129,13 +130,13 @@ def _response(filename):
     routes, hashes = load_build()
     if filename not in routes: raise Http404
     raw, kind = routes[filename]
-    response = HttpResponse(raw,content_type=kind+'; charset=utf-8')
+    response = HttpResponse(raw,content_type=kind if kind=='font/woff2' else kind+'; charset=utf-8')
     response['Cache-Control']='no-store, private'
     response['Referrer-Policy']='no-referrer'
     response['X-Content-Type-Options']='nosniff'
     response['Content-Security-Policy']=(
         "default-src 'none'; script-src 'self' "+hashes+"; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; img-src 'self' blob: data: https://a.basemaps.cartocdn.com https://b.basemaps.cartocdn.com https://c.basemaps.cartocdn.com; frame-src blob:; font-src 'none'; "
+        "connect-src 'self'; img-src 'self' blob: data: https://a.basemaps.cartocdn.com https://b.basemaps.cartocdn.com https://c.basemaps.cartocdn.com; frame-src blob:; font-src 'self'; "
         "form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'"
     )
     return response

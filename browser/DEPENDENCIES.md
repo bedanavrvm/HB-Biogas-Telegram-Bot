@@ -238,3 +238,14 @@ Leaflet 1.9.4 JavaScript, CSS and BSD licence into native operations builds.
 `vendorSources` binds those exact source bytes to the served artifact hashes.
 This adds no npm dependency or external script and does not enter synthetic
 preview/demo graphs. See the [detail review](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-detail.md).
+
+## Reference typography (28 October 2026)
+
+`vendor/inter/InterVariable.woff2` is the unmodified Inter 4.1 upright variable
+font from the [official source](https://github.com/rsms/inter/tree/v4.1).
+Its SIL Open Font License 1.1 is retained as `Inter-LICENSE.txt`; provenance and
+upstream revision are in `vendor/inter/README.md`. This bounded font exception
+to the earlier font exclusion implements the user's Stitch reference. Native
+operations builds copy both files, bind source/output hashes in vendorSources,
+and allow only same-origin fonts. Existing dependency locks and exclusions for
+Atlassian brand/image/font assets remain.

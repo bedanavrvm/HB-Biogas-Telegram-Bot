@@ -71,7 +71,7 @@ def asset(request, filename='complaints-operations.html'):
     response['Content-Security-Policy'] = (
         "default-src 'none'; script-src 'self' " + ' '.join(importmap_hashes(review_assets)) +
         "; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src blob: data:; "
-        "frame-src blob:; font-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'"
+        "frame-src blob:; font-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'"
     )
     return response
 
@@ -82,5 +82,5 @@ urlpatterns = [
     path('api/staff/complaints/operations/v1/groups/<int:group_key>/', include('core.api.browser_complaint_operations_urls')),
     path('', asset),
     re_path(r'^staff/app/complaints/(?:new/|reports/|settings/|cases/[a-f0-9-]{36}/)?$', asset),
-    re_path(r'^(?P<filename>[A-Za-z0-9][A-Za-z0-9._-]*\.(?:html|js|css|txt))$', asset),
+    re_path(r'^(?P<filename>[A-Za-z0-9][A-Za-z0-9._-]*\.(?:html|js|css|txt|woff2))$', asset),
 ]

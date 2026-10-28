@@ -47,6 +47,12 @@ class BrowserProductionAssetsTests(SimpleTestCase):
             raw=b'/* synthetic vendored map asset */'
             vendor.write_bytes(raw);files[name]=raw
             vendors.append({'path':'core/static/miniapp/'+name,'sha256':hashlib.sha256(raw).hexdigest()})
+        for name in ('InterVariable.woff2','Inter-LICENSE.txt'):
+            vendor=self.root/'browser/vendor/inter'/name
+            vendor.parent.mkdir(parents=True,exist_ok=True)
+            raw=b'synthetic reviewed font asset'
+            vendor.write_bytes(raw);files[name]=raw
+            vendors.append({'path':'browser/vendor/inter/'+name,'sha256':hashlib.sha256(raw).hexdigest()})
         for name,raw in files.items(): (self.build/name).write_bytes(raw)
         self.manifest={'schemaVersion':1,'mode':'production','demoOnly':False,'localComplaintsDemo':False,
             'closedAuthentication':True,'closedComplaintOperations':True,'productionBrowser':True,'assetPrefix':'/staff/assets/',

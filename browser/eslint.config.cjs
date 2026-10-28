@@ -14,7 +14,8 @@ module.exports = [{
     '@atlaskit/ui-styling-standard': styling,
   },
   linterOptions: { reportUnusedDisableDirectives: 'error' },
-  rules: required,
+  // User-provided reference styling supersedes ADS conformance (28 October 2026).
+  rules: Object.fromEntries(Object.entries(required).map(([name,value]) => [name, name.startsWith('@atlaskit/') ? 'off' : value])),
 }, {
   files: ['src/complaints-operations*.tsx', 'src/complaints-report*.tsx', 'src/complaints-date-control.tsx', 'src/complaints-ui.tsx', 'src/browser-interactions.tsx', 'src/workspace-task.tsx'],
   rules: { 'no-alert': 'error' },

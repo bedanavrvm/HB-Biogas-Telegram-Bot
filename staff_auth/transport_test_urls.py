@@ -46,7 +46,8 @@ def assets(*, complaints=False, operations=False):
             raise ValueError('Reject stale authentication source/build evidence.')
     for row in manifest['files']:
         name = row['name']
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.(html|js|css|txt)', name):
+        suffixes = 'html|js|css|txt|woff2' if operations else 'html|js|css|txt'
+        if not re.fullmatch(rf'[A-Za-z0-9][A-Za-z0-9._-]*\.({suffixes})', name):
             raise ValueError('Unexpected asset path.')
         source = directory / name
         if source.is_symlink() or source.resolve().parent != directory.resolve():
@@ -54,7 +55,7 @@ def assets(*, complaints=False, operations=False):
         raw = source.read_bytes()
         if len(raw) != row['bytes'] or hashlib.sha256(raw).hexdigest() != row['sha256'] or '/' + name in routes:
             raise ValueError('Reject changed or duplicate authentication assets.')
-        routes['/' + name] = raw, TYPES[source.suffix] + '; charset=utf-8'
+        routes['/' + name] = raw, 'font/woff2' if source.suffix == '.woff2' else TYPES[source.suffix] + '; charset=utf-8'
     if ('/complaints-operations.html' if operations else '/complaints.html' if complaints else '/access.html') not in routes or '/THIRD_PARTY_NOTICES.txt' not in routes:
         raise ValueError('Missing entry or notices.')
     return routes
