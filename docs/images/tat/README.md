@@ -1,5 +1,17 @@
 # TAT user-guide screenshots
 
+The newer complete UI review is in
+[`full-ui-2026-10-28/`](full-ui-2026-10-28/), with a local HTML gallery and
+capture manifest. See [TAT Mini App UI reference](../../TAT_MINIAPP_UI_REFERENCE.md),
+[screenshot index](../../TAT_MINIAPP_SCREENSHOT_INDEX.md) and
+[observed element index](../../TAT_MINIAPP_ELEMENT_INDEX.md).
+That collection uses Playwright against an isolated, freshly migrated Django
+database and actual TAT endpoints, with synthetic signed identities. Conditional
+appraisal/signing/shadow-task states and the local PDF storage substitution are
+explicitly identified. It is separate from the older mocked guide images below.
+Generated screenshots remain ignored local artifacts; no production data or
+external provider acceptance is implied.
+
 This folder documents the screenshot names referenced by
 `TAT_TRACKER_MINI_APP_GUIDE.md`. The folder does not authorize committing the
 image files.
