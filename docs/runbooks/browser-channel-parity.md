@@ -1,5 +1,13 @@
 # Browser and Telegram channel rollout
 
+28 October correction: the seven audited browser workflow gaps are repaired and
+verified through native-session Playwright journeys against the real production
+artifact/routes on isolated loopback data. See the
+[source-bound review](../ui-standard/reviews/2026-10-28-complaints-workflow-parity.md)
+for task evidence, role/denied-path checks and verification limits. Global report
+details/history remain read-only under current Reports authority; owning-workspace
+write/evidence permissions are unchanged. No release flag or deployment was enabled.
+
 27 October release update: [ADR 0075](../adr/0075-complaints-browser-production-activation.md)
 adds conditional real production URLs, an integrity-bound native build and
 audited Admin invitations/onboarding. Defaults remain off. Follow

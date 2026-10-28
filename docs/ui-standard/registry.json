@@ -653,9 +653,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "5f7a6d1713584f3ae001407771fa6976c21eb0fd458f5d0a84f7ef8c49410442",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "db1f0a4bcaab79ea8adabfccf43a21a3e1e987c455dbdbafb3d7ac5edc67512c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -671,9 +671,9 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "9e5670a05a3de259929ae6acfd6465f8bae5b5c6a0b2e599e3c6349394d772b7",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "0da56cf59ab679632ef8cf715d79225dfcd04b10f5a7a4b3532ba6f8045f045b",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "f81df9cfe37a830a78b69d15cfb90e748c556328bc3b86153848ea2a6c4289a7",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "9c1bbe205275e209f16053d9f3243720e216c5c151931b07efdaa97bcda94aac",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "3d1564942bea87edfd3c923fa1d086b552931ed6bfa5e68338ee13f1d5a4fea9",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "e99a5fc83d24d92c0e986b053cd265e26c936c3738d469f40ca510a3b53be722",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -701,15 +701,15 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "c72092d094a4f562bd332a48fd31848190607875a2c3620ca136e845fe1ffe9e",
-      "review_reference": "docs/runbooks/browser-channel-parity.md",
-      "reason": "Specification #18: browser-only queue/detail, protected evidence, shared dismissal/feedback and cohort-correct reports. Current official ADS references and intentional compositions: browser/DESIGN.md. Synthetic candidate evidence only; no approved baseline, Telegram migration, role change or production activation."
+      "sha256": "1ce839fc1e225506b59af0e0189be32306db0dd20a10d0824e9672e8c5f6bf5a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "5011bb3efa2662fd8067934b91935ec7daf32454e43a961b0f34e2e10cadf908",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "a11669e1c325ac269bbcd0638d4869399198e94549d163c53cf8ab4cfe71aee0",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
@@ -725,9 +725,9 @@
     },
     {
       "path": "browser/src/browser-interactions.tsx",
-      "sha256": "82e3c5861c5eebc1ccdaaa27ae99a9011f17dd4742731491de1bf21744a0cad8",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "d8fd1fdf3e1485061cfc512cd10e97892943c67683d93b5a2f3425790dab1317",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
@@ -854,6 +854,12 @@
       "sha256": "e8b5000163f55fc3ab8779797698f21c82adabf14cc2db6d42d77ddf94b0c85a",
       "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-workflow-improvements.md",
       "reason": "User-requested setup readiness explanation uses existing task labels, details and step links in the current Admin shell; autosave refreshes it. No baseline, tokens or Phase 6 changes."
+    },
+    {
+      "path": "browser/src/complaints-case-details.tsx",
+      "sha256": "3a30a8a5d0259e5985629071f3d01a72ce3282560c57c1051918b8b45855f70c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
+      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     }
   ],
   "source_roots": [

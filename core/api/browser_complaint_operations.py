@@ -107,19 +107,19 @@ def project(data):
             'recorded_at': data.get('recorded_at_iso', data.get('recorded_at'))}
 
 
-def project_detail(data, actor, group):
+def project_detail(data, actor, group, *, read_only=False):
     result = project(data)
     result['history'] = [{key: row.get(key, '') for key in (
         'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
     )} for row in data['updates'][:100]]
     result['history_truncated'] = bool(data.get('history_next_cursor')) or len(data['updates']) > 100
     result['history_next_cursor'] = data.get('history_next_cursor', '')
-    result['actions'] = [name for name, (capability, _) in ACTIONS.items()
-                         if cases.actor_can(group, actor, capability)]
+    result['actions'] = [] if read_only else [name for name, (capability, _) in ACTIONS.items()
+                                             if cases.actor_can(group, actor, capability)]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
     result['evidence'] = [{key: item.get(key, '') for key in (
         'id', 'name', 'mime_type', 'previewable', 'status', 'created_at', 'created_at_iso', 'uploaded_by', 'size',
-    )} for item in data['evidence']] if cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
+    )} for item in data['evidence']] if not read_only and cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
     result['location'] = data['location']
     return result
 
@@ -464,12 +464,15 @@ def reports(request, group, actor):
             raise cases.ComplaintCaseError('Use a shorter table search.')
         table_filters['search'] = params['table_search']
     table = complaint_report_page(filters=table_filters, page=params.get('page', 1), page_size=25, sort=sort)
-    # Links only for complaints in this request's currently authorized workspace.
-    keys = dict(ParsedMessage.objects.filter(group_id=group.group_id,
+    # Operational links retain owning scope; global reports use a read-only detail.
+    keys = {reference: (key, target_group) for reference, key, target_group in ParsedMessage.objects.filter(
         complaint_control__reference_number__in=[row['complaint_id'] for row in table['results']])
-        .values_list('complaint_control__reference_number', 'pk'))
+        .values_list('complaint_control__reference_number', 'pk', 'group_id')}
     for row in table['results']:
-        row['key'] = str(keys[row['complaint_id']]) if row['complaint_id'] in keys else ''
+        key, target_group = keys.get(row['complaint_id'], ('', ''))
+        row['key'] = str(key) if target_group == group.group_id else ''
+    report_links = {reference: str(key) for reference, (key, target_group) in keys.items()
+                    if target_group != group.group_id}
     previous = None
     from datetime import timedelta
     from django.utils.dateparse import parse_date
@@ -479,8 +482,31 @@ def reports(request, group, actor):
         previous = complaint_report_summary(filters={**filters, 'date_from': (start - span).isoformat(),
             'date_to': (start - timedelta(days=1)).isoformat()}, granularity=params.get('granularity', 'month'))
     return JsonResponse({'summary': complaint_report_summary(filters=filters, granularity=params.get('granularity', 'month')),
-                         'table': table, 'previous': {key: previous[key] for key in
+                         'table': table, 'report_links': report_links, 'previous': {key: previous[key] for key in
                              ('total', 'pending', 'resolved', 'card_timing', 'card_coverage')} if previous else None})
+
+
+@endpoint(['GET'], 'complaint.reports.view')
+def report_detail(request, group, actor, case_key):
+    from core.services.complaint_register import register_case
+    data = register_case(str(case_key), paged_history=True)
+    record = ParsedMessage.objects.get(pk=data['id'])
+    data.update(cases.serialize_case(record), evidence=[], location=cases.location_for_case(record))
+    result = project_detail(data, actor, group, read_only=True)
+    result['group_label'] = data['group_label']
+    return JsonResponse({'case': result})
+
+
+@endpoint(['POST'], 'complaint.reports.view')
+def report_history(request, group, actor, case_key):
+    from core.services.complaint_register import register_case
+    body = payload(request)
+    if set(body) - {'cursor'}:
+        raise cases.ComplaintCaseError('Reload the complaint activity and try again.')
+    data = register_case(str(case_key), paged_history=True, cursor=body.get('cursor', ''))
+    return JsonResponse({'items': [{key: row.get(key, '') for key in (
+        'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
+    )} for row in data['updates']], 'next_cursor': data['history_next_cursor']})
 
 
 @endpoint(['POST'], 'complaint.reports.view')

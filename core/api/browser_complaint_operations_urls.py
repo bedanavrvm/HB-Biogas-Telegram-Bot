@@ -18,6 +18,8 @@ urlpatterns = [
     path('evidence/<uuid:evidence_key>/', views.evidence),
     path('evidence/<uuid:evidence_key>/preview/', views.evidence_preview),
     path('reports/', views.reports),
+    path('reports/cases/<uuid:case_key>/', views.report_detail),
+    path('reports/cases/<uuid:case_key>/history/', views.report_history),
     path('reports/export/', views.export),
     path('reports/email/', views.email),
     path('reports/email-settings/', views.email_settings),

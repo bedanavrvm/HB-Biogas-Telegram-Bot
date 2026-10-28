@@ -83,7 +83,7 @@ export function useViewportPane(enabled = true) {
   const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!element || !enabled) return;
-    const resize = () => { if(!element.getClientRects().length)return;const font=parseFloat(getComputedStyle(document.documentElement).fontSize),viewport=window.visualViewport?.height||innerHeight;const bounded=innerWidth>=90*font&&viewport>=40*font;const top=element.getBoundingClientRect().top;const next=bounded?`${Math.max(200,viewport-top-16)}px`:'';if(element.style.height!==next)element.style.height=next; };
+    const resize = () => { if(!element.getClientRects().length)return;const font=parseFloat(getComputedStyle(document.documentElement).fontSize),viewport=window.visualViewport?.height||innerHeight;const bounded=innerWidth>=64*font&&viewport>=40*font;const top=element.getBoundingClientRect().top;const next=bounded?`${Math.max(200,viewport-top-16)}px`:'';if(element.style.height!==next)element.style.height=next; };
     const observer = new ResizeObserver(resize); if (element.parentElement) observer.observe(element.parentElement);
     const text=new MutationObserver(resize);text.observe(document.documentElement,{attributes:true,attributeFilter:['style']});
     window.addEventListener('resize', resize); window.visualViewport?.addEventListener('resize', resize); resize();

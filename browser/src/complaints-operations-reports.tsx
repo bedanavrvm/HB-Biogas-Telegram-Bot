@@ -12,12 +12,14 @@ import SectionMessage from '@atlaskit/section-message';
 import { AdaptiveSelect as Select, ActionButton } from './complaints-ui';
 import Textfield from '@atlaskit/textfield';
 import { token } from '@atlaskit/tokens';
-import { operation, OperationError, download } from './complaints-operations-transport';
+import { operation, OperationError, download, type Detail } from './complaints-operations-transport';
+import { CaseFacts, CaseLocation } from './complaints-case-details';
+import { Activity } from './complaints-operations-history';
 import { ReportCharts, type ReportSummary, type ReportSelection } from './complaints-report-charts';
 import { ReportTable, type ReportRow } from './complaints-report-table';
 import { ReportMetrics, type PreviousSummary } from './complaints-report-metrics';
 import { ActionMenu, DialogFooter, DialogStatus, DraftStatus } from './complaints-ui';
-import { TaskDialog, complaintCount, confirmAction, displayDate } from './complaints-ui';
+import { TaskDialog, ComplaintStatus, Section, complaintCount, confirmAction, displayDate } from './complaints-ui';
 import { reportLocation, type ReportLocation } from './workspace-navigation';
 import { ReportFilters } from './complaints-report-filters';
 import { notify } from './browser-interactions';
@@ -27,8 +29,10 @@ const styles = cssMap({
     full: { width: '100%', minWidth: 0 },
   columns: { gridTemplateColumns: 'repeat(1, minmax(0, 1fr))', '@media (min-width: 48rem)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' },
   table: { minWidth: 0 }, form: { width: '100%', minWidth:0 },
+  narrative: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+  close: { gridColumn: '1 / -1', justifySelf: 'end' },
 });
-type Result = { summary: ReportSummary; previous: PreviousSummary | null; table: {results: ReportRow[]; count: number; page: number; page_size: number} };
+type Result = { summary: ReportSummary; previous: PreviousSummary | null; report_links: Record<string, string>; table: {results: ReportRow[]; count: number; page: number; page_size: number} };
 type Schedule = { id: string; revision?: number; title: string; preset: string; frequency: string; send_time: string; active: boolean; skip_empty: boolean; recipients: string[]; group_configuration: number; branch: string };
 type EmailSettings = { schedules: Schedule[]; preset_options: {value: string; label: string}[]; branches_by_group: Record<string, {value: string; label: string}[]> };
 function errorText(error: unknown) { return error instanceof OperationError ? error.message : 'Check your connection and try again. Your entries are retained.'; }
@@ -40,6 +44,23 @@ function DateInput({ id, label, value, change, type = 'text' }: {id: string; lab
   return <Box><Label htmlFor={id}>{label}</Label><Textfield id={id} type={type} value={value} onChange={event=>change(event.currentTarget.value)}/></Box>;
 }
 const reportViews=['overview','turnaround','follow-up'];
+function ReportCase({group, selected, close}: {group: string; selected: string; close: () => void}) {
+  const [item, setItem] = useState<Detail>(), [error, setError] = useState<unknown>(), [retry, setRetry] = useState(0);
+  const signIn = React.useContext(TaskSession);
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    const timer = setTimeout(() => controller.abort(), 20000);
+    setItem(undefined); setError(undefined);
+    void operation<{case: Detail}>(group, `reports/cases/${selected}/`, controller.signal).then(result => {if(active)setItem(result.case);}).catch(issue => {if(active)setError(issue);}).finally(() => clearTimeout(timer));
+    return () => {active = false; controller.abort(); clearTimeout(timer);};
+  }, [group, selected, retry]);
+  return <TaskDialog title={item ? `${item.reference} · Complaint details` : 'Complaint details'} size="medium" close={close}>
+    {Boolean(error) && <Box role="alert"><SectionMessage title="Complaint could not be loaded" appearance="error" headingLevel="h3"><Text>{errorText(error)}</Text><Button onClick={() => setRetry(value => value + 1)}>Retry complaint</Button>{error instanceof OperationError && error.status === 401 && <Button onClick={signIn}>Sign in again</Button>}</SectionMessage></Box>}
+    {!item && !error && <Box role="status"><Text>Loading complaint…</Text></Box>}
+    {item && <><Inline shouldWrap alignBlock="center" space="space.100"><Heading as="h3" size="small">{item.customer_name}</Heading><ComplaintStatus status={item.status} needs={item.needs_details}/></Inline><Text size="small" color="color.text.subtle">Read-only report view · {item.group_label}</Text><CaseFacts item={item}/><Section title="Description"><Box xcss={styles.narrative}><Text as="p">{item.description}</Text></Box></Section><CaseLocation item={item}/><Activity key={item.key} group={group} caseKey={item.key} initial={item.history} next={item.history_next_cursor} reported={item.recorded_at || ''} report/></>}
+    <DialogFooter><Box xcss={styles.close}><Button onClick={close}>Close</Button></Box></DialogFooter>
+  </TaskDialog>;
+}
 export function Reports({group,refresh,location,change,open,slot,markDirty}:{group:string;refresh:number;location:ReportLocation;change:(value:ReportLocation)=>void;open:(key:string)=>void;slot:RecoverySlot;markDirty:(dirty:boolean,pending?:boolean)=>void}) {
   const emailFormId=React.useId();
   const {view,grouping,status,from,to,branch,category,basis,page,range}=location;
@@ -82,10 +103,11 @@ export function Reports({group,refresh,location,change,open,slot,markDirty}:{gro
     {result&&sourceRef.current===source&&<>
       <ReportMetrics summary={result.summary} previous={result.previous} basis={basis} select={select} view={view} from={from} to={to}/>
       <ReportCharts summary={result.summary} view={view} grouping={grouping} from={from} to={to} select={select}/>
-      <Box xcss={styles.table} ref={table} tabIndex={-1} aria-label="Filtered report complaints" aria-busy={loading}><Stack space="space.150"><Inline spread="space-between" alignBlock="center" space="space.100"><Heading as="h3" size="medium">{complaintCount(result.table.count)}</Heading>{applied&&<Button appearance="subtle" onClick={()=>{setSelection(undefined);update({page:1});}}>Clear chart selection</Button>}</Inline>{applied&&<Text weight="medium">{applied.label}</Text>}<ReportTable search={typedSearch} setSearch={value=>{setTypedSearch(value);if(page!==1)update({page:1});}} offset={(result.table.page-1)*result.table.page_size} rows={result.table.results} open={open} sort={sort} setSort={value=>{setSort(value);update({page:1});}}/>{result.table.count>result.table.page_size&&<Inline spread="space-between" shouldWrap space="space.100"><Text size="small">Page {result.table.page} of {Math.ceil(result.table.count/result.table.page_size)}</Text><Inline space="space.100"><Button isDisabled={page<=1} onClick={()=>update({page:page-1})}>Previous page</Button><Button isDisabled={page*result.table.page_size>=result.table.count} onClick={()=>update({page:page+1})}>Next page</Button></Inline></Inline>}</Stack></Box>
+      <Box xcss={styles.table} ref={table} tabIndex={-1} aria-label="Filtered report complaints" aria-busy={loading}><Stack space="space.150"><Inline spread="space-between" alignBlock="center" space="space.100"><Heading as="h3" size="medium">{complaintCount(result.table.count)}</Heading>{applied&&<Button appearance="subtle" onClick={()=>{setSelection(undefined);update({page:1});}}>Clear chart selection</Button>}</Inline>{applied&&<Text weight="medium">{applied.label}</Text>}<ReportTable search={typedSearch} setSearch={value=>{setTypedSearch(value);if(page!==1)update({page:1});}} offset={(result.table.page-1)*result.table.page_size} rows={result.table.results} reportLinks={result.report_links} open={(key, reportKey) => {if(key)open(key);else if(reportKey)update({selected:reportKey});}} sort={sort} setSort={value=>{setSort(value);update({page:1});}}/>{result.table.count>result.table.page_size&&<Inline spread="space-between" shouldWrap space="space.100"><Text size="small">Page {result.table.page} of {Math.ceil(result.table.count/result.table.page_size)}</Text><Inline space="space.100"><Button isDisabled={page<=1} onClick={()=>update({page:page-1})}>Previous page</Button><Button isDisabled={page*result.table.page_size>=result.table.count} onClick={()=>update({page:page+1})}>Next page</Button></Inline></Inline>}</Stack></Box>
     </>}
   </Stack>;
   return <Stack xcss={styles.full} space="space.300">
+    {location.selected && <ReportCase key={location.selected} group={group} selected={location.selected} close={() => update({selected: ''})}/>}
     <ReportFilters location={location} change={value=>{latest.current=value;change(value);}} options={result?.summary.filter_options} actions={<ActionMenu label="Export" items={[{label:'Download filtered Excel',run:()=>exportFile('filtered')},{label:'Download all complaints',run:()=>exportFile('all')},{label:'Email report',disabled:loading||Boolean(error)||!result,run:()=>{setExportOpen(true);setEmailOpen(true);setEmailCount(result?.table.count||0);if(!emailFilters)setEmailFilters(structuredClone(filters));}}]}/>}/>
     <Inline space="space.050" shouldWrap role="tablist" aria-label="Report view">{reportViews.map(value=><Button key={value} id={'report-view-'+value} onKeyDown={reportKey} appearance="subtle" role="tab" tabIndex={value===view?0:-1} aria-controls="complaint-report-content" aria-selected={value===view} isSelected={value===view} onClick={()=>update({view:value,page:1})}>{value==='overview'?'Overview':value==='turnaround'?'Turnaround':'Open follow-up'}</Button>)}</Inline><Box role="tabpanel" id="complaint-report-content" aria-labelledby={'report-view-'+view}>{content}</Box>
     {exportOpen&&<TaskDialog title="Email report" compact hasStatus close={closeEmail}><DialogStatus><DraftStatus state={busy||emailTask.busy?'saving':emailTask.error||actionError?'error':delivery?'saved':!navigator.onLine?'offline':'draft'}/></DialogStatus><Stack space="space.100"><Text weight="semibold">Filtered complaint register · {complaintCount(emailCount)}</Text><Text size="small">{emailScope.date_from?displayDate(String(emailScope.date_from)):'All dates'}{emailScope.date_to?' – '+displayDate(String(emailScope.date_to)):''} · {emailScope.date_basis==='resolved'?'Resolved dates':'Reported dates'}</Text><Text size="small">{String(emailScope.branch||'All branches')} · {String(emailScope.category||'All complaint types')} · {emailScope.status==='open'?'Not resolved':emailScope.status==='resolved'?'Resolved':emailScope.status==='reopened'?'Reopened':'All statuses'}</Text>{Boolean(emailScope.metric)&&<Text size="small">Selected group: {({on_time:'Resolved on time',resolution:'Resolution timing',hb_response:'First response',received:'Reported complaints',closures:'Resolved complaints',reopened:'Reopened complaints'} as Record<string,string>)[String(emailScope.metric)]||'Chart selection'}</Text>}{Boolean(emailScope.search)&&<Text size="small">Search: {String(emailScope.search)}</Text>}</Stack>{emailOpen&&<Form onSubmit={()=>sendEmail()}>{({formProps})=><Box as="form" {...formProps} id={emailFormId}><Stack space="space.150"><DateInput id="report-email" label="Email address" type="email" value={address} change={value=>{if(!emailTask.busy&&!emailTask.uncertain&&!delivery){setAddress(value);setEmailKey('');}}}/><DialogFooter><Button isDisabled={busy||emailTask.busy||emailTask.uncertain} onClick={closeEmail}>{delivery?'Close':'Cancel'}</Button><ActionButton shouldFitContainer type="submit" form={emailFormId} isDisabled={Boolean(delivery)||emailTask.uncertain} isLoading={emailTask.busy}>Send report</ActionButton>{delivery&&<><Button isLoading={busy} onClick={async()=>{void sendEmail(true);}}>Check delivery</Button><Button onClick={async()=>{setDelivery('');setMessage('');setEmailKey('');setEmailFilters(structuredClone(filters));setEmailCount(result?.table.count||0);}}>Email another report</Button></>}</DialogFooter>{message&&<Box role="status"><Text>{message}</Text></Box>}<TaskRecovery state={emailTask}/>{emailTask.uncertain&&<Button isDisabled={emailTask.busy} onClick={async()=>{if(await confirmAction('A report may already be queued. Close and check your email before sending another?')){emailTask.reset();setEmailOpen(false);setExportOpen(false);setAddress('');setEmailKey('');setEmailFilters(undefined);setDelivery('');setMessage('');}}}>Close and check email later</Button>}</Stack></Box>}</Form>}{Boolean(actionError)&&<Box role="alert"><Text color="color.text.danger">{errorText(actionError)}</Text>{actionError instanceof OperationError&&[401,403].includes(actionError.status)&&<Button onClick={signIn}>Sign in again</Button>}</Box>}</TaskDialog>}

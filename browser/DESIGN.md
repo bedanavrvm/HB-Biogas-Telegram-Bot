@@ -1,5 +1,32 @@
 # Browser design references and application decisions
 
+## Complaint workflow corrections (28 October 2026)
+
+The user authorized correction of the seven audited browser workflow gaps, with
+incremental Playwright review. Current official guidance consulted:
+
+- [Form usage](https://atlassian.design/components/form/usage/): the historical
+  completion task includes every required input, including the complaint type.
+- [Section message usage](https://atlassian.design/components/section-message/usage/):
+  failed location loading stays beside the affected inputs with a working Retry;
+  dependent choices cannot retain stale options or allow an uncertain submission.
+- [Modal dialog usage](https://atlassian.design/components/modal-dialog/usage/):
+  the read-only report detail retains the underlying report, case identity,
+  bounded body, named close controls, existing native focus/escape behavior and
+  a right-aligned Close action. Long activity uses explicit pagination.
+- [Navigation layout](https://atlassian.design/components/navigation-system/layout/code/):
+  existing Root/TopNav/Main areas retain the application shell. Within Main,
+  the working area expands to 120rem and the queue/detail split uses the supported
+  64rem breakpoint. Narrow layouts retain Back navigation.
+
+Shared case facts/location use the installed ADS Text, Anchor, IconButton and
+layout primitives. Phone numbers remain actionable, map anchors accept only
+HTTP(S), and immutable changes use their server-provided labels and values.
+The existing TaskDialog/AG Grid compositions remain deliberate bounded choices;
+there is no new component dependency, theme, font or Telegram visual migration.
+The source-bound review and actual browser evidence are recorded in
+`docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md`.
+
 ## Settings, schedules and email recovery (23 October 2026)
 
 The existing task-local recovery contract now covers preferences, schedule

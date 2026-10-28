@@ -524,14 +524,19 @@ def case_history_page(group_config, case_id: str, actor: ComplaintCaseActor, *, 
     New comments cannot shift older pages. Every page rechecks the current
     owning workflow/group; a cursor itself never grants access.
     """
-    from uuid import UUID
-    from django.core import signing
-    from django.utils.dateparse import parse_datetime
-
     # Do not prefetch the entire history/evidence as ordinary detail does.
     case = _case_queryset(group_config.group_id, actor=actor).filter(message_id=str(case_id)).first()
     if case is None:
         raise ComplaintCaseError('Complaint case was not found in this group.')
+    return complaint_history_page(case, cursor=cursor)
+
+
+def complaint_history_page(case: ParsedMessage, *, cursor=''):
+    """Page immutable activity after the caller authorizes its owning read scope."""
+    from uuid import UUID
+    from django.core import signing
+    from django.utils.dateparse import parse_datetime
+
     if not isinstance(cursor, str) or len(cursor) > 1500:
         raise ComplaintCaseError('Refresh the complaint activity and try again.', field_errors={'history_cursor': 'invalid'})
     updates = case.case_updates.order_by('-created_at', '-pk')

@@ -1,5 +1,5 @@
 /** Address-bar state is allowlisted; customer searches and form answers stay in memory. */
-export type ReportLocation = { view: string; grouping: string; status: string; from: string; to: string; basis: string; page: number; branch: string; category: string; range: string };
+export type ReportLocation = { view: string; grouping: string; status: string; from: string; to: string; basis: string; page: number; branch: string; category: string; range: string; selected?: string };
 export type WorkspaceRoute = { view: 'queue' | 'new' | 'reports' | 'settings'; group: string; selected: string; status: string; page: number; order?:string; report: ReportLocation };
 export type QueuePreferences = { default_filters: Record<string, string> };
 const choose = (value: string | null, allowed: string[], fallback: string) => value && allowed.includes(value) ? value : fallback;
@@ -33,7 +33,7 @@ export function reportLocation(url = new URL(window.location.href)): ReportLocat
     basis: choose(params.get('date_basis'), ['reported', 'resolved'], 'reported'),
     from: params.has('from') ? date(params.get('from')) : bounded ? start.toISOString().slice(0, 10) : '', to: params.has('to') ? date(params.get('to')) : bounded ? today : '', page: pageNumber(params.get('report_page')), range,
     // Free-text facets stay in component memory, never the URL/history payload.
-    branch: '', category: '' };
+    branch: '', category: '', selected: /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(params.get('report_case') || '') ? params.get('report_case')! : '' };
 }
 export function readRoute(): WorkspaceRoute {
   const url = new URL(window.location.href), path = url.pathname;
@@ -61,6 +61,7 @@ export function writeRoute(route: WorkspaceRoute, replace = false) {
     if (date(report.from)) params.set('from', report.from);
     if (date(report.to)) params.set('to', report.to);
     params.set('report_page', String(pageNumber(String(report.page))));
+    if (/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(report.selected || '')) params.set('report_case', report.selected!);
   }
   const position = historyPosition() + (replace ? 0 : 1);
   window.history[replace ? 'replaceState' : 'pushState']({ complaints_position: position }, '', path + '?' + params);

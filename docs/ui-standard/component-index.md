@@ -1,5 +1,14 @@
 # Component index and migration hold
 
+The 28 October Complaints correction adds shared browser case facts/location and
+restores category completion, recoverable dependent locations, recorded changes,
+HB comment counts, laptop queue navigation and read-only global report details.
+It reuses the existing ADS controls, TaskDialog, native browser authentication and
+canonical Complaint services. Final production-artifact Playwright evidence and
+denied-path checks are recorded in
+`reviews/2026-10-28-complaints-workflow-parity.md`. This is a source-bound correction;
+approved baselines, default-off release flags and the Phase 6 hold remain intact.
+
 The 27 October Origination header removal action and document-specific setup
 diagnostics reuse existing header icons, confirmation sheets, Admin task links
 and autosave. Source and synthetic behaviour evidence are recorded in
