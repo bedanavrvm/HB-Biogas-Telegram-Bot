@@ -1001,7 +1001,8 @@
         input.disabled = (item.required && primaryId === currentPrimaryId) || ((!item.available || !compatible) && !input.checked);
         input.setAttribute('aria-invalid', String(input.checked && !compatible));
         const hint = input.closest('label').querySelector('small');
-        hint.textContent = `${item.reason || (!compatible ? 'Not compatible with this Main LAF. Remove this choice.' : item.required && primaryId === currentPrimaryId ? 'Required' : 'Optional')}${item.version ? ` · version ${item.version}` : ''}`;
+        const reason = item.incompatibility_reasons?.[primaryId] || 'Not compatible with this Main LAF.';
+        hint.textContent = `${item.reason || (!compatible ? `${reason}${input.checked ? ' Remove this choice.' : ''}` : item.required && primaryId === currentPrimaryId ? 'Required' : 'Optional')}${item.version ? ` · version ${item.version}` : ''}`;
       }
     };
     form.addEventListener('change', syncChoices);
@@ -1075,7 +1076,7 @@
       input.disabled = !compatible;
       if (!compatible) input.checked = false;
       const hint = input.closest('label')?.querySelector('small');
-      if (hint) hint.textContent = compatible ? 'Optional supporting document' : mainLaf ? 'Choose a compatible Main LAF' : 'Choose a Main LAF first';
+      if (hint) hint.textContent = `${compatible ? 'Optional supporting document' : mainLaf ? item?.incompatibility_reasons?.[mainLaf.value] || 'Choose a compatible Main LAF' : 'Choose a Main LAF first'}${item?.version ? ` · version ${item.version}` : ''}`;
     });
     submit.disabled = createInFlight || !branch?.value || !product?.value || !mainLaf;
     syncPrimaryAction();

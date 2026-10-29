@@ -497,9 +497,9 @@
     },
     {
       "path": "origination/static/miniapp/loan_origination.js",
-      "sha256": "8d5c0f3d84c614995e95ef848a80f594c279abf288570f9017da24b2d0591b05",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md",
-      "reason": "User-requested single red header trash icon before Manage documents, reusing existing accessible icon actions and confirmation. Synthetic real-shell light/dark and workflow checks recorded; no baseline or Phase 6 migration change."
+      "sha256": "a9b38844613ef9542e08ad81e8f0dd4893c939240a3d2acd517bd70d881d79a3",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-origination-document-selection.md",
+      "reason": "Supporting-document selection follows active placed fields and captured application Loan details; existing option cards show precise field/document conflicts. Manual synthetic Playwright evidence only; no approved baseline or Phase 6 change."
     },
     {
       "path": "origination/static/miniapp/origination_compact.css",
@@ -509,9 +509,9 @@
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "c88889e2e19db263cff64df86cdf2f9c5195f8e1c3f96ccb302abf81d65e9b2e",
-      "review_reference": "docs/ui-standard/reviews/2026-10-27-origination-header-and-setup-errors.md",
-      "reason": "User-requested single red header trash icon before Manage documents, reusing existing accessible icon actions and confirmation. Synthetic real-shell light/dark and workflow checks recorded; no baseline or Phase 6 migration change."
+      "sha256": "fa2784f52baf49b7646827e5cd7a362f66e62b53d5f118c7bf5d241daa4b5da2",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-origination-document-selection.md",
+      "reason": "Supporting-document selection follows active placed fields and captured application Loan details; existing option cards show precise field/document conflicts. Manual synthetic Playwright evidence only; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",

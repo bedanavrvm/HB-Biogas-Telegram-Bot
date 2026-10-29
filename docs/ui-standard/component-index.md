@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+The 29 October Origination supporting-document selection correction reuses the
+existing option cards, creation sheet and Manage documents sheet. Compatibility
+now follows the form's active fields and retained application Loan details;
+genuine conflicts show their field/document reason. Source-bound manual
+Playwright evidence is in
+`reviews/2026-10-29-origination-document-selection.md`. Approved baselines and the
+Phase 6 hold are unchanged.
+
 The user's 28 October 2026 styling override makes the supplied Stitch HTML/CSS
 and screenshot authoritative over ADS styling for this and future browser work.
 The Complaint detail uses `browser/src/complaints-stitch.css` and the existing

@@ -188,10 +188,12 @@ def catalogue_for_product(
     by_id = {str(template.pk): template for template in templates}
     for item in supporting:
         item['compatible_main_ids'] = []
+        item['incompatibility_reasons'] = {}
         for main in mains:
             try:
                 validate_document_combination(by_id[main['id']], [by_id[item['id']]])
-            except ValueError:
+            except ValueError as exc:
+                item['incompatibility_reasons'][main['id']] = str(exc)
                 continue
             item['compatible_main_ids'].append(main['id'])
     reasons = []
@@ -275,15 +277,18 @@ def validate_document_combination(
     from origination.services.origination_fields import template_form_contract
     supporting = list(supporting)
     primary_schema, _signers = template_form_contract(primary)
-    from origination.services.origination_value_contracts import build_packet_contract, enabled, schema_with_mapped_values, ValueContractError
+    captured_system = primary_schema.get('system_fields', [])
+    from origination.services.origination_value_contracts import build_packet_contract, project_document_schema, ValueContractError
     try:
         def mapped_schema(template, raw_schema):
-            if not require_complete or not enabled(raw_schema):
+            if not require_complete:
                 return raw_schema
             configuration = (template.published_configuration_revision.configuration if template.published_configuration_revision_id
                              else template.placement_config or {})
-            return schema_with_mapped_values(raw_schema, configuration,
-                captured_system=primary_schema.get('system_fields', []))
+            from origination.services.origination_commercial_terms import application_loan_inputs
+            return project_document_schema(raw_schema, configuration,
+                captured_system=captured_system,
+                application_input_fields=application_loan_inputs() if template == primary else ())
 
         primary_schema = mapped_schema(primary, primary_schema)
         supporting_schemas = [mapped_schema(template, template_form_contract(template)[0]) for template in supporting]
@@ -308,16 +313,19 @@ def validate_document_combination(
         )
 
 
-def validate_snapshot_combination(primary_schema: Any, supporting_schemas: Iterable[Any], *, require_complete: bool = True) -> None:
+def validate_snapshot_combination(primary_schema: Any, supporting_schemas: Iterable[Any], *, require_complete: bool = True,
+                                  primary_label: str = 'Main LAF', supporting_labels: Iterable[str] = ()) -> None:
     """Apply the same type-safety rule to an application's frozen candidates."""
     from origination.services.loan_origination import OriginationError
     supporting_schemas = list(supporting_schemas)
+    labels = list(supporting_labels)
     from origination.services.origination_value_contracts import build_packet_contract, ValueContractError
     try:
         compatible = (lambda schema: schema) if require_complete else _reviewed_compatibility_schema
         build_packet_contract(compatible(primary_schema), [
-            {'key': str(index), 'schema': compatible(schema)} for index, schema in enumerate(supporting_schemas)
-        ])
+            {'key': str(index), 'schema': compatible(schema), 'label': labels[index] if index < len(labels) else str(index)}
+            for index, schema in enumerate(supporting_schemas)
+        ], primary_label=primary_label)
     except ValueContractError as exc:
         raise OriginationError(str(exc), errors=exc.errors) from exc
 

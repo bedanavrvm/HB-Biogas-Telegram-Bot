@@ -353,7 +353,7 @@ def annotate_form_fields(catalogue: list, schema: dict, signer_rules=(), *, prim
 
 
 def project_document_schema(schema: dict, configuration: dict, *, signer_rules=(), primary=True,
-                            quote_keys=(), captured_system=None, dependency_keys=()) -> dict:
+                            quote_keys=(), captured_system=None, dependency_keys=(), application_input_fields=()) -> dict:
     """Pure active-field projection; stored contracts and answers are never edited."""
     result = schema_with_mapped_values(schema, configuration, captured_system=captured_system) if enabled(schema) else deepcopy(schema)
     placed = placed_field_keys(configuration)
@@ -379,6 +379,14 @@ def project_document_schema(schema: dict, configuration: dict, *, signer_rules=(
     used = {field['section_key'] for field in fields if (field.get('value_contract') or {}).get('source', 'entered') == 'entered'
             and field.get('source_type') != 'system'}
     result['sections'] = [item for item in sections if item['key'] in used]
+    if application_input_fields:
+        inputs = deepcopy(list(application_input_fields))
+        if enabled(result):
+            inputs = upgrade_schema({'fields': inputs})['fields']
+        keys = {field['key'] for field in inputs}
+        result['fields'] = [field for field in result['fields'] if field['key'] not in keys] + inputs
+        if not any(section.get('key') == 'loan_details' for section in result['sections']):
+            result['sections'].append({'key': 'loan_details', 'label': 'Loan details'})
     return result
 
 
@@ -390,17 +398,9 @@ def application_document_schema(application: Any, document=None) -> dict:
     configuration = application.template_configuration_snapshot if document is None else (document.template_snapshot or {}).get('configuration', {})
     if not form_projection_enabled(application):
         return deepcopy(schema or {})
-    projected = project_document_schema(schema or {}, configuration or {},
-        captured_system=(application.schema_snapshot or {}).get('system_fields', []))
-    if document is None and (application.schema_snapshot or {}).get('application_input_fields'):
-        inputs = deepcopy(application.schema_snapshot['application_input_fields'])
-        if enabled(projected):
-            inputs = upgrade_schema({'fields': inputs})['fields']
-        keys = {field['key'] for field in inputs}
-        projected['fields'] = [field for field in projected.get('fields', []) if field.get('key') not in keys] + inputs
-        if not any(section.get('key') == 'loan_details' for section in projected.setdefault('sections', [])):
-            projected['sections'].append({'key': 'loan_details', 'label': 'Loan details'})
-    return projected
+    return project_document_schema(schema or {}, configuration or {},
+        captured_system=(application.schema_snapshot or {}).get('system_fields', []),
+        application_input_fields=(application.schema_snapshot or {}).get('application_input_fields', ()) if document is None else ())
 
 
 def packet_contract(application: Any) -> dict:

@@ -7,8 +7,15 @@ from copy import deepcopy
 from origination.models import OriginationApplicationDocument, OriginationDocumentTemplate
 
 
-def _mapped(schema, configuration, application):
-    from origination.services.origination_value_contracts import enabled, schema_with_mapped_values
+def _mapped(schema, configuration, application, *, primary=False, restart=False):
+    from origination.services.origination_value_contracts import enabled, schema_with_mapped_values, form_projection_version, project_document_schema
+    if restart or form_projection_version(application) >= 2:
+        inputs = (application.schema_snapshot or {}).get('application_input_fields', ()) if primary else ()
+        if restart and primary:
+            from origination.services.origination_commercial_terms import application_loan_inputs
+            inputs = application_loan_inputs()
+        return project_document_schema(schema, configuration,
+            captured_system=(application.schema_snapshot or {}).get('system_fields', []), application_input_fields=inputs)
     if not enabled(schema):
         return schema
     return schema_with_mapped_values(schema, configuration,
@@ -31,7 +38,7 @@ def document_choices(application):
     documents = list(application.packet_documents.all())
     primary = next((row for row in documents if row.document_role == 'primary' and row.selected), None)
     primary_id = str(primary.template_id) if primary and primary.template_id else 'captured:primary'
-    primary_schema = _mapped(application.schema_snapshot, application.template_configuration_snapshot, application)
+    primary_schema = _mapped(application.schema_snapshot, application.template_configuration_snapshot, application, primary=True)
     mains = [{'id': primary_id, 'key': 'primary', 'name': primary.name if primary else 'Current Main LAF',
               'version': (primary.template_snapshot or {}).get('version') if primary else None,
               'selected': True, 'available': True}]
@@ -45,7 +52,7 @@ def document_choices(application):
             continue
         template = main_rows[item['id']]
         schema, _reasons = main_laf_contract(application.product_definition, template)
-        schemas[item['id']] = _mapped(schema, template.published_configuration_revision.configuration, application)
+        schemas[item['id']] = _mapped(schema, template.published_configuration_revision.configuration, application, primary=True, restart=True)
         mains.append({**item, 'selected': False, 'available': True})
     supports = []
     support_schemas = {}
@@ -78,12 +85,16 @@ def document_choices(application):
             template.published_configuration_revision.configuration, application)
     for item in supports:
         compatible = []
+        item['incompatibility_reasons'] = {}
         for main_id, schema in schemas.items():
             if main_id != primary_id and not item['restart_available']:
                 continue
             try:
-                validate_snapshot_combination(schema, [support_schemas[item['id']]])
-            except (OriginationError, ValueError):
+                main = next(row for row in mains if row['id'] == main_id)
+                validate_snapshot_combination(schema, [support_schemas[item['id']]],
+                    primary_label=main['name'], supporting_labels=[item['name']])
+            except (OriginationError, ValueError) as exc:
+                item['incompatibility_reasons'][main_id] = str(exc)
                 continue
             compatible.append(main_id)
         item['compatible_main_ids'] = compatible
@@ -108,7 +119,8 @@ def attach_requested_documents(application, template_ids, expected_catalogue_rev
     for identity in template_ids:
         item = by_id[identity]
         if not item['available'] or choices['primary_template_id'] not in item['compatible_main_ids']:
-            raise OriginationError(f'{item["name"]} is not compatible with the current Main LAF.')
+            raise OriginationError(item['reason'] or item['incompatibility_reasons'].get(choices['primary_template_id'])
+                or f'{item["name"]} is not compatible with the current Main LAF.')
         keys.append(item['key'])
         if item['captured']:
             continue

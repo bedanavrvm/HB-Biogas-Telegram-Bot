@@ -81,7 +81,14 @@ def _plan(application, *, lock=False):
         rows.append({'document': document, 'target': target, 'schema': schema,
                      'snapshot': snapshot, 'signers': signers, 'changed': changed})
     main = next(row for row in rows if row['document'].document_role == 'primary')
-    validate_snapshot_combination(main['schema'], [row['schema'] for row in rows if row is not main])
+    from origination.services.origination_value_contracts import project_document_schema
+    def projected(row):
+        return project_document_schema(row['schema'], row['snapshot']['configuration'],
+            captured_system=main['schema'].get('system_fields', []),
+            application_input_fields=application.schema_snapshot.get('application_input_fields', ()) if row is main else ())
+    supporting = [row for row in rows if row is not main]
+    validate_snapshot_combination(projected(main), [projected(row) for row in supporting],
+        primary_label=main['target'].name, supporting_labels=[row['target'].name for row in supporting])
     token = request_fingerprint([application.revision, [
         [str(row['document'].pk), str(row['target'].pk), row['snapshot'], row['schema'], row['signers']]
         for row in rows]])

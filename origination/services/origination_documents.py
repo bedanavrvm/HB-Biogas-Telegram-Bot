@@ -438,16 +438,18 @@ def select_documents(*, application_id, actor, selected_keys: Any = None, expect
         raise OriginationError('One or more supporting documents cannot be selected for this application.')
     application._prefetched_objects_cache = {}
     from origination.services.origination_document_catalogue import validate_snapshot_combination
+    from origination.services.origination_value_contracts import application_document_schema
     primary = application.packet_documents.filter(
         document_role=OriginationDocumentTemplate.ROLE_PRIMARY, selected=True,
     ).first()
     selected_supporting = [
-        document.schema_snapshot for document in application.packet_documents.all()
-        if document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY and document.selected
+        document for document in application.packet_documents.all()
+        if document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY and document.selected and document.applicable
     ]
     validate_snapshot_combination(
-        primary.schema_snapshot if primary else application.schema_snapshot,
-        selected_supporting,
+        application_document_schema(application),
+        [application_document_schema(application, document) for document in selected_supporting],
+        primary_label=primary.name if primary else 'Main LAF', supporting_labels=[document.name for document in selected_supporting],
     )
     detached_roles = []
     if shared_values:
