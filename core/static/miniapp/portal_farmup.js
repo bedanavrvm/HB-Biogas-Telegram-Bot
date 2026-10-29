@@ -8,6 +8,7 @@
   const requiredFields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
   let batches = [], active = null, gridApi = null, gridAssetPromise = null;
   let search = '', needsReviewOnly = false, mappingOpen = false, commitRequestKey = '';
+  let commitRecovery = null;
   let reviewMode = 'table';
   try { reviewMode = sessionStorage.getItem('portal-farmup-review-mode') === 'carousel' ? 'carousel' : 'table'; } catch (_) {}
   let carouselIndex = 0, pickerActive = false, pickerHadSelection = false;
@@ -388,6 +389,24 @@
     if (!batchId) return;
     const button = node('farmup-commit'); setLoading(button, true, 'Validating');
     try {
+      if (commitRecovery?.batchId === batchId) {
+        const localRows = new Map(submittedRows().map(row => [String(row.row_id), row]));
+        setLoading(button, true, 'Confirming last save');
+        const result = await api.postJson(`/farmup/${encodeURIComponent(batchId)}/commit/`, commitRecovery.payload, tg);
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'The last save is still unconfirmed. Retry to check it.');
+        if (active?.id !== batchId || !activeScreen()) return;
+        active = {...active, ...result.data.batch};
+        active.rows.forEach(row => {
+          const local = localRows.get(String(row.row_id));
+          if (local) Object.assign(row, local);
+        });
+        commitRecovery = null; commitRequestKey = '';
+        if (!active.rows.some(row => row.approved)) clearDirtyProtection();
+        await renderEditor();
+        const message = `Last save confirmed: ${result.data.result?.committed || 0} rows saved. Review any remaining rows before committing again.`;
+        feedback(message, 'success'); window.PortalAppShell?.showToast?.(message, 'success');
+        return;
+      }
       const validation = await validateReview();
       if (active?.id !== batchId || !activeScreen()) return;
       const invalid = (validation.rows || []).some(row => row.selected && (row.issues.some(i => i.severity === 'blocker') || (row.issues.some(i => i.severity === 'warning') && !row.warning_acknowledged)));
@@ -408,11 +427,14 @@
         }));
         setLoading(button, true, `Saving ${total - pending.length} of ${total}`);
         const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
-        const result = await api.postJson(`/farmup/${encodeURIComponent(batchId)}/commit/`, {revision_token:active.revision_token, rows, client_request_id:key}, tg);
+        const payload = {revision_token:active.revision_token, rows, client_request_id:key};
+        commitRecovery = {batchId, payload};
+        const result = await api.postJson(`/farmup/${encodeURIComponent(batchId)}/commit/`, payload, tg);
+        if (result.status >= 400 && result.status < 500 && ![401,403].includes(result.status)) commitRecovery = null;
         if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed. Saved rows are retained; refresh before continuing.');
         if (active?.id !== batchId || !activeScreen()) return;
         const saved = result.data.result || {};
-        commitRequestKey = '';
+        commitRecovery = null; commitRequestKey = '';
         active = {...active, ...result.data.batch};
         for (const key of ['committed','created','updated']) receipt[key] += Number(saved[key] || 0);
         receipt.held = Number(saved.held || 0);

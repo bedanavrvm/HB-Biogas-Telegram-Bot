@@ -389,6 +389,20 @@ def jbl_visit_queue(search: str = ''):
 
 
 
+def _queue_approval_status(gate):
+    """Find expired approvals before a detail read persists their expiry."""
+    from core.models import JawabuApprovalRecord
+
+    latest = JawabuApprovalRecord.objects.filter(
+        farmer_id=OuterRef('pk'), gate=gate, payment_document__isnull=True,
+    ).annotate(queue_status=Case(
+        When(status__in=[JawabuApprovalRecord.STATUS_ACTIVE, JawabuApprovalRecord.STATUS_CONDITIONS_PENDING],
+             expires_at__lte=timezone.now(), then=Value(JawabuApprovalRecord.STATUS_EXPIRED)),
+        default=F('status'), output_field=CharField(),
+    )).order_by('-decided_at', '-created_at').values('queue_status')[:1]
+    return Subquery(latest)
+
+
 def credit_queue():
     """
     Stage 3 queue - JBL/BRO analysis after a JBL visit.
@@ -398,12 +412,8 @@ def credit_queue():
     """
     from core.models import JawabuApprovalRecord
 
-    latest_credit = JawabuApprovalRecord.objects.filter(
-        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_CREDIT,
-        payment_document__isnull=True,
-    ).order_by('-decided_at', '-created_at').values('status')[:1]
     return JawabuFarmerMaster.objects.filter(status='active').annotate(
-        _credit_approval_status=Subquery(latest_credit),
+        _credit_approval_status=_queue_approval_status(JawabuApprovalRecord.GATE_CREDIT),
     ).filter(
         (Q(workflow_state=JawabuWorkflowState.CREDIT)
          & (~Q(credit_decision__in=CREDIT_TERMINAL)
@@ -423,17 +433,9 @@ def final_review_queue():
     """
     from core.models import JawabuApprovalRecord
 
-    latest_final = JawabuApprovalRecord.objects.filter(
-        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_FINAL_REVIEW,
-        payment_document__isnull=True,
-    ).order_by('-decided_at', '-created_at').values('status')[:1]
-    latest_credit = JawabuApprovalRecord.objects.filter(
-        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_CREDIT,
-        payment_document__isnull=True,
-    ).order_by('-decided_at', '-created_at').values('status')[:1]
     return JawabuFarmerMaster.objects.filter(status='active').annotate(
-        _final_approval_status=Subquery(latest_final),
-        _credit_approval_status=Subquery(latest_credit),
+        _final_approval_status=_queue_approval_status(JawabuApprovalRecord.GATE_FINAL_REVIEW),
+        _credit_approval_status=_queue_approval_status(JawabuApprovalRecord.GATE_CREDIT),
     ).filter(
         (Q(workflow_state=JawabuWorkflowState.FINAL_REVIEW)
          | Q(workflow_state='', credit_decision='Approved'))

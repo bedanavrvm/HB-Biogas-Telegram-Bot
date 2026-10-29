@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The 29 October Portal state-recovery follow-up adds expired-case handoffs,
+uncertain-save confirmation, invoice correction recovery and retained upload
+errors. Payment upload visibility follows its existing sign-off policy. These
+reuse native components; source-bound manual Playwright evidence is recorded in
+`reviews/2026-10-29-portal-state-recovery.md`. Approved baselines and Phase 6
+migration hold remain unchanged.
+
 The 29 October Portal workflow review repairs History status/preview, stale
 signed-scan handling, validation feedback and FarmUp bulk/interruption recovery.
 It reuses the native shell and controls. Manual Playwright evidence, 252-case

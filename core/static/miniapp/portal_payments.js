@@ -563,7 +563,7 @@
     } else if (activeBatch.status === 'review_complete') {
       target.innerHTML = '<div class="payment-state-note">Approval complete. The approver will generate the workbook.</div>';
     } else if (activeBatch.status === 'awaiting_scan') {
-      const upload = capability('portal.documents.sign') ? '<label class="payment-scan-picker"><input type="file" id="payments-scan-file" accept="application/pdf,image/jpeg,image/png"><span id="payments-scan-label">Select signed scan</span></label><button type="button" class="btn btn-primary" id="payments-upload-scan">Upload signed copy</button>' : '<p class="payment-state-note">Waiting for an authorised user to upload the signed copy.</p>';
+      const upload = activeBatch.can_upload_signed_scan ? '<label class="payment-scan-picker"><input type="file" id="payments-scan-file" accept="application/pdf,image/jpeg,image/png"><span id="payments-scan-label">Select signed scan</span></label><button type="button" class="btn btn-primary" id="payments-upload-scan">Upload signed copy</button>' : '<p class="payment-state-note">A configured document sign-off approver must upload the signed copy.</p>';
       target.innerHTML = upload;
     } else if (activeBatch.status === 'completed') {
       target.innerHTML = '';

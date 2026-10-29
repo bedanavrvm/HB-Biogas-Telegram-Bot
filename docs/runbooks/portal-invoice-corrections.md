@@ -2,6 +2,17 @@
 
 ## Staff behaviour
 
+- A flagged invoice corrected to exactly match the applicant national ID requires
+  **Resolve identity flag**, with a verification note, from an existing identity
+  manager (including Operations). The flag remains in history. Different or
+  missing IDs cannot use that action.
+- Current invoice detail exposes **Cancel request**, **Withdraw request** and
+  **Start follow-up** where applicable. A follow-up needs fresh household
+  verification before preparing its letter. Withdrawal confirms HB was told to
+  disregard the sent request; it does not approve identity.
+- Only the current sent letter's agreed copy clears its identity hold. Failed
+  uploads keep their file, confirmation and inline error for retry. A superseded
+  source invoice links to its current replacement.
 - Upload each invoice PDF separately. A matching outstanding correction shows
   **Confirm corrected invoice** in the upload result and invoice detail.
 - Check the selected invoice before confirming. National ID is mandatory and

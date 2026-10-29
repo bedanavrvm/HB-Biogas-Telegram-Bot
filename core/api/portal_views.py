@@ -5712,10 +5712,17 @@ def _portal_payment_batch_error(request, exc):
 
 def _serialize_portal_payment_batch(request, batch, *, include_cases=True):
     from payments.services import serialize_batch
+    from core.services.document_signoffs import can_approve_physical_signoff
 
     payload = serialize_batch(batch, include_cases=include_cases)
     payload['workbook_download_url'] = _payment_workbook_download_url(request, batch)
     payload['workbook_filename'] = batch.current_document.filename if batch.current_document_id else ''
+    payload['can_upload_signed_scan'] = bool(batch.current_document_id and can_approve_physical_signoff(
+        getattr(request, 'portal_user', None), getattr(request, 'portal_access', None), 'payment',
+    ) and _portal_saved_document_in_scope(
+        request, batch.current_document.order_number, batch.current_document.farmer_ids,
+        capability='portal.documents.sign',
+    ))
     if batch.current_document_id:
         payload['workbook_version'] = batch.current_document.version
         payload['workbook_checksum'] = hashlib.sha256(bytes(batch.current_document.file_content or b'')).hexdigest()
@@ -8331,14 +8338,18 @@ def portal_invoice_match(request, invoice_id: str):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@transaction.atomic
 def portal_invoice_identity_review(request, invoice_id: str):
     """Record the Operations verification without treating spelling as an identity change."""
     from core.models import ParsedInvoice
-    from core.services.invoice_identity import decide_identity_review, ensure_identity_review, serialize_review
+    from core.services.invoice_identity import (
+        InvoiceCorrectionConflict, decide_identity_review, ensure_identity_review,
+        resolve_identity_flag, serialize_review,
+    )
 
     body = _json_body(request)
     try:
-        invoice = ParsedInvoice.objects.select_related('matched_farmer').get(pk=invoice_id)
+        invoice = ParsedInvoice.objects.select_for_update().get(pk=invoice_id)
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
     if not invoice.matched_farmer_id:
@@ -8346,13 +8357,27 @@ def portal_invoice_identity_review(request, invoice_id: str):
     role_error = _portal_role_error(request, 'invoice_identity.manage', invoice.matched_farmer)
     if role_error:
         return role_error
+    if body.get('resolve_flag') is True:
+        try:
+            review = resolve_identity_flag(
+                invoice, review_id=str(body.get('review_id') or ''),
+                expected_invoice_revision=body.get('invoice_revision'),
+                actor=_portal_sender_from_request(request), note=str(body.get('note') or ''),
+                client_request_id=_portal_request_id(request, body),
+            )
+        except InvoiceCorrectionConflict as exc:
+            return JsonResponse({'ok': False, 'code': 'invoice_identity_changed', 'error': str(exc)}, status=409)
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'code': 'invoice_identity_verification_invalid', 'error': str(exc)}, status=400)
+        invoice.refresh_from_db()
+        return JsonResponse({'ok': True, 'review': serialize_review(review), 'invoice': _serialize_parsed_invoice(invoice)})
     try:
         review = ensure_identity_review(
             invoice, invoice.matched_farmer,
             client_request_id=_portal_request_id(request, body),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+        return JsonResponse({'ok': False, 'code': 'invoice_identity_changed', 'error': str(exc)}, status=409)
     if review is None:
         return JsonResponse({'ok': True, 'review': None, 'message': 'Invoice identity already matches the applicant.'})
     try:
@@ -8363,7 +8388,7 @@ def portal_invoice_identity_review(request, invoice_id: str):
             note=str(body.get('note') or '').strip(),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'invoice_identity_verification_invalid', 'error': str(exc)}, status=400)
     invoice.refresh_from_db()
     return JsonResponse({'ok': True, 'review': serialize_review(review), 'invoice': _serialize_parsed_invoice(invoice)})
 
@@ -8638,7 +8663,7 @@ def portal_invoice_name_change_close(request, item_id: str):
     body = _json_body(request)
     action = str(body.get('action') or '').strip().lower()
     if action not in {'cancel', 'withdraw'}:
-        return JsonResponse({'ok': False, 'error': 'Choose cancel or withdraw.'}, status=400)
+        return JsonResponse({'ok': False, 'code': 'invoice_correction_action_invalid', 'error': 'Choose cancel or withdraw.'}, status=400)
     try:
         item = close_name_change(
             item,
@@ -8649,7 +8674,7 @@ def portal_invoice_name_change_close(request, item_id: str):
             hb_notified=body.get('hb_notified') is True,
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'invoice_correction_close_blocked', 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)})
 
 
@@ -8672,7 +8697,7 @@ def portal_invoice_name_change_follow_up(request, item_id: str):
             client_request_id=_portal_request_id(request, body),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'invoice_correction_followup_blocked', 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(follow_up)}, status=201)
 
 
@@ -8960,7 +8985,7 @@ def portal_invoice_name_agreement(request, artifact_id: str):
                 uploaded_file=request.FILES.get('signed_letter'), actor=_portal_sender_from_request(request),
                 confirmed=request.POST.get('confirmed') == 'yes')
         except ValueError as exc:
-            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+            return JsonResponse({'ok': False, 'code': 'invoice_name_agreement_invalid', 'error': str(exc)}, status=400)
         return JsonResponse({'ok': True, 'agreement_id': str(agreement.pk)})
     agreement = get_object_or_404(InvoiceNameAgreement, artifact=artifact)
     from core.services.compliance_audit import record_sensitive_access

@@ -1,8 +1,9 @@
 """Customer identity and repeat-unit rules for the Jawabu master pipeline."""
 from __future__ import annotations
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Exists, Max, OuterRef, Q
+from django.utils import timezone
 
 from core.models import JawabuCustomer, JawabuCustomerPhoneHistory, JawabuFarmerMaster
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
@@ -114,6 +115,10 @@ def set_customer_number(farmer: JawabuFarmerMaster, customer_no: str) -> None:
     customer_no = normalize_identifier(customer_no)
     if not customer_no:
         return
+    if connection.vendor == 'postgresql':
+        # Row locks cannot protect the first claim of a number that has no row yet.
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', [f'jawabu-customer-number:{customer_no}'])
     matching_cases = JawabuFarmerMaster.objects.select_for_update().filter(
         customer_no=customer_no,
     ).exclude(pk=farmer.pk)
@@ -155,6 +160,14 @@ def restart_expired_reappraisal(farmer: JawabuFarmerMaster, *, fresh_sign_date: 
     from core.services.jawabu_pipeline import is_reappraisal_required
 
     if not fresh_sign_date or not is_reappraisal_required(farmer):
+        return False
+    from core.services.jawabu_validation import parse_business_date
+    fresh_date = parse_business_date(fresh_sign_date)
+    previous_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
+    if previous_date is None and farmer.deferred_at:
+        previous_date = timezone.localdate(farmer.deferred_at)
+    # A contact-only source update is not a fresh appraisal.
+    if not fresh_date or (previous_date and fresh_date <= previous_date):
         return False
     snapshot = {
         'deferred_at': farmer.deferred_at.isoformat() if farmer.deferred_at else None,

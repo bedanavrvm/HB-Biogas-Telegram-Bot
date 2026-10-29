@@ -137,7 +137,9 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         status__in=['draft', 'awaiting_replacement'],
     ).select_related('batch', 'review').first()
     latest_change = open_change or invoice.name_change_requests.select_related('batch', 'review').order_by('-created_at').first()
+    closed_change = None
     if latest_change and latest_change.status in {'cancelled', 'withdrawn'}:
+        closed_change = {'id': str(latest_change.pk), 'status': latest_change.status, 'closed_reason': latest_change.closed_reason}
         latest_change = None  # Closure is history, not the current match's status.
     from payments.invoice_agreements import agreement_clears_item
     agreement_accepted = bool(open_change and agreement_clears_item(open_change))
@@ -190,6 +192,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         'blocker': blocker,
         'review': serialize_review(latest) if latest else None,
         'name_change': serialize_name_change_item(latest_change) if latest_change else None,
+        'closed_name_change': closed_change,
         'status_label': presentation_status,
         'agreement_accepted': agreement_accepted and not blocker,
         'invoice_identity': invoice_identity(invoice),
@@ -462,6 +465,42 @@ def start_invoice_correction(invoice: ParsedInvoice, **kwargs) -> InvoiceNameCha
 
 
 @transaction.atomic
+def resolve_identity_flag(invoice: ParsedInvoice, *, review_id: str, expected_invoice_revision,
+                          actor: str, note: str, client_request_id: str) -> InvoiceIdentityReview:
+    """Append a verification after a flagged invoice's national ID is corrected."""
+    invoice = ParsedInvoice.objects.select_for_update().get(pk=invoice.pk)
+    note = str(note or '').strip()
+    if not note:
+        raise ValueError('Record the evidence used to verify the corrected identity.')
+    if not client_request_id:
+        raise ValueError('A retry key is required to resolve this identity flag.')
+    prior = InvoiceIdentityReview.objects.filter(client_request_id=client_request_id).first()
+    if prior:
+        if (prior.invoice_id == invoice.pk and prior.status == InvoiceIdentityReview.STATUS_SAME_PERSON
+                and prior.decision_note == note and prior.decided_by == actor):
+            return prior
+        raise ValueError('This retry key belongs to a different identity verification.')
+    if invoice.status != 'matched' or not invoice.matched_farmer_id:
+        raise ValueError('Match the invoice to its applicant before resolving the flag.')
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)
+    latest = invoice.identity_reviews.filter(farmer=farmer).order_by('-created_at').first()
+    if (str(expected_invoice_revision) != str(invoice.revision) or not latest
+            or str(latest.pk) != str(review_id) or latest.status != InvoiceIdentityReview.STATUS_FLAGGED):
+        raise InvoiceCorrectionConflict('This invoice or identity review changed. Refresh before verifying it.')
+    invoice_id = normalize_national_id(invoice.customer_id)
+    if not invoice_id or invoice_id != normalize_national_id(farmer.national_id):
+        raise ValueError('Correct the invoice to match the applicant national ID before resolving its flag.')
+    if invoice.name_change_requests.filter(status__in=['draft', 'awaiting_replacement']).exists():
+        raise ValueError('Complete the current invoice-name correction before resolving this flag.')
+    review = InvoiceIdentityReview.objects.create(
+        invoice=invoice, farmer=farmer, discrepancy_codes=discrepancy_codes(invoice, farmer),
+        invoice_identity=invoice_identity(invoice), applicant_identity=applicant_identity(farmer),
+        client_request_id=client_request_id,
+    )
+    return decide_identity_review(review, outcome=InvoiceIdentityReview.STATUS_SAME_PERSON, actor=actor, note=note)
+
+
+@transaction.atomic
 def decide_identity_review(review: InvoiceIdentityReview, *, outcome: str, actor: str, note: str) -> InvoiceIdentityReview:
     review = InvoiceIdentityReview.objects.select_for_update().select_related('invoice', 'farmer').get(pk=review.pk)
     if review.status != InvoiceIdentityReview.STATUS_PENDING:
@@ -722,6 +761,8 @@ def close_name_change(
         'status', 'closed_reason', 'hb_communication_reference', 'closed_by',
         'closed_at', 'batch', 'revision', 'updated_at',
     ])
+    if item.review.status == InvoiceIdentityReview.STATUS_PENDING:
+        decide_identity_review(item.review, outcome=InvoiceIdentityReview.STATUS_CANCELLED, actor=actor, note=reason)
     _record_case_event(
         item.farmer, action=action, actor=actor,
         request_id=f'{action}:{item.id}:{item.revision}',
@@ -745,7 +786,18 @@ def create_name_change_follow_up(
     if request_id:
         prior = InvoiceNameChangeItem.objects.filter(client_request_id=request_id).first()
         if prior:
+            if prior.follow_up_of_id != item.pk:
+                raise ValueError('This retry key belongs to another correction follow-up.')
             return prior
+    active = InvoiceNameChangeItem.objects.filter(
+        original_invoice_id=item.original_invoice_id, status__in=['draft', 'awaiting_replacement'],
+    ).first()
+    if active:
+        if active.follow_up_of_id == item.pk:
+            return active
+        raise ValueError('An active correction already exists for this invoice. Reopen the invoice to continue it.')
+    if item.original_invoice.status != 'matched' or item.original_invoice.matched_farmer_id != item.farmer_id:
+        raise ValueError('The original invoice is no longer current. Open the applicant current invoice instead.')
     review = InvoiceIdentityReview.objects.create(
         invoice=item.review.invoice,
         farmer=item.farmer,

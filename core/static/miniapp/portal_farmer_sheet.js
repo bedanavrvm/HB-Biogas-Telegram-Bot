@@ -947,10 +947,15 @@
       formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected case' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
         <p>${deps.escapeHtml(reason)}</p>${rejected ? '' : `<p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
         <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>`}
-        <p>${rejected ? 'View the decision and its reason in Case History.' : farmer.reappraisal_required ? 'Fresh preappraisal and visit records are required before credit or final review.'
+        <p>${rejected ? 'View the decision and its reason in Case History.' : farmer.reappraisal_required ? 'Ask Operations to commit a fresh FarmUp appraisal for this existing unit. JBL must then log a new visit before credit or final review.'
           : next && canUpdateMode(next[0], next[2]) ? 'Review the case and complete the existing stage action below.'
             : 'Your role can inspect this case. The responsible team must complete the next action.'}</p></section>`;
-      if (!rejected && !farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
+      if (!rejected && farmer.reappraisal_required && hasCapability('portal.farmup.commit')) {
+        const button = document.createElement('button');
+        button.className = 'primary'; button.textContent = 'Open FarmUp';
+        button.onclick = () => { closeSheet({ saveDraft: false }); window.PortalAppShell?.navigateUrl?.('/portal/s/farmup/'); };
+        footerEl.appendChild(button);
+      } else if (!rejected && !farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
         const button = document.createElement('button');
         button.className = 'primary';
         button.textContent = next[1];

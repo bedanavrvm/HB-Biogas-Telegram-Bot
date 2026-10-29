@@ -1,5 +1,10 @@
 # Portal Mini App: synthetic workflow and bulk-document review
 
+The later [state and recovery follow-up](portal-state-recovery-review-2026-10-29.md)
+covers the lost-response, simultaneous number-claim, expired-approval,
+invoice-letter and changing-access gaps listed below. This document retains the
+original bulk-review evidence and its point-in-time limits.
+
 29 October 2026. The core intake-to-commissioning journey, negative outcomes,
 bulk documents and recovery paths below were exercised. Reproducible defects
 were corrected. This is local implementation evidence; it does not certify that
