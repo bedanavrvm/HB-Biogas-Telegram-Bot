@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "1310bd67dba90a0ea2dca3621a03eb4111519e74afa8c25b20ce57fa9e767fdc",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "c088b655d179411d7d44ff3a3aa8f7558733313e01d752c8ddbcc913293c1efd",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-workflow-review.md",
+      "reason": "User-requested Portal workflow correction using existing History, file, validation and FarmUp progress/recovery controls. Manual Playwright and PostgreSQL evidence covers stale-source rejection, completed archive, delayed-response handling, 500-row progress and interruption recovery. Cache versions bind the revised scripts. No approved baseline, candidate tokens, grants or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "c55321d760c38e6b65eb591b604f53f71ccc9530e27b162075b6f42fed2b39bd",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "00c62018d08d1fdce952a49e9b429f691b892a945bb9b1dedd55bb74953842b6",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-workflow-review.md",
+      "reason": "User-requested Portal workflow correction using existing History, file, validation and FarmUp progress/recovery controls. Manual Playwright and PostgreSQL evidence covers stale-source rejection, completed archive, delayed-response handling, 500-row progress and interruption recovery. Cache versions bind the revised scripts. No approved baseline, candidate tokens, grants or Phase 6 migration changes."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -785,9 +785,9 @@
     },
     {
       "path": "core/static/miniapp/portal_payments.js",
-      "sha256": "f7719a306614d24a5b0bfa234ddc3b1d28cfd37977f52db9b4034362c0fedd04",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "c8950d6e1c91e9db9b2b76c91f9ed607504fd6875b4d079a9a8a2c3858abb27b",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-workflow-review.md",
+      "reason": "User-requested Portal workflow correction using existing History, file, validation and FarmUp progress/recovery controls. Manual Playwright and PostgreSQL evidence covers stale-source rejection, completed archive, delayed-response handling, 500-row progress and interruption recovery. Cache versions bind the revised scripts. No approved baseline, candidate tokens, grants or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/portal_report_insights.css",
@@ -926,6 +926,12 @@
       "sha256": "83fe6d58765d37d613f112c343ce26133be7293508226bda0b6cf61a0111b735",
       "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
       "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmup.js",
+      "sha256": "88a5c4c2df7174c0481359df1201632bcde4c055a6d8b24eca348a8a1321d49f",
+      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-workflow-review.md",
+      "reason": "User-requested Portal workflow correction using existing History, file, validation and FarmUp progress/recovery controls. Manual Playwright and PostgreSQL evidence covers stale-source rejection, completed archive, delayed-response handling, 500-row progress and interruption recovery. Cache versions bind the revised scripts. No approved baseline, candidate tokens, grants or Phase 6 migration changes."
     }
   ],
   "source_roots": [

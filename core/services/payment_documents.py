@@ -22,6 +22,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from core.models import JawabuFarmerMaster, ParsedInvoice, PaymentDocument, PaymentDocumentTemplate
 from core.services.invoice_parser import clean_amount
 from core.services.requisition import copy_row_formatting, ordered_document_farmers
+from core.services.workbook_layout import configure_table_printing, fit_wrapped_row_height, shift_rows
 from core.services.template_storage import TemplateStorageError, workbook_source_from_template
 
 
@@ -565,6 +566,10 @@ def _set_cell(ws, row: int, col: int | None, value):
         cell.value = _xlsx_number(value)
     else:
         cell.value = value.upper() if isinstance(value, str) else (value or '')
+        if isinstance(value, str):
+            alignment = copy(cell.alignment)
+            alignment.wrap_text = True
+            cell.alignment = alignment
 
 
 def _copy_payment_template_row(ws, src_row: int, dst_row: int) -> None:
@@ -583,11 +588,11 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
     count = len(rows)
     if count > template_rows:
         insert_at = layout.totals_row
-        ws.insert_rows(insert_at, count - template_rows)
+        shift_rows(ws, insert_at, count - template_rows)
         for row in range(insert_at, insert_at + (count - template_rows)):
             _copy_payment_template_row(ws, first_data_row, row)
     elif count < template_rows:
-        ws.delete_rows(first_data_row + count, template_rows - count)
+        shift_rows(ws, first_data_row + count, count - template_rows)
 
     for index, payload in enumerate(rows, start=1):
         row = first_data_row + index - 1
@@ -599,6 +604,9 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
                 'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount',
             } and layout.columns.get(key):
                 ws.cell(row=row, column=layout.columns[key]).number_format = '#,##0'
+        fit_wrapped_row_height(ws, row, (layout.columns[key] for key in (
+            'name_imab', 'name', 'branch', 'loan_officer', 'product', 'call_up_comments', 'payment_mode',
+        ) if key in layout.columns))
 
     totals_row = first_data_row + count
     for col in layout.sum_columns:
@@ -683,6 +691,8 @@ def generate_payment_workbook(
     config_values = _read_config_sheet(wb)
     payment_mode_written = _write_payment_mode(ws, config_values, str(payment_mode or '').strip())
     ws.title = payment_label
+    configure_table_printing(ws, header_row=layout.header_row, first_data_row=layout.data_start_row,
+                             reference=f'Payment {payment_label}')
     config = wb['_TEMPLATE_CONFIG'] if '_TEMPLATE_CONFIG' in wb.sheetnames else None
     if config:
         for row in range(2, config.max_row + 1):

@@ -854,6 +854,8 @@
       const data = new FormData();
       data.append('signed_scan', file);
       data.append('attested_complete', 'true');
+      data.append('expected_version', String(activeBatch.workbook_version || ''));
+      data.append('expected_source_checksum', activeBatch.workbook_checksum || '');
       deps.setButtonLoading(button, true, 'Uploading...');
       const response = await deps.portalApi.postForm(`/document-signoffs/payment/${documentId}/upload/`, data, deps.tg, {'X-CSRFToken': deps.getCookie('csrftoken') || ''});
       if (response.data?.pending_retry) {

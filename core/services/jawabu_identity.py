@@ -114,18 +114,17 @@ def set_customer_number(farmer: JawabuFarmerMaster, customer_no: str) -> None:
     customer_no = normalize_identifier(customer_no)
     if not customer_no:
         return
+    matching_cases = JawabuFarmerMaster.objects.select_for_update().filter(
+        customer_no=customer_no,
+    ).exclude(pk=farmer.pk)
+    if farmer.customer_id:
+        matching_cases = matching_cases.exclude(customer_id=farmer.customer_id)
     conflict = (
         JawabuCustomer.objects.select_for_update()
         .filter(customer_no=customer_no)
         .exclude(pk=farmer.customer_id)
         .exists()
-    ) or (
-        JawabuFarmerMaster.objects.select_for_update()
-        .filter(customer_no=customer_no)
-        .exclude(customer_id=farmer.customer_id)
-        .exclude(pk=farmer.pk)
-        .exists()
-    )
+    ) or matching_cases.exists()
     if conflict:
         raise JawabuIdentityConflict('CUSTOMER NO already belongs to a different customer.')
     if farmer.customer_id:

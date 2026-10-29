@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The 29 October Portal workflow review repairs History status/preview, stale
+signed-scan handling, validation feedback and FarmUp bulk/interruption recovery.
+It reuses the native shell and controls. Manual Playwright evidence, 252-case
+order/61-case payment Excel exports and source binding are recorded in
+`reviews/2026-10-29-portal-workflow-review.md`. Approved baselines and the Phase 6
+hold remain unchanged.
+
 The 29 October Origination supporting-document selection correction reuses the
 existing option cards, creation sheet and Manage documents sheet. Compatibility
 now follows the form's active fields and retained application Loan details;

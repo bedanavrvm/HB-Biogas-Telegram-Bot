@@ -705,20 +705,26 @@ def parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
             cwd=Path(__file__).resolve().parents[2], check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ValueError('This PDF took too long to read. Split it into smaller invoice files and retry.') from exc
+        raise InvoiceFilePolicyError('This PDF took too long to read. Split it into smaller invoice files and retry.') from exc
     if result.returncode:
-        raise ValueError('This invoice PDF could not be read. Check that it is unlocked, valid and no more than 200 pages.')
+        raise InvoiceFilePolicyError('This invoice PDF could not be read. Check that it is unlocked, valid and no more than 200 pages.')
     payload = json.loads(result.stdout)
-    if payload.get('error') == 'one_invoice_per_file':
-        raise ValueError(INVOICE_FILE_POLICY_MESSAGE)
+    policy_messages = {'one_invoice_per_file': INVOICE_FILE_POLICY_MESSAGE, 'no_invoice_found': NO_INVOICE_FOUND_MESSAGE}
+    if payload.get('error') in policy_messages:
+        raise InvoiceFilePolicyError(policy_messages[payload['error']])
     return payload['invoices'], payload['pages']
 
 
 INVOICE_FILE_POLICY_MESSAGE = 'Upload one invoice per file. Separate merged invoices or repeated copies, then select the separate files together.'
+NO_INVOICE_FOUND_MESSAGE = 'No HomeBiogas invoice was recognized. Upload a readable invoice PDF.'
 
 
 class InvoiceFilePolicyError(ValueError):
     """Safe, structured worker error; never includes extracted customer text."""
+
+    def __init__(self, message, *, code='one_invoice_per_file'):
+        super().__init__(message)
+        self.code = code
 
 
 def _parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
@@ -756,7 +762,7 @@ def _parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
             else:
                 invoices.append(parsed)
         elif page_number == 1:
-            raise InvoiceFilePolicyError(INVOICE_FILE_POLICY_MESSAGE)
+            raise InvoiceFilePolicyError(NO_INVOICE_FOUND_MESSAGE, code='no_invoice_found')
     if invoices:
         invoices[0]['page_numbers'] = list(range(1, total + 1))
     return invoices, total
@@ -1223,17 +1229,21 @@ def auto_match_invoice_batch(
     actor: str = '',
 ) -> dict:
     """Commit only unique exact matches; return explicit manual-review rows."""
-    eligible = [farmer for farmer in farmers if official_requisition_eligibility(farmer)['eligible']]
+    farmers = list(farmers)
     claimed_farmer_ids = set()
     matched = []
     manual_review = []
     for invoice in batch.invoices.select_related('batch').order_by('page', 'created_at'):
         if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
             continue
-        candidates = [farmer for farmer in eligible if _exact_invoice_identity_match(invoice, farmer)]
+        # Identity comparison needs no database reads. Prove order finality
+        # only for exact candidates; checking every Portal order for every PDF
+        # made unrelated leads dominate a multi-file delivery's time budget.
+        candidates = [farmer for farmer in farmers if _exact_invoice_identity_match(invoice, farmer)
+                      and official_requisition_eligibility(farmer)['eligible']]
         reason = ''
         from core.services.invoice_identity import pending_corrections_for_invoice
-        if pending_corrections_for_invoice(invoice, farmer_ids=[farmer.pk for farmer in eligible]):
+        if pending_corrections_for_invoice(invoice, farmer_ids=[farmer.pk for farmer in farmers]):
             reason = 'A corrected invoice is ready to confirm. Complete the correction before matching.'
         elif not invoice.invoice_no or not invoice.invoice_date:
             reason = 'Invoice number or valid invoice date is missing.'

@@ -28,8 +28,8 @@ def main():
         raise ValueError('Invoice file exceeds the parser byte budget.')
     try:
         invoices, pages = _parse_invoice_pdf_bytes(content)
-    except InvoiceFilePolicyError:
-        sys.stdout.write(json.dumps({'error': 'one_invoice_per_file'}))
+    except InvoiceFilePolicyError as exc:
+        sys.stdout.write(json.dumps({'error': exc.code}))
         return
     sys.stdout.write(json.dumps({'invoices': invoices, 'pages': pages}, default=str))
 

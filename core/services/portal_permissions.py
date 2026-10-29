@@ -86,6 +86,7 @@ def scope_portal_case_queryset(queryset, user, capability: str, *, access: dict 
     return scope_workflow_queryset(
         queryset, user, 'jawabu_portal', capability, access=access,
         branch_field='branch', product_field='product__code',
+        group_field='group_configuration__group_id',
     )
 
 

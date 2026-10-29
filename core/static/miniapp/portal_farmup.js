@@ -384,18 +384,49 @@
     document.body.append(dialog); dialog.showModal(); return new Promise(resolve => dialog.addEventListener('close', () => { const confirmed = dialog.returnValue === 'confirm'; dialog.remove(); resolve(confirmed); }, {once:true}));
   }
   async function commit() {
+    const batchId = active?.id;
+    if (!batchId) return;
     const button = node('farmup-commit'); setLoading(button, true, 'Validating');
     try {
       const validation = await validateReview();
+      if (active?.id !== batchId || !activeScreen()) return;
       const invalid = (validation.rows || []).some(row => row.selected && (row.issues.some(i => i.severity === 'blocker') || (row.issues.some(i => i.severity === 'warning') && !row.warning_acknowledged)));
       if (invalid) { feedback('Some selected rows still need correction or warning acknowledgement.', 'error'); return; }
       const edits = reviewCounts(); const counts = {...validation.counts, edited_cells:edits.editedCells, edited_rows:edits.editedRows};
       if (!await confirmDialog('Commit selected FarmUp rows?', counts, 'Django commits first. Held and unresolved rows remain in this monthly worklist; Sheet publication is queued separately.', `Commit ${counts.selected || 0} selected`)) return;
-      setLoading(button, true, 'Committing'); const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
-      const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/commit/`, {revision_token:active.revision_token, rows:submittedRows(), client_request_id:key}, tg);
-      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed.');
-      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} added to Portal — ${receipt.created || 0} new, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Google Sheet update queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
-    } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
+      if (active?.id !== batchId || !activeScreen()) return;
+      let pending = submittedRows().filter(row => row.approved).map(row => String(row.row_id));
+      const total = pending.length, receipt = {committed:0, created:0, updated:0, held:0};
+      let published = false;
+      while (pending.length) {
+        if (active?.id !== batchId || !activeScreen()) return;
+        // Keep each canonical save within the ordinary request timeout.
+        const selected = new Set(pending.slice(0, 50));
+        const rows = submittedRows().map(row => ({...row,
+          approved:selected.has(String(row.row_id)),
+          disposition:selected.has(String(row.row_id)) ? 'commit_now' : (row.disposition === 'commit_now' ? 'hold' : row.disposition),
+        }));
+        setLoading(button, true, `Saving ${total - pending.length} of ${total}`);
+        const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
+        const result = await api.postJson(`/farmup/${encodeURIComponent(batchId)}/commit/`, {revision_token:active.revision_token, rows, client_request_id:key}, tg);
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed. Saved rows are retained; refresh before continuing.');
+        if (active?.id !== batchId || !activeScreen()) return;
+        const saved = result.data.result || {};
+        commitRequestKey = '';
+        active = {...active, ...result.data.batch};
+        for (const key of ['committed','created','updated']) receipt[key] += Number(saved[key] || 0);
+        receipt.held = Number(saved.held || 0);
+        published ||= Boolean(saved.publications?.length);
+        pending = pending.filter(id => !selected.has(id));
+        const remaining = new Set(pending);
+        active.rows.forEach(row => {
+          if (remaining.has(String(row.row_id))) { row.approved = true; row.disposition = 'commit_now'; }
+        });
+        if (!saved.success) throw new Error(saved.message || 'Some selected rows need correction. Saved rows are retained.');
+        feedback(`${receipt.committed} of ${total} selected rows saved.`, 'info');
+      }
+      clearDirtyProtection(); const message = `${receipt.committed} added to Portal — ${receipt.created} new, ${receipt.updated} updated. ${receipt.held} held.${published ? ' Google Sheet update queued.' : ''}`; window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); await load({silent:true}); await openBatch(batchId);
+    } catch (error) { if (active?.id === batchId && activeScreen()) await renderEditor(); feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }
   async function repairSheet() {
     const button = node('farmup-repair'); setLoading(button, true, 'Checking');

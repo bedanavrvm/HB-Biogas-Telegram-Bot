@@ -25,7 +25,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import BadSignature, TimestampSigner
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.shortcuts import render
@@ -615,6 +615,12 @@ def _portal_scoped_farmers(farmers, request, capability='portal.batches.view'):
     access = getattr(request, 'portal_access', None)
     if access is None:
         return list(farmers)
+    if isinstance(farmers, QuerySet):
+        from core.services.portal_permissions import scope_portal_case_queryset
+
+        return list(scope_portal_case_queryset(
+            farmers, request.portal_user, capability, access=access,
+        ))
     from core.services.portal_permissions import portal_access_decision
 
     return [farmer for farmer in farmers if portal_access_decision(
@@ -628,11 +634,22 @@ def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None,
     if identifiers:
         from core.models import JawabuFarmerMaster
 
-        farmers = list(JawabuFarmerMaster.objects.filter(id__in=identifiers).only('branch'))
-        # Do not show historical artifacts whose scope cannot be reconstructed
-        # for a branch-limited account.
+        farmers = JawabuFarmerMaster.objects.filter(id__in=identifiers)
+        if capability:
+            from core.services.portal_permissions import scope_portal_case_queryset
+
+            # Check the entire retained membership in one scoped query. Loading
+            # only branch deferred the other authorization fields and repeated
+            # capability/audit queries for every case in a large workbook.
+            scoped = scope_portal_case_queryset(
+                farmers, getattr(request, 'portal_user', None), capability,
+                access=getattr(request, 'portal_access', None),
+            )
+            return scoped.count() == len(identifiers)
+        farmers = list(farmers)
+        # Missing members cannot establish the complete document's scope.
         if len(farmers) != len(identifiers):
-            return not getattr(request, 'portal_access', {}).get('branches')
+            return False
         return _portal_farmers_scope_error(request, farmers, capability=capability) is None
     return _portal_order_scope_error(request, order_number, capability=capability) is None
 
@@ -2649,7 +2666,7 @@ def portal_import_stage(request, kind: str):
             allowed_group_ids=_portal_import_group_ids(request),
         )
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=400)
     except Exception:
         logger.exception('Could not stage Portal import kind=%s request_id=%s', kind, getattr(request, 'portal_request_id', ''))
         return JsonResponse({'ok': False, 'error': 'The import could not be staged. Check the file and retry.'}, status=502)
@@ -2701,7 +2718,7 @@ def portal_import_detail(request, batch_id: str):
     try:
         source_table = source_table_page(batch, page=page, page_size=page_size)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=409)
     review_pages = max(1, (total_rows + page_size - 1) // page_size)
     payload = serialize_import_batch(
         batch,
@@ -2801,7 +2818,7 @@ def portal_import_archive(request, batch_id: str):
             allowed_group_ids=_portal_import_group_ids(request),
         )
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     return JsonResponse({
         'ok': True,
         'replayed': replayed,
@@ -2844,7 +2861,7 @@ def portal_import_archive_attempt(request):
         result = attempt_import_archive(operation_id)
         batch = result['batch']
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=400)
     except Exception:
         logger.exception('Could not archive Portal import operation_id=%s', operation_id)
         return JsonResponse({'ok': False, 'error': 'The Drive archive could not be completed. Retry from Imports.'}, status=502)
@@ -2915,7 +2932,7 @@ def portal_farmup_stage(request):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_upload_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=400)
     return JsonResponse({
         'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch),
         'archive_operation_id': str(operation.pk),
@@ -2951,7 +2968,7 @@ def portal_farmup_version(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     return JsonResponse({
         'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch),
         'archive_operation_id': str(operation.pk),
@@ -3024,7 +3041,7 @@ def portal_farmup_mapping(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     response_batch = serialize_import_batch(
         batch, include_rows=True,
         archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
@@ -3054,7 +3071,7 @@ def portal_farmup_validate(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     return JsonResponse({'ok': True, 'rows': rows, 'counts': counts})
 
 
@@ -3077,7 +3094,7 @@ def portal_farmup_repair_preview(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     return JsonResponse({'ok': True, 'preview': preview})
 
 
@@ -3104,7 +3121,7 @@ def portal_farmup_repair(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     response_batch = serialize_import_batch(batch)
     response_batch['revision_token'] = farmup_revision_token(batch)
     return JsonResponse({
@@ -3136,8 +3153,8 @@ def portal_farmup_commit(request, batch_id: str):
     except PortalImportConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
-    response_batch = serialize_import_batch(batch)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    response_batch = serialize_import_batch(batch, include_rows=True)
     response_batch['revision_token'] = farmup_revision_token(batch)
     return JsonResponse({
         'ok': True, 'replayed': replayed, 'result': result, 'batch': response_batch,
@@ -3163,7 +3180,7 @@ def portal_farmup_archive(request, batch_id: str):
             allowed_group_ids=_portal_import_group_ids(request),
         )
     except PortalImportError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_import_invalid', 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch)})
 
 
@@ -3812,7 +3829,8 @@ def _portal_pipeline_reason_error(body, decision, comment):
         validate_pipeline_reason(decision=decision, reason_code=body.get('reason_code', ''), comment=comment)
     except JawabuApprovalError as exc:
         message = ' '.join(exc.messages)
-        return JsonResponse({'ok': False, 'error': message, 'field_errors': {'reason_code': message}}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_decision_reason_invalid', 'error': message,
+                             'field_errors': {'reason_code': message}}, status=400)
     return None
 
 
@@ -5062,7 +5080,7 @@ def portal_set_credit_decision(request, farmer_id: str):
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
-        return JsonResponse({'ok': False, 'error': error}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_credit_decision_blocked', 'error': error}, status=400)
     farmer.refresh_from_db()
     voice_cleanup_pending = False
     if voice_attempt_id and not credit_replayed:
@@ -5184,7 +5202,7 @@ def portal_set_final_decision(request, farmer_id: str):
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
-        return JsonResponse({'ok': False, 'error': error}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_final_decision_blocked', 'error': error}, status=400)
     farmer.refresh_from_db()
     voice_cleanup_pending = False
     if voice_attempt_id:
@@ -5250,7 +5268,7 @@ def portal_return_for_rework(request, farmer_id: str):
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
-        return JsonResponse({'ok': False, 'error': error}, status=400)
+        return JsonResponse({'ok': False, 'code': 'portal_rework_blocked', 'error': error}, status=400)
     farmer.refresh_from_db()
     return JsonResponse({
         'ok': True,
@@ -5698,6 +5716,9 @@ def _serialize_portal_payment_batch(request, batch, *, include_cases=True):
     payload = serialize_batch(batch, include_cases=include_cases)
     payload['workbook_download_url'] = _payment_workbook_download_url(request, batch)
     payload['workbook_filename'] = batch.current_document.filename if batch.current_document_id else ''
+    if batch.current_document_id:
+        payload['workbook_version'] = batch.current_document.version
+        payload['workbook_checksum'] = hashlib.sha256(bytes(batch.current_document.file_content or b'')).hexdigest()
     return payload
 
 
@@ -6822,7 +6843,7 @@ def portal_requisition_batch_cancel(request, order_number: str):
         batch = cancel_order(batch.pk, expected_version=body.get('expected_version'), actor=request.portal_user, request_id=request_id)
         return JsonResponse({'ok': True, 'batch': _serialize_batch(batch, _farmers_for_batch(batch.order_number, batch.farmer_ids), request)})
     except (ValueError, TypeError) as exc:
-        return JsonResponse({'ok': False, 'error': str(exc) or 'Refresh the order and retry.'}, status=409)
+        return JsonResponse({'ok': False, 'code': 'requisition_cancel_blocked', 'error': str(exc) or 'Refresh the order and retry.'}, status=409)
 
 
 @csrf_exempt
@@ -7090,7 +7111,7 @@ def portal_invoice_pool_upload(request):
     try:
         validate_invoice_delivery(pdf_files)
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'invoice_delivery_invalid', 'error': str(exc)}, status=400)
 
     max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
     max_bytes = max_mb * 1024 * 1024
@@ -7113,6 +7134,7 @@ def portal_invoice_pool_upload(request):
 
     from core.services.invoice_parser import (
         InvoiceDuplicateUploadError,
+        InvoiceFilePolicyError,
         InvoiceUploadRequestConflictError,
         InvoiceUploadStorageError,
         auto_match_invoice_batch,
@@ -7165,6 +7187,8 @@ def portal_invoice_pool_upload(request):
                     'reason': 'No valid HomeBiogas invoice was parsed from this file.',
                 })
             batches.append(batch)
+        except InvoiceFilePolicyError as exc:
+            failures.append({'filename': filename, 'code': 'invoice_file_invalid', 'error': str(exc)})
         except InvoiceDuplicateUploadError as exc:
             duplicate_files.append({
                 'filename': filename,
@@ -7188,9 +7212,10 @@ def portal_invoice_pool_upload(request):
                 'total_failed': 0, 'total_duplicates': len(duplicate_files),
                 'duplicate_files': duplicate_files, 'batches': [],
             })
-        status = 409 if request_conflicts else 502 if any('Google Drive' in item['error'] for item in failures) else 500
+        status = 409 if request_conflicts else 502 if any('Google Drive' in item['error'] for item in failures) else 400 if failures and all(item.get('code') == 'invoice_file_invalid' for item in failures) else 500
         return JsonResponse({
             'ok': False,
+            'code': 'invoice_file_invalid' if status == 400 else 'invoice_upload_failed',
             'error': failures[0]['error'] if failures else 'Invoice upload failed.',
             'failures': failures,
             'max_file_size_mb': max_mb,
@@ -9939,7 +9964,7 @@ def portal_document_history(request):
         # history and review work are one payment register, but their status
         # remains explicit so a draft can never be mistaken for a final.
         documents = PaymentDocument.objects.filter(
-            status__in=['pending_review', 'final', 'failed'],
+            status__in=['pending_review', 'final', 'awaiting_scan', 'completed', 'failed'],
         ).order_by('-created_at')[:100]
         return JsonResponse({'ok': True, 'kind': kind, 'documents': [
             {
@@ -10055,6 +10080,7 @@ def portal_document_physical_signoff_upload(request, document_type: str, documen
     if str(request.POST.get('attested_complete') or '').casefold() not in {'1', 'true', 'yes', 'on'}:
         return JsonResponse({
             'ok': False,
+            'code': 'document_signoff_attestation_required',
             'error': 'Confirm that the scan is complete, signed, stamped, readable, and matches this exact document version.',
         }, status=400)
     try:
@@ -10066,9 +10092,12 @@ def portal_document_physical_signoff_upload(request, document_type: str, documen
             access=getattr(request, 'portal_access', None),
             request_id=_portal_request_id(request),
             replaces_signoff_id=str(request.POST.get('replaces_signoff_id') or ''),
+            expected_version=request.POST.get('expected_version', ''),
+            expected_source_checksum=str(request.POST.get('expected_source_checksum') or ''),
         )
     except PhysicalSignoffError as exc:
-        return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+        changed = getattr(exc, 'code', '') == 'source_changed'
+        return JsonResponse({'ok': False, 'code': 'document_signoff_source_changed' if changed else 'document_signoff_invalid', 'error': '; '.join(exc.messages)}, status=409 if changed else 400)
     except Exception:
         logger.exception('Physical sign-off submission failed: document_type=%s document_id=%s', document_type, document_id)
         return JsonResponse({'ok': False, 'error': 'The signed scan could not be stored. Retry without changing the document version.'}, status=502)
@@ -10084,6 +10113,7 @@ def portal_document_physical_signoff_upload(request, document_type: str, documen
         'pending_retry': retryable,
         'idempotent_replay': replayed,
         'signoff': payload,
+        **({'code': 'document_signoff_upload_pending', 'message': 'Signed scan retained. Finish its Drive upload before this document can be accepted.'} if retryable else {}),
     }, status=202 if retryable else 200)
 
 
@@ -10117,7 +10147,7 @@ def portal_document_physical_signoff_retry(request, signoff_id: str):
             access=getattr(request, 'portal_access', None),
         )
     except PhysicalSignoffError as exc:
-        return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+        return JsonResponse({'ok': False, 'code': 'document_signoff_invalid', 'error': '; '.join(exc.messages)}, status=400)
     except Exception:
         logger.exception('Physical sign-off retry failed: signoff=%s', signoff_id)
         return JsonResponse({'ok': False, 'error': 'The signed-scan upload could not be retried.'}, status=502)
@@ -10126,6 +10156,7 @@ def portal_document_physical_signoff_retry(request, signoff_id: str):
         'ok': signoff.status == 'signed_approved',
         'pending_retry': retryable,
         'signoff': serialize_physical_signoff(signoff, document_type=signoff.document_type, source_available=True, can_upload=True),
+        **({'code': 'document_signoff_upload_pending', 'message': 'Signed scan retained. Drive is still unavailable; retry its upload.'} if retryable else {}),
     }, status=202 if retryable else 200)
 
 
@@ -10139,7 +10170,7 @@ def portal_payment_document_detail(request, document_id: str):
     doc = get_object_or_404(
         PaymentDocument,
         pk=document_id,
-        status__in=['pending_review', 'final', 'failed'],
+        status__in=['pending_review', 'final', 'awaiting_scan', 'completed', 'failed'],
     )
     if _portal_capability_error(request, 'portal.documents.view') or not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids, capability='portal.documents.view'):
         return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)

@@ -338,7 +338,7 @@ def _artifact_filters_for_signoff(signoff: DocumentPhysicalSignoff) -> dict:
     return values
 
 
-def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_file, actor, access: dict | None, request_id: str = '', replaces_signoff_id: str = '') -> tuple[DocumentPhysicalSignoff, bool]:
+def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_file, actor, access: dict | None, request_id: str = '', replaces_signoff_id: str = '', expected_version=None, expected_source_checksum: str = '') -> tuple[DocumentPhysicalSignoff, bool]:
     """Create one attested sign-off attempt, then attempt its Drive upload.
 
     The boolean is true when a retry/double submit resolves to the same stored
@@ -357,6 +357,21 @@ def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_fi
 
     with transaction.atomic():
         source = source_artifact(document_type, document_id, lock=True)
+        # HTTP callers supply a binding; trusted in-process calls may use the current source.
+        try:
+            version = int(expected_version) if expected_version is not None else source.version
+        except (TypeError, ValueError):
+            version = 0
+        if not version or (expected_version is not None and not expected_source_checksum):
+            raise PhysicalSignoffError(
+                'Reopen this document before uploading its signed scan so the exact workbook version can be confirmed.',
+                code='source_version_required',
+            )
+        if source.version != version or (expected_version is not None and source.checksum != expected_source_checksum):
+            raise PhysicalSignoffError(
+                'This workbook changed after you opened it. Download the current version and attach its signed scan.',
+                code='source_changed',
+            )
         if request_id:
             existing_request = DocumentPhysicalSignoff.objects.filter(request_id=request_id).first()
             if existing_request:
@@ -507,6 +522,8 @@ def document_signoff_summary(document_type: str, document, *, can_upload: bool =
         source_available=True,
         can_upload=can_upload,
     )
+    summary['source_version'] = source.version
+    summary['source_checksum'] = source.checksum
     previous_filters = {
         'document_type': document_type,
         'status__in': [DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED, DocumentPhysicalSignoff.STATUS_SUPERSEDED],

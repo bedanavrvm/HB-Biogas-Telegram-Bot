@@ -2,7 +2,6 @@ import re
 import copy
 import io
 import os
-import math
 import openpyxl
 from datetime import date, datetime, timezone as datetime_timezone
 from typing import Any
@@ -318,16 +317,17 @@ def generate_requisition_excel(
     
     totals_row_idx = last_data_row + 1
     preserved_images = list(getattr(ws, '_images', []) or [])
+    from core.services.workbook_layout import configure_table_printing, fit_wrapped_row_height, shift_rows
     
     # 5. Adjust row count dynamically
     if N > template_data_rows:
         insert_count = N - template_data_rows
-        ws.insert_rows(totals_row_idx, insert_count)
+        shift_rows(ws, totals_row_idx, insert_count)
         for r in range(totals_row_idx, totals_row_idx + insert_count):
             copy_row_formatting(ws, first_data_row, r)
     elif N < template_data_rows:
         delete_count = template_data_rows - N
-        ws.delete_rows(first_data_row + N, delete_count)
+        shift_rows(ws, first_data_row + N, -delete_count)
         
     # 6. Write the data
     for idx, farmer in enumerate(farmers):
@@ -351,22 +351,15 @@ def generate_requisition_excel(
             
         _write_system_value(ws, r, col_sales, str(farmer.hb_sales_person or '').upper(), wrap=True)  # HB SALES PERSON
 
-        line_count = max(
-            1,
-            math.ceil(len(str(farmer.customer_name or '')) / 24),
-            math.ceil(len(str(farmer.county or '')) / 14),
-            math.ceil(len(location_text) / 30),
-            math.ceil(len(callup_comment) / 24),
-            math.ceil(len(str(farmer.hb_sales_person or '')) / 20),
-        )
-        current_height = float(ws.row_dimensions[r].height or 18)
-        ws.row_dimensions[r].height = max(current_height, min(60, 15 * line_count))
+        fit_wrapped_row_height(ws, r, (col_name, col_county, col_landmark, col_callup, col_sales))
 
     # 7. Remove the template totals row; staff requested no total-customer/deposit summary row.
     new_totals_row = first_data_row + N
-    ws.delete_rows(new_totals_row, 1)
+    shift_rows(ws, new_totals_row, -1)
     if preserved_images:
         ws._images = preserved_images
+    configure_table_printing(ws, header_row=header_row_idx, first_data_row=first_data_row,
+        reference=f'Order {order_number}')
         
     out = io.BytesIO()
     wb.save(out)

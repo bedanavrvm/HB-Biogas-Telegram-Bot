@@ -1725,7 +1725,7 @@ def serialize_import_batch(
         'review_needed': batch.review_needed,
         'committed_count': batch.committed_count,
         'skipped_count': batch.skipped_count,
-        'remaining_count': sum(
+        'remaining_count': len(review_rows) if batch.import_kind == 'system_export' else sum(
             value for key, value in disposition_counts.items()
             if key in {'commit_now', 'hold', 'exclude'}
         ),

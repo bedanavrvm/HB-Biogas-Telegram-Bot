@@ -72,6 +72,7 @@
   state.actor = { name: '', roles: [] };
   state.lastRefreshedAt = 0;
   let historyKind = 'orders';
+  let historyLoadVersion = 0;
   let historyPartner = 'all';
   let lastShellScreen = null;
   const queueLoadVersions = new Map();
@@ -1771,7 +1772,7 @@
   }
 
   function signedScanUploadMarkup(document, type, replaces = '') {
-    return `<details class="physical-signoff physical-signoff-upload" ${replaces ? 'hidden' : ''}><summary><span><strong>${replaces ? 'Replace signed scan' : 'Attach signed scan'}</strong></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-replaces="${escapeHtml(replaces)}" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">${replaces ? 'Replace scan' : 'Upload signed scan'}</button></div></details>`;
+    return `<details class="physical-signoff physical-signoff-upload" ${replaces ? 'hidden' : ''}><summary><span><strong>${replaces ? 'Replace signed scan' : 'Attach signed scan'}</strong></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><small class="history-signed-scan-status" role="status" aria-live="polite">Choose a file to continue.</small><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-replaces="${escapeHtml(replaces)}" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}" data-source-version="${escapeHtml(document.physical_signoff?.source_version || document.version || 0)}" data-source-checksum="${escapeHtml(document.physical_signoff?.source_checksum || '')}">${replaces ? 'Replace scan' : 'Upload signed scan'}</button></div></details>`;
   }
 
   function priorPhysicalSignoffsMarkup(document) {
@@ -1800,12 +1801,12 @@
         <header class="miniapp-panel-heading history-document-header">
         <button type="button" class="fc-name history-document-title history-show-details" aria-expanded="false" title="Document details"><span class="history-document-reference">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}${doc.sync_status === 'succeeded' ? '<span class="history-drive-indicator" role="img" aria-label="Stored in Drive" title="Stored in Drive"></span>' : ''}</span><span class="history-document-meta"><span>${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} · ` : `${escapeHtml(doc.fulfillment_partner === 'ECOCONSERVE' ? 'Eco-conserve' : 'HB')} · `}${escapeHtml(doc.row_count || 0)} cases · v${escapeHtml(doc.version || 0)}</span><time>${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}</time></span></button>
         <div class="history-document-actions" role="group" aria-label="Workbook actions">
-          <button type="button" class="miniapp-icon-button portal-finance-icon history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}" aria-label="${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'Preview workbook'}" title="Preview workbook"><i data-lucide="eye" aria-hidden="true"></i></button>
+          <button type="button" class="miniapp-icon-button portal-finance-icon history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}" aria-label="${kind === 'payments' && doc.status === 'pending_review' ? 'Review payment' : 'Preview workbook'}" title="Preview workbook"><i data-lucide="eye" aria-hidden="true"></i></button>
           ${doc.download_url ? `<button type="button" class="miniapp-icon-button portal-finance-icon history-open-excel" data-download="true" data-filename="${escapeHtml(doc.filename || `${kind === 'payments' ? 'Payment' : 'Order'}-${doc.payment_number || doc.order_number || 'workbook'}.xlsx`)}" data-url="${escapeHtml(doc.download_url)}" aria-label="Download workbook" title="Download workbook"><i data-lucide="download" aria-hidden="true"></i></button>` : doc.drive_url ? `<button type="button" class="miniapp-icon-button portal-finance-icon history-open-excel" data-url="${escapeHtml(doc.drive_url)}" aria-label="Open in Drive" title="Open in Drive"><i data-lucide="external-link" aria-hidden="true"></i></button>` : ''}
         </div>
         </header>
         ${syncBadge}
-        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting payment review'}</span>` : ''}
+        ${kind === 'payments' ? `<span class="badge ${['final','completed'].includes(doc.status) ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${({final:'Final', completed:'Completed', awaiting_scan:'Awaiting signed scan', failed:'Storage retry needed'})[doc.status] || 'Awaiting payment review'}</span>` : ''}
         ${physicalSignoffMarkup(doc, kind)}
         ${doc.physical_signoff?.can_replace && doc.physical_signoff?.status === 'signed_approved' ? signedScanUploadMarkup(doc, kind === 'payments' ? 'payment' : 'requisition', doc.physical_signoff.id) : ''}
         <section class="history-document-details" hidden><div class="history-document-detail-body">${doc.generated_by ? `<p>Generated by ${escapeHtml(doc.generated_by)}</p>` : ''}
@@ -1816,6 +1817,7 @@
     }).join('');
   }
   async function loadHistory(kind = historyKind) {
+    const loadVersion = ++historyLoadVersion;
     historyKind = kind;
     const target = el('history-list');
     if (!target || !isCurrentScreen('history')) return;
@@ -1844,7 +1846,7 @@
     const query = new URLSearchParams({ kind });
     if (kind === 'orders' && historyPartner !== 'all') query.set('partner', historyPartner);
     const { ok, data } = await apiFetch('/document-history/?' + query.toString());
-    if (!isCurrentScreen('history')) return;
+    if (loadVersion !== historyLoadVersion || !isCurrentScreen('history')) return;
     if (!ok || !data.ok) {
       if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load document history</div></div>';
       return;
@@ -2729,6 +2731,8 @@
       const formData = new FormData();
       formData.append('signed_scan', file);
       formData.append('attested_complete', 'true');
+      formData.append('expected_version', uploadSignedScanButton.dataset.sourceVersion || '');
+      formData.append('expected_source_checksum', uploadSignedScanButton.dataset.sourceChecksum || '');
       if (uploadSignedScanButton.dataset.replaces) {
         if (uploadSignedScanButton.disabled) return;
         uploadSignedScanButton.disabled = true;
