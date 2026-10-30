@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The user's 30 October Portal review retains the current compact art direction.
+Only the existing capability-filtered bottom hubs, hidden while Telegram owns
+the primary action, and the divided Performance activity card are selected.
+`reviews/2026-10-30-portal-selected-refinements.md` records the exact scope,
+density decision and real-shell Playwright evidence. This is a bounded change;
+the other A/B proposals, approved baselines and Phase 6 hold are unchanged.
+
 The Portal before/A/B options pack compares thirteen improvement areas using
 28 synthetic task scenarios. Actual baselines and both isolated design options
 are in `reviews/portal-ux-options-2026-10-29/index.html`; its README records

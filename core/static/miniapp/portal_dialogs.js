@@ -45,7 +45,7 @@
     syncBody();
     window.setTimeout(function () {
       if (topOverlay() !== overlay) return;
-      const target = overlay.querySelector(closeSelectors[overlay.id] || '') || focusable(overlay)[0]
+      const target = overlay.querySelector(closeSelectors[overlay.id] || '.sheet-close-button') || focusable(overlay)[0]
         || overlay.querySelector('.sheet-panel');
       if (target && !target.hasAttribute('tabindex') && target.matches('.sheet-panel')) target.tabIndex = -1;
       target?.focus?.({ preventScroll: true });
@@ -97,7 +97,7 @@
     const overlay = topOverlay();
     if (!overlay) return;
     if (event.key === 'Escape') {
-      const close = overlay.querySelector(closeSelectors[overlay.id] || '');
+      const close = overlay.querySelector(closeSelectors[overlay.id] || '.sheet-close-button');
       if (close) {
         event.preventDefault();
         close.click();

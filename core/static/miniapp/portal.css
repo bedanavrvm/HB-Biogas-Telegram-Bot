@@ -25,6 +25,13 @@
   --portal-z-toast: 300;
 }
 
+/* The native primary action owns the bottom edge while it is bound. */
+body.portal-app #bottom-tabs:not(:has(.shell-nav-link)),
+body.portal-app:has(#content .miniapp-native-action) #bottom-tabs { display: none; }
+body.portal-app #bottom-tabs { --bottom-tabs-height: calc(49px + env(safe-area-inset-bottom)); z-index: var(--portal-z-sticky); padding-block: 2px calc(2px + env(safe-area-inset-bottom)); }
+body.portal-app #bottom-tabs .shell-nav-link { min-height: 44px; border-radius: 6px; }
+body.portal-app #bottom-tabs .shell-nav-link.active { background: var(--color-soft); color: var(--brand-primary); }
+
 /* Canonical loan-cycle navigation. The rail remains in process order even
    when capability filtering removes stages for a particular actor. */
 .portal-pipeline-navigation {
@@ -5242,12 +5249,14 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .jbl-selection-viewer-stage .secure-media-stage { height: calc(100dvh - 240px); }
 
 /* Standings use the same compact hierarchy as TAT Recognition. */
-.portal-performance-own { padding: 10px; background: color-mix(in srgb, var(--brand-primary) 6%, var(--bg-surface)); border-color: color-mix(in srgb, var(--brand-primary) 30%, var(--border-color)); }
-.portal-performance-own-heading { align-items: center; }
-.portal-performance-own-metrics { display: grid; grid-template-columns: minmax(0,1.25fr) repeat(2,minmax(0,1fr)); align-items:end; gap: 12px; padding-top: 2px; }
-.portal-performance-own-cell { padding: 0; border: 0; background: transparent; }
+.portal-performance-own { padding: 10px; background: var(--bg-surface); border-color: var(--border-color); }
+.portal-performance-own-heading { align-items: center; margin-bottom: 6px; }
+.portal-performance-own-heading h2 { margin: 0; }
+.portal-performance-own-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: stretch; gap: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-color); border-radius: 8px; }
+.portal-performance-own-cell { padding: 6px 10px; background: transparent; }
+.portal-performance-own-cell:first-child { padding-left: 10px; }
+.portal-performance-own-cell + .portal-performance-own-cell { border-left: 1px solid var(--border-color); }
 .portal-performance-own-cell strong { font-size: 18px; color:var(--text-primary); }
-.portal-performance-own-cell:first-child strong { font-size: 30px; line-height: 1.05; color: var(--brand-primary); }
 .portal-performance-row.current-user { background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface)); }
 .portal-performance-row-score { font-size: 15px; line-height:1.1; }
 .portal-performance-pages button { min-height: 44px; }

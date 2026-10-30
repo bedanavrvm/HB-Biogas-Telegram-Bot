@@ -419,9 +419,9 @@
   "changes": [
     {
       "path": "core/static/miniapp/portal_dialogs.js",
-      "sha256": "9edd9dc6d61978139d01985daa713c6663ca5498cd90017ed1db5ba539663029",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-back-navigation.md",
-      "reason": "Nonvisual repair of the five user-reported Back defects using existing Portal controls: retain cancelled local photos, scope Case History interception, return to owning lists/workstreams, cancel confirmations and dismiss navigation before leaving. Synthetic source-bound behavior and light/dark evidence are documented; no visual baseline, role, workflow or Phase 6 changes."
+      "sha256": "ce041985634d6f5a5631305723fe4893ce08683a9d1971720f6bf2a592aaeef2",
+      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
+      "reason": "Playwright exposed empty-selector focus errors for unlisted Portal overlays. Reuse the existing close control for initial focus and Escape; no new UI, grants or state transitions."
     },
     {
       "path": "core/static/miniapp/miniapp-nav.js",
@@ -437,9 +437,9 @@
     },
     {
       "path": "core/static/miniapp/portal.css",
-      "sha256": "c3f84c84b22b275a5a99d94c8eebb46aace347b8d673032b13b1d070c47287dc",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "29ac5919de6db5154939181a32cba1120d254953048b9c9d699e70e27762f660",
+      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
+      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
     },
     {
       "path": "core/static/miniapp/portal.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "e13c52a7700ad8514132b3147e265f3b7d665ccaea26f8b184ffe774753fadd3",
-      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-state-recovery.md",
-      "reason": "User-authorized Portal state-recovery correction using existing shell, queues, confirmations, submission sheets, file picker and inline feedback. Manual Playwright with isolated PostgreSQL covers expired-case handoff, uncertain FarmUp saves, invoice correction/follow-up recovery, retained upload errors and configured payment sign-off visibility. No approved baseline, role expansion, candidate tokens or Phase 6 migration."
+      "sha256": "73e832b36ee195a2818214e2f96d79d2d1f7c6442977f47c5e43bfdfef9fa086",
+      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
+      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -479,9 +479,9 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "4a88e497f98ad05684e75565d874ac2b38564adb2f8ee071d9d19c0476cc9de9",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "3518fab4243a2821c79c2d7b12470065a2e8429332106992a7af7dfebc316e4d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
+      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",

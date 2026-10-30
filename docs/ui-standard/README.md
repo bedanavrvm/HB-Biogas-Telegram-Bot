@@ -26,6 +26,15 @@ operational M1/privacy/named-reader/human acceptance are still required.
 
 ## Current stage
 
+Portal direction, confirmed by the user on 30 October 2026: preserve the current
+compact layouts and maximize useful information visible without scrolling.
+Do not enlarge typography, add spacing or hide existing facts behind extra
+sections by default. The before/A/B review approved only bottom navigation on
+pages without Telegram's sticky primary action and the Performance activity
+card. This does not accept either complete redesign. The bounded changes and
+browser evidence are in
+[the selection record](reviews/2026-10-30-portal-selected-refinements.md).
+
 The Design Lab covers Portal, TAT Tracker, Complaints and Origination. All
 patterns start unreviewed. The lab does not change their live UI, workflow
 permissions or business rules. Candidate tokens/themes are not an approved

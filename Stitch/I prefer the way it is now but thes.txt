@@ -1,0 +1,6 @@
+I prefer the way it is now but these are some of the things i would borrow:
+Shared appearance and navigation: Only the bottom navbar in the main page/pages without the sticky telegram main button at the bottom
+
+
+
+what ive actually realized is that my art direction is superior to yours because ive reviewed all the suggested solutions and none are better than what i have so far( your problem seems to be not understanding that the more info ise exposed in a viewport without scrolling the better. Tou recommend excessive spacing and font sizes
