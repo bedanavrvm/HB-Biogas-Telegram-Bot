@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The Portal before/A/B options pack compares thirteen improvement areas using
+28 synthetic task scenarios. Actual baselines and both isolated design options
+are in `reviews/portal-ux-options-2026-10-29/index.html`; its README records
+recommendations, interactions, source provenance and limits. This is a review
+candidate only. Operational UI, approved baselines and the Phase 6 hold remain
+unchanged.
+
 The 29 October Portal state-recovery follow-up adds expired-case handoffs,
 uncertain-save confirmation, invoice correction recovery and retained upload
 errors. Payment upload visibility follows its existing sign-off policy. These

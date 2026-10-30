@@ -200,6 +200,726 @@
       "sha256": "26725672236a774973e6047bd35a7e02d5d67b6ad3c47d857bb8472096c1bda1",
       "classification": "sanitized_test_fixture",
       "purpose": "Synthetic Portal shared-control visual regression baseline; no customer data"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/correction-a.png": {
+      "sha256": "56e2fd7013b3fd4303d51d2c683b3d3b50bb11de5650b48718f92bcb93e70d31",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/correction-b.png": {
+      "sha256": "2b08199e9164d9bca34060d49674e5f8c53b61768860db2a1d724485895ff908",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/credit-a.png": {
+      "sha256": "7216954e196057fbea3f0968aaef6c2eb7aceddb363f721b06d1e6a411d585d3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/credit-b.png": {
+      "sha256": "1040c6dea04279122719e8988d899add6ae65767fefbd9d5e14a116342531e77",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/document-a.png": {
+      "sha256": "c682b0709a944c26851720a42100f71fc63280f23e88fc4ce7b1313cab8b1529",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/document-b.png": {
+      "sha256": "0391bd3df80351603c3b6d38a9f04db8d66f3f4b6cc6c298249408e7c275a571",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/farmup-a.png": {
+      "sha256": "e634de5906ca49790f1988c1a513b90b72110586f487f1057b09d5710eae2ca3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/farmup-b.png": {
+      "sha256": "8e554838a4b0b3ed236b518fd8c35fda00779c1f2b8c4e4f0ab5906247085022",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/farmup-recovery-a.png": {
+      "sha256": "2f86f6a378bbf90ac2bba647ffd35d905cde472df764c3a415a7543c6ef87d53",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/farmup-recovery-b.png": {
+      "sha256": "c1e155be84a9945e12bf3f9d1c38808e504958726519d0ab0c60a883f339828b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/final-review-a.png": {
+      "sha256": "3ecfceacf0dcc31374e694ce0320cdf3231ce232bbc4ec9c4761f69b7ef1a544",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/final-review-b.png": {
+      "sha256": "8ea76c51c91e0d73446b7a4f954079bb0e994306e354edd47c68504c11dc2dd1",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/history-desktop-a.png": {
+      "sha256": "dafa838358df0097472f1a79050b5ec5ae86807accc7d4c02f7927668f25dd6d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/history-desktop-b.png": {
+      "sha256": "7edf10701abbc8d97c74175f56c9e3e52d9b4a3040a86c516ac1d6ae871875c8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/invoice-a.png": {
+      "sha256": "57a1bc8a8517f228d25b5f7ee4922f86a5988e5237052294b594345fe5d4732f",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/invoice-b.png": {
+      "sha256": "d3ead16823e98c11ae44f8c730ce8f1b9a46824a3bab59189f7e542a63bbb3d5",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/it-status-a.png": {
+      "sha256": "deca38d696fc5c44eca9c71de0a255cfb6539b96690bf6a2d61b3cdc7306527e",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/it-status-b.png": {
+      "sha256": "51a36c69329cdaf52fadfeb601b793d85b8b502b54939818d84f8180ddbf0550",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/orders-a.png": {
+      "sha256": "532e505f76f47cf4e6284db27935382a5fcaccd074f2d6270edea66abaa7f6f8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/orders-b.png": {
+      "sha256": "a1445f383a756562cbe78bdbe643db9fb00116d9656ae268d9ace6f667730aa8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-61-a.png": {
+      "sha256": "9cdddaef579661121e30089bde07b1381c4c96d80610310a5cc9d0df1c57b092",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-61-b.png": {
+      "sha256": "97b01e84ed5d3208fa596f44c2876180bf851552ac8eebb3b12657d4c1ae2ad3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-done-a.png": {
+      "sha256": "7e9f7fd5c3fd1edeca9ec514d0695b6f3635ab49f2a87e77d57951d164392d4d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-done-b.png": {
+      "sha256": "7bd6772b42503a21ebde246b6221d9e040d421ebd5ba3c3df6d7b3a38f22cdd9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-list-a.png": {
+      "sha256": "fdc204ec24ecdcb344f77a05ac7431747cb57616d1b1ee00b664add15af05e41",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-list-b.png": {
+      "sha256": "db90ded2d2b7e92c3f67a164df92d65bf5420c3014e96be2c52efdf85c1f323d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-return-a.png": {
+      "sha256": "18e5684e070ecea2e75ec38f1a197c77052154a21bd97640b6a3432b91be9792",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-return-b.png": {
+      "sha256": "0228cc3a024ecb99f40db5e4d4415c042f6578c9fc58525b164be8cd0161b4e2",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-review-a.png": {
+      "sha256": "b19ac5a85b394390d67f06e1bb0b9176a593add59bf8aade270af6630b60c640",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-review-b.png": {
+      "sha256": "4aad5db81c518f71fbbfe0b46180bf15cd3e381e42ee6316047914a3b209f8af",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-scan-a.png": {
+      "sha256": "e151167b636f4f6b7fa3d7097cc5f968aae398f729b9dde2d1b475741673dc62",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/payment-scan-b.png": {
+      "sha256": "37220584fb97003a525c60463c71c283fc2a169e5da0d45a9a896a56acec4fa6",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/performance-a.png": {
+      "sha256": "4e2809abf28af9feba658bd651218bd6b363b215cfe85dc77a606862d87131e2",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/performance-b.png": {
+      "sha256": "2f02c349554fc3f7a2e9c9a97f628643575d4db74b87f01fed49eafaec406096",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/publication-a.png": {
+      "sha256": "55e846e0aa9d703c194342b4f3510da9b30457b1d8f63be84a5ca8c295408d6c",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/publication-b.png": {
+      "sha256": "832e30f907311e14e58b067798d51558476022803ed9c70cd2329c5c3ed87363",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/queue-a.png": {
+      "sha256": "5a217700edd9abf79f6c063f0b7a580609380c54c6a207a2f98b460ae77ec5b5",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/queue-b.png": {
+      "sha256": "722d742b371f37982984340246b44436af92a0aefe22ecdae4a611730185a5c9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/replacement-a.png": {
+      "sha256": "4476b9a4be2826f39376e5dba831de77d02ed6380cf3e4f1955cec274762e9de",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/replacement-b.png": {
+      "sha256": "51161003e970aa9e3efc3250629cc78637c4aec8ac85e8f1f4617d67aacb1293",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/reports-a.png": {
+      "sha256": "5783c7d53fbee454552f8fe609b076e39df9c2b6b6b96e33796ef0a562efb699",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/reports-b.png": {
+      "sha256": "45d72bd11065ee847e0226aadcfe5008c8f58a6c6b0105281626e39be9998a76",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/reports-desktop-a.png": {
+      "sha256": "087317dc4a9522f284ec268c4d317a0bef88745e1aeba513b58723d5656db6cd",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/reports-desktop-b.png": {
+      "sha256": "0bbbea390f1012cc81fa46b93d35e71c0ae9d785fd955a61612402a44ee70efb",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/revisit-a.png": {
+      "sha256": "bb34685a06689517018188944904b5f14a3df49d362317ba9276ad3ab1917a10",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/revisit-b.png": {
+      "sha256": "33a94df1d0b0cae3d278bb0f7746b4109f8d67d92e35e249dd1dad9acf86ec9b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/settings-a.png": {
+      "sha256": "23af81e53b0a4142d2d59f31386ddc8dfb0ab83d8c0ff3245984476fb777a8e0",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/settings-b.png": {
+      "sha256": "3342de89e62e49b35e7b36b61779326556afa56a3be9c8ed77a5494235f5d0dc",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/shell-a.png": {
+      "sha256": "5a217700edd9abf79f6c063f0b7a580609380c54c6a207a2f98b460ae77ec5b5",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/shell-b.png": {
+      "sha256": "722d742b371f37982984340246b44436af92a0aefe22ecdae4a611730185a5c9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/sysup-a.png": {
+      "sha256": "b2592941b464ddaf4a5e09f80efbb12d8590c291d84c4732716c11332ad5eb75",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/sysup-b.png": {
+      "sha256": "1e1cd726715b72a704c7abd9cf136dfa7f510d00949faf48625f7f55fbb6a524",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/upload-error-a.png": {
+      "sha256": "a04f6cbc51accda732d2a5d29c218764121ea56659fe91314c865480a51a58c6",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/upload-error-b.png": {
+      "sha256": "c8bb83da173f2d7d76bd8e222e401afb6e28348533efc3f6c184dfdb81df42b9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/visit-a.png": {
+      "sha256": "53269d87d8d184b9efe082e1e59b8241b14927388dfe0c3e2e74c6ab19ae4ecb",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/after/visit-b.png": {
+      "sha256": "fbd032d8a634aee3ed88bf6c1058c0af8f870e5a35b421c8d9b5672cdd6eb226",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/correction.png": {
+      "sha256": "f48b23a235d3053810c92c05cc3b3bf677ed82caf6d8523eb25b7f011f3cbbc8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/credit.png": {
+      "sha256": "680b867e357531f8d46925071d805ee4cc2aad3ab08b50e1ad50897866824687",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/document.png": {
+      "sha256": "82bbe918c7c6ae79c20cf4c72821c2c609a292c14f4ec7d14d44d80d2c6d0470",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/farmup-recovery.png": {
+      "sha256": "0457379a36180283927d5b0cbe8abb33e6645448d3bee06910ae9081a26de5e8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/farmup.png": {
+      "sha256": "65859782703b803b5e31c9e18d2b83b3f0263add6dbe96def277d0dcfbb7c4a3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/final-review.png": {
+      "sha256": "56877203aab732ee06e9ddad487705cedeb374ef7537197bd8645154a1b341e9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/history-desktop.png": {
+      "sha256": "c8284fc2a3c8c1b20213a9cd90566c35f0854c277d7e4ee8b8437df260f87e54",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/invoice.png": {
+      "sha256": "802b7a0f065fd866c5487737af4a0a1f8ad19ec1318c4cdf203e1969fd2c1f89",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/it-status.png": {
+      "sha256": "cb711565ba4a2886df8d0a703c1a4aeb3050fe4683d88873ddac3a044b761d9d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/orders.png": {
+      "sha256": "e814d5e3108242bbc534e6437b967b468a7d03be7651574ea0b51dfcbeb28060",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-61.png": {
+      "sha256": "edfec891464a07024825a492367f11beeeecabef197170de933a490bb1c383f7",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-done.png": {
+      "sha256": "fbb68cabe4d93fd2b7d5a7c6c4c57afcf8de9862a4c2e357012961b32e1a3067",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-list.png": {
+      "sha256": "bd032f7716ba6fafa431d789860d8b15b7609fb4da98ebcb82b58927fa754975",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-return.png": {
+      "sha256": "496a12961b2e0a6796cb244737ad525cb660d3c7475dc1d8fd0408f21874bba1",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-review.png": {
+      "sha256": "e69e73b5f422837df2d4690bd08cd5608cac5506fcfc42eb4f42a95c5efe2f6c",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/payment-scan.png": {
+      "sha256": "9f9bf792751bd86b9f696041d2a6ef38c59bb9c087a8c3bd17f1a94b14b2faf1",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/performance.png": {
+      "sha256": "041850259abacdb7fe4c0a55015681e54d519bb56b57d87d85b5dd3f4f022a03",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/publication.png": {
+      "sha256": "0457379a36180283927d5b0cbe8abb33e6645448d3bee06910ae9081a26de5e8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/queue.png": {
+      "sha256": "037dfd38da89178b725dfdd837e6192306c156e79cb5ac1d4ba8bedfb752b6d4",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/replacement.png": {
+      "sha256": "6f79638b068da8410428efa80b34e356ca328554c187cace179f35da15c744d9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/reports-desktop.png": {
+      "sha256": "a29da61c432fcfdf33ea9733abe82a9d8978c0cb5b758182426a4ca2398813ee",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/reports.png": {
+      "sha256": "b2929a3010b4a7b732d75177ed38ee3468f71950e7a0dde645caac6c5a4bd4e7",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/revisit.png": {
+      "sha256": "60984cc4a048dc4d63675b08ae2e11d8b2d3ce30453d7015fd577369359dc6cf",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/settings.png": {
+      "sha256": "4f53cec710a233f1d2de30f4e37155b4f91adda74e4bdd30c64e82ead372533c",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/shell.png": {
+      "sha256": "037dfd38da89178b725dfdd837e6192306c156e79cb5ac1d4ba8bedfb752b6d4",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/sysup.png": {
+      "sha256": "101529c1fb0dd9df6b86ce58e9a5ae920042e5858ff927b09fc256ff0338b895",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/upload-error.png": {
+      "sha256": "bf03417a047861842e491cbb78828b1a7390df6a24e7a5374f07af506594fc53",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/before/visit.png": {
+      "sha256": "0d35e604a1477479df844d409117957f306a7f9b00c2f118bf8d07598f39f1da",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/correction.png": {
+      "sha256": "2d8e5580e6052a8a3d33df65c71b92f7b1620182e1b5d9c4c405ef34212b44e5",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/credit.png": {
+      "sha256": "0514882f7f83578a90b6607485ff2c5b3d06dd9b14596e10bbd119b040124d8e",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/document.png": {
+      "sha256": "3bfd6318410023a9ffb679a53c58df8f58189df90e16c6b9d8eca657379839ec",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/farmup-recovery.png": {
+      "sha256": "afd590bfef62111a112a1db34bcd574869008f88b2a4d7b18a58233d7d0902d8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/farmup.png": {
+      "sha256": "876d1601556c857efcc76499f1580bf64be07eb4453204c67c2099bfbcfe363b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/final-review.png": {
+      "sha256": "00a33701cb151a9665ab04966793f0ae6d692b458d773977a4c7b87088178975",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/history-desktop.png": {
+      "sha256": "28321dfa2f6b76c104781266387bfe12f0c9f37d74d41e1594079caa85ad8f9d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/invoice.png": {
+      "sha256": "f026e29d79fae24e1759ba4950aa1f3dc9a1a580036b7624218fa304b97a39d8",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/it-status.png": {
+      "sha256": "3cb2a13f99ea27efc01141b901995c286681bc788b9c506fb3ba64279b61af3c",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/orders.png": {
+      "sha256": "b1c5a862bea6e6ba9186070728cc690d64411a2af433daded2425d8b998b8cb7",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-61.png": {
+      "sha256": "96319200876cd4a6da3f1a4f0ff62b3b3149b9770ad330455025027a5b00d6bf",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-done.png": {
+      "sha256": "23dab6d45ceecc42348a8a44d3809289fd20139710e75835152794f0d7ad0b1b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-list.png": {
+      "sha256": "5a934dd04fb2c566339581e9da0957a27d4edc02e5e655564c89d0cd10df19b3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-return.png": {
+      "sha256": "d83ba6e107673eaf2f7e43e27c0224cb2b4ac9fdabb7473a14a9819db825068c",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-review.png": {
+      "sha256": "58b15e58218d0ce4a93c21834b16d88e711bcb7bbfbbb0a63cd6450c3c7e4ab3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/payment-scan.png": {
+      "sha256": "8cd230e15effe4f322b4e20d3300d4ce34a33fd3e978058692c15ce6c6008bfb",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/performance.png": {
+      "sha256": "9b839f041743003797d81db68a2cb57c062e84b8613b4053f57d81feeb5e1412",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/publication.png": {
+      "sha256": "90dd754a4cb229b1bf50437baea59ea66f280034e264a086b39f8e235ac0cd8a",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/queue.png": {
+      "sha256": "77e671c90c01a418f63fcf44b5a9b2b2ec275480d19483638b1d4b3b7c85c943",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/replacement.png": {
+      "sha256": "f1d88fb30f972dbb36680a380bc66abc883d3b00c94b5dfd1e920f9c03b3d3c7",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/reports-desktop.png": {
+      "sha256": "d1d0f9f8131fe487daf352fae9c3cec47784916ff467be2f288665e89e8b6d80",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/reports.png": {
+      "sha256": "1469cb86e2a50412adc1d5e068061a1738e1e7b73e689fe70610016caeccef0a",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/revisit.png": {
+      "sha256": "46c27f8d53a354f08549684e7b5a6ca4d81ba58d512a33e560eb095ec07bb205",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/settings.png": {
+      "sha256": "90e30807a9522a5965fdf9181db96075fc4d5d51d87433a7145d1b5611b717d0",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/shell.png": {
+      "sha256": "92b5b3f807d8d9d8c66b2d4670406611cb6737d1823899a1eada067604036c9a",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/sysup.png": {
+      "sha256": "8db833c054c56bf8fd9719328fa57ec272612033bc435a013ed80833de911ea0",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/upload-error.png": {
+      "sha256": "6198511cfa406b2e24cddfc6e9a9b33bae41ac119f3c5af15247873ffce5ddce",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/boards/visit.png": {
+      "sha256": "e85be13ce174079eefc7711317b7b0f96fdf33bd353bd6b2958b12519dd43117",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/documents/payment-61-page-1.png": {
+      "sha256": "9893b389d3fb48b52564bbcd9b0436c53539ba257cbf6cb7ef57c5d10b89f079",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/documents/payment-61-page-2.png": {
+      "sha256": "c3b9231aa1e313ec74351185e282d03db6d0885eab75e139a11586b541d1331b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/documents/payment-61-page-3.png": {
+      "sha256": "bc24cadd06e736313c702e4f36dbef0186431fc4b7fab19ddda93569ea8616fc",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/credit-approval-fields-b.png": {
+      "sha256": "64450ec011ae105098d8da55a8c82963945f5b2a7ea4fdab7f61d57db9fe43fa",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/farmup-confirmation-b.png": {
+      "sha256": "54fe4c116700713fe96eefdeb52d1a84d5699fb96f5e2bd65eb37e011d6a0f69",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/final-rejected-fields-b.png": {
+      "sha256": "ad599ebca7c753fd9e6400a32b02baf1d2aacb8d5f11d9ee6e9868d1ebc7bec2",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/gallery-desktop.png": {
+      "sha256": "38334331a5e566ec1d959099af1060dbd8bdfa634e79d2d9667ec68e82c04d3a",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/gallery-mobile.png": {
+      "sha256": "d8ba0e8d4f14ca2f5c68b4a0d98e3da075b6d306ad5ad1093ebd581c83c3d17b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/payment-returned-case-b.png": {
+      "sha256": "2bf1bbde5847af109034831b17ac409fe98088f69b6e69b2c5cb5c57af663aca",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/performance-empty-period-b.png": {
+      "sha256": "8577129509d9bb1e323caef8e6ab48cd861ad4bedde6473a5616990b1a571157",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/queue-empty-a.png": {
+      "sha256": "0256c62274b932c22658939c141d9e4f263b841d65e4bf561ad20cee7c7123d6",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/queue-empty-b.png": {
+      "sha256": "754ccc932c30688d1a0e0991086f01336299d18b21dd4d6433dea7bad9edfdbf",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/retained-document-page-three-b.png": {
+      "sha256": "103491355867a63893be8378711a6bd20aabe1d1ab0d33766acec03f8c6f4903",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/upload-denied-retained-a.png": {
+      "sha256": "9b9c2d3933ddfdac419a91d56693cfa721b2a0b0fd6e6cb1c815e4a9be6a2fc3",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/upload-denied-retained-b.png": {
+      "sha256": "57f2aa77eb07a9cbab5448382af61ab546ad6808fdc66a9b21eb2412a05985d9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/interactions/visit-evidence-section-b.png": {
+      "sha256": "80593c643a9f17bd589017f06fd22241e6bf89c616ed88bb5daf0348fcaf3cef",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/farmup-a-1280.png": {
+      "sha256": "d7b7ee45f4a4933fb3aefbee4a7266fea6479311b10f857fd321a68fc6c40210",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/farmup-a-320.png": {
+      "sha256": "8a39f93239fb4894bd2bf2a8a9cb220a2168e59883540bd15036729b5fc408ab",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/farmup-b-1280.png": {
+      "sha256": "433ea1049cd7266d52e9f56d47a0aad669267ad54285168e587879e7e76f7104",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/farmup-b-320.png": {
+      "sha256": "2cb1211d12816b57d77f08b65b150a53d2f10c796bab19e048414254a1bc776f",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/invoice-a-dark.png": {
+      "sha256": "0efac6d38bd5cbd42026834ec0d0ab2c01caa841714c96f4d563af5c9969f66d",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/invoice-b-dark.png": {
+      "sha256": "eed334ffd409e329db2741d1f7b65e70cd8ee66bb4f0abb8f17e77222a0d0e1f",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-done-a-dark.png": {
+      "sha256": "39b4d0310e9b9826288555db2e2aaada8268d5c6d6cfda0decbd49190ccfc991",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-done-b-dark.png": {
+      "sha256": "e5636be7aab59c1a43f03267eeca1bb19c13f461e873d5f727894f38009e719b",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-list-a-1280.png": {
+      "sha256": "4b2bc58ecbb6c2500e25505478721db9b0d0815ed84044827931865943bfa557",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-list-a-320.png": {
+      "sha256": "3d7caa5e3e41c2b1f69d1f0f46280b7fbb8730fcd27311441ddb1fdbac57a804",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-list-b-1280.png": {
+      "sha256": "73a2e0f16095e95070fbc63d61b87456439a9b6786373133ea6a2bef8bfb03a1",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/payment-list-b-320.png": {
+      "sha256": "cf4565c3312a5601ec21f9d671f944342c90cae84a8101b1a767be15a7f9e0f9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/upload-error-a-320.png": {
+      "sha256": "0e86d6a7dacff9ff5d6dedf8110197e237708d6ce864e5f838b407cb678db840",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/upload-error-a-dark.png": {
+      "sha256": "2bc6926ce0b48319ec0116c184e132ca20780b6d7a816f04e419c9c97667fab9",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/upload-error-b-320.png": {
+      "sha256": "ed6294cd6a4f98fa094b80902aa595e883c6535fb9293d3e9a79077bb2c1529e",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/responsive/upload-error-b-dark.png": {
+      "sha256": "4dc37a8a9f155936f25c37f0f3ed3fc4311cfb9ae1dd7ed19457069de10fc57f",
+      "classification": "synthetic_ui_review",
+      "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
     }
   }
 }

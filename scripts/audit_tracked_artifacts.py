@@ -29,6 +29,7 @@ CLASSIFICATION_PATH_PREFIXES = {
     "sanitized_test_fixture": "core/test_fixtures/sanitized/",
     "blank_business_document": "origination/assets/lafs/",
     "public_signature_font": "origination/assets/signature_fonts/",
+    "synthetic_ui_review": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/",
 }
 
 # High-confidence credential shapes only. Customer-data controls are enforced

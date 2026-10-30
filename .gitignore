@@ -111,6 +111,9 @@ coverage-subsystems.json
 # Synthetic Portal layout baselines, individually hash-pinned in the allowlist.
 !core/test_fixtures/sanitized/portal-layout/**/*.png
 
+# Synthetic Portal design comparisons, each pinned in the artifact allowlist.
+!docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/**/*.png
+
 # Deployment
 .env.production
 

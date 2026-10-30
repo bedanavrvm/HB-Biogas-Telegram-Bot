@@ -932,6 +932,54 @@
       "sha256": "99b89563ce6b7f10f06fa573dadc4b8db112dc265dd33636bb55f10f2af5daf1",
       "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-state-recovery.md",
       "reason": "User-authorized Portal state-recovery correction using existing shell, queues, confirmations, submission sheets, file picker and inline feedback. Manual Playwright with isolated PostgreSQL covers expired-case handoff, uncertain FarmUp saves, invoice correction/follow-up recovery, retained upload errors and configured payment sign-off visibility. No approved baseline, role expansion, candidate tokens or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/catalogue.js",
+      "sha256": "a487fb0913d77e296516f4a23eb6e424ce5e38a12d2ebec463e764ab7cc16878",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/fixtures.js",
+      "sha256": "996965b75efd6a85195ad41c8449022de4149b321fcb0409944da1093fa04b15",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/preview.js",
+      "sha256": "535add1b86ffb7b41c7fb3cb07d3d3b9122cf6103171988cc45fe5fcc8fd26e5",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/preview.css",
+      "sha256": "fe302e6c4f440aa51ab98a0b8b7c25666dc6c8d0f70c99dd4c8611f001d8cb43",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/preview.html",
+      "sha256": "5bf841b172e2a93e4a7ea2cb443fe2d7b214dbb3df4cb8860575be3fd6c87e2c",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/gallery.js",
+      "sha256": "0587158d11a9392c1a6a03e401c9eb04bd3009bb9935afbfc5bed4ee161aaf70",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/gallery.css",
+      "sha256": "c494086a92e284868d8d80f7f2a3e0b3cb055def232c8e4f6d9c6898181523b0",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/index.html",
+      "sha256": "f4f391462048f52df137f1e4c938dd9cff784b28dedb1438f91f5bb575e5ccb6",
+      "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
+      "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
     }
   ],
   "source_roots": [
@@ -943,7 +991,8 @@
     "origination/templates/loan_origination",
     "codebase-analysis-docs/assets/browser-access-preview",
     "browser/src",
-    "complaint_publications/templates"
+    "complaint_publications/templates",
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29"
   ],
   "source_hash_format": "lf-text-v1"
 }
