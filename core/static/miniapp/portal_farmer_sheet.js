@@ -565,6 +565,17 @@
     return `<article class="${event.redacted ? 'redacted' : ''}"><div class="case360-timeline-entry"><div class="case360-timeline-entry-heading"><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time></div><small>${deps.escapeHtml(actor)}</small>${detail ? `<div>${detail}</div>` : ''}${changes}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}${childMarkup}</div></article>`;
   }
 
+  function decisionDate(context) {
+    const value = context?.recorded_at ? new Date(context.recorded_at) : null;
+    if (!value || !Number.isFinite(value.getTime())) return '';
+    return `<p>Recorded: ${deps.escapeHtml(new Intl.DateTimeFormat('en-GB', {timeZone:'Africa/Nairobi', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}).format(value))}</p>`;
+  }
+
+  function decisionSummary(context) {
+    if (!context) return '';
+    return `<section class="batch-warning deferred-summary"><h3>${deps.escapeHtml(context.outcome)} &#8212; ${deps.escapeHtml(context.stage_label || 'Stage not recorded')}</h3><p><strong>Reason:</strong> ${deps.escapeHtml(context.reason_label || 'Reason not recorded')}</p>${context.comment ? `<p>${deps.escapeHtml(context.comment)}</p>` : ''}${decisionDate(context)}</section>`;
+  }
+
   function renderCase360(data, target) {
     const root = target || el('case360');
     if (!root || !data) return;
@@ -610,7 +621,7 @@
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${decisionSummary(data.decision_context)}${data.legacy ? `<section class="batch-warning"><strong>Legacy record</strong><p>${data.legacy.publication_ready ? 'Register publication enabled after review.' : 'Register publication held until live row bindings are reviewed.'}</p><p>${deps.escapeHtml(data.legacy.source_sheet)} &#183; source row ${deps.escapeHtml(data.legacy.source_row)}</p><p>${deps.escapeHtml(data.legacy.comment || '')}</p>${Object.entries(data.legacy.reported_references || {}).map(([label, value]) => `<p>Reported ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.source_notes || {}).map(([label, note]) => `<p><strong>${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(note)}</p>`).join('')}<p>${deps.escapeHtml(data.legacy.issues.join('; '))}</p><p>Not recorded in source: ${deps.escapeHtml((data.legacy.missing_fields || []).join(', ') || 'None of the tracked fields')}</p></section>` : ''}${data.legacy && (!data.legacy.continuation_confirmed || data.legacy.needs_hb_handover) && data.can_correct ? '<section data-legacy-confirm><div data-legacy-form></div><div data-legacy-footer></div></section>' : ''}${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
         <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
         ${timeline.length ? `<div class="case360-timeline">${timeline.map(renderTimelineEvent).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
@@ -621,9 +632,14 @@
         <div class="case360-tat-total"><div><span>Pipeline TAT (wall clock)</span><strong>${caseTatCounter(tat, 'overall')}</strong><small>Measured from exact Portal and HomeBiogas milestones.</small></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>View supported evidence without leaving Portal, or open a file in its external app.</p></div></div><div class="case360-documents" data-case360-documents></div></section>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
+      <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : `<div class="case360-valid"><strong>${data.legacy ? 'No current validation errors' : 'All checks passed'}</strong><span>${data.legacy ? 'Historical gaps remain unknown; see legacy source details.' : 'All monitored business fields are valid.'}</span></div>`}</section>`;
     root.hidden = false;
     if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
+    const legacyConfirm = root.querySelector('[data-legacy-confirm]');
+    if (legacyConfirm) {
+      window.PortalLegacyCapabilities = ['portal.case.correct'].filter(hasCapability);
+      window.PortalLegacy?.confirmation({legacy:data.legacy}, legacyConfirm.querySelector('[data-legacy-form]'), legacyConfirm.querySelector('[data-legacy-footer]'));
+    }
     renderCaseDocumentList(docLinks, root.querySelector('[data-case360-documents]'));
     if (case360CounterCleanup) case360CounterCleanup();
     case360CounterCleanup = window.MiniAppRuntime?.bindServerCounters?.(root, {
@@ -803,14 +819,14 @@
     if (navigation) navigation.hidden = !isOperationalDetail;
     const backButton = el('sheet-back');
     if (backButton) {
-      const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews', deferred: 'Deferred' };
+      const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews', deferred: 'Revisit Cases' };
       const label = backButton.querySelector('span');
       if (label) label.textContent = backLabels[mode] || 'Back';
       backButton.setAttribute('aria-label', `Back to ${backLabels[mode] || 'queue'}`);
     }
     const headerState = el('sheet-header-state');
     if (headerState) {
-      headerState.textContent = isNewLead ? '' : mode === 'deferred' ? farmer.workflow_state === 'rejected' ? 'Rejected' : 'Paused' : isOperationalDetail ? 'Autosave on' : '';
+      headerState.textContent = isNewLead ? '' : mode === 'deferred' ? farmer.workflow_state === 'legacy_review' ? 'Legacy review' : farmer.workflow_state === 'rejected' ? 'Rejected' : 'Paused' : isOperationalDetail ? 'Autosave on' : '';
       headerState.dataset.state = '';
     }
     const avatar = el('sheet-avatar');
@@ -824,7 +840,7 @@
         jbl_visit: jblStatusLabel(farmer),
         credit: farmer.credit_decision || 'Pending',
         final_review: farmer.final_decision || 'Under Review',
-        deferred: farmer.workflow_state === 'rejected' ? 'Rejected' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
+        deferred: farmer.workflow_state === 'legacy_review' ? 'Legacy review' : farmer.workflow_state === 'rejected' ? 'Rejected' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
       };
       headerStatus.hidden = !isOperationalDetail || isNewLead;
       headerStatus.textContent = isOperationalDetail && !isNewLead ? statusByMode[mode] : '';
@@ -889,7 +905,10 @@
     el('sheet-gate-warning').style.display = 'none';
 
     const writeCapability = MODE_WRITE_CAPABILITIES[mode];
-    if (writeCapability && !canUpdateMode(mode, writeCapability)) {
+    window.PortalLegacyCapabilities = ['portal.case.correct'].filter(hasCapability);
+    if (farmer.legacy && farmer.workflow_state === 'legacy_review') {
+      window.PortalLegacy?.confirmation(farmer, formEl, footerEl);
+    } else if (writeCapability && !canUpdateMode(mode, writeCapability)) {
       formEl.innerHTML = '<div class="field-help">Your role can view this case but is not assigned to update this workflow stage.</div>';
     } else if (mode === 'jbl_visit') {
       stopJblLiveCamera();
@@ -932,20 +951,17 @@
         credit: ['credit', 'Review credit', 'portal.credit.write'],
         final: ['final_review', 'Review decision', 'portal.final_review.write'],
       }[farmer.deferred_stage];
-      const decisionGate = rejected
-        ? farmer.final_decision === 'Rejected' ? 'final_review' : farmer.credit_decision === 'Rejected' ? 'credit' : ''
-        : {credit: 'credit', final: 'final_review'}[farmer.deferred_stage];
-      const reason = (decisionGate ? farmer.approvals?.[decisionGate]?.comment
-        || (decisionGate === 'final_review' ? farmer.final_decision_comment : '') : farmer.jbl_visit_comment)
-        || farmer.approvals?.[decisionGate]?.reason_label || 'No comment recorded.';
+      const context = farmer.decision_context || {};
+      const reason = context.reason_label || 'Reason not recorded';
+      const explanation = context.comment || '';
       const stageLabel = {jbl_visit: 'JBL visit', credit: 'Credit analysis', final: 'Final approval'}[farmer.deferred_stage];
       const deferredAt = farmer.deferred_at ? new Date(farmer.deferred_at) : null;
       const dateParts = deferredAt && Number.isFinite(deferredAt.getTime())
         ? Object.fromEntries(new Intl.DateTimeFormat('en', {timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'})
           .formatToParts(deferredAt).map(part => [part.type, part.value])) : null;
       const deferredDate = dateParts ? [dateParts.year, dateParts.month, dateParts.day].join('-') : '';
-      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected case' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
-        <p>${deps.escapeHtml(reason)}</p>${rejected ? '' : `<p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
+      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected' : 'Deferred'} &#8212; ${deps.escapeHtml(context.stage_label || stageLabel || 'Stage not recorded')}</h3>
+        <p><strong>Reason:</strong> ${deps.escapeHtml(reason)}</p>${explanation ? `<p>${deps.escapeHtml(explanation)}</p>` : ''}${decisionDate(context)}${rejected ? '' : `<p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
         <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>`}
         <p>${rejected ? 'View the decision and its reason in Case History.' : farmer.reappraisal_required ? 'Ask Operations to commit a fresh FarmUp appraisal for this existing unit. JBL must then log a new visit before credit or final review.'
           : next && canUpdateMode(next[0], next[2]) ? 'Review the case and complete the existing stage action below.'
@@ -995,7 +1011,7 @@
   function portalMarkerIcon() {
     return L.divIcon({
       className: 'portal-map-marker',
-      html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
+      html: '<i data-lucide="map-pin" aria-hidden="true"></i>',
       iconSize: [30, 36],
       iconAnchor: [15, 36],
       popupAnchor: [0, -32],
@@ -1056,18 +1072,41 @@
 
     if (!mapInstance) {
       mapContainer.classList.remove('map-unavailable');
-      mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 18);
+      mapInstance = L.map('sheet-map', { zoomControl: false, attributionControl: true }).setView([lat, lng], 18);
+      const zoom = L.control({position: 'topleft'});
+      zoom.onAdd = () => {
+        const controls = L.DomUtil.create('div', 'portal-map-zoom');
+        L.DomEvent.disableClickPropagation(controls);
+        for (const [label, icon, delta] of [['Zoom in', 'plus', 1], ['Zoom out', 'minus', -1]]) {
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'map-refresh-button';
+          button.title = label; button.setAttribute('aria-label', label);
+          button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
+          button.onclick = () => mapInstance.setZoom(mapInstance.getZoom() + delta);
+          controls.append(button);
+        }
+        return controls;
+      };
+      zoom.addTo(mapInstance);
+      mapInstance.on('popupopen', event => {
+        const close = event.popup.getElement()?.querySelector('.leaflet-popup-close-button');
+        if (close) close.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
+        window.lucide?.createIcons();
+      });
       const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
-      tiles.on('tileerror', showMapFallback);
-      tiles.on('load', hideMapFallback);
-      mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon() }).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
+      // Leaflet emits load after failed tiles too; retain the visible recovery link.
+      let tilesFailed = false;
+      tiles.on('loading', () => { tilesFailed = false; });
+      tiles.on('tileerror', () => { tilesFailed = true; showMapFallback(); });
+      tiles.on('load', () => { if (!tilesFailed) hideMapFallback(); });
+      mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon(), title: 'Recorded location', alt: 'Recorded location' }).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     } else {
       if (!sameLocation) mapInstance.setView([lat, lng], 18);
       mapInstance.eachLayer(layer => {
         if (layer instanceof L.TileLayer) layer.setUrl(tileUrl);
       });
       if (mapMarker) mapMarker.setLatLng([lat, lng]);
-      else mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon() }).addTo(mapInstance);
+      else mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon(), title: 'Recorded location', alt: 'Recorded location' }).addTo(mapInstance);
       mapMarker.bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     }
 
@@ -1075,6 +1114,7 @@
       if (mapInstance) mapInstance.invalidateSize();
     }, 100);
     window.requestAnimationFrame(() => mapInstance?.invalidateSize());
+    window.lucide?.createIcons();
   }
 
   function destroyMap() {

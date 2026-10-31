@@ -3611,7 +3611,7 @@ def _portal_queue_filter_options(request, queue_key: str):
         from core.services.requisition_partners import PARTNER_ECO, PARTNER_HB, fulfillment_partner_for_farmer
         partner = str(params.get('partner') or PARTNER_HB).strip().upper()
         if partner in {PARTNER_HB, PARTNER_ECO}:
-            scoped_ids = [farmer.pk for farmer in qs.only('id', 'county', 'hb_sales_person')
+            scoped_ids = [farmer.pk for farmer in qs.only('id', 'county', 'hb_sales_person', 'legacy_fulfillment_partner')
                           if fulfillment_partner_for_farmer(farmer) == partner]
             qs = qs.filter(pk__in=scoped_ids)
     counties = {str(value).strip() for value in qs.values_list('county', flat=True).distinct() if str(value or '').strip()}
@@ -3621,7 +3621,7 @@ def _portal_queue_filter_options(request, queue_key: str):
     return {
         'county': sorted(set(county_labels(counties).values()), key=str.casefold),
         'branch': sorted(branches, key=str.casefold),
-        'status': [value for value in ('deferred', 'rejected')
+        'status': [value for value in ('deferred', 'rejected', 'legacy_review')
                    if qs.filter(pk__in=deferred_queue(status=value).values('pk')).exists()]
                   if queue_key == 'deferred' else [],
         'has_hbg_visit_date': has_hbg_date,
@@ -5297,11 +5297,11 @@ def portal_requisition_queue(request):
         return JsonResponse({'ok': False, 'error': 'Choose HB or Eco-conserve.'}, status=400)
     # Partner routing depends on two canonical fields and is intentionally
     # resolved in Python so the same rule governs Sheets and finalization.
-    scoped_ids = [farmer.id for farmer in qs.only('id', 'county', 'hb_sales_person')
+    scoped_ids = [farmer.id for farmer in qs.only('id', 'county', 'hb_sales_person', 'legacy_fulfillment_partner')
                   if fulfillment_partner_for_farmer(farmer) == requested_partner]
     qs = qs.filter(id__in=scoped_ids)
     partner_counts = {PARTNER_HB: 0, PARTNER_ECO: 0}
-    for farmer in scoped_qs.only('id', 'county', 'hb_sales_person'):
+    for farmer in scoped_qs.only('id', 'county', 'hb_sales_person', 'legacy_fulfillment_partner'):
         partner_counts[fulfillment_partner_for_farmer(farmer)] += 1
     items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
@@ -5467,6 +5467,11 @@ def portal_farmer_detail(request, farmer_id: str):
             })
     card['spin_references'] = spin_references
     case360 = serialize_case360(farmer)
+    from core.services.portal_decisions import decision_context
+    from core.services.jawabu_approvals import approval_payload
+    from portal_legacy.services import case_payload
+    case360['decision_context'] = decision_context(farmer, approval_payload(farmer))
+    case360['legacy'] = case_payload(farmer)
     can_correct_case = has_capability(
         actor,
         'jawabu_portal',
@@ -5515,6 +5520,11 @@ def portal_farmer_case_correction(request, farmer_id: str):
     from core.services.portal_case_corrections import correction_payload
 
     case360 = serialize_case360(farmer)
+    from core.services.portal_decisions import decision_context
+    from core.services.jawabu_approvals import approval_payload
+    from portal_legacy.services import case_payload
+    case360['decision_context'] = decision_context(farmer, approval_payload(farmer))
+    case360['legacy'] = case_payload(farmer)
     case360['can_correct'] = True
     case360['correction'] = correction_payload(farmer)
     return JsonResponse({'ok': True, 'case360': case360})

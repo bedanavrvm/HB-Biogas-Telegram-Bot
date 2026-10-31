@@ -437,27 +437,27 @@
     },
     {
       "path": "core/static/miniapp/portal.css",
-      "sha256": "29ac5919de6db5154939181a32cba1120d254953048b9c9d699e70e27762f660",
-      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
-      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
+      "sha256": "c6f2dfadbaff3b94d99b0f400a25d0d48fcbff4cb31c4ae8aef1c2d0bce8d8b9",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "c088b655d179411d7d44ff3a3aa8f7558733313e01d752c8ddbcc913293c1efd",
-      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-workflow-review.md",
-      "reason": "User-requested Portal workflow correction using existing History, file, validation and FarmUp progress/recovery controls. Manual Playwright and PostgreSQL evidence covers stale-source rejection, completed archive, delayed-response handling, 500-row progress and interruption recovery. Cache versions bind the revised scripts. No approved baseline, candidate tokens, grants or Phase 6 migration changes."
+      "sha256": "a81ba51c86f3dfb93bc30776bf2879b1f334c73e2dc98051eb915cb79de8875a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "3892f56f18be4388858382db8bef9c94d3d0e90772a9f8f319d322014dcbd132",
-      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-state-recovery.md",
-      "reason": "User-authorized Portal state-recovery correction using existing shell, queues, confirmations, submission sheets, file picker and inline feedback. Manual Playwright with isolated PostgreSQL covers expired-case handoff, uncertain FarmUp saves, invoice correction/follow-up recovery, retained upload errors and configured payment sign-off visibility. No approved baseline, role expansion, candidate tokens or Phase 6 migration."
+      "sha256": "98ff385c9b470fcbb26b588822ff81fe32c52814919610c8ed9d7e7428b57998",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
-      "sha256": "e0762eb40ba2c3a28bcdc3b8dad96207052a722c117655d26708df579b694d49",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "43b7a9424863b40544bae4479ceb23513ca5c1235811aa7b7e82711901db1383",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal_hb_deposits.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "73e832b36ee195a2818214e2f96d79d2d1f7c6442977f47c5e43bfdfef9fa086",
-      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
-      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
+      "sha256": "549b23cc7a9af851ada733c2b21c9f73661364332f35bd0157266deb3c78b382",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -479,9 +479,9 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "3518fab4243a2821c79c2d7b12470065a2e8429332106992a7af7dfebc316e4d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-30-portal-selected-refinements.md",
-      "reason": "User selected only the capability-filtered bottom hubs without a native primary action and the compact divided Performance activity card. Preserve current Portal density; source-bound real-shell Playwright evidence records light/dark, mobile/desktop and native-action handoff. No other A/B options, approved baseline, candidate tokens or Phase 6 migration accepted."
+      "sha256": "1e69d26da8a14234a68c28c9ffc5f42301f52358f981d46be3aec16938ff932c",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",
@@ -980,6 +980,24 @@
       "sha256": "f4f391462048f52df137f1e4c938dd9cff784b28dedb1438f91f5bb575e5ccb6",
       "review_reference": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/README.md",
       "reason": "Isolated user-requested Before/A/B design comparison candidate. Direct Playwright captures and interactions use synthetic data; no operational UI, grants, approved baseline or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_api.js",
+      "sha256": "59bb673a43ea8bb56728227e62376c38c5328b151e0ed916782a74f5770151c2",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_filters.js",
+      "sha256": "3869386d8cfc640a6e5caf801a3928cad1eef752ac6bbdd870607243142870b0",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy.js",
+      "sha256": "ba1024628590657a93324b5d7dd47783ed196883530f0ec99b585ad6f928bb7d",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
+      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     }
   ],
   "source_roots": [

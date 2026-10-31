@@ -225,6 +225,9 @@ def _status_after_edit(batch: PaymentBatch) -> str:
 
 def _allocate_payment_number_for_generation(batch: PaymentBatch, *, actor=None, request_id='') -> int:
     """Allocate once, immediately before a fully reviewed workbook is made."""
+    from portal_legacy.services import require_finance_reconciled
+    try: require_finance_reconciled(batch.group_configuration_id)
+    except ValueError as exc: raise PaymentBatchError(str(exc)) from exc
     if batch.payment_number is not None:
         return int(batch.payment_number)
     sequence, _ = PaymentSequenceState.objects.select_for_update().get_or_create(

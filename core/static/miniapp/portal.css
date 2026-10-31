@@ -5299,3 +5299,28 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .history-drive-indicator { display:inline-block; width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:var(--color-success, #168354); }
 #history-filter-open.has-active-filter { color:var(--brand-primary); position:relative; }
 #history-filter-open.has-active-filter::after { content:''; position:absolute; right:8px; top:8px; width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+/* Map controls use the Portal's existing compact Lucide buttons. */
+.portal-map-zoom { display:grid; gap:4px; }
+.portal-map-zoom button { display:grid; place-items:center; width:36px; height:36px; padding:0; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--brand-primary); }
+.portal-map-zoom svg { width:16px; height:16px; stroke:currentColor; }
+.portal-map-marker svg { fill:var(--bg-surface); stroke:currentColor; stroke-width:2; }
+.portal-map-marker path,.portal-map-marker circle { fill:none; stroke:currentColor; stroke-width:2; }
+
+.sheet-map-actions svg { width:16px; height:16px; flex:0 0 16px; stroke:currentColor; stroke-width:2; }
+.sheet-map-actions .map-refresh-button svg { width:16px; height:16px; }
+#legacy-import-workspace input:not([type=checkbox]), #legacy-import-workspace select { width:100%; max-width:100%; box-sizing:border-box; }
+#legacy-import-workspace [data-rows] { display:grid; gap:6px; margin-block:8px; }
+#legacy-import-workspace [data-rows] article { padding:8px; margin:0; }
+
+.operational-gps-summary #sheet-map-link { display:inline-grid; place-items:center; width:36px; min-width:36px; height:36px; padding:0; }
+.operational-gps-summary #sheet-map-link span { display:none; }
+
+#legacy-import-workspace [data-feedback] { margin:0; background:var(--bg-surface); padding:6px; border:1px solid var(--border-color); border-radius:6px; }
+.legacy-import-controls { display:flex; flex-wrap:wrap; gap:6px; padding-block:6px; background:var(--bg-surface); }
+
+.legacy-import-status { position:sticky; top:48px; z-index:4; background:var(--bg-surface); }
+
+.portal-map-zoom button:disabled { opacity:.5; }
+.leaflet-popup-close-button { display:grid; place-items:center; }
+.leaflet-popup-close-button svg { width:14px; height:14px; stroke:currentColor; stroke-width:2; }

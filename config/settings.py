@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'payments',
     'credit_assessments',
     'hb_operations',
+    'portal_legacy',
     'qa_tracker',
     'tat_recognition',
     'portal_recognition',

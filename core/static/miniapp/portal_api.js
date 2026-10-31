@@ -145,6 +145,7 @@
       ...initDataHeader(tg),
       ...(options.headers || {}),
     };
+    if (options.body instanceof FormData) delete headers['Content-Type'];
     const method = String(options.method || 'GET').toUpperCase();
     const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
     let retryFingerprint = '';
@@ -227,6 +228,7 @@
     const options = opts || {};
     const url = path.startsWith('/api/') ? path : apiBase() + path;
     const headers = { ...initDataHeader(tg), ...(options.headers || {}) };
+    if (options.body instanceof FormData) delete headers['Content-Type'];
     const method = String(options.method || 'GET').toUpperCase();
     const key = requestId(options);
     headers['X-Request-ID'] = key;

@@ -2411,6 +2411,7 @@ class JawabuFarmerMaster(models.Model):
     customer = models.ForeignKey(JawabuCustomer, on_delete=models.PROTECT, null=True, blank=True, related_name='applications')
     unit_number = models.PositiveIntegerField(default=1)
     source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
+    legacy_fulfillment_partner = models.CharField(max_length=20, blank=True, default='', editable=False, db_comment='Immutable reviewed legacy partner, preserving source register ownership when old location/sales data is incomplete.')
     source_name = models.CharField(max_length=255, blank=True, default='')
     source_row_number = models.PositiveIntegerField(null=True, blank=True)
     source_fingerprint = models.CharField(max_length=64, blank=True, default='', db_index=True)

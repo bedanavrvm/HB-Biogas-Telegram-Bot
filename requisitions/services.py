@@ -83,6 +83,8 @@ def proposed_number(sequence, *, excluding_batch=None):
 
 
 def claim_number(sequence, batch, *, actor=None, request_id=''):
+    from portal_legacy.services import require_finance_reconciled
+    require_finance_reconciled(sequence.group_configuration_id)
     _require_transaction()
     number = proposed_number(sequence, excluding_batch=batch.pk)
     from core.services.requisition_partners import order_number_for_partner

@@ -477,8 +477,8 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
         )
         commissioning_threshold = timezone.localdate() - timedelta(days=COMMISSIONING_WAIT_DAYS)
         hb_commissioning = hb_scoped.filter(
-            installation_status='installed', installation_date__isnull=False,
-        ).filter(commissioning_status='not_commissioned')
+            installation_status='installed', commissioning_status__in=['not_commissioned', 'unknown'],
+        )
         hb_commissioning_due = hb_commissioning.filter(installation_date__lte=commissioning_threshold)
         hb_action_count = hb_installations.count() + hb_commissioning.count()
         hb_actionable_count = hb_installations.count() + hb_commissioning_due.count()

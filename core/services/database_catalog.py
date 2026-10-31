@@ -17,8 +17,9 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
+CATALOGUE_APP_LABELS = ('portal_legacy', 'origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
 USAGE_ROOTS = (
+    ROOT / 'portal_legacy',
     ROOT / 'complaint_conversations', ROOT / 'complaint_publications',
     ROOT / 'report_delivery',
     ROOT / 'ui_review',
@@ -45,6 +46,9 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'portal_legacy.LegacyBatch': {'domain': 'portal_legacy', 'purpose': 'Scoped legacy changeover source manifest.', 'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain with the canonical case; no automatic purge.'},
+    'portal_legacy.LegacyRow': {'domain': 'portal_legacy', 'purpose': 'Reviewed source evidence and explicit historical exceptions.', 'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain with the canonical case; no automatic purge.'},
+    'portal_legacy.LegacyEvent': {'domain': 'portal_legacy', 'purpose': 'Append-only import and continuation confirmation evidence.', 'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain with the canonical case; no automatic purge.'},
     'origination.OriginationSigningParticipant': {
         'domain': 'origination', 'purpose': 'Immutable application-owned individual signer and document obligations.',
         'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',

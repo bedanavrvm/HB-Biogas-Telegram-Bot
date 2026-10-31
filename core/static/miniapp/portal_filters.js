@@ -42,7 +42,7 @@
   const statusLabels = {
     jbl_visit: 'Awaiting visit', credit: 'Awaiting credit analysis',
     final_review: 'Awaiting final review', order: 'Ready for order',
-    ordered: 'Ordered', deferred: 'Deferred', rejected: 'Rejected', withdrawn: 'Withdrawn',
+    legacy_review: 'Legacy review', ordered: 'Ordered', deferred: 'Deferred', rejected: 'Rejected', withdrawn: 'Withdrawn',
   };
 
   function displayDate(value) {
@@ -94,7 +94,7 @@
     const choices = key => Array.from(new Set(source.map(row => String(row[key] || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
     return {
       county: choices('county'), branch: choices('branch'),
-      status: ['all', 'deferred'].includes(queueKey) ? choices('workflow_state').filter(value => statusLabels[value] && (queueKey !== 'deferred' || ['deferred', 'rejected'].includes(value))) : [],
+      status: ['all', 'deferred'].includes(queueKey) ? choices('workflow_state').filter(value => statusLabels[value] && (queueKey !== 'deferred' || ['deferred', 'rejected', 'legacy_review'].includes(value))) : [],
       has_hbg_visit_date: source.some(row => Boolean(row.hbg_visit_date || row.hbg_visit)),
       has_jbl_visit_date: source.some(row => Boolean(row.jbl_visit_date || row.jbl_visit)),
     };

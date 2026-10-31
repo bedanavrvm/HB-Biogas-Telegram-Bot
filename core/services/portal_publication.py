@@ -180,6 +180,10 @@ def reserve_farmer_publication(
     read from Django at execution time so a newer revision cannot publish stale
     case values.
     """
+    from portal_legacy.models import LegacyRow
+    if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():
+        return []
+
     revision = int(getattr(farmer, 'workflow_revision', 0) or 0)
     operations = []
     namespace = str(deduplication_namespace or '').strip()

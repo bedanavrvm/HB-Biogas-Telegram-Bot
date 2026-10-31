@@ -201,6 +201,8 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         return 'Reappraisal Required'
 
     state = current_workflow_state(farmer)
+    if state == 'legacy_review':
+        return 'Legacy review - stage not confirmed'
     deferred_labels = {
         'jbl_visit': 'Deferred — JBL Visit',
         'credit': 'Deferred — Credit',
@@ -240,6 +242,8 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         return 'Installation in Progress'
 
     if farmer.order_number:
+        if farmer.legacy_fulfillment_partner:
+            return 'Legacy order - confirm HB handover'
         return 'Awaiting signed order'
 
     if state == JawabuWorkflowState.ORDER:
@@ -489,7 +493,7 @@ def deferred_queue(status=''):
     qs = JawabuFarmerMaster.objects.filter(status='active').alias(
         _revisit_state=Case(When(workflow_state='', then=legacy_state),
                             default=F('workflow_state'), output_field=CharField()),
-    ).filter(_revisit_state__in=[JawabuWorkflowState.DEFERRED, JawabuWorkflowState.REJECTED])
+    ).filter(_revisit_state__in=[JawabuWorkflowState.DEFERRED, JawabuWorkflowState.REJECTED, 'legacy_review'])
     selected = status if isinstance(status, (list, tuple)) else [status]
     selected = [value for value in selected if value]
     if selected:
@@ -511,7 +515,7 @@ def all_cases(search: str = '', county: str = '', branch: str = '', status: str 
                 condition |= Q(**{f'{field}__iexact': value})
             qs = qs.filter(condition)
     if status:
-        status_filters = {
+        status_filters = {'legacy_review': Q(workflow_state='legacy_review'),
             JawabuWorkflowState.JBL_VISIT: Q(workflow_state=JawabuWorkflowState.JBL_VISIT) | Q(workflow_state='', jbl_visit_date__isnull=True, deferred_until__isnull=True, final_decision='', credit_decision__in=['', 'Pending']),
             JawabuWorkflowState.CREDIT: Q(workflow_state=JawabuWorkflowState.CREDIT) | Q(workflow_state='', jbl_visit_status=JBL_FORWARD_STATUS, credit_decision__in=['', 'Pending']),
             JawabuWorkflowState.FINAL_REVIEW: Q(workflow_state=JawabuWorkflowState.FINAL_REVIEW) | Q(workflow_state='', credit_decision='Approved', final_decision=''),
@@ -2074,6 +2078,9 @@ def farmer_to_card(
             location_parts.append(value)
             seen_location_parts.add(normalized)
 
+    from core.services.portal_decisions import decision_context
+    from portal_legacy.services import case_payload
+    approvals = approval_payload(farmer) if include_detail_metadata else {}
     return {
         'id': str(farmer.id),
         'deposit': deposit_state(farmer),
@@ -2160,7 +2167,9 @@ def farmer_to_card(
         'jbl_media_urls': farmer.jbl_media_urls,
         'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
         'visit_evidence': visit_evidence_status(farmer) if include_detail_metadata else {},
-        'approvals': approval_payload(farmer) if include_detail_metadata else {},
+        'approvals': approvals,
+        'decision_context': decision_context(farmer, approvals) if include_detail_metadata else None,
+        'legacy': case_payload(farmer) if include_detail_metadata else None,
     }
 
 
@@ -2172,6 +2181,8 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
     delivery stages. Stages 6-8 begin only after an accepted signed order has
     released the case to the HomeBiogas fulfilment workspace.
     """
+    if farmer.workflow_state == 'legacy_review':
+        return 0
     if is_reappraisal_required(farmer):
         return 1
     hb_action = _homebiogas_action_for_pipeline(farmer)
@@ -2333,6 +2344,9 @@ def sync_farmer_to_master_sheet(
 
     Also records a LiveSheetRecordChange audit entry for traceability.
     """
+    from portal_legacy.models import LegacyRow
+    if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():
+        return False
     from core.models import GroupSheetConfiguration, LiveSheetRecordChange
     from core.services.sheets import GoogleSheetsService
     from core.services.jawabu_master import (
@@ -2928,6 +2942,9 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
     JBL-side location/GPS fields on the farmer record are treated as the latest
     source and are allowed to overwrite older Master Data location values.
     """
+    from portal_legacy.models import LegacyRow
+    if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():
+        return False
     from core.models import GroupSheetConfiguration, LiveSheetRecordChange
     from core.services.sheets import GoogleSheetsService
     from core.services.jawabu_master import (

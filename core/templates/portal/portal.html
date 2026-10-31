@@ -498,6 +498,13 @@
       <button type="button" class="queue-refresh-button" data-queue-refresh="all" aria-label="Refresh all cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     {% include "portal/partials/queue_tools.html" with queue_key="all" queue_label="all cases" %}
+    <details id="legacy-import-workspace" class="case360-section" data-required-capability="portal.case.correct">
+      <summary>Legacy Master Data changeover</summary>
+      <p>Stage your reviewed workbook. Retain Source Row and sheet identities. Historical gaps remain unknown; new cases keep the current rules.</p>
+      <form><label>Portal owner<select name="group_id" required></select></label><label>Stable cutover namespace<input name="namespace" required pattern="[a-zA-Z0-9_-]{1,100}" placeholder="legacy-master-2026"></label><label>Reviewed XLSX<input name="file" type="file" accept=".xlsx" required></label><button type="submit" class="primary">Preview reviewed workbook</button></form>
+      <label>Resume<select data-batches></select></label><div class="legacy-import-status"><p data-feedback role="status" aria-live="polite"></p>
+      <div class="legacy-import-controls"><button type="button" data-refresh>Refresh saved progress</button><button type="button" data-prev disabled>Previous 50</button><button type="button" data-next disabled>Next 50</button><button type="button" data-select>Select displayed rows</button><button type="button" data-commit>Commit selected rows</button></div></div><div data-rows></div>
+    </details>
     <div id="all-list" class="farmer-list">
       <div class="empty-state"><div class="es-icon">Files</div><div class="es-title">Search to find farmers</div></div>
     </div>
@@ -712,7 +719,7 @@
         <a id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span></a>
       </div>
       <div id="sheet-map-container" class="sheet-map-container portal-initially-hidden">
-        <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map"><i data-lucide="refresh-cw" aria-hidden="true"></i></button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>
+        <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map"><i data-lucide="refresh-cw" aria-hidden="true"></i></button><a id="sheet-map-link" aria-label="Open Maps in a new tab" title="Open Maps" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>
         <div id="sheet-map"></div>
         <div id="sheet-map-fallback" class="sheet-map-fallback" hidden>Map tiles are unavailable. Use “Open in Maps” to view this location.</div>
       </div>

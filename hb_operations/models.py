@@ -36,7 +36,7 @@ class HomeBiogasAction(models.Model):
 
     COMMISSIONING_NOT_COMMISSIONED = 'not_commissioned'
     COMMISSIONING_COMMISSIONED = 'commissioned'
-    COMMISSIONING_CHOICES = [
+    COMMISSIONING_CHOICES = [('unknown', 'Not recorded (legacy)'),
         (COMMISSIONING_NOT_COMMISSIONED, 'Not commissioned'),
         (COMMISSIONING_COMMISSIONED, 'Commissioned'),
     ]
@@ -47,13 +47,14 @@ class HomeBiogasAction(models.Model):
         db_comment='Canonical Portal case being installed and commissioned.',
     )
     source_requisition_batch = models.ForeignKey(
-        'core.RequisitionBatch', on_delete=models.PROTECT, related_name='homebiogas_actions',
+        'core.RequisitionBatch', null=True, blank=True, on_delete=models.PROTECT, related_name='homebiogas_actions',
         db_comment='Exact finalized requisition batch that released this case to HomeBiogas.',
     )
     source_signoff = models.ForeignKey(
-        'core.DocumentPhysicalSignoff', on_delete=models.PROTECT, related_name='homebiogas_actions',
+        'core.DocumentPhysicalSignoff', null=True, blank=True, on_delete=models.PROTECT, related_name='homebiogas_actions',
         db_comment='Accepted signed and stamped requisition scan that released this case.',
     )
+    legacy_origin = models.OneToOneField('portal_legacy.LegacyRow', null=True, blank=True, on_delete=models.PROTECT, related_name='hb_action', db_comment='Explicit imported historical baseline; never a forged signed order.')
     source_order_number = models.CharField(max_length=128, db_comment='Immutable staff-facing order number captured at release.')
     source_requisition_version = models.PositiveIntegerField(db_comment='Exact finalized requisition version captured at release.')
     installation_status = models.CharField(
@@ -86,6 +87,7 @@ class HomeBiogasAction(models.Model):
         db_table = 'hb_operations_action_root'
         db_table_comment = 'Django source of truth for post-order HomeBiogas installation and commissioning work.'
         ordering = ['-updated_at']
+        constraints = [models.CheckConstraint(condition=(models.Q(legacy_origin__isnull=False) | (models.Q(source_requisition_batch__isnull=False) & models.Q(source_signoff__isnull=False))), name='hb_action_requires_origin')]
         indexes = [models.Index(fields=['installation_status', 'updated_at'], name='hb_action_status_updated_idx')]
 
 

@@ -46,7 +46,7 @@
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
   const installationLabels = {open: 'Not installed', installed: 'Installed'};
-  const commissioningLabels = {not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
+  const commissioningLabels = {unknown: 'Not recorded (legacy)', not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
 
   function field(id) { return byId(id); }
   function statusClass(value) { return `hb-status-${String(value || '').replace(/_/g, '-')}`; }
@@ -64,6 +64,7 @@
 
 
   function countdownText(item) {
+    if (item.commissioning_state === 'unknown') return 'Historical date not recorded';
     if (item.commissioning_state === 'done') return item.commissioning_date_display ? `Commissioned ${item.commissioning_date_display}` : 'Commissioned';
     if (item.commissioning_state === 'waiting') {
       if (Number(item.days_until_ready) === 1) return 'Ready tomorrow';
@@ -293,11 +294,11 @@
     if (payload.workstream === 'commissioning') {
       if (!payload.commissioning_date) return 'Choose the actual commissioning date.';
       if (payload.commissioning_date > today) return 'The actual commissioning date cannot be in the future.';
-      if (payload.commissioning_date < detail.installation_date) return 'Commissioning cannot be before installation.';
+      if (detail.installation_date && payload.commissioning_date < detail.installation_date) return 'Commissioning cannot be before installation.';
       return '';
     }
     if (payload.installation_status === 'open') return payload.installation_note ? '' : 'Add a short pending installation comment.';
-    if (!payload.installation_date) return 'Choose the actual installation date.';
+    if (!payload.installation_date && !(detail.legacy && detail.installation_status === 'installed' && !detail.installation_date)) return 'Choose the actual installation date.';
     if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
     return '';
   }

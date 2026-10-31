@@ -1,5 +1,12 @@
 # Component index and migration hold
 
+The 31 October Portal correction retains compact layouts, aligns map controls
+with Lucide and exposes stage-specific Revisit decisions. Scoped legacy preview,
+50-row commits and historical HB continuation reuse existing cards/forms.
+Source-bound manual Playwright and PostgreSQL observations are recorded in
+[the changeover review](reviews/2026-10-31-portal-legacy-changeover.md). Approved
+baselines, standalone browser activation and Phase 6 remain unchanged.
+
 The user's 30 October Portal review retains the current compact art direction.
 Only the existing capability-filtered bottom hubs, hidden while Telegram owns
 the primary action, and the divided Performance activity card are selected.

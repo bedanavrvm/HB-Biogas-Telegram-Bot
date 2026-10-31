@@ -258,7 +258,13 @@ from .complaint_case_views import (
     complaint_recovery_status,
 )
 
+from portal_legacy.views import workspace as portal_legacy_workspace
+
 urlpatterns = [
+    path('portal/legacy/', portal_legacy_workspace, name='portal_legacy_workspace'),
+    path('portal/legacy/stage/', portal_legacy_workspace, name='portal_legacy_stage'),
+    path('portal/legacy/batches/<uuid:batch_id>/', portal_legacy_workspace, name='portal_legacy_batch'),
+    path('portal/legacy/rows/<uuid:row_id>/confirm/', portal_legacy_workspace, name='portal_legacy_confirm'),
     path('miniapps/available/', miniapp_available, name='miniapp_available'),
     path('report-delivery/resend/webhook/', resend_webhook, name='report_resend_webhook'),
     path('tat-tracker/settings/reports/', tat_report_settings, name='tat_report_settings'),

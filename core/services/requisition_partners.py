@@ -24,6 +24,9 @@ def is_eco_conserve_sales_person(value) -> bool:
 
 def fulfillment_partner_for_farmer(farmer) -> str:
     """Resolve the sole partner from canonical case fields, never client input."""
+    captured = getattr(farmer, 'legacy_fulfillment_partner', '')
+    if captured in {PARTNER_HB, PARTNER_ECO}:
+        return captured
     county = normalize_partner_value(getattr(farmer, 'county', ''))
     sales_person = normalize_partner_value(getattr(farmer, 'hb_sales_person', ''))
     if county == 'NAKURU' or is_eco_conserve_sales_person(sales_person):

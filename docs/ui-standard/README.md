@@ -1,5 +1,12 @@
 # Mini App Design Lab
 
+The 31 October Portal correction retains compact layouts, aligns map controls
+with Lucide and exposes stage-specific Revisit decisions. Scoped legacy preview,
+50-row commits and historical HB continuation reuse existing cards/forms.
+Source-bound manual Playwright and PostgreSQL observations are recorded in
+[the changeover review](reviews/2026-10-31-portal-legacy-changeover.md). Approved
+baselines, standalone browser activation and Phase 6 remain unchanged.
+
 Standalone browser styling now follows `browser/AGENTS.md`: the user's
 28 October 2026 instruction makes supplied code/CSS and screenshots authoritative
 for this and future requests, superseding the historical ADS adoption rule below.

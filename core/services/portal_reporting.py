@@ -145,6 +145,7 @@ PORTAL_REPORT_FIELDS: tuple[ReportField, ...] = (
     ReportField('invoice_number', 'Invoice number', 'invoice_number', 'text', 'Operations', _TEXT),
     ReportField('invoice_date', 'Invoice date', 'invoice_date', 'date', 'Operations', _DATE, chart_dimension=True),
     ReportField('status', 'Record status', 'status', 'choice', 'Operations', _CHOICE, chart_dimension=True),
+    ReportField('source', 'Record origin (portal_legacy identifies imported history)', 'source', 'text', 'Operations', _TEXT, chart_dimension=True),
     ReportField('created_at', 'Created at', 'created_at', 'date', 'Operations', _DATE, chart_dimension=True),
     ReportField('updated_at', 'Last updated', 'updated_at', 'date', 'Operations', _DATE, chart_dimension=True),
     ReportField('deposit_paid_hbg', 'HBG deposit', 'deposit_paid_hbg', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),

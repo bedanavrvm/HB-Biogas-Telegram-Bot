@@ -5,6 +5,7 @@ import uuid
 
 from django.db import transaction
 from django.urls import reverse
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
@@ -70,6 +71,8 @@ def _tat_stage_snapshot(stage_key: str) -> dict:
 def commissioning_readiness(action: HomeBiogasAction, *, today: date | None = None) -> dict:
     """Return the policy-derived commissioning state; never persist a stale countdown."""
     installed_on = action.installation_date if action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED else None
+    if not installed_on and action.legacy_origin_id and action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED:
+        return {'ready_on': None, 'state': 'done' if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED else 'unknown', 'label': 'Historical installation date not confirmed', 'days_until_ready': None, 'overdue_days': 0}
     if not installed_on:
         return {
             'ready_on': None, 'state': '', 'label': '',
@@ -124,14 +127,14 @@ def _text(payload: dict, key: str, *, max_length: int | None = None) -> str:
 
 def scoped_actions(user, access, capability: str = VIEW_CAPABILITY):
     return scope_workflow_queryset(
-        HomeBiogasAction.objects.select_related(
+        HomeBiogasAction.objects.annotate(_portal_owner=Coalesce('source_requisition_batch__group_configuration__group_id', 'farmer__group_configuration__group_id')).select_related(
             'farmer', 'source_requisition_batch',
             'source_requisition_batch__group_configuration',
             'source_signoff', 'updated_by',
         ),
         user, WORKFLOW, capability, access=access,
         branch_field='farmer__branch', product_field='farmer__payment_product',
-        group_field='source_requisition_batch__group_configuration__group_id',
+        group_field='_portal_owner',
     )
 
 
@@ -193,7 +196,8 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'days_until_ready': readiness['days_until_ready'],
         'commissioning_overdue_days': readiness['overdue_days'],
         'revision': action.revision,
-        'released_at': action.created_at.isoformat(),
+        'released_at': None if action.legacy_origin_id else action.created_at.isoformat(),
+        'legacy': bool(action.legacy_origin_id),
         'updated_at': action.updated_at.isoformat(),
         'updated_by': _actor_label(action.updated_by),
         'detail_url': reverse('portal_hb_action_detail', kwargs={'farmer_id': farmer.id}),
@@ -385,9 +389,10 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
             'readiness_status': readiness, 'pending_installation_comment': comment,
             'serial_number': serial, 'installation_report_status': '',
         }
-    if not installation_date:
+    retained_unknown = bool(action.legacy_origin_id and action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED and not action.installation_date)
+    if not installation_date and not retained_unknown:
         raise HomeBiogasActionError('Choose the actual installation date.')
-    if installation_date > timezone.localdate():
+    if installation_date and installation_date > timezone.localdate():
         raise HomeBiogasActionError('The actual installation date cannot be in the future.')
     if report and report not in dict(HomeBiogasAction.REPORT_CHOICES):
         raise HomeBiogasActionError('Choose a valid installation report status.')
@@ -411,7 +416,7 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
 
 
 def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> tuple[dict, dict]:
-    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or not action.installation_date:
+    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or (not action.installation_date and not action.legacy_origin_id):
         raise HomeBiogasActionError('Complete installation before recording commissioning.')
     target = _text(payload, 'commissioning_status', max_length=24) or HomeBiogasAction.COMMISSIONING_COMMISSIONED
     if target != HomeBiogasAction.COMMISSIONING_COMMISSIONED:
@@ -423,13 +428,13 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
         raise HomeBiogasActionError('Choose the actual commissioning date.')
     if commissioned_on > timezone.localdate():
         raise HomeBiogasActionError('The actual commissioning date cannot be in the future.')
-    if commissioned_on < action.installation_date:
+    if action.installation_date and commissioned_on < action.installation_date:
         raise HomeBiogasActionError(
             f'Commissioning date {commissioned_on:%d-%m-%Y} cannot be before '
             f'installation date {action.installation_date:%d-%m-%Y}.'
         )
-    ready_on = action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
-    early_by_days = max(0, (ready_on - commissioned_on).days)
+    ready_on = action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS) if action.installation_date else None
+    early_by_days = max(0, (ready_on - commissioned_on).days) if ready_on else 0
     acknowledged = str(payload.get('early_commissioning_acknowledged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     if early_by_days and not acknowledged:
         raise HomeBiogasActionError(
@@ -441,7 +446,8 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
         'pending_commissioning_comment': '',
     }
     policy = {
-        'commissioning_ready_on': ready_on.isoformat(),
+        'commissioning_ready_on': ready_on.isoformat() if ready_on else None,
+        'legacy_installation_date_unknown': bool(action.legacy_origin_id and not action.installation_date),
         'early_commissioning_acknowledged': bool(early_by_days and acknowledged),
         'early_by_days': early_by_days,
     }
@@ -521,7 +527,7 @@ def update_commissioning_notes(action_id, *, payload: dict, actor, request_id: s
         return action, [], True
     if int(expected_revision) != int(action.revision):
         raise HomeBiogasActionError('This record changed after you opened it. Refresh and try again.')
-    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or not action.installation_date:
+    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or (not action.installation_date and not action.legacy_origin_id):
         raise HomeBiogasActionError('Complete installation before saving commissioning notes.')
 
     pending_comment = _text(payload, 'pending_commissioning_comment', max_length=4000)

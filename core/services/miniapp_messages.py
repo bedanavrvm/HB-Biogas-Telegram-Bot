@@ -44,6 +44,9 @@ class MiniAppMessage:
 
 
 MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
+    "legacy_import_invalid": MiniAppMessage(
+        "Review the legacy import guidance below, correct the workbook or selection, then retry. Saved rows are retained.", 400,
+    ),
     "invalid_request": MiniAppMessage(
         "The app could not read this request. Try the action again. If it continues, contact JBL and share reference {support_reference}.", 400,
     ),

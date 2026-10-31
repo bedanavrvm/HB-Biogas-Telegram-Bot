@@ -56,7 +56,7 @@ def _action_access_error(request, action, capability):
 
     decision = portal_access_decision(
         _actor(request), capability, access=access, resource=action.farmer,
-        group_configuration=action.source_requisition_batch.group_configuration,
+        group_configuration=(action.farmer.group_configuration if action.legacy_origin_id else action.source_requisition_batch.group_configuration),
         enforce_group_scope=True,
     )
     if not decision.allowed:
@@ -79,7 +79,7 @@ def _invoice_presentation(request, action, data):
         record_mode = portal_access_decision(
             _actor(request), 'portal.invoice_identity.manage', access=access,
             resource=action.farmer,
-            group_configuration=action.source_requisition_batch.group_configuration,
+            group_configuration=(action.farmer.group_configuration if action.legacy_origin_id else action.source_requisition_batch.group_configuration),
             enforce_group_scope=True,
         ).allowed
     data['invoice'] = {
@@ -134,13 +134,13 @@ def hb_action_list(request):
     else:
         queryset = queryset.filter(
             installation_status=HomeBiogasAction.INSTALLATION_INSTALLED,
-            installation_date__isnull=False,
         )
         threshold = today - timedelta(days=COMMISSIONING_WAIT_DAYS)
         unfinished = Q(commissioning_status=HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED)
         counts_queryset = queryset
         delayed = counts_queryset.filter(unfinished, installation_date__lt=threshold)
         counts = {
+            'unknown': counts_queryset.filter(commissioning_status='unknown').count(),
             'not_commissioned': counts_queryset.filter(unfinished).distinct().count(),
             'delayed': delayed.distinct().count(),
             'commissioned': counts_queryset.filter(
@@ -151,6 +151,8 @@ def hb_action_list(request):
             state = 'not_commissioned'
         if state == 'not_commissioned':
             queryset = queryset.filter(unfinished)
+        elif state == 'unknown':
+            queryset = queryset.filter(commissioning_status='unknown')
         elif state == 'delayed':
             queryset = queryset.filter(unfinished, installation_date__lt=threshold)
         elif state == 'commissioned':

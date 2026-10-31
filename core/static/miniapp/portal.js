@@ -2994,6 +2994,7 @@
     return cookieValue;
   }
   if (portalFarmerSheet.init) {
+    window.PortalLegacy?.init();
     portalFarmerSheet.init({
       apiFetch,
       el,
