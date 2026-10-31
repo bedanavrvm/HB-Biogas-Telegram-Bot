@@ -38,6 +38,7 @@ REPORT_FIELDS = frozenset(('branch', 'category', 'status', 'date_from', 'date_to
 ACTIONS = {
     'resolve': ('complaint.case.close', cases.resolve_case),
     'comment': ('complaint.case.comment', cases.comment_case),
+    'verification-comment': ('complaint.case.verification.comment', cases.verification_comment_case),
     'reopen': ('complaint.case.reopen', cases.reopen_case),
     'complete-details': ('complaint.case.details.complete', cases.complete_review_details),
     'retry-publication': ('complaint.case.sync.retry', None),
@@ -136,16 +137,20 @@ def project(data):
             'recorded_at': data.get('recorded_at_iso', data.get('recorded_at'))}
 
 
+def history_entry(row, actor, group, *, read_only=False):
+    result = {key: row.get(key, '') for key in ('id','action','status','note','created_at','updated_by','actor_affiliation','display_changes')}
+    result['evidence'] = [{key: file.get(key, '') for key in ('id','name','mime_type','status','size','created_at','created_at_iso','uploaded_by')} for file in row.get('evidence', [])] if not read_only and cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
+    return result
+
+
 def project_detail(data, actor, group, *, read_only=False):
     result = project(data)
-    result['history'] = [{key: row.get(key, '') for key in (
-        'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
-    )} for row in data['updates'][:100]]
+    result['history'] = [history_entry(row, actor, group, read_only=read_only) for row in data['updates'][:100]]
     result['history_truncated'] = bool(data.get('history_next_cursor')) or len(data['updates']) > 100
     result['history_next_cursor'] = data.get('history_next_cursor', '')
     from complaint_publications.services import is_it
     result['actions'] = [] if read_only else [name for name, (capability, _) in ACTIONS.items()
-                                             if cases.actor_can(group, actor, capability) and (name != 'retry-publication' or is_it(actor))]
+                                             if capability in cases.complaint_visible_capabilities(actor) and cases.actor_can(group, actor, capability) and (name != 'retry-publication' or is_it(actor))]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
     result['evidence'] = [{key: item.get(key, '') for key in (
         'id', 'name', 'mime_type', 'previewable', 'status', 'created_at', 'created_at_iso', 'uploaded_by', 'size',
@@ -207,7 +212,7 @@ def queue(request, group, actor):
         case = records[item['id']]
         data = project(item)
         data['actions'] = [name for name, (capability, _) in ACTIONS.items()
-            if name in {'resolve', 'comment', 'reopen', 'complete-details'} and cases.actor_can(group, actor, capability, case)]
+            if name in {'resolve', 'comment', 'verification-comment', 'reopen', 'complete-details'} and capability in cases.complaint_visible_capabilities(actor) and cases.actor_can(group, actor, capability, case)]
         data['evidence_count'] = file_counts.get(case.pk, 0) if cases.actor_can(group, actor, 'complaint.case.evidence.view', case) else 0
         location = cases.location_for_case(case)
         try:
@@ -233,9 +238,7 @@ def history(request, group, actor, case_key):
     if set(body) - {'cursor'}:
         raise cases.ComplaintCaseError('Reload the complaint activity and try again.')
     data = cases.case_history_page(group, source_case(group, case_key), actor, cursor=body.get('cursor', ''))
-    return JsonResponse({'items': [{key: row.get(key, '') for key in (
-        'id', 'action', 'status', 'note', 'created_at', 'updated_by', 'actor_affiliation', 'display_changes',
-    )} for row in data['items']], 'next_cursor': data['next_cursor']})
+    return JsonResponse({'items': [history_entry(row, actor, group) for row in data['items']], 'next_cursor': data['next_cursor']})
 
 
 @endpoint(['POST'])
@@ -326,7 +329,7 @@ def action(request, group, actor, case_key, action):
         data = cases.finish_created_case(group, actor, case_id,
             creation_request_id=str(fields.get('creation_request_id') or ''),
             uploaded_files=uploaded_evidence(request))
-    elif action == 'resolve':
+    elif action in {'resolve', 'comment', 'verification-comment'}:
         data = function(group, actor, case_id, fields, uploaded_evidence(request))
     else:
         data = function(group, actor, case_id, fields)
@@ -446,7 +449,10 @@ def voice(request, group, actor):
     field = body.get('field_name')
     if not isinstance(field, str) or field not in capabilities:
         raise cases.ComplaintCaseError('Voice input is unavailable for this field.')
-    require(actor, group, capabilities[field])
+    capability = capabilities[field]
+    if capability == 'complaint.case.comment' and cases.actor_can(group, actor, 'complaint.case.verification.comment'):
+        capability = 'complaint.case.verification.comment'
+    require(actor, group, capability)
     record = GroupSheetConfiguration.objects.get(group_id=group.group_id)
     try:
         case = None

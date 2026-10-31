@@ -515,15 +515,15 @@
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "ccea673f67cd3f5566513516cc21a857a4cd3c3275d267de93e76616b59e3bde",
-      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
-      "reason": "Nonvisual download correctness: trim whitespace metadata and preserve the existing named Excel fallback in native and browser downloads. Actual export controls and native payload regression; no layout, font, role or Phase 6 change."
+      "sha256": "14786a949874300138266a9ab79262bcffeb76513cf5b2bfbecd584f4eddef15",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "043bee9586c51da5eaa539e18dd997e1221db7c51c3776168134d6d0ea063949",
-      "review_reference": "docs/ui-standard/origination-review-downloads.md#evidence",
-      "reason": "Nonvisual cache-version update for the blank download-name correction; no application layout/token or shared-baseline change."
+      "sha256": "f6a74358e75ca0b24a449df9dfc06699034dbf33f22ddc213929e01fe072a282",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",
@@ -653,9 +653,9 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "4376b2d6aee9b75cd68c4c42d294dde2f1455b97ecb1960b6c21e4c5b6448ffa",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "5128005aa8fa8e0347c232b6622fbcfb894b966cac8519928e86fc8be314ba6a",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-operations-index.tsx",
@@ -665,9 +665,9 @@
     },
     {
       "path": "browser/src/complaints-operations-media.tsx",
-      "sha256": "417050966d59789a0f10e6d583b70c7006655b951ef09dd1dc88e712e1be27ec",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "5fcd8af0a9e1180412b9f7427b8a70c8f5077a04817b06ee0c628037f6f3cfa4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
@@ -683,15 +683,15 @@
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "4b4d4849e87217c1c802297b1ebd807189a376a304bec20980c8481c74dc6646",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
-      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+      "sha256": "1f533ad4447ea3aa437891149a3dd69c2b4923e8d2288e5c54be2c7a400c57d4",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "77569bba7a91d51887676e0afd4264c4e520419763d331c58f36502042b17976",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
-      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+      "sha256": "8ce400db6002d684ba7a8f6c54123d08797ad15127d44f3b87e94b704c4f7da8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -707,15 +707,15 @@
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "f00b635a8817f016cac7150694b8e12d341682d4ef5d744e464ba504558666a3",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "Nonvisual removal of obsolete ADS eslint suppression comments; strict unused-directive reporting remains enabled. Full browser lint and production build verified."
+      "sha256": "ddeacdc70a6f6d3519160d5a23be62a4da672c72061f9eb9ae3972c3a8fc8bc8",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
-      "sha256": "d77681a870e091f3c15bf45a254eb7beb75a8b4a83b97716f18b00c36c121949",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
-      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+      "sha256": "4fc9dc2a23dd0794a48dfc4bcb2e12abda57b3c01c18a040bd976fc92c58e349",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/workspace-recovery.ts",
@@ -875,9 +875,9 @@
     },
     {
       "path": "browser/src/complaints-conversation.tsx",
-      "sha256": "bbe9abc15dd47431fd479b86f93c683b29a89fb06a4392db4b7bab234a6f935d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "df22e3ae727dd1ef17aeb7dee1de258dbecd932e31beedc6cdcd9d2df9294490",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-operation-files.tsx",
@@ -887,9 +887,9 @@
     },
     {
       "path": "browser/src/complaints-stitch.css",
-      "sha256": "aab3d7a3d6ebcbd8165b5bf83702684bdce150f6d803533cb15e4a44b8d2855a",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "60a7ab96fc23ba97630be1521b37e003bab6058fae56a5bf60835e003a3cf73e",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-publication.tsx",
@@ -917,9 +917,9 @@
     },
     {
       "path": "browser/src/complaints-queue-page.tsx",
-      "sha256": "3bc1e401ca5c66afdef4b8d7158d3ccd56cc02689f8ca0ccc4a53cab0edf9df0",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
-      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+      "sha256": "9f9064f7863f731d103f725477971aa8eab64e74b8bb244c267e0a804fb28351",
+      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
+      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
     },
     {
       "path": "browser/src/complaints-queue.css",

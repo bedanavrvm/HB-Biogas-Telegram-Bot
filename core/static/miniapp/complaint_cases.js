@@ -23,7 +23,7 @@
     reportFilterSheetOpen: false, reportFilterSnapshot: null, reportFilterReturnFocus: null,
     reportSummarySequence: 0, reportTableSequence: 0, reportSearchTimer: null,
     reportTableAbortController: null,
-    evidence: { create: [], resolve: [] },
+    evidence: { create: [], resolve: [], comment: [] },
     categoryDescriptions: new Map(),
     locationOptions: { branches: [], counties: [], sub_counties: [] },
     locationOptionsLoading: false, locationOptionsSequence: 0,
@@ -771,6 +771,9 @@
     $('resolveForm').hidden = unavailable || $('resolveTab').hidden || action !== 'resolve';
     $('commentTab').setAttribute('aria-selected', String(action === 'comment'));
     $('resolveTab').setAttribute('aria-selected', String(action === 'resolve'));
+    $('reopenForm').hidden = unavailable || $('reopenTab').hidden || action !== 'reopen';
+    $('reopenTab').setAttribute('aria-selected', String(action === 'reopen'));
+    [$('commentTab'), $('resolveTab'), $('reopenTab')].forEach(tab => { tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1; });
   }
 
   function renderDetail(item, preserveDraft) {
@@ -805,19 +808,29 @@
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = false;
     const actions = item.global_read ? (item.actions || {}) : {
       close: can('complaint.case.close'), reopen: can('complaint.case.reopen'),
-      comment: can('complaint.case.comment'),
+      comment: can('complaint.case.comment'), verification_comment: can('complaint.case.verification.comment'),
       complete_details: can('complaint.case.details.complete'),
     };
     $('completeDetailsForm').hidden = !item.needs_details || !actions.complete_details;
-    $('hbActionTabs').hidden = ['Closed', 'CLOSED', 'Resolved'].includes(item.stored_status || item.status) || !(actions.comment || actions.close);
-    $('commentTab').hidden = !actions.comment; $('resolveTab').hidden = !actions.close;
-    if (!preserveDraft) state.hbAction = actions.comment ? 'comment' : 'resolve';
+    const closed = ['Closed', 'CLOSED', 'Resolved'].includes(item.stored_status || item.status);
+    const hbComment = actions.comment && !closed;
+    $('hbActionTabs').hidden = !(hbComment || actions.verification_comment || (actions.close && !closed) || actions.reopen);
+    $('commentTab').hidden = !(hbComment || actions.verification_comment);
+    $('resolveTab').hidden = !actions.close || closed;
+    $('reopenTab').hidden = !actions.reopen;
+    $('reopenTab').disabled = !closed;
+    $('reopenTab').title = closed ? 'Reopen this complaint with a reason' : 'Only closed complaints can be reopened';
+    if (!preserveDraft) state.hbAction = !$('commentTab').hidden ? 'comment' : !$('resolveTab').hidden ? 'resolve' : 'reopen';
+    $('commentTypeLabel').hidden = !(hbComment && actions.verification_comment);
+    if (!preserveDraft || !hbComment) $('commentType').value = actions.verification_comment ? 'jbl' : 'hb';
+    $('commentOwner').textContent = $('commentType').value === 'jbl' ? 'JBL Verification Comments' : 'HB Resolution Comments';
+    $('commentTextLabel').textContent = $('commentType').value === 'jbl' ? 'JBL verification findings' : 'HB feedback note';
+    $('commentHelp').textContent = 'Record your findings and supporting evidence. Saving a comment does not change the complaint status.';
     selectHbAction(state.hbAction || 'comment');
-    $('reopenForm').hidden = item.status !== 'CLOSED' || !actions.reopen;
     $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
-      $('completeDetailsForm').reset(); $('resolveForm').reset(); $('commentForm').reset(); $('reopenForm').reset();
-      clearEvidence('resolve'); $('conflictPanel').hidden = true;
+      $('completeDetailsForm').reset(); $('resolveForm').reset(); $('commentForm').reset(); $('commentType').value = actions.verification_comment ? 'jbl' : 'hb'; $('reopenForm').reset();
+      clearEvidence('resolve'); clearEvidence('comment'); $('conflictPanel').hidden = true;
       const complete = $('completeDetailsForm').elements;
       complete.customer_phone.value = item.customer_phone || '';
       complete.customer_phone.readOnly = !!item.customer_phone;
@@ -955,7 +968,7 @@
     });
     grouped.forEach(item => {
       const row = document.createElement('div'); row.className = 'item history-item';
-      const actions = {created:'Complaint recorded by', commented:'Comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
+      const actions = {created:'Complaint recorded by', commented:'HB comment by', verification_commented:'JBL verification comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
       const action = actions[item.action] || (item.status === 'Closed' ? 'Resolved by' : item.status === 'Reopened' ? 'Reopened by' : !item.old_status && item.status === 'Open' ? 'Complaint recorded by' : 'Updated by');
       const creation = action === 'Complaint recorded by';
       const content = document.createElement('div');
@@ -971,6 +984,12 @@
         else note.textContent = displayHistoryNote(noteText);
         content.append(note);
       }
+      (item.evidence || []).forEach(file => {
+        const found = state.currentCase.evidence?.find(e => e.id === file.id);
+        const link = textNode(found?.preview_url ? 'a' : 'p', file.name + (file.status === 'success' ? '' : ' (publication pending)'));
+        if (found?.preview_url) { link.href = '#'; link.onclick = event => { event.preventDefault(); openPersistedEvidence(found, link); }; }
+        content.append(link);
+      });
       content.append(textNode('small', item.created_at || '', 'muted'));
       const changes = creation ? [] : item.changes.filter(change =>
         !['priority', 'status'].includes(change.field) && !(item.notes.length && change.field === 'resolution_details'));
@@ -1014,13 +1033,14 @@
     const voiceField = action === 'comments' ? 'complaint_resolution_comment' : (action === 'resolve' ? 'complaint_resolution_note' : 'complaint_reopen_reason');
     if (acceptedVoiceAttempts[voiceField]?.id) data.set('voice_transcription_id', acceptedVoiceAttempts[voiceField].id);
     if (action === 'resolve') appendEvidence(data, 'resolve');
+    if (action === 'comments') appendEvidence(data, 'comment');
     const button = formNode.querySelector('button[type="submit"]');
     state.submitting = true; setActionLoading(button, true, action === 'comments' ? 'Saving' : (action === 'resolve' ? 'Resolving' : 'Reopening')); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data, targetGroup);
       settleWrite(writeKey);
       resetVoiceField(voiceField, false);
-      response.case.group_id = targetGroup; notify(response.message); if (action !== 'comments') clearEvidence('resolve');
+      response.case.group_id = targetGroup; notify(response.message); if (action !== 'comments') clearEvidence('resolve'); else clearEvidence('comment');
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
       if (action === 'comments') {
         response.case.global_read = state.currentCase.global_read;
@@ -1030,7 +1050,7 @@
       } else if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
       else { response.case.global_read = false; renderDetail(response.case); }
       if (action === 'comments') {
-        $('commentForm').reset();
+        $('commentForm').elements.comment_text.value = '';
         utils.setCloseProtection?.('complaint-transition-draft', !!$('resolveForm').elements.resolution_text.value || state.evidence.resolve.length > 0);
       }
     } catch (error) { settleWrite(writeKey, error); if (error.status === 409) showConflict(error); else presentError(error, () => formNode.requestSubmit()); }
@@ -1250,7 +1270,7 @@
   function updateEvidenceHints() {
     const limits = state.evidenceLimits;
     const text = `Up to ${limits.max_files} files · ${limits.max_file_size_mb} MB each · ${limits.max_total_upload_mb} MB total`;
-    $('createEvidenceHint').textContent = text; $('resolveEvidenceHint').textContent = text;
+    $('createEvidenceHint').textContent = text; $('resolveEvidenceHint').textContent = text; $('commentEvidenceHint').textContent = text;
   }
   function acceptedEvidence(file) {
     const name = String(file.name || '').toLowerCase();
@@ -1774,6 +1794,7 @@
         { headerName: 'GPS Link', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
         { headerName: 'Resolution Details', field: 'resolution_details', width: 260, sortable: false },
         { headerName: 'Resolution Comments', field: 'resolution_comments', width: 300, sortable: false },
+        { headerName: 'JBL Verification Comments', field: 'jbl_verification_comments', width: 300, sortable: false },
         { headerName: 'Date Resolved', field: 'date_resolved', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
         { headerName: 'Resolution time', field: 'resolution_hours', width: 130, sortable: false, valueFormatter: p => window.ComplaintReportCharts.hours(p.value) },
@@ -2135,7 +2156,7 @@
   $('captureLocationBtn').addEventListener('click', captureLocation);
   document.querySelectorAll('[data-files-target]').forEach(button => button.addEventListener('click', () => $(`${button.dataset.filesTarget}EvidenceInput`).click()));
   document.querySelectorAll('[data-camera-target]').forEach(button => button.addEventListener('click', () => openCamera(button.dataset.cameraTarget)));
-  ['create', 'resolve'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { if(addFiles(target, event.target.files))utils.haptic?.('light'); event.target.value = ''; }));
+  ['create', 'resolve', 'comment'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { if(addFiles(target, event.target.files))utils.haptic?.('light'); event.target.value = ''; }));
   $('cameraCloseBtn').addEventListener('click', () => closeCamera()); $('cameraCancelBtn').addEventListener('click', () => closeCamera()); $('cameraCaptureBtn').addEventListener('click', captureCameraPhoto);
   $('cameraOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeCamera(); });
   $('mediaViewerClose').addEventListener('click', closeMediaViewer);
@@ -2165,10 +2186,12 @@
   $('resolveForm').addEventListener('submit', event => submitTransition(event, 'resolve'));
   $('commentForm').addEventListener('submit', event => submitTransition(event, 'comments'));
   $('commentTab').addEventListener('click', () => { if (!state.submitting) selectHbAction('comment'); });
+  $('reopenTab').addEventListener('click', () => { if (!state.submitting) selectHbAction('reopen'); });
+  $('commentType').addEventListener('change', () => { $('commentOwner').textContent = $('commentType').value === 'jbl' ? 'JBL Verification Comments' : 'HB Resolution Comments'; $('commentTextLabel').textContent = $('commentType').value === 'jbl' ? 'JBL verification findings' : 'HB feedback note'; });
   $('resolveTab').addEventListener('click', () => { if (!state.submitting) selectHbAction('resolve'); });
   $('hbActionTabs').addEventListener('keydown', event => {
     if (state.submitting || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [$('commentTab'), $('resolveTab')].filter(tab => !tab.hidden);
+    const tabs = [$('commentTab'), $('resolveTab'), $('reopenTab')].filter(tab => !tab.hidden && !tab.disabled);
     const index = tabs.indexOf(document.activeElement);
     const next = event.key === 'Home' ? 0 : (event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length);
     event.preventDefault(); tabs[next]?.focus(); tabs[next]?.click();

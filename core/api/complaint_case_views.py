@@ -36,6 +36,7 @@ from core.services.complaint_cases import (
     record_evidence_preview,
     resolve_case,
     comment_case,
+    complaint_visible_capabilities,
     retry_case_sync,
     staff_actor_for_user,
     suggest_category,
@@ -314,6 +315,8 @@ def complaint_cases_voice_transcription(request):
             complaint_case = complaint_case_for_voice(group_config, actor, case_id)
         except ComplaintCaseError as exc:
             return _complaint_error(request, exc, status=404)
+    if capability == 'complaint.case.comment' and actor_can(group_config, actor, 'complaint.case.verification.comment', complaint_case):
+        capability = 'complaint.case.verification.comment'
     capability_error = _capability_error(actor, capability, group_config, resource=complaint_case)
     if capability_error:
         return capability_error
@@ -535,8 +538,9 @@ def _global_target_actions(actor, item: dict) -> dict[str, bool]:
     except ComplaintCaseError:
         return {'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False}
     return {
-        'close': actor_can(target_config, target_actor, 'complaint.case.close'),
-        'comment': actor_can(target_config, target_actor, 'complaint.case.comment'),
+        'close': 'complaint.case.close' in complaint_visible_capabilities(target_actor) and actor_can(target_config, target_actor, 'complaint.case.close'),
+        'comment': 'complaint.case.comment' in complaint_visible_capabilities(target_actor) and actor_can(target_config, target_actor, 'complaint.case.comment'),
+        'verification_comment': actor_can(target_config, target_actor, 'complaint.case.verification.comment'),
         'reopen': actor_can(target_config, target_actor, 'complaint.case.reopen'),
         'complete_details': actor_can(target_config, target_actor, 'complaint.case.details.complete'),
         'sync_retry': (
@@ -945,11 +949,24 @@ def complaint_cases_comment(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.case.comment', group_config)
+    kind = payload.get('comment_type', 'hb')
+    if kind not in {'hb', 'jbl'}: return JsonResponse({'ok': False, 'error': 'Choose HB or JBL comment.'}, status=400)
+    capability_error = _capability_error(actor, 'complaint.case.verification.comment' if kind == 'jbl' else 'complaint.case.comment', group_config)
     if capability_error:
         return capability_error
     try:
-        result = comment_case(group_config, actor, case_id, payload)
+        from complaint_publications.services import browser_write
+        from core.models import ParsedMessage
+        case = ParsedMessage.objects.filter(message_id=case_id, group_id=group_config.group_id).first()
+        if case is None:
+            raise ComplaintCaseError('Complaint not found in this workspace.')
+        files = request.FILES.getlist('evidence')
+        action = 'verification-comment' if kind == 'jbl' else 'comment'
+        with browser_write(group_config, actor, f'cases/{case.pk}/{action}/', payload, files) as retained:
+            if retained['attempt'] and retained['attempt'].committed_at:
+                result = case_detail(group_config, case_id, actor)
+            else:
+                result = comment_case(group_config, actor, case_id, payload, retained['files'], kind=kind)
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:

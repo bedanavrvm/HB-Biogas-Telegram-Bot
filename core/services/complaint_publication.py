@@ -27,7 +27,7 @@ def _claim_current(operation: IntegrationOperation) -> bool:
 
 @guarded_publication
 def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
-    from core.services.complaint_cases import latest_resolution_text, resolution_comments_text, resolution_history_text
+    from core.services.complaint_cases import latest_resolution_text, resolution_comments_text, resolution_history_text, verification_comments_text
     for _ in range(2):
         with transaction.atomic():
             control = ComplaintCaseControl.objects.select_for_update().get(parsed_message_id=case.pk)
@@ -49,12 +49,16 @@ def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
                 'status': 'CLOSED' if current.complaint_status == 'Closed' else (
                     'REOPENED' if current.complaint_status == 'Reopened' else 'OPEN'),
                 'resolution_details': latest_resolution_text(current), 'resolution_comments': comments,
+                'jbl_verification_comments': verification_comments_text(current),
                 'resolution_history': resolution_history_text(current), 'gps_link': current.gps_link or '',
                 'customer_phone': current.customer_phone, 'customer_id': current.customer_id,
                 'complaint_category': current.complaint_category,
                 'date_resolved': timezone.localtime(current.date_resolved).strftime('%d-%m-%y') if current.date_resolved else '',
                 'days_open': max(0, int((ended - (current.timestamp or current.created_at)).total_seconds() // 86400)),
             }
+            for field in ('jbl_verification_comments', 'resolution_history'):
+                if len(updates[field]) > 50000:
+                    raise ValueError(f'{field} exceeds the Sheet cell limit; all history remains saved in Django.')
             with external_call_budget(20):
                 if not service.update_case_row(control.reference_number, updates):
                     raise RuntimeError('Complaint Sheet publication is pending.')

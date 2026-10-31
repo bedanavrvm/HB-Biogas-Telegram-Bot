@@ -303,6 +303,13 @@ def actor_can_access_case(group_config, actor: ComplaintCaseActor, capability: s
     return actor_can(group_config, actor, capability, case)
 
 
+def complaint_visible_capabilities(actor: ComplaintCaseActor):
+    # Normal IT forms use JBL actions; existing technical override authority is unchanged.
+    if 'HB_STAFF' not in (actor.roles or (actor.role,)):
+        return actor.capabilities - {'complaint.case.close', 'complaint.case.comment'}
+    return actor.capabilities
+
+
 def complaint_case_for_voice(group_config, actor: ComplaintCaseActor, case_id: str) -> ParsedMessage:
     """Resolve one group-scoped complaint for an already-authorized voice action."""
     return _case_for_group(group_config.group_id, case_id, actor=actor)
@@ -330,7 +337,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
         'actor': {
             'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager,
             'roles': list(actor.roles or (actor.role,)),
-            'capabilities': sorted(actor.capabilities),
+            'capabilities': sorted(complaint_visible_capabilities(actor)),
         },
         'statuses': ['pending', 'resolved', 'all'],
         'branches': [item['name'] for item in locations['branches']],
@@ -525,15 +532,15 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
         payload['resolution_comments'] = []
         payload['updates'] = page['items']
         payload['history_next_cursor'] = page['next_cursor']
-        resolution = case.case_updates.filter(new_status='Closed').order_by('-created_at', '-pk').first()
-        reopen = case.case_updates.filter(new_status='Reopened').exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('-created_at', '-pk').first()
+        resolution = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment']).order_by('-created_at', '-pk').first()
+        reopen = case.case_updates.filter(new_status='Reopened').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).order_by('-created_at', '-pk').first()
     else:
         payload['resolution_comments'] = [serialize_update(update) for update in
                                           case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
-        updates = list(case.case_updates.order_by('-created_at', '-pk'))
+        updates = list(case.case_updates.prefetch_related('evidence').order_by('-created_at', '-pk'))
         payload['updates'] = complaint_history(case, updates)
-        resolution = next((item for item in updates if item.new_status == 'Closed'), None)
-        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source not in ('mini_app_comment', 'browser_staff_comment')), None)
+        resolution = next((item for item in updates if item.new_status == 'Closed' and item.source not in {'mini_app_comment','mini_app_verification_comment','browser_staff_comment'}), None)
+        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
@@ -562,7 +569,7 @@ def complaint_history_page(case: ParsedMessage, *, cursor=''):
 
     if not isinstance(cursor, str) or len(cursor) > 1500:
         raise ComplaintCaseError('Refresh the complaint activity and try again.', field_errors={'history_cursor': 'invalid'})
-    updates = case.case_updates.order_by('-created_at', '-pk')
+    updates = case.case_updates.prefetch_related('evidence').order_by('-created_at', '-pk')
     if cursor:
         try:
             value = signing.loads(cursor, salt='complaint-history-page-v1', max_age=3600)
@@ -579,7 +586,7 @@ def complaint_history_page(case: ParsedMessage, *, cursor=''):
     more = len(page) > 25
     page = page[:25]
     legacy = not more and bool(case.resolution_details) and not case.case_updates.filter(
-        new_status='Closed').exclude(source__in=('mini_app_comment', 'browser_staff_comment')).exists()
+        new_status='Closed').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).exists()
     rows = complaint_history(case, page, include_legacy_resolution=legacy)
     next_cursor = signing.dumps({'case': str(case.pk), 'at': page[-1].created_at.isoformat(),
                                  'key': str(page[-1].pk)}, salt='complaint-history-page-v1') if more else ''
@@ -669,7 +676,7 @@ def update_case(
 
 
 def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uploaded_files: list) -> dict[str, Any]:
-    """Resolve one pending complaint through the manager-only transition."""
+    """Resolve one pending complaint through the HB-only transition."""
     return update_case(
         group_config, actor, case_id,
         {**fields, 'status': 'Closed'}, uploaded_files,
@@ -677,32 +684,54 @@ def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uplo
     )
 
 
-def resolution_comments_text(case: ParsedMessage) -> str:
-    """Canonical append-only feedback; neither a resolution nor a transition."""
-    return '\n────────────────────\n'.join(
-        f'{update.resolution_text}\n{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}'
-        for update in case.case_updates.filter(source='mini_app_comment').order_by('created_at', 'pk')
-    )
+def _feedback_text(case, source):
+    entries = []
+    for update in case.case_updates.filter(source=source).prefetch_related('evidence').order_by('created_at', 'pk'):
+        files = [f'{item.original_filename}: {item.drive_url or "Publication pending"}' for item in update.evidence.all()]
+        entries.append('\n'.join([update.resolution_text, f'{timezone.localtime(update.created_at):%d-%b-%Y %H:%M} — {update.updated_by}', *files]))
+    return '\n────────────────────\n'.join(entries)
 
 
-def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+def resolution_comments_text(case):
+    return _feedback_text(case, 'mini_app_comment')
+
+
+def verification_comments_text(case):
+    return _feedback_text(case, 'mini_app_verification_comment')
+
+
+def verification_comment_case(group_config, actor, case_id, fields, uploaded_files=()):
+    return comment_case(group_config, actor, case_id, fields, uploaded_files, kind='jbl')
+
+
+def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: dict[str, Any], uploaded_files=(), *, kind='hb') -> dict[str, Any]:
     case = _case_for_group(group_config.group_id, case_id, actor=actor)
-    if not actor_can(group_config, actor, 'complaint.case.comment'):
-        raise ComplaintCaseError('Your role cannot add resolution comments.')
+    capability = 'complaint.case.verification.comment' if kind == 'jbl' else 'complaint.case.comment'
+    if not actor_can(group_config, actor, capability, case):
+        raise ComplaintCaseError('Your role cannot add this type of complaint comment.')
+    validate_uploaded_files(uploaded_files)
+    if uploaded_files and not actor_can(group_config, actor, 'complaint.case.evidence.manage', case):
+        raise ComplaintCaseError('Your role cannot upload complaint evidence.')
     request_id = str(fields.get('client_request_id') or '').strip()
     note = str(fields.get('comment_text') or '').strip()
     if not request_id or len(request_id) > 128:
         raise ComplaintCaseError('Refresh this case before saving; its retry identifier is missing or invalid.')
     if not note or len(note) > 5000:
-        raise ComplaintCaseError('Add a resolution comment of 5,000 characters or fewer.')
-    digest = mutation_payload_hash({'action': 'commented', 'note': note, 'actor': str(actor.user.pk)})
+        raise ComplaintCaseError('Add a comment of 5,000 characters or fewer.')
+    files = []
+    for upload in uploaded_files:
+        content = upload.read(); upload.seek(0)
+        files.append({'name': upload.name, 'sha256': hashlib.sha256(content).hexdigest()})
+    action = 'verification_commented' if kind == 'jbl' else 'commented'
+    digest = mutation_payload_hash({'action': action, 'note': note, 'actor': str(actor.user.pk), 'files': files})
     control = ensure_case_control(case, group_config)
     with transaction.atomic():
         case = ParsedMessage.objects.select_for_update().get(pk=case.pk)
         control = ComplaintCaseControl.objects.select_for_update().get(pk=control.pk)
         existing = control.events.filter(request_id=request_id).first()
         if existing:
-            if existing.action != 'commented' or existing.payload_hash != digest:
+            legacy_digest = mutation_payload_hash({'action':'commented','note':note,'actor':str(actor.user.pk)}) if kind == 'hb' and not files else ''
+            if existing.action != action or existing.payload_hash not in {digest, legacy_digest}:
                 raise ComplaintCaseError('That retry identifier was already used for another action or comment.')
             return case_detail(group_config, case_id, actor)
         try:
@@ -712,8 +741,8 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
         if control.revision != expected_revision:
             raise ComplaintCaseConflict('This complaint changed. Review the latest details; your comment is retained.',
                                         current_revision=control.revision)
-        if case.complaint_status == 'Closed':
-            raise ComplaintCaseError('This complaint is resolved. New comments can only be saved while it is open.')
+        if kind == 'hb' and case.complaint_status == 'Closed':
+            raise ComplaintCaseError('HB resolution comments can only be saved while the complaint is open.')
         from core.models import PortalVoiceTranscriptionAttempt
         voice_field = PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_COMMENT
         voice = _validate_complaint_voice(fields=fields, actor=actor, group_config=group_config,
@@ -724,7 +753,7 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
             parsed_message=case, group_id=case.group_id, updated_by=actor.name,
             old_status=case.complaint_status, new_status=case.complaint_status,
             resolution_text=note, raw_update_text='Complaint Cases Mini App comment',
-            source='mini_app_comment', client_request_id=request_id,
+            source='mini_app_verification_comment' if kind == 'jbl' else 'mini_app_comment', client_request_id=request_id,
             sync_status='pending' if projection_enabled else 'not_required',
         )
         control.revision += 1
@@ -732,11 +761,12 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
         control.sync_error = ''
         control.save(update_fields=['revision', 'sync_status', 'sync_error', 'updated_at'])
         ComplaintCaseEvent.objects.create(
-            case=control, revision=control.revision, action='commented', actor=actor.user,
+            case=control, revision=control.revision, action=action, actor=actor.user,
             actor_label=actor.name, request_id=request_id, payload_hash=digest,
             before_values=before, after_values=control_snapshot(control, case), reason=note,
         )
-        record_complaint_update(update, case, actor, action='complaint.case.commented')
+        record_complaint_update(update, case, actor, action=f'complaint.case.{action}')
+        store_evidence(group_config, case, update, actor, uploaded_files)
     if voice:
         try:
             _accept_complaint_voice(attempt_id=str(voice.pk), actor=actor, group_config=group_config,
@@ -748,7 +778,8 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
         return case_detail(group_config, case_id, actor)
     if projection_enabled:
         try:
-            synced = update_sheet_case(group_config, case, {'resolution_comments': resolution_comments_text(case)})
+            synced = update_sheet_case(group_config, case, {'resolution_comments': resolution_comments_text(case),
+                'jbl_verification_comments': verification_comments_text(case), 'resolution_history': resolution_history_text(case)})
         except Exception:
             logger.exception('Complaint comment publication failed: update=%s', update.pk)
             synced = False
@@ -1409,6 +1440,8 @@ def validate_update_fields(group_config, case: ParsedMessage, actor: ComplaintCa
         raise ComplaintCaseError('Your role cannot reopen this complaint.')
     if case.complaint_status == 'Closed' and status == 'Closed':
         raise ComplaintCaseError('This complaint is already resolved.')
+    if status == 'Reopened' and case.complaint_status != 'Closed':
+        raise ComplaintCaseError('Only a closed complaint can be reopened.')
     if case.complaint_status != 'Closed' and status == 'Open':
         raise ComplaintCaseError('Use Resolve when the complaint has been addressed.')
     note = str(fields.get('resolution_text') or '').strip()
@@ -1620,6 +1653,7 @@ def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_detail
         'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
         'resolution_details': latest_resolution_text(case),
         'resolution_comments': resolution_comments_text(case),
+        'jbl_verification_comments': verification_comments_text(case),
         'resolution_history': resolution_history_text(case),
         'days_open': max(0, int((ended_at - reported_at).total_seconds() // 86400)),
     }
@@ -1679,6 +1713,7 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str, *, re
         ),
         'resolution_details': latest_resolution_text(case),
         'resolution_comments': resolution_comments_text(case),
+        'jbl_verification_comments': verification_comments_text(case),
         'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
         'days_open': max(0, int(((
@@ -1791,21 +1826,21 @@ def append_resolution_note(existing: str, actor_name: str, note: str) -> str:
 
 def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
     entries = []
-    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('created_at', 'pk')
+    updates = case.case_updates.exclude(source='browser_staff_comment').prefetch_related('evidence').order_by('created_at', 'pk')
     for update in updates:
-        action = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
+        action = 'JBL VERIFICATION COMMENT' if update.source == 'mini_app_verification_comment' else 'HB COMMENT' if update.source == 'mini_app_comment' else 'CLOSED' if update.new_status == 'Closed' and update.old_status != 'Closed' else 'REOPENED' if update.new_status == 'Reopened' and update.old_status == 'Closed' else 'UPDATED'
         local_time = timezone.localtime(update.created_at)
         entries.append({
             'timestamp': local_time.strftime('%d-%b-%Y %H:%M'),
             'actor': update.updated_by or 'Unknown staff member',
             'action': action,
-            'reason': update.resolution_text or '',
+            'reason': '\n'.join([update.resolution_text or '', *[f'{e.original_filename}: {e.drive_url or "Publication pending"}' for e in update.evidence.all()]]),
         })
     return entries
 
 
 def latest_resolution_text(case: ParsedMessage) -> str:
-    update = case.case_updates.filter(new_status='Closed').order_by('-created_at', '-pk').first()
+    update = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment']).order_by('-created_at', '-pk').first()
     if not update:
         return case.resolution_details or ''
     local_time = timezone.localtime(update.created_at)
@@ -2115,6 +2150,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
 
 def serialize_update(update: CaseUpdate) -> dict[str, Any]:
     return {
+        'evidence': [serialize_evidence(e) for e in update.evidence.all()],
         'id': str(update.pk),
         'old_status': update.old_status,
         'status': update.new_status,
@@ -2122,7 +2158,7 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
         'updated_by': update.updated_by,
         'created_at': format_datetime(update.created_at),
         'gps_link': update.gps_link,
-        'action': ('commented' if update.source == 'mini_app_comment' else
+        'action': ('verification_commented' if update.source == 'mini_app_verification_comment' else 'commented' if update.source == 'mini_app_comment' else
                    'staff_commented' if update.source == 'browser_staff_comment' else ''),
     }
 
@@ -2130,6 +2166,8 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
 def complaint_actor_affiliation(actor: ComplaintCaseActor, update: CaseUpdate) -> str:
     """Capture the role used for this action, not a later live grant."""
     roles = set(actor.roles or (actor.role,))
+    if update.source == 'mini_app_verification_comment':
+        return 'JBL'
     if update.source == 'browser_staff_comment':
         return 'HB' if 'HB_STAFF' in roles else 'IT' if 'IT' in roles else 'JBL'
     if (update.source == 'mini_app_comment' or update.new_status == 'Closed') and 'HB_STAFF' in roles:
@@ -2173,7 +2211,7 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
     """One read-only history with immutable affiliation and legacy evidence."""
     from core.models import ComplianceAuditEvent
 
-    updates = list(updates if updates is not None else case.case_updates.order_by('-created_at', '-pk'))
+    updates = list(updates if updates is not None else case.case_updates.prefetch_related('evidence').order_by('-created_at', '-pk'))
     events = ComplianceAuditEvent.objects.filter(
         workflow='complaint_cases', source_model='CaseUpdate',
         source_event_id__in=[str(update.pk) for update in updates],
@@ -2209,7 +2247,7 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
             affiliation = ''
         row['actor_affiliation'] = affiliation if affiliation in {'HB', 'JBL'} else ''
         rows.append(row)
-    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'browser_staff_comment') for update in updates):
+    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment') for update in updates):
         # Some imported complaints predate CaseUpdate; do not lose their note.
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',

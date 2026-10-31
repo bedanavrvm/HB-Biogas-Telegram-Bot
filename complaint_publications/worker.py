@@ -14,7 +14,7 @@ from core.services import complaint_cases as cases
 from core.services.external_resilience import execute_operation, external_call_budget, ExternalCircuitOpen, operation_lease_seconds
 from core.services.group_config import GroupConfig
 from .models import UploadFile
-from .services import DRIVE_OPERATION, SHEET_OPERATION
+from .services import DRIVE_OPERATION, SHEET_OPERATION, queue_sheet
 
 
 class PublicationUnavailable(RuntimeError):
@@ -72,6 +72,7 @@ def publish(operation, *, seconds=40):
                     now = timezone.now()
                     UploadFile.objects.filter(evidence_id=file.evidence_id, published_at__isnull=True).update(
                         published_bytes=file.size, published_at=now, purge_after=now + timedelta(hours=24), resumable_uri='')
+                    queue_sheet(group, file.evidence.parsed_message, evidence=file.evidence)
                     return {'id': file.evidence.drive_file_id}
                 if file.content is None:
                     raise ValueError('The retained payload is missing.')
@@ -100,9 +101,12 @@ def publish(operation, *, seconds=40):
                         source_model='ComplaintCaseEvidence', source_event_id=str(file.evidence_id),
                         deduplication_key=f'complaint-publication-complete:{file.evidence_id}',
                         metadata={'operation': str(operation.pk), 'size': file.size})
+                queue_sheet(group, file.evidence.parsed_message, evidence=file.evidence)
                 return {'id': file_id}
             case = ParsedMessage.objects.get(pk=control.parsed_message_id)
-            succeeded = cases.update_sheet_case(group, case, {}) if case.synced_to_sheets else cases.sync_new_case_to_sheet(group, case)
+            succeeded = case.synced_to_sheets or cases.sync_new_case_to_sheet(group, case)
+            if succeeded:
+                succeeded = cases.update_sheet_case(group, case, {})
             if not succeeded:
                 # shortcut: legacy Sheet booleans lose provider headers; use typed failures when that adapter is upgraded.
                 raise PublicationUnavailable('The saved Complaint snapshot is awaiting publication.')

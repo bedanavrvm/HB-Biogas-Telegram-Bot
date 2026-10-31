@@ -12,7 +12,7 @@ export type Complaint = {
   age_label: string; priority?: 'high'|'normal'|'low'; sla?:Sla; days_open?: number; recorded_at?: string; revision: number; sync_status: string; hb_comment_count: number;
 };
 export type HistoryChange = { field: string; label: string; old_value?: string | number | boolean | null; new_value?: string | number | boolean | null; previous_recorded?: boolean; old_display?: string; new_display?: string };
-export type HistoryItem = { id: string; action: string; note: string; updated_by: string; actor_affiliation: string; created_at: string; display_changes?: HistoryChange[] };
+export type HistoryItem = { id: string; action: string; note: string; updated_by: string; actor_affiliation: string; created_at: string; display_changes?: HistoryChange[]; evidence?:Evidence[] };
 export type Evidence = { id: string; name: string; mime_type: string; status: string; size?:number; uploaded_by?:string; created_at_iso?:string; created_at?:string };
 export type Detail = Complaint & { actions: string[]; evidence: Evidence[]; publication?:Publication; location: {latitude: string; longitude: string; url: string}; group_label?: string;
   history: HistoryItem[]; history_truncated: boolean; history_next_cursor: string };

@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_date
 from core.models import CaseUpdate, ComplaintCategory, GroupSheetConfiguration, ParsedMessage
 from core.services.complaint_cases import (
     ComplaintCaseError, format_datetime, resolution_history_entries,
-    latest_resolution_text, resolution_comments_text, resolution_history_text, serialize_update, sla_payload,
+    latest_resolution_text, resolution_comments_text, resolution_history_text, verification_comments_text, serialize_update, sla_payload,
 )
 
 
@@ -25,7 +25,7 @@ EXPORT_FIELDS = (
     'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
     'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
     'Complaint Type', 'Complaint Description', 'GPS Link', 'Resolution Details',
-    'Resolution Comments', 'Date Resolved', 'Days Open', 'Resolution History',
+    'Resolution Comments', 'JBL Verification Comments', 'Date Resolved', 'Days Open', 'Resolution History',
     'Resolution Time (hours)', 'HB Response Time (hours)',
 )
 
@@ -255,6 +255,7 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'attachments': int(getattr(case, 'successful_attachment_count', 0) or 0),
         'resolution_details': case.resolution_details,
         'resolution_comments': resolution_comments_text(case),
+        'jbl_verification_comments': verification_comments_text(case),
         'date_resolved': _report_datetime(case.date_resolved),
         'days_open': _days_open(case),
         'resolution_history_count': len(resolution_history_entries(case)),
@@ -642,7 +643,7 @@ def register_case(case_uuid: str, *, paged_history=False, cursor='') -> dict[str
         payload['history_next_cursor'] = page['next_cursor']
         return payload
     payload['updates'] = complaint_history(case)
-    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'browser_staff_comment')))
+    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')))
     payload['resolution_comments'] = [serialize_update(update) for update in case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
     reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
@@ -682,11 +683,11 @@ def export_register_xlsx(*, actor, request_id: str, filters=None) -> tuple[bytes
             _export_upper(row['village']), _export_upper(row['branch_region']),
             _export_upper(row['reported_by']), _export_upper(row['complaint_category']),
             row['complaint_description'], row['gps_link'], latest_resolution_text(case),
-            resolution_comments_text(case), _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
+            resolution_comments_text(case), verification_comments_text(case), _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
             row['resolution_hours'], row['hb_response_hours'],
         )))
         sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'
-        sheet.cell(row=count + 1, column=19).number_format = 'dd-mmm-yyyy'
+        sheet.cell(row=count + 1, column=20).number_format = 'dd-mmm-yyyy'
         if row['gps_link']:
             gps_cell = sheet.cell(row=count + 1, column=16)
             gps_cell.hyperlink = row['gps_link']

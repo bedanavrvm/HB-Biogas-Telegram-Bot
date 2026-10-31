@@ -358,3 +358,10 @@ queue: cards, status pills, search/sort, paging and bottom navigation. Queue
 actions reuse the existing forms; the small read projection remains governed by
 current Complaint authority. Decisions and visual-only evidence:
 [Main Page review](reviews/2026-10-28-complaints-main-page.md).
+
+## Complaint verification comments
+
+Existing action tabs, file picker, dialog recovery and history galleries support
+the user-approved JBL Comment / Reopen and HB Comment / Resolve policy. Roles
+remain scoped to Complaints; no verification state or approval gate is added.
+[Implementation and evidence](reviews/2026-10-31-complaint-verification-comments.md).

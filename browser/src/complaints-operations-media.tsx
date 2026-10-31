@@ -46,9 +46,9 @@ function EvidenceTile({group,item,open,commentKey}:{group:string;item:Evidence;o
 export function EvidenceGallery({group,items,commentKey}:{group:string;items:Evidence[];commentKey?:string}) {
   const [index,setIndex]=useState(-1),opener=useRef<HTMLElement|null>(null);
   const close=()=>{setIndex(-1);requestAnimationFrame(()=>{if(opener.current?.isConnected)opener.current.focus();});};
-  return <Box as="section" aria-label="Complaint attachments"><Grid xcss={styles.tiles} gap="space.150">{items.map((item,i)=><EvidenceTile key={item.id} group={group} item={item} commentKey={commentKey} open={()=>{opener.current=document.activeElement as HTMLElement;setIndex(i);}}/>)}</Grid>{items[index]&&<EvidenceViewer key={items[index].id} group={group} item={items[index]} index={index} total={items.length} navigate={setIndex} close={close}/>}</Box>;
+  return <Box as="section" aria-label="Complaint attachments"><Grid xcss={styles.tiles} gap="space.150">{items.map((item,i)=><EvidenceTile key={item.id} group={group} item={item} commentKey={commentKey} open={()=>{opener.current=document.activeElement as HTMLElement;setIndex(i);}}/>)}</Grid>{items[index]&&<EvidenceViewer key={items[index].id} commentKey={commentKey} group={group} item={items[index]} index={index} total={items.length} navigate={setIndex} close={close}/>}</Box>;
 }
-function EvidenceViewer({group,item,index,total,navigate,close}:{group:string;item:Evidence;index:number;total:number;navigate:(index:number)=>void;close:()=>void}) {
+function EvidenceViewer({group,item,index,total,navigate,close,commentKey}:{group:string;item:Evidence;index:number;total:number;navigate:(index:number)=>void;close:()=>void;commentKey?:string}) {
   const {id,name}=item;
   const [url, setURL] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(1), [zoom, setZoom] = useState(100), [fitPage,setFitPage]=useState(true);
   const controller = useRef<AbortController | null>(null);

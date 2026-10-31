@@ -714,3 +714,13 @@ progress, retained originals and scoped IT recovery. Telegram publication remain
 unchanged. [Evidence and limits](../docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md)
 and the [worker runbook](../docs/runbooks/complaints-browser-publications.md)
 describe deployment requirements; no worker or production release is activated.
+
+## JBL verification comments, 31 October 2026
+
+The existing operations action dialog now provides JBL Comment / Reopen and HB
+Comment / Resolve, with attachments on both comment forms. JBL notes are allowed
+on closed cases without changing the closure or its elapsed-time anchor. History
+retains the corresponding files. This is a comments-only policy, without a new
+verification status or gate. The native Telegram comment action now also uses
+the existing durable publisher. See the [operator guide](../docs/runbooks/complaints-verification-comments.md)
+and [source-bound browser review](../docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md).

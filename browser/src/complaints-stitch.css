@@ -262,3 +262,8 @@ html[data-color-mode="dark"] .stitch-file-progress[data-stage="published"] { col
 
 .stitch-notice-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 4px; text-align: start; overflow-wrap: anywhere; }
 .stitch-notice-copy > button { align-self: flex-start; }
+
+.complaint-action-tabs { display:flex; gap:4px; border-bottom:1px solid var(--ds-border,#dfe1e6); }
+.complaint-action-tabs button { flex:1; padding:8px; border:0; border-bottom:2px solid transparent; background:transparent; color:inherit; font:inherit; }
+.complaint-action-tabs button[aria-selected=true] { border-color:#1685ca; color:#126ead; font-weight:600; }
+.complaint-action-tabs button:disabled { opacity:.5; }

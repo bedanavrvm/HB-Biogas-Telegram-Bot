@@ -27,7 +27,7 @@ COMPLAINT_REGISTER_FIELD_HEADERS = {
     'complaint_description': 'Complaint Description',
     'gps_link': 'GPS Link',
     'resolution_details': 'Resolution Details',
-    'resolution_comments': 'Resolution Comments',
+    'resolution_comments': 'Resolution Comments', 'jbl_verification_comments': 'JBL Verification Comments',
     'date_resolved': 'Date Resolved',
     'days_open': 'Days Open',
     'resolution_history': 'Resolution History',
@@ -37,7 +37,7 @@ COMPLAINT_REGISTER_FIELD_ORDER = list(COMPLAINT_REGISTER_FIELD_HEADERS.keys())
 COMPLAINT_REGISTER_FORMULA_FIELDS = set()
 COMPLAINT_REGISTER_DATE_FIELDS = {'date_reported', 'date_resolved'}
 COMPLAINT_REGISTER_BOT_WRITABLE_FIELDS = {
-    'resolution_comments',
+    'resolution_comments', 'jbl_verification_comments',
     'row_number',
     'complaint_id',
     'date_reported',
@@ -59,7 +59,7 @@ COMPLAINT_REGISTER_BOT_WRITABLE_FIELDS = {
 COMPLAINT_REGISTER_CASE_UPDATE_FIELDS = {
     'status',
     'resolution_details',
-    'resolution_comments',
+    'resolution_comments', 'jbl_verification_comments',
     'date_resolved',
     'gps_link',
     'resolution_history',
@@ -225,26 +225,6 @@ class SheetSchema:
             complaint_id = parsed_message.complaint_control.reference_number or ''
         except Exception:
             complaint_id = ''
-        updates = parsed_message.case_updates.filter(
-            new_status__in=['Closed', 'Reopened'],
-        ).exclude(source__in=('mini_app_comment', 'browser_staff_comment')).order_by('created_at', 'pk')
-        history = []
-        latest_resolution = ''
-        for update in updates:
-            stamp = update.created_at
-            if stamp and getattr(stamp, 'tzinfo', None):
-                stamp = timezone.localtime(stamp)
-            label = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
-            actor = update.updated_by or 'Unknown staff member'
-            history.append('\n'.join(filter(None, (
-                update.resolution_text or '',
-                f'{label} · {stamp:%d-%b-%Y %H:%M} · {actor}',
-            ))))
-            if update.new_status == 'Closed':
-                latest_resolution = '\n'.join(filter(None, (
-                    update.resolution_text or '',
-                    f'{stamp:%d-%b-%Y %H:%M} · {actor}',
-                )))
         public_status = (
             'CLOSED' if parsed_message.complaint_status == 'Closed'
             else ('REOPENED' if parsed_message.complaint_status == 'Reopened' else 'OPEN')
@@ -264,7 +244,7 @@ class SheetSchema:
                 parsed_message.days_open
                 if parsed_message.days_open is not None else ''
             )
-        from core.services.complaint_cases import resolution_comments_text
+        from core.services.complaint_cases import latest_resolution_text, resolution_comments_text, verification_comments_text, resolution_history_text
         field_values = {
             'row_number': '',
             'complaint_id': complaint_id,
@@ -295,11 +275,12 @@ class SheetSchema:
             'loan_status': parsed_message.loan_status,
             'loan_at_risk': parsed_message.loan_at_risk,
             'risk_level': parsed_message.risk_level,
-            'resolution_details': latest_resolution or parsed_message.resolution_details,
+            'resolution_details': latest_resolution_text(parsed_message),
             'resolution_comments': resolution_comments_text(parsed_message),
+            'jbl_verification_comments': verification_comments_text(parsed_message),
             'date_resolved': display_date(parsed_message.date_resolved),
             'days_open': projected_days_open,
-            'resolution_history': '\n\n'.join(history),
+            'resolution_history': resolution_history_text(parsed_message),
         }
         return {
             self.normalize(self.header(field)): value

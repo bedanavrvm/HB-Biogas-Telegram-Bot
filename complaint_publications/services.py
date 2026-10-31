@@ -28,7 +28,7 @@ _write = ContextVar('complaint_browser_write', default=None)
 def command_capability(path):
     if path == 'cases/create/':
         return 'complaint.case.create', None
-    match = re.fullmatch(r'cases/([a-f0-9-]{36})/(conversation/post|resolve|comment|reopen|complete-details|finish-created|retry-publication)/', path)
+    match = re.fullmatch(r'cases/([a-f0-9-]{36})/(conversation/post|resolve|verification-comment|comment|reopen|complete-details|finish-created|retry-publication)/', path)
     if not match:
         raise cases.ComplaintCaseError('This upload command is unavailable.')
     key, action = match.groups()
@@ -37,7 +37,7 @@ def command_capability(path):
     except ValueError:
         raise cases.ComplaintCaseError('Select a valid complaint.') from None
     capability = {'conversation/post': 'complaint.conversation.participate', 'resolve': 'complaint.case.close',
-        'comment': 'complaint.case.comment', 'reopen': 'complaint.case.reopen',
+        'comment': 'complaint.case.comment', 'verification-comment': 'complaint.case.verification.comment', 'reopen': 'complaint.case.reopen',
         'complete-details': 'complaint.case.details.complete', 'finish-created': 'complaint.case.create',
         'retry-publication': 'complaint.case.sync.retry'}[action]
     return capability, key
@@ -77,7 +77,7 @@ def reserve(group, actor, path, fields, files):
     case = authorize(group, actor, path)
     if not cases.actor_can(group, actor, 'complaint.case.evidence.manage', case):
         raise PermissionDenied
-    if path != 'cases/create/' and not path.endswith(('/resolve/', '/conversation/post/', '/finish-created/')):
+    if path != 'cases/create/' and not path.endswith(('/resolve/', '/comment/', '/verification-comment/', '/conversation/post/', '/finish-created/')):
         raise cases.ComplaintCaseError('This action does not accept attachments.')
     if not isinstance(fields, dict) or len(json.dumps(fields)) > 100000:
         raise cases.ComplaintCaseError('Review the submitted fields.')
@@ -223,12 +223,12 @@ def defer_sheet(group, case):
     return True
 
 
-def queue_sheet(group, case):
+def queue_sheet(group, case, *, evidence=None):
     if not cases.complaint_sheet_projection_enabled(group):
         return None
     control = cases.ensure_case_control(case, group)
     job, _ = reserve_operation(integration='google_sheets', operation_type=SHEET_OPERATION,
-        deduplication_key=f'complaint-browser-sheet:{control.pk}:{control.revision}',
+        deduplication_key=f'complaint-browser-sheet:{control.pk}:{control.revision}' + (f':evidence:{evidence.pk}' if evidence else ''),
         source_model='ComplaintCaseControl', source_id=str(control.pk), max_attempts=8,
         metadata={'group_id': group.group_id, 'revision': control.revision})
     if job.status not in {'succeeded', 'dead_letter'}:
