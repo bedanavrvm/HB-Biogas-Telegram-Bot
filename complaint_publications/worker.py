@@ -104,12 +104,18 @@ def publish(operation, *, seconds=40):
                 queue_sheet(group, file.evidence.parsed_message, evidence=file.evidence)
                 return {'id': file_id}
             case = ParsedMessage.objects.get(pk=control.parsed_message_id)
+            from core.services.complaint_publication import validate_publication_target
+            service = cases.get_sheets_service(sheet_id=group.sheet_id, sheet_name=group.sheet_name,
+                                               sheet_schema=group.sheet_schema_config)
+            validate_publication_target(service)
             succeeded = case.synced_to_sheets or cases.sync_new_case_to_sheet(group, case)
             if succeeded:
                 succeeded = cases.update_sheet_case(group, case, {})
             if not succeeded:
                 # shortcut: legacy Sheet booleans lose provider headers; use typed failures when that adapter is upgraded.
                 raise PublicationUnavailable('The saved Complaint snapshot is awaiting publication.')
+            operation.metadata.pop('diagnostic', None)
+            IntegrationOperation.objects.filter(pk=operation.pk).update(metadata=operation.metadata)
             ComplaintCaseControl.objects.filter(pk=control.pk, revision=control.revision).update(
                 sync_status='success', sync_error='', last_sync_at=timezone.now())
             CaseUpdate.objects.filter(parsed_message=case, created_at__lte=operation.created_at, sync_status__in=['pending', 'failed']).update(sync_status='success', sync_error='')
@@ -127,6 +133,10 @@ def publish(operation, *, seconds=40):
                     getattr(failure_source, 'resp', None) or getattr(failure_source, 'status_code', None)):
                 failure_source = failure_source.__cause__
             response = getattr(failure_source, 'resp', None)
+            diagnostic = getattr(failure_source, 'publication_diagnostic', None)
+            if diagnostic:
+                operation.metadata = {**operation.metadata, 'diagnostic': diagnostic}
+                IntegrationOperation.objects.filter(pk=operation.pk).update(metadata=operation.metadata)
             code = getattr(response, 'status', None) or getattr(failure_source, 'status_code', None)
             if isinstance(failure_source, TimeoutError):
                 code = 503

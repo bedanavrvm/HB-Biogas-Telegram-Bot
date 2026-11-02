@@ -43,6 +43,13 @@ def order_number_for_partner(partner: str, number) -> str:
     return f'{prefix}-{int(number)}'
 
 
+def master_order_reference(value) -> str:
+    """Display only; exceptional references retain their complete meaning."""
+    text = str(value or '').strip()
+    match = re.fullmatch(r'(?:(?:ORDER(?:\s*(?:NO\.?|NUMBER))?\s*[-:#]?\s*)|(?:(?:HB|ECO)\s*-\s*))?(\d+)', text, re.I)
+    return match[1] if match else text
+
+
 def require_single_fulfillment_partner(farmers) -> str:
     partners = {fulfillment_partner_for_farmer(farmer) for farmer in farmers}
     if not partners:

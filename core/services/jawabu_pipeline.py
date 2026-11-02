@@ -2344,6 +2344,7 @@ def sync_farmer_to_master_sheet(
 
     Also records a LiveSheetRecordChange audit entry for traceability.
     """
+    from core.services.requisition_partners import master_order_reference
     from portal_legacy.models import LegacyRow
     if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():
         return False
@@ -2682,7 +2683,7 @@ def sync_farmer_to_master_sheet(
             'final_decided_by': (candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by)),
             'final_decided_at': (candidates('final_decided_at'), _datetime_text(farmer.final_decided_at)),
             'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
-            'order_number': (candidates('order_number'), farmer.order_number),
+            'order_number': (candidates('order_number'), master_order_reference(farmer.order_number)),
             'payment_number': (candidates('payment_number'), completed_payment_number_for_farmer(farmer)),
             'payment_mode': (candidates('payment_mode'), completed_payment_mode_for_farmer(farmer)),
             'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
@@ -2718,6 +2719,17 @@ def sync_farmer_to_master_sheet(
                 'pending_commissioning_comment': (candidates('pending_commissioning_comment'), hb_action.pending_commissioning_comment),
                 'cs_remarks': (candidates('cs_remarks'), hb_action.cs_remarks),
             })
+
+        from portal_legacy.services import legacy_jbl_receipt, legacy_order_reference
+        if not farmer.order_number:
+            reference = legacy_order_reference(farmer)
+            if reference['issue']:
+                pipeline_fields.pop('order_number', None)
+            elif reference['value']:
+                pipeline_fields['order_number'] = (candidates('order_number'), master_order_reference(reference['value']))
+        receipt = legacy_jbl_receipt(farmer)
+        if receipt['amount'] is not None:
+            pipeline_fields['legacy_deposit_paid_jbl'] = (['Deposit Paid to JBL', 'Deposit / JBL'], receipt['amount'])
 
         date_indexes = master_date_column_indexes(headers)
         datetime_indexes = master_datetime_column_indexes(headers)

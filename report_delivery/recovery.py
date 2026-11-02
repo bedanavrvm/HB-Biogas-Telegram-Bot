@@ -11,7 +11,7 @@ def recovery_rows(actor, workflow, *, group=None):
         return []
     schedules = allowed_configurations(actor, ReportSchedule, workflow=workflow)
     if group is not None:
-        schedules = schedules.filter(group_configuration_id=group.pk)
+        schedules = schedules.filter(group_configuration__group_id=group.group_id)
     rows = []
     if not (settings.REPORT_EMAIL_DELIVERY_ENABLED and settings.RESEND_API_KEY and settings.REPORT_EMAIL_FROM):
         rows.append(issue('report-configuration', 'Email delivery', status='Configuration required',

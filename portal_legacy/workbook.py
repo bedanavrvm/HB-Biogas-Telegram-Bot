@@ -26,7 +26,8 @@ META = {'sourcerow': 'source_row', 'legacyoutcomestagenotinferred': 'legacy_outc
         'decisionstage': 'decision_stage', 'reviewernotes': 'reviewer_notes', 'caseid': 'case_id', 'legacyprogressnotes': 'legacy_progress_notes'}
 ALIASES = {token(alias): f.name for f in OPERATIONAL_FIELDS['jawabu_master'] for alias in f.aliases}
 DATES = {'hbg_visit_date', 'jbl_visit_date', 'requisition_date', 'hb_deposit_date', 'invoice_date', 'installation_date', 'commissioning_date'}
-MONEY = {'invoice_amount', 'discount', 'deposit_paid_hbg'}
+MONEY = {'invoice_amount', 'discount', 'deposit_paid_hbg', 'legacy_deposit_paid_jbl'}
+JBL_RECEIPT_HEADERS = {'depositpaidtojbl', 'depositjbl', 'legacydepositpaidjbl'}
 
 
 def read_workbook(content):
@@ -59,7 +60,7 @@ def read_workbook(content):
                 # The review deliberately preserves opaque legacy columns (including HB customer IDs).
                 # They must not acquire a different app meaning just because a label resembles an alias.
                 legacy_only = bool('|' in str(header) and str(header).split('|')[0].strip() in {'A','C','E','F','N','R','S','T','AA','AI','AR','AS','AT','AU','AV'})
-                field = 'legacy_sign_date' if token(label) == 'signdate' else (
+                field = 'legacy_deposit_paid_jbl' if token(label) in JBL_RECEIPT_HEADERS else 'legacy_sign_date' if token(label) == 'signdate' else (
                     'legacy:'+label if legacy_only else META.get(token(label)) or ALIASES.get(token(label)))
                 if not field and label: field = 'legacy:'+label
                 if field:
@@ -105,6 +106,8 @@ def read_workbook(content):
 def propose(values):
     fields = {}; issues = []; evidence = []
     for key, raw in values.items():
+        if token(key.removeprefix('legacy:')) in JBL_RECEIPT_HEADERS:
+            key = 'legacy_deposit_paid_jbl'
         if raw in ('', '-', None): continue
         value = raw
         if key in DATES:
@@ -123,13 +126,19 @@ def propose(values):
         elif key == 'national_id':
             value = validate_kenyan_national_id(raw)
             if not value: issues.append('national_id: identity needs confirmation'); continue
+        if key == 'legacy_deposit_paid_jbl' and key in fields and Decimal(fields[key]) != Decimal(value):
+            issues.append('legacy_deposit_paid_jbl: invalid amount (conflicting source columns)')
         fields[key] = value
     if not fields.get('hbg_visit_date') and values.get('legacy_sign_date'):
         parsed = parse_business_date(values['legacy_sign_date'])
         if parsed:
             fields['hbg_visit_date'] = parsed.isoformat(); evidence.append('Explicit complete Sign Date alias used because HBG Visit Date was absent')
     for ref in ('order_number', 'payment_number'):
-        if fields.get(ref) and not re.fullmatch(r'(?:(?:HB|ECO)-|#)?[1-9][0-9]*', fields[ref], re.I):
+        checked_reference = fields.get(ref, '')
+        if ref == 'order_number':
+            from core.services.requisition_partners import master_order_reference
+            checked_reference = master_order_reference(checked_reference)
+        if fields.get(ref) and not re.fullmatch(r'(?:(?:HB|ECO)-|#)?[1-9][0-9]*', checked_reference.lstrip('0'), re.I):
             issues.append(f'{ref}: reference meaning/allocator needs review; original retained')
             fields.pop(ref)
     outcome = str(values.get('legacy_outcome', '')).upper()

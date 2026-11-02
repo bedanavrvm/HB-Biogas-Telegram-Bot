@@ -728,3 +728,8 @@ and [source-bound browser review](../docs/ui-standard/reviews/2026-10-31-complai
 On 2 November, the same picker was added to reopening, and Reopen was hidden
 on open cases. [Follow-up evidence](../docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md)
 records native/browser saves, retained invalid files and request replay.
+
+Settings now exposes safe publication diagnostics and queued repair using the
+existing status patterns. [Evidence and limits](../docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md)
+cover missing headers, unavailable publishers, retained backoff and independent
+legacy JBL receipt presentation.

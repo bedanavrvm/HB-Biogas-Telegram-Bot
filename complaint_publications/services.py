@@ -1,7 +1,7 @@
 """Browser-only durable publication; canonical writes never wait for Google."""
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import json
 import re
@@ -293,7 +293,7 @@ def is_it(actor):
 
 
 def retry_case(group, actor, case):
-    if case.group_id != group.group_id or not is_it(actor) or not cases.actor_can(group, actor, 'complaint.case.sync.retry', case):
+    if case.group_id != group.group_id or not actor.user.is_active or not cases.actor_can(group, actor, 'complaint.case.sync.retry', case):
         raise PermissionDenied
     control = cases.ensure_case_control(case, group)
     jobs = IntegrationOperation.objects.filter(status='dead_letter').filter(
@@ -349,7 +349,77 @@ def case_state(group, actor, case):
         'status': 'paused' if sheet and not cases.complaint_sheet_projection_enabled(group) else sheet.status if sheet else 'not_required',
         'attempts': sheet.attempts if sheet else 0,
         'next_retry_at': sheet.next_retry_at.isoformat() if sheet and sheet.next_retry_at else None,
-    }, 'runner_healthy': fresh, 'can_retry': is_it(actor) and cases.actor_can(group, actor, 'complaint.case.sync.retry', case)}
+        'last_attempt_at': sheet.last_attempt_at.isoformat() if sheet and sheet.last_attempt_at else None,
+        'error_code': sheet.last_error_code if sheet else '',
+        'diagnostic': sheet.metadata.get('diagnostic', {}) if sheet else {},
+        'can_retry': bool(cases.actor_can(group, actor, 'complaint.case.sync.retry', case)
+                          and cases.complaint_sheet_projection_enabled(group) and (not sheet or sheet.status == 'dead_letter' or needs_attention)),
+    }, 'runner_healthy': fresh, 'runner_last_seen': heartbeat.heartbeat_at.isoformat() if heartbeat and heartbeat.heartbeat_at else None,
+        'can_retry': cases.actor_can(group, actor, 'complaint.case.sync.retry', case)}
+
+
+def recovery_cases(group, actor):
+    from core.services.workflow_access import scope_workflow_queryset
+    rows = ParsedMessage.objects.filter(group_id=group.group_id).filter(
+        Q(complaint_control__sync_status__in=['failed', 'pending', 'suspended']) |
+        Q(complaint_evidence__browser_publications__operation__status__in=[
+            'pending', IntegrationOperation.STATUS_RETRYABLE, 'running', 'dead_letter'])).distinct()
+    return scope_workflow_queryset(rows, actor.user, 'complaint_cases', 'complaint.queue.view',
+        access=actor.access, branch_field='branch_region', group_field='group_id')
+
+
+@transaction.atomic
+def request_retry(group, actor, case):
+    if not cases.actor_can_access_case(group, actor, 'complaint.case.sync.retry', case.message_id):
+        raise PermissionDenied
+    if not cases.complaint_sheet_projection_enabled(group):
+        raise cases.ComplaintCaseError('Enable this group’s Sheet projection before retrying.')
+    control = cases.ensure_case_control(case, group)
+    ComplaintCaseControl.objects.select_for_update().get(pk=control.pk)
+    retry_case(group, actor, case)
+    sheet = IntegrationOperation.objects.filter(operation_type=SHEET_OPERATION, source_id=str(control.pk)).order_by('-created_at', '-pk').first()
+    if sheet is None:
+        queue_sheet(group, case)
+    elif sheet.status in {'pending', IntegrationOperation.STATUS_RETRYABLE, 'running'}:
+        ComplaintCaseControl.objects.filter(pk=control.pk).update(sync_status='pending', sync_error='')
+    # Existing jobs retain their leases and backoff; this action never contacts Google.
+    return case_state(group, actor, case)
+
+
+def recovery_detail(state):
+    sheet = state['sheet']
+    diagnostic = sheet.get('diagnostic', {})
+    code = diagnostic.get('code') or sheet.get('error_code', '')
+    causes = {'sheet_columns_missing': 'Required Sheet columns are missing.',
+              'sheet_columns_duplicate': 'Sheet column names are duplicated.',
+              'sheet_header_empty': 'The configured Sheet header row is empty.',
+              'sheet_unavailable': 'The Sheet connection is unavailable. Check its configuration and access.',
+              'http_401': 'Google credentials need attention.', 'http_403': 'Google access was denied.',
+              'http_404': 'The configured Sheet or file could not be found. Check its destination and access.',
+              'http_429': 'Google rate limit reached. The scheduled retry will wait.',
+              'http_500': 'Google is temporarily unavailable. The saved publication will retry.',
+              'http_503': 'Google is temporarily unavailable. The saved publication will retry.',
+              'timeout': 'The provider request timed out. The saved publication will retry.',
+              'network': 'The provider connection failed. The saved publication will retry.',
+              'external_error': 'Publication did not complete; the provider cause is not available.'}
+    parts = ['Last reported issue: ' + causes[code] if code in causes else 'Changes are saved in Complaints; publication runs separately.']
+    if sheet['status'] == 'paused':
+        parts.insert(0, 'Sheet projection is disabled for this group. Enable it before retrying publication.')
+    if diagnostic.get('missing_headers'):
+        parts.append('Missing: ' + ', '.join(diagnostic['missing_headers']))
+    if not state['runner_healthy']:
+        parts.append('Publisher heartbeat is missing or older than 15 minutes. Check the scheduled worker.')
+    display_time = lambda value: timezone.localtime(datetime.fromisoformat(value)).strftime('%d-%b-%Y %H:%M EAT')
+    parts.append('Publisher last seen: ' + (display_time(state['runner_last_seen']) if state.get('runner_last_seen') else 'Never'))
+    if sheet.get('last_attempt_at'):
+        parts.append('Last attempt: ' + display_time(sheet['last_attempt_at']))
+    if sheet.get('next_retry_at'):
+        parts.append('Next retry: ' + display_time(sheet['next_retry_at']))
+    parts.append('Job: ' + (sheet['key'] or 'No publication job recorded'))
+    for file in state['files']:
+        if file['stage'] != 'published':
+            parts.append('File: ' + file['name'] + ' — ' + file['stage'])
+    return ' '.join(parts)
 
 
 def attention(group, actor):

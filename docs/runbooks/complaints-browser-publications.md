@@ -17,7 +17,8 @@ python manage.py drain_complaint_publications --apply --limit 10 --max-seconds 5
 Without `--apply`, the command only counts due work: it makes no provider calls
 and deletes no staged bytes. The worker uses the deployment's existing database,
 Google credentials, Drive folder rules and Sheet projection configuration. No
-new browser credential or storage service is needed. Concurrent workers claim
+new browser credential or storage service is needed. Native comment and reopen
+actions also enqueue through this publisher. Concurrent workers claim
 and fence jobs through PostgreSQL; a live transfer renews its lease. Restarted
 transfers query their retained resumable session and reconcile remote acceptance
 with a stable operation marker before creating a new object.
@@ -74,5 +75,6 @@ Removing that guard or deleting the ledger requires a separate reviewed data
 retention decision. Consider Telegram adoption only in a future authorized task.
 
 Design decisions and local verification:
+[Settings recovery and legacy receipt guide](sheet-recovery-and-legacy-receipts.md),
 [design record](../../browser/STITCH-DESIGN-DECISIONS.md),
 [source-bound review](../ui-standard/reviews/2026-10-28-complaints-stitch-components.md).

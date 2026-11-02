@@ -449,9 +449,9 @@
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "98ff385c9b470fcbb26b588822ff81fe32c52814919610c8ed9d7e7428b57998",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "11cf988280818db5df64a13d3dee11fa5e99d74f70557f6556c8c7ac14e45767",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
+      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "549b23cc7a9af851ada733c2b21c9f73661364332f35bd0157266deb3c78b382",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "0a67343cebfb281c3348ad1dcf8e902205a44329ed9b93ad75c9e0d6a6e6bd47",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
+      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -677,9 +677,9 @@
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "6831484d4caa63db971a3e21533a7972dfcdaa73b603ee98c9c5ab0e3d414427",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "47424779628af9606799b2095ba9f8e625b928ac0e55fcc79839553b9e4e35fc",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
+      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
@@ -689,9 +689,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "b31a0e352f9310c71d202a83ac8b3b19ec1fbbe0a830b9c3c4c88dd623dd2496",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
-      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
+      "sha256": "0eb1726d316bc42274c411a08f4b5f9e7f117d90de36dbd7f0a936faf1908b1d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
+      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -893,9 +893,9 @@
     },
     {
       "path": "browser/src/complaints-publication.tsx",
-      "sha256": "9b90078e20316cfead5cfb994d70cc3d14b3f8933a2e66251225645127a657a1",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
+      "sha256": "4f1a91e4972686dd55d47f078f53163babb382b77d5bc504bde6953c97537e3a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
+      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
     {
       "path": "complaint_publications/templates/admin/complaint_publications/attention.html",

@@ -1090,8 +1090,15 @@ def complaint_cases_sync_retry(request, case_id: str):
     if capability_error:
         return capability_error
     try:
-        detail = retry_case_sync(group_config, actor, case_id,
-            request_id=str(payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''))
+        from complaint_publications.services import request_retry
+        from core.models import ParsedMessage
+        case = ParsedMessage.objects.filter(group_id=group_config.group_id, message_id=case_id).first()
+        if case is None:
+            raise ComplaintCaseError('Complaint not found in this group.')
+        if not actor_can_access_case(group_config, actor, 'complaint.case.sync.retry', case_id):
+            return JsonResponse({'ok': False, 'error': 'This publication is outside your scope.'}, status=403)
+        request_retry(group_config, actor, case)
+        detail = case_detail(group_config, case_id, actor)
     except ComplaintCaseError as exc:
         return _complaint_error(request, exc)
-    return JsonResponse({'ok': True, 'case': detail, 'message': 'Complaint register publication retried.'})
+    return JsonResponse({'ok': True, 'case': detail, 'message': 'Publication queued. Check status for the result.'})

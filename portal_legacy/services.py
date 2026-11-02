@@ -96,13 +96,40 @@ def row_payload(row):
             'existing_cases': [{'id': str(m['id']), 'reference': f"JBL-{m['case_reference_number']}"} for m in matches]}
 
 
+def legacy_order_reference(farmer):
+    references = {str(values.get('order_number') or '').strip()
+                  for values in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).values_list('values', flat=True)} - {'', '-'}
+    return {'value': next(iter(references)) if len(references) == 1 else None,
+            'issue': 'Conflicting legacy order references; review the original rows.' if len(references) > 1 else ''}
+
+
+def legacy_jbl_receipt(farmer):
+    """Reviewed historical receipts, never a current balance or SysUp LGF."""
+    amounts = set()
+    invalid = False
+    for values in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).values_list('values', flat=True):
+        candidate = propose(values)
+        invalid |= any('legacy_deposit_paid_jbl: invalid amount' in issue for issue in candidate['issues'])
+        amount = candidate['fields'].get('legacy_deposit_paid_jbl')
+        if amount is not None:
+            from decimal import Decimal
+            amounts.add(Decimal(amount))
+    if invalid or len(amounts) > 1:
+        return {'amount': None, 'issue': 'Legacy JBL receipt needs review: invalid or conflicting source amounts.'}
+    return {'amount': format(next(iter(amounts)), '.2f') if amounts else None, 'issue': ''}
+
+
 def case_payload(farmer):
     row = LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).order_by('committed_at', 'pk').first()
     if row is None: return None
-    return {'row_id': str(row.pk), 'source_sheet': row.source_sheet, 'source_row': row.source_row,
+    receipt = legacy_jbl_receipt(farmer)
+    reference = legacy_order_reference(farmer)
+    return {'reported_receipts': {'Legacy deposit received by JBL': receipt['amount']} if receipt['amount'] is not None else {},
+            'receipt_issue': receipt['issue'],
+            'row_id': str(row.pk), 'source_sheet': row.source_sheet, 'source_row': row.source_row,
             'reported_outcome': row.proposal.get('outcome', ''), 'stage': row.proposal.get('stage', ''),
             'reason': row.values.get('legacy_reason', ''), 'comment': row.values.get('case_comment_history', ''),
-            'issues': row.proposal.get('issues', []), 'revision': row.revision,
+            'issues': [*row.proposal.get('issues', []), *([reference['issue']] if reference['issue'] else [])], 'revision': row.revision,
             'source_notes': {key.replace('_', ' '): row.values[key] for key in ('pending_installation_comment', 'pending_commissioning_comment', 'cs_remarks') if row.values.get(key)},
             'reported_references': {key.replace('_', ' '): row.values[key] for key in ('order_number', 'invoice_number', 'payment_number') if row.values.get(key)},
             'missing_fields': [key.replace('_', ' ') for key in ('national_id', 'primary_phone', 'hbg_visit_date', 'invoice_number', 'invoice_date', 'installation_date', 'commissioning_date') if not row.values.get(key) or row.values.get(key) == '-'],
@@ -124,7 +151,7 @@ def _retain_numbers(row, actor, *, allow_occupied=False):
                                                ('payment_number', PaymentSequenceState, PaymentNumberClaim)]:
         raw = str(row.proposal['fields'].get(field, '')).strip()
         if not raw: continue
-        match = re.fullmatch(r'(?:(HB|ECO)-|#)?(\d+)', raw, re.I)
+        match = re.fullmatch(r'(?:(HB|ECO)-|ORDER(?:\s*(?:NO\.?|NUMBER))?\s*[-:#]?\s*|#)?(\d+)', raw, re.I)
         if not match: raise ValueError(f'{field}: confirm the allocator reference format before commit.')
         kwargs = {'group_configuration': row.batch.group}
         if field == 'order_number':

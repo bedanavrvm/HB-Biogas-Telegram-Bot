@@ -368,3 +368,7 @@ remain scoped to Complaints; no verification state or approval gate is added.
 
 The [reopening follow-up](reviews/2026-11-02-complaints-reopen-attachments.md)
 adds the same evidence picker to Reopen and hides that tab on open cases.
+
+Settings recovery reuses the existing status rows and the browser attention
+composition. Portal adds the distinct historical JBL receipt to its existing
+legacy panel. [Review and evidence](reviews/2026-11-02-sheet-recovery-legacy-receipts.md).

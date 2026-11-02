@@ -861,7 +861,7 @@ def write_rows_to_master_sheet(
     if deposit_repairs:
         try:
             write_master_hbg_deposit_cells(
-                sheet, deposit_repairs, master_hbg_deposit_column_indexes(headers),
+                sheet, deposit_repairs, master_hbg_deposit_column_indexes(headers), headers=headers,
             )
         except Exception as exc:  # pragma: no cover - defensive external API handling
             errors.append(f'Master Data deposit format repair failed: {exc}')
@@ -906,7 +906,7 @@ MASTER_HBG_DEPOSIT_HEADERS = {
 }
 
 MASTER_MONEY_HEADERS = MASTER_HBG_DEPOSIT_HEADERS | {
-    'deposit paid to jbl', 'lgf balance', 'invoice amount',
+    'deposit paid to jbl', 'deposit / jbl', 'lgf balance', 'invoice amount',
     'total amount', 'discount', 'payment', 'balance due',
 }
 
@@ -932,8 +932,8 @@ def master_hbg_deposit_column_indexes(headers: list[str]) -> list[int]:
     ]
 
 
-def _numeric_sheet_money(value):
-    """Return a whole-KES numeric projection; canonical Decimal is untouched."""
+def _numeric_sheet_money(value, *, preserve_cents=False):
+    """Project whole KES by default; preserve cents for actual JBL receipts."""
     from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
     if value in (None, ''):
@@ -945,6 +945,8 @@ def _numeric_sheet_money(value):
         raise ValueError('Sheet amount is not a valid monetary amount.') from exc
     if not amount.is_finite():
         raise ValueError('Sheet amount is not a valid monetary amount.')
+    if preserve_cents:
+        return format(amount.quantize(Decimal('.01')), '.2f')
     return int(amount.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
@@ -1006,9 +1008,9 @@ def write_master_date_cells(
 
 
 def write_master_hbg_deposit_cells(
-    sheet, updates: list[tuple[int, list]], deposit_indexes: list[int],
+    sheet, updates: list[tuple[int, list]], deposit_indexes: list[int], *, headers=None,
 ) -> None:
-    """Force all Master/Eco monetary cells to plain whole-KES numbers."""
+    """Type Master/Eco amounts, retaining cents in the JBL receipt column."""
     if not updates or not deposit_indexes:
         return
     payload = []
@@ -1017,7 +1019,7 @@ def write_master_hbg_deposit_cells(
             value = row_values[index] if index < len(row_values) else ''
             payload.append({
                 'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
-                'values': [[_numeric_sheet_money(value)]],
+                'values': [[_numeric_sheet_money(value, preserve_cents=bool(headers) and normalize_header(headers[index]) in {'deposit paid to jbl', 'deposit / jbl'})]],
             })
     try:
         sheet.batch_update(payload, value_input_option='USER_ENTERED')
@@ -1026,7 +1028,7 @@ def write_master_hbg_deposit_cells(
             sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
 
     _format_master_columns(sheet, updates, [
-        (index, 'NUMBER', '0') for index in deposit_indexes
+        (index, 'NUMBER', '0.00' if headers and normalize_header(headers[index]) in {'deposit paid to jbl', 'deposit / jbl'} else '0') for index in deposit_indexes
     ])
 
 
@@ -1101,7 +1103,7 @@ def batch_update_master_sheet_rows(
     assert_columns_unchanged(sheet, columns, header_row=header_row)
     write_master_date_cells(sheet, updates, date_indexes or [], datetime_indexes)
     assert_columns_unchanged(sheet, columns, header_row=header_row)
-    write_master_hbg_deposit_cells(sheet, updates, deposit_indexes or [])
+    write_master_hbg_deposit_cells(sheet, updates, deposit_indexes or [], headers=headers)
 
 
 def compact_master_sheet_updates(updates: list[tuple[int, list]]) -> list[tuple[int, list[list]]]:
@@ -1409,7 +1411,7 @@ def write_master_typed_cells(
             value = row_values[index] if index < len(row_values) else ''
             payload.append({
                 'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
-                'values': [[_numeric_sheet_money(value)]],
+                'values': [[_numeric_sheet_money(value, preserve_cents=bool(headers) and normalize_header(headers[index]) in {'deposit paid to jbl', 'deposit / jbl'})]],
             })
     if not payload:
         return
@@ -1424,7 +1426,7 @@ def write_master_typed_cells(
     _format_master_columns(sheet, updates, [
         *[(index, 'DATE', 'dd-mmm-yyyy') for index in date_indexes],
         *[(index, 'DATE_TIME', 'dd-mmm-yyyy HH:mm') for index in datetime_indexes],
-        *[(index, 'NUMBER', '0') for index in money_indexes],
+        *[(index, 'NUMBER', '0.00' if normalize_header(headers[index]) in {'deposit paid to jbl', 'deposit / jbl'} else '0') for index in money_indexes],
     ])
 
 

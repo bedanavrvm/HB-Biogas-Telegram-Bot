@@ -1,0 +1,11 @@
+Master data - Total col is deposit(HB) + Deposit(JBL)
+
+county and constituency - clean it based on the official county-subcounty list and their proper spelling
+
+Village col has repetitions of the previous columns(county and constituency) -clean this by checking both county and constituency(sub-county) and preserve the unique place/location
+
+There are instances where the phone no(primary or secondary) is less or more - since we are importing legacy data, store the no as it is but add a warning indication ⚠️ to show that the no has a problem
+
+normalize the no to 254... if it was in another format ie 7... or 1...
+
+also for numbers separated by / ie num1/num2 kindly clean and store the numbers appropriately. i dont know if we'll need another field to store the extra number? Advice on the best course of action. Same applies to id's separated with slashes. The reason being is that usually the primary phone no is usually for the primary client/lead and the Secondary Phone is usually for the next of kin/spouse. That's why there are multiple no/id's with slashes

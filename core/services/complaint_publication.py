@@ -14,6 +14,30 @@ from core.services.external_resilience import (
 OPERATION_TYPE = 'complaint_case.publish'
 
 
+class SheetPublicationFailure(RuntimeError):
+    def __init__(self, code, *, headers=(), status=422):
+        super().__init__('Complaint Sheet publication requires attention.')
+        self.status_code = status
+        self.publication_diagnostic = {'code': code, 'missing_headers': list(headers)}
+
+
+def validate_publication_target(service):
+    """Retain only known schema labels, never raw provider errors or cell data."""
+    from core.services.sheet_schema import COMPLAINT_REGISTER_FIELD_HEADERS
+    valid, message = service.validate_sheet_structure()
+    if valid:
+        return
+    if message.startswith('Missing required sheet column(s):'):
+        labels = message.split(';', 1)[0].removeprefix('Missing required sheet column(s): ').split(', ')
+        missing = [name for name in labels if name in COMPLAINT_REGISTER_FIELD_HEADERS.values()]
+        raise SheetPublicationFailure('sheet_columns_missing', headers=missing)
+    if 'duplicate' in message.lower() and any(word in message.lower() for word in ('header', 'column')):
+        raise SheetPublicationFailure('sheet_columns_duplicate')
+    if message.startswith('Sheet header row'):
+        raise SheetPublicationFailure('sheet_header_empty')
+    raise SheetPublicationFailure('sheet_unavailable', status=503)
+
+
 def _claim_current(operation: IntegrationOperation) -> bool:
     control = ComplaintCaseControl.objects.select_for_update().get(pk=operation.source_id)
     if control.revision != operation.metadata['revision']:

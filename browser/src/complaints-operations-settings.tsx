@@ -1,3 +1,4 @@
+import {SheetRecovery} from './complaints-publication';
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@atlaskit/button/default/button';
 import Form, { Label } from '@atlaskit/form';
@@ -38,6 +39,7 @@ export function WorkspaceSettings({ group, branches, reports, slot, markDirty }:
     {error && <Box role="alert"><SectionMessage appearance="error" title="Preferences unavailable" headingLevel="h3"><Text>{error}</Text><Button onClick={() => setRetry(value => value + 1)}>Retry settings</Button></SectionMessage></Box>}
     {notice && <Box role="status"><SectionMessage appearance="success"><Text>{notice}</Text></SectionMessage></Box>}
     {!preferences && !error && <Text>Loading preferences…</Text>}
+    <SheetRecovery group={group}/>
     <TaskRecovery state={state}/>
     {state.error instanceof OperationError&&state.error.status===409&&<Button onClick={()=>{void operation<Preferences>(group,'preferences/',new AbortController().signal).then(value=>{setSaved(value);state.reset();notify('Saved preferences reloaded. Your edits are retained; review them before saving.','information');}).catch(()=>setError('Saved preferences could not be loaded. Try again.'));}}>Reload saved preferences</Button>}
     {preferences && <Form onSubmit={save}>{({formProps}) => <Box as="form" {...formProps}><Stack space="space.250"><Box><Label htmlFor="default-status">Default status</Label><Select inputId="default-status" isDisabled={busy} options={[{value:'pending',label:'Open + Reopened'},{value:'resolved',label:'Closed'},{value:'all',label:'All complaints'}]} value={{value:preferences.default_filters.status||'pending',label:({pending:'Open + Reopened',resolved:'Closed',all:'All complaints'} as Record<string,string>)[preferences.default_filters.status||'pending']}} onChange={option=>{if(option)setPreferences({...preferences,default_filters:{...preferences.default_filters,status:option.value}});}}/></Box>

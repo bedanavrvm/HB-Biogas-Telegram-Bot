@@ -320,10 +320,9 @@ def action(request, group, actor, case_key, action):
     if set(fields) - allowed:
         raise cases.ComplaintCaseError('Review the complaint action fields.')
     if action == 'retry-publication':
-        from complaint_publications.services import retry_case, queue_sheet
+        from complaint_publications.services import request_retry
         source = ParsedMessage.objects.get(message_id=case_id, group_id=group.group_id)
-        retry_case(group, actor, source)
-        queue_sheet(group, source)
+        request_retry(group, actor, source)
         data = cases.case_detail(group, case_id, actor, paged_history=True)
     elif action == 'finish-created':
         data = cases.finish_created_case(group, actor, case_id,
@@ -413,25 +412,25 @@ def preferences(request, group, actor):
 
 @endpoint(['GET'])
 def recovery(request, group, actor):
+    from complaint_publications.services import case_state as publication_state, recovery_detail, recovery_cases
     # Browser-owned repair links only. Never forward Telegram action URLs.
     from django.db.models import Count
-    rows = ParsedMessage.objects.filter(group_id=group.group_id,
-        complaint_control__sync_status__in=['failed', 'pending', 'suspended'])
+    rows = recovery_cases(group, actor)
     totals = {row['complaint_control__sync_status']: row['count'] for row in
-              rows.values('complaint_control__sync_status').annotate(count=Count('pk'))}
+              rows.values('complaint_control__sync_status').annotate(count=Count('pk', distinct=True))}
     counts = {status: totals.get(status, 0) for status in ('pending', 'failed', 'suspended')}
-    counts['total'] = sum(counts.values())
+    counts['total'] = rows.count()
     visible = rows.select_related('complaint_control').order_by(
         'complaint_control__sync_status', 'complaint_control__updated_at', 'pk')[:50]
-    return JsonResponse({'counts': counts, 'issues': [{
-        'key': str(row.pk), 'reference': row.complaint_control.reference_number,
-        'status': row.complaint_control.sync_status,
-        'status_updated_at': row.complaint_control.updated_at.isoformat(),
-        'last_synced_at': row.complaint_control.last_sync_at.isoformat()
-            if row.complaint_control.last_sync_at else '',
-        'can_retry': cases.complaint_sheet_projection_enabled(group)
-            and cases.actor_can(group, actor, 'complaint.case.sync.retry', row),
-    } for row in visible]})
+    issues = []
+    for row in visible:
+        state = publication_state(group, actor, row)
+        issues.append({'key': str(row.pk), 'reference': row.complaint_control.reference_number,
+            'status': row.complaint_control.sync_status,
+            'status_updated_at': row.complaint_control.updated_at.isoformat(),
+            'last_synced_at': row.complaint_control.last_sync_at.isoformat() if row.complaint_control.last_sync_at else '',
+            'publication': state, 'detail': recovery_detail(state), 'can_retry': state['sheet']['can_retry']})
+    return JsonResponse({'counts': counts, 'issues': issues})
 
 
 @endpoint(['POST'])
