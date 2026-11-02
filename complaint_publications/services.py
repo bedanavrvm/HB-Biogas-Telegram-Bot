@@ -77,7 +77,7 @@ def reserve(group, actor, path, fields, files):
     case = authorize(group, actor, path)
     if not cases.actor_can(group, actor, 'complaint.case.evidence.manage', case):
         raise PermissionDenied
-    if path != 'cases/create/' and not path.endswith(('/resolve/', '/comment/', '/verification-comment/', '/conversation/post/', '/finish-created/')):
+    if path != 'cases/create/' and not path.endswith(('/resolve/', '/comment/', '/verification-comment/', '/reopen/', '/conversation/post/', '/finish-created/')):
         raise cases.ComplaintCaseError('This action does not accept attachments.')
     if not isinstance(fields, dict) or len(json.dumps(fields)) > 100000:
         raise cases.ComplaintCaseError('Review the submitted fields.')

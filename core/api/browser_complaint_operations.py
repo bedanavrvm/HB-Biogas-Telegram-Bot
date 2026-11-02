@@ -329,7 +329,7 @@ def action(request, group, actor, case_key, action):
         data = cases.finish_created_case(group, actor, case_id,
             creation_request_id=str(fields.get('creation_request_id') or ''),
             uploaded_files=uploaded_evidence(request))
-    elif action in {'resolve', 'comment', 'verification-comment'}:
+    elif action in {'resolve', 'comment', 'verification-comment', 'reopen'}:
         data = function(group, actor, case_id, fields, uploaded_evidence(request))
     else:
         data = function(group, actor, case_id, fields)

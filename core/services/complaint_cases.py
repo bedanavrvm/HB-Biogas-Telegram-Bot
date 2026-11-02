@@ -792,12 +792,12 @@ def comment_case(group_config, actor: ComplaintCaseActor, case_id: str, fields: 
     return case_detail(group_config, case_id, actor)
 
 
-def reopen_case(group_config, actor, case_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+def reopen_case(group_config, actor, case_id: str, fields: dict[str, Any], uploaded_files=()) -> dict[str, Any]:
     """Return a resolved complaint to the shared queue with an audited reason."""
     reason = fields.get('reason') if fields.get('reason') is not None else fields.get('resolution_text')
     return update_case(
         group_config, actor, case_id,
-        {**fields, 'status': 'Reopened', 'resolution_text': reason}, [],
+        {**fields, 'status': 'Reopened', 'resolution_text': reason}, uploaded_files,
         required_capability='complaint.case.reopen',
     )
 

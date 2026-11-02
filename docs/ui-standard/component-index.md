@@ -365,3 +365,6 @@ Existing action tabs, file picker, dialog recovery and history galleries support
 the user-approved JBL Comment / Reopen and HB Comment / Resolve policy. Roles
 remain scoped to Complaints; no verification state or approval gate is added.
 [Implementation and evidence](reviews/2026-10-31-complaint-verification-comments.md).
+
+The [reopening follow-up](reviews/2026-11-02-complaints-reopen-attachments.md)
+adds the same evidence picker to Reopen and hides that tab on open cases.

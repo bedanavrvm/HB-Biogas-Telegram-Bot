@@ -724,3 +724,7 @@ retains the corresponding files. This is a comments-only policy, without a new
 verification status or gate. The native Telegram comment action now also uses
 the existing durable publisher. See the [operator guide](../docs/runbooks/complaints-verification-comments.md)
 and [source-bound browser review](../docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md).
+
+On 2 November, the same picker was added to reopening, and Reopen was hidden
+on open cases. [Follow-up evidence](../docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md)
+records native/browser saves, retained invalid files and request replay.

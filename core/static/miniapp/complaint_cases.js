@@ -23,7 +23,7 @@
     reportFilterSheetOpen: false, reportFilterSnapshot: null, reportFilterReturnFocus: null,
     reportSummarySequence: 0, reportTableSequence: 0, reportSearchTimer: null,
     reportTableAbortController: null,
-    evidence: { create: [], resolve: [], comment: [] },
+    evidence: { create: [], resolve: [], comment: [], reopen: [] },
     categoryDescriptions: new Map(),
     locationOptions: { branches: [], counties: [], sub_counties: [] },
     locationOptionsLoading: false, locationOptionsSequence: 0,
@@ -765,6 +765,7 @@
 
   function selectHbAction(action) {
     if (voiceRecorder?.state === 'recording') { notify('Finish your recording before switching actions.'); return; }
+    if (action === 'reopen' && $('reopenTab').hidden) action = 'comment';
     state.hbAction = action;
     const unavailable = $('hbActionTabs').hidden;
     $('commentForm').hidden = unavailable || $('commentTab').hidden || action !== 'comment';
@@ -814,10 +815,10 @@
     $('completeDetailsForm').hidden = !item.needs_details || !actions.complete_details;
     const closed = ['Closed', 'CLOSED', 'Resolved'].includes(item.stored_status || item.status);
     const hbComment = actions.comment && !closed;
-    $('hbActionTabs').hidden = !(hbComment || actions.verification_comment || (actions.close && !closed) || actions.reopen);
+    $('hbActionTabs').hidden = !(hbComment || actions.verification_comment || (actions.close && !closed) || (actions.reopen && closed));
     $('commentTab').hidden = !(hbComment || actions.verification_comment);
     $('resolveTab').hidden = !actions.close || closed;
-    $('reopenTab').hidden = !actions.reopen;
+    $('reopenTab').hidden = !actions.reopen || !closed;
     $('reopenTab').disabled = !closed;
     $('reopenTab').title = closed ? 'Reopen this complaint with a reason' : 'Only closed complaints can be reopened';
     if (!preserveDraft) state.hbAction = !$('commentTab').hidden ? 'comment' : !$('resolveTab').hidden ? 'resolve' : 'reopen';
@@ -830,7 +831,7 @@
     $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('commentForm').reset(); $('commentType').value = actions.verification_comment ? 'jbl' : 'hb'; $('reopenForm').reset();
-      clearEvidence('resolve'); clearEvidence('comment'); $('conflictPanel').hidden = true;
+      clearEvidence('resolve'); clearEvidence('comment'); clearEvidence('reopen'); $('conflictPanel').hidden = true;
       const complete = $('completeDetailsForm').elements;
       complete.customer_phone.value = item.customer_phone || '';
       complete.customer_phone.readOnly = !!item.customer_phone;
@@ -1032,15 +1033,15 @@
     data.set('client_request_id', pendingWriteId(writeKey, 'complaint-transition'));
     const voiceField = action === 'comments' ? 'complaint_resolution_comment' : (action === 'resolve' ? 'complaint_resolution_note' : 'complaint_reopen_reason');
     if (acceptedVoiceAttempts[voiceField]?.id) data.set('voice_transcription_id', acceptedVoiceAttempts[voiceField].id);
-    if (action === 'resolve') appendEvidence(data, 'resolve');
-    if (action === 'comments') appendEvidence(data, 'comment');
+    const evidenceTarget = action === 'comments' ? 'comment' : action;
+    appendEvidence(data, evidenceTarget);
     const button = formNode.querySelector('button[type="submit"]');
     state.submitting = true; setActionLoading(button, true, action === 'comments' ? 'Saving' : (action === 'resolve' ? 'Resolving' : 'Reopening')); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data, targetGroup);
       settleWrite(writeKey);
       resetVoiceField(voiceField, false);
-      response.case.group_id = targetGroup; notify(response.message); if (action !== 'comments') clearEvidence('resolve'); else clearEvidence('comment');
+      response.case.group_id = targetGroup; notify(response.message); clearEvidence(evidenceTarget);
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
       if (action === 'comments') {
         response.case.global_read = state.currentCase.global_read;
@@ -1270,7 +1271,7 @@
   function updateEvidenceHints() {
     const limits = state.evidenceLimits;
     const text = `Up to ${limits.max_files} files · ${limits.max_file_size_mb} MB each · ${limits.max_total_upload_mb} MB total`;
-    $('createEvidenceHint').textContent = text; $('resolveEvidenceHint').textContent = text; $('commentEvidenceHint').textContent = text;
+    ['create', 'resolve', 'comment', 'reopen'].forEach(target => { $(`${target}EvidenceHint`).textContent = text; });
   }
   function acceptedEvidence(file) {
     const name = String(file.name || '').toLowerCase();
@@ -2156,7 +2157,7 @@
   $('captureLocationBtn').addEventListener('click', captureLocation);
   document.querySelectorAll('[data-files-target]').forEach(button => button.addEventListener('click', () => $(`${button.dataset.filesTarget}EvidenceInput`).click()));
   document.querySelectorAll('[data-camera-target]').forEach(button => button.addEventListener('click', () => openCamera(button.dataset.cameraTarget)));
-  ['create', 'resolve', 'comment'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { if(addFiles(target, event.target.files))utils.haptic?.('light'); event.target.value = ''; }));
+  ['create', 'resolve', 'comment', 'reopen'].forEach(target => $(`${target}EvidenceInput`).addEventListener('change', event => { if(addFiles(target, event.target.files))utils.haptic?.('light'); event.target.value = ''; }));
   $('cameraCloseBtn').addEventListener('click', () => closeCamera()); $('cameraCancelBtn').addEventListener('click', () => closeCamera()); $('cameraCaptureBtn').addEventListener('click', captureCameraPhoto);
   $('cameraOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeCamera(); });
   $('mediaViewerClose').addEventListener('click', closeMediaViewer);

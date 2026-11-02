@@ -515,15 +515,15 @@
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "14786a949874300138266a9ab79262bcffeb76513cf5b2bfbecd584f4eddef15",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
+      "sha256": "2026cf3615d99383b19c0b8f80a8c76d7cd5dd26324cc50c6b142bf69c43acc9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
+      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "f6a74358e75ca0b24a449df9dfc06699034dbf33f22ddc213929e01fe072a282",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
+      "sha256": "46be71575f16fe6367151873fd7e4afa5b95e1362654c6c260990b280ac50b4f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
+      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",
@@ -689,9 +689,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "8ce400db6002d684ba7a8f6c54123d08797ad15127d44f3b87e94b704c4f7da8",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
+      "sha256": "b31a0e352f9310c71d202a83ac8b3b19ec1fbbe0a830b9c3c4c88dd623dd2496",
+      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
+      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
     },
     {
       "path": "browser/src/complaints-operations.html",

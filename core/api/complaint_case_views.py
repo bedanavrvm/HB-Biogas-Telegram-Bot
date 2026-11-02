@@ -991,7 +991,16 @@ def complaint_cases_reopen(request, case_id: str):
     if capability_error:
         return capability_error
     try:
-        result = reopen_case(group_config, actor, case_id, payload)
+        from complaint_publications.services import browser_write
+        from core.models import ParsedMessage
+        case = ParsedMessage.objects.filter(message_id=case_id, group_id=group_config.group_id).first()
+        if case is None:
+            raise ComplaintCaseError('Complaint not found in this workspace.')
+        with browser_write(group_config, actor, f'cases/{case.pk}/reopen/', payload, request.FILES.getlist('evidence')) as retained:
+            if retained['attempt'] and retained['attempt'].committed_at:
+                result = case_detail(group_config, case_id, actor)
+            else:
+                result = reopen_case(group_config, actor, case_id, payload, retained['files'])
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:

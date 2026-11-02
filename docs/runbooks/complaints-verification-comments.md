@@ -31,9 +31,11 @@ verification completion count.
 
 ## Attachments and history
 
-Both comment forms use the existing photo/PDF picker: JPEG, PNG, WebP or PDF,
+Both comment forms and Reopen use the existing photo/PDF picker: JPEG, PNG, WebP or PDF,
 up to 10 files, 10 MB each and 30 MB total per submission. A nonblank comment
-of at most 5,000 characters is required. Server signature checks validate
+of at most 5,000 characters is required; Reopen requires its reopening reason.
+Reopen is hidden while the case is open, including after reopening.
+Server signature checks validate
 the files. Comment text and retained file receipts commit together in Django;
 Google availability does not block the save. Existing request keys prevent a
 retry from creating another comment. A changed payload needs a new request key.
