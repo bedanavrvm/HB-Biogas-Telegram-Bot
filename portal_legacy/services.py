@@ -124,10 +124,13 @@ def case_payload(farmer):
     if row is None: return None
     receipt = legacy_jbl_receipt(farmer)
     reference = legacy_order_reference(farmer)
+    from core.services.identifiers import normalize_kenyan_phone
     return {'reported_receipts': {'Legacy deposit received by JBL': receipt['amount']} if receipt['amount'] is not None else {},
             'receipt_issue': receipt['issue'],
             'row_id': str(row.pk), 'source_sheet': row.source_sheet, 'source_row': row.source_row,
             'reported_outcome': row.proposal.get('outcome', ''), 'stage': row.proposal.get('stage', ''),
+            'historical_fields': {k.removeprefix('legacy:'): v for k,v in row.values.items() if k.startswith('legacy:') and v not in ('',None,'-')},
+            'historical_contacts': {k: row.values[k] for k in ('primary_phone','secondary_phone') if row.values.get(k) and not normalize_kenyan_phone(row.values[k])},
             'reason': row.values.get('legacy_reason', ''), 'comment': row.values.get('case_comment_history', ''),
             'issues': [*row.proposal.get('issues', []), *([reference['issue']] if reference['issue'] else [])], 'revision': row.revision,
             'source_notes': {key.replace('_', ' '): row.values[key] for key in ('pending_installation_comment', 'pending_commissioning_comment', 'cs_remarks') if row.values.get(key)},

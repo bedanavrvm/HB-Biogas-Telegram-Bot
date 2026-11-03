@@ -443,15 +443,15 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "a81ba51c86f3dfb93bc30776bf2879b1f334c73e2dc98051eb915cb79de8875a",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "130013b80b608910d21dfae7190d284c7d283d8e9480c2c163a4e493f314d180",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "11cf988280818db5df64a13d3dee11fa5e99d74f70557f6556c8c7ac14e45767",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
-      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
+      "sha256": "dc643d379aaa4be8480e9a252cc14f279e81132b02f256135b78c3222fdc8609",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "0a67343cebfb281c3348ad1dcf8e902205a44329ed9b93ad75c9e0d6a6e6bd47",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
-      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
+      "sha256": "d1f5931b66bcf79568ca8e56b285ab44a5b1ed625c97790c29bcf5184fc3f39e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -479,9 +479,9 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "1e69d26da8a14234a68c28c9ffc5f42301f52358f981d46be3aec16938ff932c",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "a6962e2f9ab2590e411152bb4c4811024e30cdc3bf35ea017d25c9a866ab71e6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",
@@ -998,6 +998,24 @@
       "sha256": "ba1024628590657a93324b5d7dd47783ed196883530f0ec99b585ad6f928bb7d",
       "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
       "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy_import.js",
+      "sha256": "aa232c0327498f41a21298f8cb9806606343d76e37fa06be9f7aab29ba0007a1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy_import.css",
+      "sha256": "b181d65903c63be433755fb0226303035e9a726df889028312ad04e8d0fd0798",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+    },
+    {
+      "path": "core/templates/portal/partials/legacy_import.html",
+      "sha256": "a4499d4435b747b7de21002fea6f7fd934bb258e550fb4de45183bfd6382e46e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
+      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
     }
   ],
   "source_roots": [

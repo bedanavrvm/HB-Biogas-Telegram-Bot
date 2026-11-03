@@ -30,6 +30,25 @@ MONEY = {'invoice_amount', 'discount', 'deposit_paid_hbg', 'legacy_deposit_paid_
 JBL_RECEIPT_HEADERS = {'depositpaidtojbl', 'depositjbl', 'legacydepositpaidjbl'}
 
 
+def bind_headers(headers):
+    """v5 contract: historical namespaces win over old operational aliases."""
+    bindings = {}; used = set()
+    for index, header in enumerate(headers):
+        parts = [p.strip() for p in str(header or '').split('|')]
+        if len(parts) > 1 and parts[-1] != 'Cleaned': continue
+        label = parts[-2] if len(parts) > 1 else parts[0]
+        name = token(label)
+        if name in {'reviewstate','redcells','reviewsummary'}: continue
+        historical = len(parts)>1 and parts[0] in {'LEGACY','A','C','E','F','N','R','S','T','AA','AI','AR','AS','AT','AU','AV'}
+        field = 'legacy_deposit_paid_jbl' if name in JBL_RECEIPT_HEADERS else 'legacy_sign_date' if name=='signdate' else (
+            'legacy:'+label if historical else META.get(name) or ALIASES.get(name) or ('legacy:'+label if label else ''))
+        if not field: continue
+        if field in used: raise ValueError(f'Duplicate operational mapping: {label}. Retain only one Cleaned column.')
+        used.add(field); bindings[index] = field
+    if not {'source_row','customer_name'} <= used: raise ValueError('Master Data requires Source Row and Customer Name.')
+    return bindings
+
+
 def read_workbook(content):
     if len(content) > 20 * 1024 * 1024:
         raise ValueError('Workbook exceeds 20 MB.')
@@ -115,6 +134,9 @@ def propose(values):
             if not parsed: issues.append(f'{key}: invalid date'); continue
             value = parsed.isoformat()
         elif key in MONEY:
+            if key == 'deposit_paid_hbg' and re.search(r'\bnot\s+on\s+sf\b', str(raw), re.I):
+                evidence.append('Historical HB deposit Not on SF; amount unknown, Total omitted')
+                continue
             try:
                 value = Decimal(str(raw).replace(',', ''))
                 if not value.is_finite() or value < 0 or value.as_tuple().exponent < -2: raise InvalidOperation()

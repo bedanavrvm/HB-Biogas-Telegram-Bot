@@ -79,6 +79,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('origination.signing.staff', 'loan_origination', 'Complete assigned staff signature slots', 'Origination', _roles('JBL_OFFICER', 'BM', 'MANAGEMENT', 'CA'), ('origination.view',)),
     # SysUp remains an IT-only source-review workflow. FarmUp has a dedicated
     # intake screen and independently governed read/stage/commit actions.
+    CapabilityDefinition('portal.legacy.manage', 'jawabu_portal', 'Import reviewed historical Master Data', 'Imports', _roles('IT'), ('portal.case.read',)),
     CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review SysUp imports', 'Imports', _roles('IT', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.imports.commit', 'jawabu_portal', 'Commit reviewed SysUp borrower data', 'Imports', _roles('IT', OPERATIONS_ADMIN_ROLE), ('portal.imports.view',)),
     CapabilityDefinition('portal.farmup.view', 'jawabu_portal', 'View FarmUp intake batches', 'Data intake', _roles('IT', OPERATIONS_ADMIN_ROLE)),

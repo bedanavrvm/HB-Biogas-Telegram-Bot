@@ -259,8 +259,12 @@ from .complaint_case_views import (
 )
 
 from portal_legacy.views import workspace as portal_legacy_workspace
+from portal_legacy.import_views import legacy_upload
 
 urlpatterns = [
+    path('portal/legacy/uploads/', legacy_upload, name='portal_legacy_uploads'),
+    path('portal/legacy/uploads/<uuid:upload_id>/', legacy_upload, name='portal_legacy_upload'),
+    path('portal/legacy/uploads/<uuid:upload_id>/<str:action>/', legacy_upload, name='portal_legacy_upload_action'),
     path('portal/legacy/', portal_legacy_workspace, name='portal_legacy_workspace'),
     path('portal/legacy/stage/', portal_legacy_workspace, name='portal_legacy_stage'),
     path('portal/legacy/batches/<uuid:batch_id>/', portal_legacy_workspace, name='portal_legacy_batch'),

@@ -39,7 +39,7 @@ def _decorator_name(node: ast.expr) -> str:
 
 def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
     contracts: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
-    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'hb_operations/deposit_views.py', ROOT / 'origination' / 'views.py', ROOT / 'ui_review/views.py']):
+    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'hb_operations/deposit_views.py', ROOT / 'origination' / 'views.py', ROOT / 'ui_review/views.py', ROOT / 'portal_legacy/views.py', ROOT / 'portal_legacy/import_views.py']):
         tree = ast.parse(source_path.read_text(encoding='utf-8'), filename=str(source_path))
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -56,6 +56,13 @@ def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
                     except (IndexError, TypeError, ValueError):
                         pass
             contracts[node.name] = (frozenset(methods), frozenset(decorators))
+            module=source_path.relative_to(ROOT).with_suffix('').as_posix().replace('/','.')
+            contracts[module+'.'+node.name]=contracts[node.name]
+    for node in ast.parse(URLS_FILE.read_text(encoding='utf-8')).body:
+        if isinstance(node,ast.ImportFrom):
+            for alias in node.names:
+                key=(node.module or '')+'.'+alias.name
+                if key in contracts:contracts[alias.asname or alias.name]=contracts[key]
     return contracts
 
 

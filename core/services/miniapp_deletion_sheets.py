@@ -45,6 +45,12 @@ def guarded_publication(function):
 
         def publish():
             for record in records:
+                from portal_legacy.fence import active
+                if active(getattr(record, 'group_configuration_id', None)):
+                    if any(isinstance(value, (list, tuple)) for value in (*args, *kwargs.values())):
+                        return {'success': False, 'synced': 0, 'failed': [], 'row_numbers': [],
+                                'error': 'The selected Portal owner is held for legacy cutover.'}
+                    return False
                 if IntegrationOperation.objects.filter(operation_type='miniapp_record_deleted',
                         source_model=record._meta.label, source_id=str(record.pk)).exists():
                     if any(isinstance(value, (list, tuple)) for value in (*args, *kwargs.values())):
@@ -154,6 +160,17 @@ def _ids_for_row(row, columns):
 
 
 def remove_rows(target):
+    # Cutover intentionally keeps Eco-conserve unchanged, including older queued test cleanup.
+    if target.get('model') == 'core.JawabuFarmerMaster':
+        from portal_legacy.models import LegacyUpload
+        for upload in LegacyUpload.objects.filter(batch__group__group_id=target.get('group_id', ''),
+                state__cleanup_started=True).only('pk', 'state'):
+            identities = set(target.get('identities', []))
+            selected = set(upload.state.get('cleanup_ids', []))
+            if identities & selected:
+                if identities - selected:
+                    raise ValueError('Mixed cutover and unrelated cleanup identities require review; no Sheet rows removed.')
+                return {'rows_removed': 0, 'superseded_by_legacy_cutover': str(upload.pk)}
     from core.services.sheets import get_sheets_service
     if not target['spreadsheet'] or not target['tab']:
         raise ValueError('The original Sheet destination needs review. Database deletion is already complete.')

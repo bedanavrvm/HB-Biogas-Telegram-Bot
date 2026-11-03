@@ -9,3 +9,11 @@ There are instances where the phone no(primary or secondary) is less or more - s
 normalize the no to 254... if it was in another format ie 7... or 1...
 
 also for numbers separated by / ie num1/num2 kindly clean and store the numbers appropriately. i dont know if we'll need another field to store the extra number? Advice on the best course of action. Same applies to id's separated with slashes. The reason being is that usually the primary phone no is usually for the primary client/lead and the Secondary Phone is usually for the next of kin/spouse. That's why there are multiple no/id's with slashes
+
+
+*************************************************************
+
+in columns holding monetary values, blanks and 0 are just 0
+if in deposit to HBG, a field contains Not on SF then you dont have to do the total
+
+lOCATION columns should always be capitalized

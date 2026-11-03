@@ -26,6 +26,9 @@ def evidence(owner):
 
 
 REGISTRY = {
+    'portal_legacy.LegacyRow': evidence('farmer'),
+    'portal_legacy.LegacyEvent': evidence('row'),
+    'portal_legacy.LegacyDraft': evidence('legacy'),
     'core.Product': config(active=False),
     'core.ProductVersion': config(status='retired'),
     'core.ProductAlias': evidence('product'),

@@ -255,6 +255,7 @@
     payment_approvals: 'portal.payment.review',
     history: 'portal.documents.view',
     imports: 'portal.imports.view',
+    legacy: 'portal.legacy.manage',
     farmup: 'portal.farmup.view',
     reports: 'portal.reports.view',
     settings: null,
@@ -1960,6 +1961,7 @@
 
   // Page router
   function loadPage(page) {
+    if (page === 'legacy') return window.PortalLegacyImporter.init();
     if (page === 'dashboard') return loadDashboard();
     if (page === 'performance') return loadPortalPerformance();
     if (page === 'hb_actions' && portalHbActions.load) return portalHbActions.load();

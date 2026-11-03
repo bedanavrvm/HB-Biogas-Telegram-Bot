@@ -18,6 +18,56 @@ class LegacyBatch(models.Model):
         constraints = [models.UniqueConstraint(fields=['group', 'namespace'], name='portal_legacy_namespace_unique')]
 
 
+class LegacyUpload(models.Model):
+    """Private, resumable cutover version. Retain committed provenance; no automatic purge."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Opaque upload/cutover reference.')
+    batch = models.ForeignKey(LegacyBatch, on_delete=models.PROTECT, related_name='uploads', db_comment='Owning group and stable import namespace.')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='legacy_uploads', db_comment='Staff accountable for source upload.')
+    filename = models.CharField(max_length=200, db_comment='Private original filename, never a filesystem path.')
+    digest = models.CharField(max_length=64, db_comment='Expected SHA256, verified against retained chunks.')
+    size = models.PositiveIntegerField(db_comment='Expected compressed XLSX bytes, at most 20 MiB.')
+    phase = models.CharField(max_length=24, default='uploading', db_comment='Server-owned resumable processing state.')
+    state = models.JSONField(default=dict, db_comment='Mapping, cursor, deletion manifest, publication checkpoints and recovery evidence.')
+    revision = models.PositiveIntegerField(default=1, db_comment='Optimistic concurrency for operator commands.')
+    lease = models.UUIDField(null=True, blank=True, db_comment='Exclusive expiring advance owner; never workflow authority.')
+    lease_until = models.DateTimeField(null=True, blank=True, db_comment='Expiry allowing recovery after worker termination.')
+    frozen = models.BooleanField(default=False, db_comment='Group write fence during the approved cutover.')
+    created_at = models.DateTimeField(auto_now_add=True, db_comment='Actual upload time, not historical case activity.')
+
+    class Meta:
+        db_table = 'portal_legacy_upload_session'
+        db_table_comment = 'Authoritative private upload and cutover checkpoints; retained with import evidence.'
+        constraints = [models.UniqueConstraint(fields=['batch','digest'], name='portal_legacy_upload_digest_unique')]
+
+
+class LegacyChunk(models.Model):
+    upload = models.ForeignKey(LegacyUpload, on_delete=models.CASCADE, related_name='chunks', db_comment='Private upload owning these bounded bytes.')
+    kind = models.CharField(max_length=16, default='source', db_comment='Source XLSX or recoverable Master Data snapshot.')
+    position = models.PositiveIntegerField(db_comment='Stable zero-based chunk position.')
+    content = models.BinaryField(db_comment='Private bounded source/snapshot bytes; never logged.')
+    digest = models.CharField(max_length=64, db_comment='SHA256 for identical replay and corruption detection.')
+
+    class Meta:
+        db_table = 'portal_legacy_chunk_evidence'
+        db_table_comment = 'Retained private source/snapshot chunks; disposable caches are reconstructed from these bytes.'
+        constraints = [models.UniqueConstraint(fields=['upload','kind','position'], name='portal_legacy_chunk_position_unique')]
+
+
+class LegacyDraft(models.Model):
+    upload = models.ForeignKey(LegacyUpload, on_delete=models.CASCADE, related_name='drafts', db_comment='Isolated source version; never replaces a ready predecessor.')
+    source_row = models.PositiveIntegerField(db_comment='Original Master Data row identity, not projected destination row.')
+    values = models.JSONField(default=dict, db_comment='Reviewed historical facts, including namespaced legacy-only fields.')
+    proposal = models.JSONField(default=dict, db_comment='Canonical candidates and row review issues.')
+    approved = models.BooleanField(default=False, db_comment='Explicit IT selection, retained across page navigation.')
+    reconciliation = models.JSONField(default=dict, db_comment='Exact existing-case link or separate-unit explanation.')
+    legacy = models.ForeignKey('LegacyRow', null=True, blank=True, on_delete=models.SET_NULL, related_name='draft_versions', db_comment='Committed canonical provenance; absent until explicit commit.')
+
+    class Meta:
+        db_table = 'portal_legacy_draft_record'
+        db_table_comment = 'Version-isolated review drafts; retained with source evidence or explicitly discarded before commit.'
+        constraints = [models.UniqueConstraint(fields=['upload','source_row'], name='portal_legacy_draft_source_unique')]
+
+
 class LegacyRow(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Stable import row identity.')
     batch = models.ForeignKey(LegacyBatch, on_delete=models.PROTECT, related_name='rows', db_comment='Retained source batch.')

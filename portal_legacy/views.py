@@ -4,6 +4,7 @@ from django.core.exceptions import PermissionDenied, ObjectDoesNotExist, Validat
 from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from core.api.portal_views import portal_auth_required
 from core.models import GroupSheetConfiguration
 from . import services
@@ -16,14 +17,21 @@ def identity(request):
 
 @csrf_exempt
 @portal_auth_required
+@require_http_methods(['GET','POST'])
 def workspace(request, batch_id=None, row_id=None):
     actor, access = identity(request)
     try:
+        if not row_id:
+            from .importer import authorize as import_authorize
+            # The original bulk upload cannot remain an unbounded alternative.
+            if request.method != 'GET': raise ValueError("Use the Legacy Data menu and resumable XLSX upload.")
+            if batch_id:
+                import_authorize(actor, access, LegacyBatch.objects.select_related("group").get(pk=batch_id).group, branch="")
         if request.method == 'GET' and not batch_id:
             groups = []
             for group in GroupSheetConfiguration.objects.filter(enabled=True):
                 if str((group.workflow or {}).get('type', '')) not in {'jawabu', 'jawabu_homebiogas'}: continue
-                try: services.authorize(actor, access, group)
+                try: import_authorize(actor, access, group, branch="")
                 except PermissionDenied: continue
                 groups.append({'id': str(group.pk), 'label': group.display_name or group.sheet_name})
             ids = [g['id'] for g in groups]
@@ -44,37 +52,11 @@ def workspace(request, batch_id=None, row_id=None):
             return JsonResponse({'ok': True, 'id': str(batch.pk), 'rows': [services.row_payload(r) for r in rows],
                                  'total': scoped.count(), 'committed': scoped.filter(committed_at__isnull=False).count(), 'offset': start})
         if request.method != 'POST': return JsonResponse({'ok': False, 'error': 'Method not allowed.'}, status=405)
-        if request.FILES:
-            group = GroupSheetConfiguration.objects.get(pk=request.POST.get('group_id'), enabled=True)
-            if str((group.workflow or {}).get('type', '')) not in {'jawabu', 'jawabu_homebiogas'}: raise ValueError('Choose a Portal group.')
-            upload = request.FILES.get('file')
-            if not upload or upload.size > 20*1024*1024: raise ValueError('Select one XLSX workbook up to 20 MB.')
-            batch = services.stage(upload.read(), namespace=request.POST.get('namespace', ''), group=group, actor=actor, access=access)
-            return JsonResponse({'ok': True, 'id': str(batch.pk)})
         body = json.loads(request.body or '{}')
         if not isinstance(body, dict): raise ValueError('A JSON object is required.')
-        if row_id:
-            row = services.confirm_stage(row_id, state=body.get('state'), note=body.get('note'),
-                expected_revision=body.get('revision'), request_key=body.get('request_id'), actor=actor, access=access)
-            return JsonResponse({'ok': True, 'row': services.row_payload(row)})
-        batch = LegacyBatch.objects.select_related('group').get(pk=batch_id)
-        services.authorize(actor, access, batch.group)
-        selected = body.get('rows', [])
-        if not isinstance(selected, list) or not 1 <= len(selected) <= 50: raise ValueError('Select 1–50 reviewed rows per commit.')
-        if not body.get('request_id') or len(str(body['request_id'])) > 80: raise ValueError('A bounded request ID is required.')
-        results = []
-        for item in selected:
-            if not isinstance(item, dict): raise ValueError('Each row selection must be an object.')
-            row = batch.rows.get(pk=item['id'])
-            services.authorize(actor, access, batch.group, branch=row.values.get('branch', ''), product=row.values.get('payment_product', ''))
-            try:
-                result = services.commit_row(row.pk, expected_revision=item.get('revision'),
-                    request_key=str(body.get('request_id', ''))+':'+str(row.pk), actor=actor, access=access,
-                    existing_case_id=item.get('existing_case_id', ''), separate_unit_note=item.get('note', ''))
-                results.append({'id': str(row.pk), 'ok': True, 'farmer_id': str(result.farmer_id)})
-            except (ValueError, IntegrityError) as exc:
-                results.append({'id': str(row.pk), 'ok': False, 'error': str(exc) if isinstance(exc, ValueError) else 'Existing case/source collision: refresh and reconcile explicitly.'})
-        return JsonResponse({'ok': True, 'results': results})
+        row = services.confirm_stage(row_id, state=body.get('state'), note=body.get('note'),
+            expected_revision=body.get('revision'), request_key=body.get('request_id'), actor=actor, access=access)
+        return JsonResponse({'ok': True, 'row': services.row_payload(row)})
     except PermissionDenied as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
     except ObjectDoesNotExist:

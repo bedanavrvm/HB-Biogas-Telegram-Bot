@@ -1,5 +1,10 @@
 # Component index and migration hold
 
+The dedicated Portal **Legacy Data** workspace uses existing compact cards,
+forms, confirmation dialogs, sticky feedback and 50-row pagination. Its
+source-bound [importer review](reviews/2026-11-03-portal-legacy-importer.md)
+records resumable processing, Master Data-only replacement and UI evidence.
+
 The 31 October Portal correction retains compact layouts, aligns map controls
 with Lucide and exposes stage-specific Revisit decisions. Scoped legacy preview,
 50-row commits and historical HB continuation reuse existing cards/forms.

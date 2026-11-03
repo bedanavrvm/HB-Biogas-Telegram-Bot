@@ -47,6 +47,24 @@ def _add(
 
 
 _add(
+    'portal_legacy_uploads portal_legacy_upload portal_legacy_upload_action',
+    authentication='portal_auth_required; verified Telegram identity and active Portal staff',
+    capability='portal.legacy.manage with whole-owner Portal IT; test cleanup additionally requires active Superuser and testing flag',
+    scope='Exact enabled Portal owner, private source upload and retained per-row provenance',
+    request_key_binding='Canonical Portal request identity, upload digest/chunk position, expected revision and expiring database lease',
+    domain_replay='Source byte hashes, source-row uniqueness, transactional case commits, signed deletion manifest and sheet-scoped replacement marker',
+)
+_add(
+    'portal_legacy_workspace portal_legacy_stage portal_legacy_batch portal_legacy_confirm',
+    authentication='portal_auth_required; verified owning Portal identity',
+    capability='Whole-owner Portal IT reads; portal.case.correct for existing Operations/IT stage confirmation',
+    scope='Exact legacy owner/case with current group, branch and product scope',
+    request_key_binding='Canonical Portal request identity and revision-checked stage confirmation',
+    domain_replay='Old upload/commit POSTs rejected; only request-keyed legacy stage confirmation can write',
+)
+
+
+_add(
     'portal_local_document_preview',
     authentication='portal_auth_required; verified Telegram identity and active staff',
     capability='portal.jbl_media.write or portal.invoice.write or portal.documents.sign',

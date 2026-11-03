@@ -2332,6 +2332,123 @@ def _attributed_sheet_comment(comment: Any, occurred_at, actor: Any, role: str) 
     return text
 
 
+def master_projection_fields(farmer):
+    """Shared live Master Data field meanings, without provider writes."""
+    from core.services.sheet_publication import aliases_for
+    from core.services.requisition_partners import master_order_reference
+    from core.services.jawabu_validation import normalize_date_text, parse_business_date
+    hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
+    def candidates(field_name, *fallback):
+        return list(dict.fromkeys((*aliases_for('jawabu_master', field_name), *fallback)))
+
+    pipeline_fields = {
+        'unit_number': (candidates('unit_number', 'Unit Number'), farmer.unit_number),
+        'customer_name': (candidates('customer_name', 'Customer Name'), _smart_sheet_label(farmer.customer_name)),
+        'national_id': (candidates('national_id', 'National ID'), farmer.national_id),
+        'primary_phone': (candidates('primary_phone', 'Primary Phone'), farmer.primary_phone),
+        'secondary_phone': (candidates('secondary_phone', 'Secondary Phone'), farmer.secondary_phone),
+        'branch': (candidates('branch', 'Branch'), _smart_sheet_label(farmer.branch)),
+        'hbg_visit_date': (
+            candidates('hbg_visit_date', 'Sign Date', 'Sign Date__2'),
+            normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
+        ),
+        'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else ''),
+        'hb_deposit_date': (candidates('hb_deposit_date'), _date_text(farmer.hb_deposit_date)),
+        'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
+        'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
+        'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
+        'jbl_visit_comment': (candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer')),
+        'case_comment_history': (candidates('case_comment_history'), master_comment_history(farmer)),
+        'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
+        'county': (candidates('county'), _smart_sheet_label(farmer.county)),
+        'sub_county': (candidates('sub_county'), _smart_sheet_label(farmer.sub_county)),
+        'ward': (candidates('ward'), _smart_sheet_label(farmer.ward)),
+        'village': (candidates('village'), _smart_sheet_label(farmer.village)),
+        'landmark': (candidates('landmark'), _smart_sheet_label(farmer.landmark)),
+        'lead_source': (candidates('lead_source'), farmer.lead_source),
+        'hbg_contract_name': (candidates('hbg_contract_name'), farmer.hbg_contract_name),
+        'contract_type': (candidates('contract_type'), farmer.contract_type),
+        'installation_status': (candidates('installation_status'), farmer.installation_status),
+        'hb_sales_person': (candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person)),
+        'actual_receipts_currency': (candidates('actual_receipts_currency'), farmer.actual_receipts_currency),
+        'credit_decision': (
+            candidates('credit_decision'),
+            credit_decision_label(farmer),
+        ),
+        'credit_decided_by': (['Credit Decided By', 'Credit Analyst'], _smart_sheet_label(farmer.credit_decided_by)),
+        'credit_decided_at': (['Credit Decided At', 'Credit Decision Date'], _datetime_text(farmer.credit_decided_at)),
+        'imab_created': (candidates('imab_created'), farmer.imab_created),
+        'customer_no': (candidates('customer_no'), farmer.customer_no),
+        'imab_customer_name': (candidates('imab_customer_name'), _smart_sheet_label(farmer.imab_customer_name)),
+        'system_branch': (candidates('system_branch'), _smart_sheet_label(farmer.system_branch)),
+        'system_loan_officer': (candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer)),
+        # SysUp's LGF balance is used by payment preparation; it is not
+        # evidence of a deposit paid to JBL. Leave that Sheet column
+        # untouched, including on an existing row.
+        'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _master_hbg_deposit_for_sheet(farmer)),
+        'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
+        'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
+        'repayment_tenor': (candidates('repayment_tenor'), farmer.repayment_tenor),
+        'repayment_tenor_months': (candidates('repayment_tenor_months'), farmer.repayment_tenor_months),
+        'payment_product': (candidates('payment_product'), farmer.payment_product),
+        'deferred_stage': (candidates('deferred_stage'), farmer.deferred_stage),
+        'deferred_until': (candidates('deferred_until'), _date_text(farmer.deferred_until)),
+        'jbl_media_urls': (candidates('jbl_media_urls'), farmer.jbl_media_urls),
+        'payment_call_up_comment': (candidates('payment_call_up_comment'), _attributed_sheet_comment(farmer.final_decision_comment, farmer.final_decided_at, farmer.final_decided_by, 'Head of Rural')),
+        'final_decision': (candidates('final_decision'), farmer.final_decision),
+        'final_decided_by': (candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by)),
+        'final_decided_at': (candidates('final_decided_at'), _datetime_text(farmer.final_decided_at)),
+        'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
+        'order_number': (candidates('order_number'), master_order_reference(farmer.order_number)),
+        'payment_number': (candidates('payment_number'), completed_payment_number_for_farmer(farmer)),
+        'payment_mode': (candidates('payment_mode'), completed_payment_mode_for_farmer(farmer)),
+        'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
+        'longitude': (candidates('longitude'), str(farmer.longitude) if farmer.longitude is not None else ''),
+        'gps_link': (candidates('gps_link'), farmer.gps_link or ''),
+        'invoice_number': (candidates('invoice_number'), farmer.invoice_number),
+        'invoice_date': (candidates('invoice_date'), _date_text(farmer.invoice_date)),
+        'invoice_amount': (candidates('invoice_amount', 'Total Amount'), _whole_sheet_money(farmer.invoice_amount)),
+        'discount': (candidates('discount'), _whole_sheet_money(farmer.discount)),
+        'payment': (candidates('payment'), _whole_sheet_money(farmer.payment)),
+        'balance_due': (candidates('balance_due'), _whole_sheet_money(farmer.balance_due)),
+    }
+
+    # Post-order HB fields are one-way projections from the bounded
+    # HomeBiogas domain. Absence means pre-cutover/historical data and must
+    # not blank or reinterpret existing Sheet cells.
+    from hb_operations.models import HomeBiogasAction
+    hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
+    if hb_action is not None:
+        pipeline_fields.update({
+            # The legacy Master Data column combines planned and actual
+            # installation dates. Django retains them separately; retain
+            # the operationally useful date in that legacy projection.
+            'installation_date': (candidates('installation_date'), _date_text(
+                hb_action.installation_date or hb_action.planned_installation_date,
+            )),
+            'serial_number': (candidates('serial_number'), hb_action.serial_number),
+            'readiness_status': (candidates('readiness_status'), hb_action.get_readiness_status_display() if hb_action.readiness_status else ''),
+            'pending_installation_comment': (candidates('pending_installation_comment'), hb_action.pending_installation_comment),
+            'installation_report_status': (candidates('installation_report_status'), hb_action.get_installation_report_status_display() if hb_action.installation_report_status else ''),
+            'commissioning_status': (candidates('commissioning_status'), hb_action.get_commissioning_status_display() if hb_action.commissioning_status else ''),
+            'commissioning_date': (candidates('commissioning_date'), _date_text(hb_action.commissioning_date)),
+            'pending_commissioning_comment': (candidates('pending_commissioning_comment'), hb_action.pending_commissioning_comment),
+            'cs_remarks': (candidates('cs_remarks'), hb_action.cs_remarks),
+        })
+
+    from portal_legacy.services import legacy_jbl_receipt, legacy_order_reference
+    if not farmer.order_number:
+        reference = legacy_order_reference(farmer)
+        if reference['issue']:
+            pipeline_fields.pop('order_number', None)
+        elif reference['value']:
+            pipeline_fields['order_number'] = (candidates('order_number'), master_order_reference(reference['value']))
+    receipt = legacy_jbl_receipt(farmer)
+    if receipt['amount'] is not None:
+        pipeline_fields['legacy_deposit_paid_jbl'] = (['Deposit Paid to JBL', 'Deposit / JBL'], receipt['amount'])
+
+    return pipeline_fields
+
 @guarded_publication
 def sync_farmer_to_master_sheet(
     farmer: JawabuFarmerMaster,
@@ -2345,6 +2462,9 @@ def sync_farmer_to_master_sheet(
     Also records a LiveSheetRecordChange audit entry for traceability.
     """
     from core.services.requisition_partners import master_order_reference
+    from portal_legacy.fence import active
+    if active(farmer.group_configuration_id):
+        return False
     from portal_legacy.models import LegacyRow
     if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():
         return False
@@ -2620,116 +2740,7 @@ def sync_farmer_to_master_sheet(
                 set_header_value(row_values, header_lookup, header, case_id)
                 changes[header] = {'before': current_value, 'after': case_id}
 
-        from core.services.jawabu_validation import normalize_date_text, parse_business_date
-        hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
-        def candidates(field_name, *fallback):
-            return list(dict.fromkeys((*aliases_for('jawabu_master', field_name), *fallback)))
-
-        pipeline_fields = {
-            'unit_number': (candidates('unit_number', 'Unit Number'), farmer.unit_number),
-            'customer_name': (candidates('customer_name', 'Customer Name'), _smart_sheet_label(farmer.customer_name)),
-            'national_id': (candidates('national_id', 'National ID'), farmer.national_id),
-            'primary_phone': (candidates('primary_phone', 'Primary Phone'), farmer.primary_phone),
-            'secondary_phone': (candidates('secondary_phone', 'Secondary Phone'), farmer.secondary_phone),
-            'branch': (candidates('branch', 'Branch'), _smart_sheet_label(farmer.branch)),
-            'hbg_visit_date': (
-                candidates('hbg_visit_date', 'Sign Date', 'Sign Date__2'),
-                normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
-            ),
-            'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else ''),
-            'hb_deposit_date': (candidates('hb_deposit_date'), _date_text(farmer.hb_deposit_date)),
-            'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
-            'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
-            'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
-            'jbl_visit_comment': (candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer')),
-            'case_comment_history': (candidates('case_comment_history'), master_comment_history(farmer)),
-            'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
-            'county': (candidates('county'), _smart_sheet_label(farmer.county)),
-            'sub_county': (candidates('sub_county'), _smart_sheet_label(farmer.sub_county)),
-            'ward': (candidates('ward'), _smart_sheet_label(farmer.ward)),
-            'village': (candidates('village'), _smart_sheet_label(farmer.village)),
-            'landmark': (candidates('landmark'), _smart_sheet_label(farmer.landmark)),
-            'lead_source': (candidates('lead_source'), farmer.lead_source),
-            'hbg_contract_name': (candidates('hbg_contract_name'), farmer.hbg_contract_name),
-            'contract_type': (candidates('contract_type'), farmer.contract_type),
-            'installation_status': (candidates('installation_status'), farmer.installation_status),
-            'hb_sales_person': (candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person)),
-            'actual_receipts_currency': (candidates('actual_receipts_currency'), farmer.actual_receipts_currency),
-            'credit_decision': (
-                candidates('credit_decision'),
-                credit_decision_label(farmer),
-            ),
-            'credit_decided_by': (['Credit Decided By', 'Credit Analyst'], _smart_sheet_label(farmer.credit_decided_by)),
-            'credit_decided_at': (['Credit Decided At', 'Credit Decision Date'], _datetime_text(farmer.credit_decided_at)),
-            'imab_created': (candidates('imab_created'), farmer.imab_created),
-            'customer_no': (candidates('customer_no'), farmer.customer_no),
-            'imab_customer_name': (candidates('imab_customer_name'), _smart_sheet_label(farmer.imab_customer_name)),
-            'system_branch': (candidates('system_branch'), _smart_sheet_label(farmer.system_branch)),
-            'system_loan_officer': (candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer)),
-            # SysUp's LGF balance is used by payment preparation; it is not
-            # evidence of a deposit paid to JBL. Leave that Sheet column
-            # untouched, including on an existing row.
-            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _master_hbg_deposit_for_sheet(farmer)),
-            'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
-            'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
-            'repayment_tenor': (candidates('repayment_tenor'), farmer.repayment_tenor),
-            'repayment_tenor_months': (candidates('repayment_tenor_months'), farmer.repayment_tenor_months),
-            'payment_product': (candidates('payment_product'), farmer.payment_product),
-            'deferred_stage': (candidates('deferred_stage'), farmer.deferred_stage),
-            'deferred_until': (candidates('deferred_until'), _date_text(farmer.deferred_until)),
-            'jbl_media_urls': (candidates('jbl_media_urls'), farmer.jbl_media_urls),
-            'payment_call_up_comment': (candidates('payment_call_up_comment'), _attributed_sheet_comment(farmer.final_decision_comment, farmer.final_decided_at, farmer.final_decided_by, 'Head of Rural')),
-            'final_decision': (candidates('final_decision'), farmer.final_decision),
-            'final_decided_by': (candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by)),
-            'final_decided_at': (candidates('final_decided_at'), _datetime_text(farmer.final_decided_at)),
-            'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
-            'order_number': (candidates('order_number'), master_order_reference(farmer.order_number)),
-            'payment_number': (candidates('payment_number'), completed_payment_number_for_farmer(farmer)),
-            'payment_mode': (candidates('payment_mode'), completed_payment_mode_for_farmer(farmer)),
-            'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
-            'longitude': (candidates('longitude'), str(farmer.longitude) if farmer.longitude is not None else ''),
-            'gps_link': (candidates('gps_link'), farmer.gps_link or ''),
-            'invoice_number': (candidates('invoice_number'), farmer.invoice_number),
-            'invoice_date': (candidates('invoice_date'), _date_text(farmer.invoice_date)),
-            'invoice_amount': (candidates('invoice_amount', 'Total Amount'), _whole_sheet_money(farmer.invoice_amount)),
-            'discount': (candidates('discount'), _whole_sheet_money(farmer.discount)),
-            'payment': (candidates('payment'), _whole_sheet_money(farmer.payment)),
-            'balance_due': (candidates('balance_due'), _whole_sheet_money(farmer.balance_due)),
-        }
-
-        # Post-order HB fields are one-way projections from the bounded
-        # HomeBiogas domain. Absence means pre-cutover/historical data and must
-        # not blank or reinterpret existing Sheet cells.
-        from hb_operations.models import HomeBiogasAction
-        hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
-        if hb_action is not None:
-            pipeline_fields.update({
-                # The legacy Master Data column combines planned and actual
-                # installation dates. Django retains them separately; retain
-                # the operationally useful date in that legacy projection.
-                'installation_date': (candidates('installation_date'), _date_text(
-                    hb_action.installation_date or hb_action.planned_installation_date,
-                )),
-                'serial_number': (candidates('serial_number'), hb_action.serial_number),
-                'readiness_status': (candidates('readiness_status'), hb_action.get_readiness_status_display() if hb_action.readiness_status else ''),
-                'pending_installation_comment': (candidates('pending_installation_comment'), hb_action.pending_installation_comment),
-                'installation_report_status': (candidates('installation_report_status'), hb_action.get_installation_report_status_display() if hb_action.installation_report_status else ''),
-                'commissioning_status': (candidates('commissioning_status'), hb_action.get_commissioning_status_display() if hb_action.commissioning_status else ''),
-                'commissioning_date': (candidates('commissioning_date'), _date_text(hb_action.commissioning_date)),
-                'pending_commissioning_comment': (candidates('pending_commissioning_comment'), hb_action.pending_commissioning_comment),
-                'cs_remarks': (candidates('cs_remarks'), hb_action.cs_remarks),
-            })
-
-        from portal_legacy.services import legacy_jbl_receipt, legacy_order_reference
-        if not farmer.order_number:
-            reference = legacy_order_reference(farmer)
-            if reference['issue']:
-                pipeline_fields.pop('order_number', None)
-            elif reference['value']:
-                pipeline_fields['order_number'] = (candidates('order_number'), master_order_reference(reference['value']))
-        receipt = legacy_jbl_receipt(farmer)
-        if receipt['amount'] is not None:
-            pipeline_fields['legacy_deposit_paid_jbl'] = (['Deposit Paid to JBL', 'Deposit / JBL'], receipt['amount'])
+        pipeline_fields = master_projection_fields(farmer)
 
         date_indexes = master_date_column_indexes(headers)
         datetime_indexes = master_datetime_column_indexes(headers)

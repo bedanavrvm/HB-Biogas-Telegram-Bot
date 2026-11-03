@@ -1,5 +1,10 @@
 # Mini App Design Lab
 
+The 3 November Master Data importer reuses the compact Portal shell in a
+dedicated IT-only Legacy Data menu. Source-bound Playwright and PostgreSQL
+evidence, scale limits and recovery boundaries are in
+[the importer review](reviews/2026-11-03-portal-legacy-importer.md).
+
 The 31 October Portal correction retains compact layouts, aligns map controls
 with Lucide and exposes stage-specific Revisit decisions. Scoped legacy preview,
 50-row commits and historical HB continuation reuse existing cards/forms.

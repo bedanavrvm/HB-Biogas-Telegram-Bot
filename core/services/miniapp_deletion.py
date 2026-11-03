@@ -233,7 +233,7 @@ def _row_fingerprint(record):
     return digest(values)
 
 
-def preview_selection(*, model_label, ids, actor, mode=KEEP):
+def preview_selection(*, model_label, ids, actor, mode=KEEP, sheet_policy="normal"):
     authorize(actor)
     model = _model(model_label)
     selected = _ids(model, ids)
@@ -278,9 +278,11 @@ def preview_selection(*, model_label, ids, actor, mode=KEEP):
     retire = {_key(root): dict(REGISTRY[root._meta.label].retire)
               for root in roots if _key(root) in retained and REGISTRY[root._meta.label].retire}
     from core.services.miniapp_deletion_sheets import sheet_targets
-    targets = sheet_targets([rows[key] for key in sorted(deleted)])
+    if sheet_policy not in {"normal", "legacy_cutover_db_only"}:
+        raise DeletionError("Unknown Sheet cleanup policy.")
+    targets = sheet_targets([rows[key] for key in sorted(deleted)]) if sheet_policy == "normal" else []
     serialized = {'model': model_label, 'ids': selected, 'mode': mode,
-                  'deleted': sorted(deleted), 'retained': sorted(retained),
+                  'sheet_policy': sheet_policy, 'deleted': sorted(deleted), 'retained': sorted(retained),
                   'unlink': [(k, v) for k, v in sorted(unlink.items())],
                   'retire': sorted(retire.items()), 'sheets': targets,
                   'facts': [(key, _row_fingerprint(row)) for key, row in sorted(rows.items())]}
@@ -317,7 +319,10 @@ def _delete_rows(plan):
             if field.is_relation:
                 target = (field.related_model._meta.label, str(getattr(record, field.attname)))
                 if target in pending:
-                    if field.null:
+                    # A nullable FK may still be required by a CHECK (e.g. legacy HB origin).
+                    constrained = any(field.name in str(getattr(rule, 'condition', ''))
+                                      for rule in record._meta.constraints)
+                    if field.null and not constrained:
                         fields[field.attname] = None
                     elif target != key:
                         dependencies[key].add(target)
@@ -344,7 +349,7 @@ def _delete_rows(plan):
 
 
 @transaction.atomic
-def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
+def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id, sheet_policy="normal"):
     authorize(actor)
     model = _model(model_label)
     selected = _ids(model, ids)
@@ -360,13 +365,13 @@ def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
         if previous.actor_id != actor.pk or previous.subject_id != identity:
             raise DeletionError('This request reference belongs to a different confirmation.')
         return {**previous.after_values, 'replayed': True}
-    plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode)
+    plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode, sheet_policy=sheet_policy)
     lock_keys = set(plan['rows']) | {key[0] for key in plan['unlink']}
     for label, pks in _group_ids(lock_keys).items():
         list(apps.get_model(label)._base_manager.filter(pk__in=pks).order_by('pk')
              .select_for_update(of=('self',)).values_list('pk', flat=True))
     del plan
-    plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode)
+    plan = preview_selection(model_label=model_label, ids=selected, actor=actor, mode=mode, sheet_policy=sheet_policy)
     if plan['fingerprint'] != fingerprint:
         raise SelectionChanged('Related records changed. Review the updated impact before confirming again.')
     if plan['blockers']:
@@ -398,7 +403,7 @@ def delete_selection(*, model_label, ids, actor, mode, fingerprint, request_id):
     record_event(workflow='miniapp_testing', action='records.deleted', category='configuration',
         subject_type='DeletionSelection', subject_id=identity, actor=actor, authority_user=actor,
         request_id=request_id, deduplication_key=dedup, before_values=plan['groups'], after_values=result,
-        metadata={'model': model_label, 'ids': selected, 'mode': mode, 'fingerprint': fingerprint}, sensitive=True)
+        metadata={'model': model_label, 'ids': selected, 'mode': mode, 'fingerprint': fingerprint, 'sheet_policy': sheet_policy}, sensitive=True)
     from core.services.miniapp_deletion_sheets import wake_cleanup
     if operation_ids:
         transaction.on_commit(lambda: wake_cleanup(operation_ids))

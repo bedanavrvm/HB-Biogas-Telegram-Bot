@@ -1,0 +1,36 @@
+<section id="page-legacy" class="page active" data-required-capability="portal.legacy.manage">
+  <header class="portal-queue-header"><div><h1>Legacy Data</h1><p class="meta">Master Data only · historical records · Eco-conserve Sheet stays untouched</p></div></header>
+  <div id="legacy-data-workspace">
+    <section class="case360-section">
+      <details data-source open><summary>Upload a reviewed workbook</summary><form data-upload-form>
+        <label>Portal owner<select name="group_id" required><option value="">Loading owners…</option></select></label>
+        <label>Import namespace<input name="namespace" required pattern="[a-zA-Z0-9_-]{1,100}" placeholder="master-data-changeover"></label>
+        <label>Reviewed Master Data workbook<input name="file" type="file" accept=".xlsx" required></label>
+        <button class="primary" type="submit">Upload and preview mapping</button>
+      </form></details>
+      <label>Resume saved import<select data-resume><option value="">Choose an import</option></select></label>
+    </section>
+    <section class="case360-section" style="position:sticky;top:0;z-index:10;background:var(--surface,#fff)">
+      <p data-feedback role="status" aria-live="polite">Choose a reviewed workbook or resume saved progress.</p>
+      <progress data-progress max="1" value="0" style="width:100%" aria-label="Import progress"></progress>
+      <div class="legacy-import-controls">
+        <button type="button" data-action="refresh">Refresh saved progress</button>
+        <button type="button" data-action="resume">Resume processing</button>
+        <button type="button" data-action="pause">Pause after current chunk</button>
+        <button type="button" data-action="discard">Discard uncommitted upload</button>
+        <button type="button" data-action="stage">Accept mapping and stage rows</button>
+        <button type="button" data-action="cleanup">Review test-data deletion</button>
+        <button type="button" data-action="cancel_preview">Cancel deletion preview</button>
+        <button type="button" data-action="commit">Import approved rows</button>
+        <button type="button" data-action="project">Preview Master Data replacement</button>
+        <button type="button" data-action="restart_projection">Review replacement again</button>
+      </div>
+    </section>
+    <details data-mapping><summary>Source-to-Portal mapping</summary><p>Only Master Data is read. Historical columns remain reference facts.</p><div data-mapping-rows class="case360-grid"></div></details>
+    <section class="case360-section"><label>Review filter<select data-filter><option value="all">All rows</option><option value="ready">Ready</option><option value="warning">Warnings</option><option value="blocked">Blocked</option><option value="pending">Pending</option><option value="selected">Approved selection</option><option value="committed">Imported</option></select></label>
+      <button type="button" data-action="select_page">Approve displayed rows</button><button type="button" data-action="select_all">Approve all pending rows</button><button type="button" data-action="unselect_all">Clear pending approval</button>
+      <div data-rows></div><div class="pagination"><button type="button" data-action="previous">Previous 50</button><span data-page></span><button type="button" data-action="next">Next 50</button></div>
+    </section>
+    <dialog data-confirm><form method="dialog"><h2 data-confirm-title>Review action</h2><p data-confirm-text></p><p data-confirm-warning></p><button value="cancel">Cancel</button><button value="confirm" class="primary">Confirm reviewed action</button></form></dialog>
+  </div>
+</section>

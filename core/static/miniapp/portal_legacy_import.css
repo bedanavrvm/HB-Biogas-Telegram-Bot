@@ -1,0 +1,10 @@
+/* Keep native shell density; action visibility must beat legacy button display rules. */
+#legacy-data-workspace [hidden] { display: none !important; }
+#legacy-data-workspace .legacy-import-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+#legacy-data-workspace .legacy-import-controls button { flex: 0 1 auto; width: auto; }
+#legacy-data-workspace [data-feedback] { overflow-wrap: anywhere; margin: 0 0 6px; }
+#legacy-data-workspace [data-rows] article { margin: 6px 0; padding: 10px; overflow-wrap: anywhere; }
+#legacy-data-workspace [data-rows] article > p { margin: 4px 0; }
+#legacy-data-workspace .legacy-row-select { display: flex; align-items: flex-start; gap: 6px; color: var(--text, #172b4d); }
+#legacy-data-workspace .legacy-row-select input { width: auto; margin: 2px 0 0; }
+#legacy-data-workspace [data-confirm] { max-width: min(540px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }

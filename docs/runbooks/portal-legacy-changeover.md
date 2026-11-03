@@ -1,5 +1,11 @@
 # Portal legacy changeover
 
+The Master Data v5 changeover now uses the dedicated **Legacy Data** menu and
+[resumable importer runbook](portal-legacy-importer.md). Its approved scope is
+Master Data only, governed test-case cleanup and complete Master Data replacement.
+The older All Cases upload and selective binding sequence below are historical;
+do not use them for this cutover or import the unreviewed Eco-conserve tab.
+
 Implemented 31 October 2026. Live import waits for the user's reviewed workbook.
 This changes the existing Telegram Portal, not standalone browser access.
 

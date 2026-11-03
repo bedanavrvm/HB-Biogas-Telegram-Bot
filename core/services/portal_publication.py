@@ -14,7 +14,7 @@ import json
 
 from django.conf import settings
 from django.db.models import Q, Exists, OuterRef, Value, CharField
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Cast
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -63,11 +63,14 @@ def queued_publication_operations():
            & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)))
     stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
                       last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
+    from core.models import JawabuFarmerMaster
+    from portal_legacy.models import LegacyUpload
+    held_cases=JawabuFarmerMaster.objects.filter(group_configuration_id__in=LegacyUpload.objects.filter(frozen=True).values('batch__group_id')).annotate(legacy_source_id=Cast('pk',CharField())).values('legacy_source_id')
     return _with_destination(IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL,
         operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-    )).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
+    )).exclude(source_id__in=held_cases).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
         Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(has_earlier=False)
     ).order_by('created_at', 'pk')
 
@@ -376,6 +379,9 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         raise ValueError('The source case is no longer available.')
+    from portal_legacy.fence import active
+    if active(farmer.group_configuration_id):
+        return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     if operation.operation_type == MASTER_OPERATION:
         # A monthly FarmUp commit can reserve hundreds of rows. Never let a
         # later case take a lower Sheet row just because the earlier case is
@@ -415,6 +421,9 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
 
     def publish_once():
+        from portal_legacy.fence import active
+        if active(farmer.group_configuration_id):
+            raise PortalPublicationError('Portal owner is held for legacy cutover.')
         if operation.operation_type == MASTER_OPERATION:
             failure_context: dict[str, Any] = {}
             with external_call_budget(20):
