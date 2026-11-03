@@ -3,7 +3,7 @@
 PostgreSQL chunks are authoritative. A lost worker/cache only repeats decoding,
 not committed rows. Only the selected register worksheet is decoded.
 """
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from tempfile import gettempdir
 from zipfile import ZipFile
@@ -71,26 +71,26 @@ def cache(upload):
         target=targets[choices[0].attrib['{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id']]
         name=target.lstrip('/') if target.startswith('/') else 'xl/'+target
         with archive.open(name) as src,(root/'rows.xml').open('wb') as out:shutil.copyfileobj(src,out,1024*128)
-        db=sqlite3.connect(root/'strings.sqlite3')
-        db.execute('drop table if exists strings');db.execute('create table strings (id integer primary key,value text)')
-        if 'xl/sharedStrings.xml' in archive.namelist():
-            with archive.open('xl/sharedStrings.xml') as src:
-                index=0
-                events=ET.iterparse(src,events=('start','end'));_,root_node=next(events)
-                for event,node in events:
-                    if event=='end' and node.tag==f'{{{NS}}}si':
-                        db.execute('insert into strings values (?,?)',(index,Text.from_tree(node).content));index+=1;root_node.remove(node)
-        db.execute('drop table if exists formulas');db.execute('create table formulas (id text primary key,coordinate text,formula text)')
-        # Shared formula origins must survive batch offsets and worker/cache restarts.
-        wrapper=worksheet_wrapper(root/'rows.xml')
-        with (root/'rows.xml').open('rb') as source:
-            for _,fragment in row_fragments(source):
-                row=ET.fromstring(wrapper+fragment+b'</worksheet>')[0]
-                for cell in row.findall(f'{{{NS}}}c'):
-                    formula=cell.find(f'{{{NS}}}f')
-                    if formula is not None and formula.get('t')=='shared' and formula.text:
-                        db.execute('insert or ignore into formulas values (?,?,?)',(formula.get('si'),cell.get('r'),'='+formula.text))
-        db.commit();db.close()
+        with closing(sqlite3.connect(root/'strings.sqlite3')) as db:
+            db.execute('drop table if exists strings');db.execute('create table strings (id integer primary key,value text)')
+            if 'xl/sharedStrings.xml' in archive.namelist():
+                with archive.open('xl/sharedStrings.xml') as src:
+                    index=0
+                    events=ET.iterparse(src,events=('start','end'));_,root_node=next(events)
+                    for event,node in events:
+                        if event=='end' and node.tag==f'{{{NS}}}si':
+                            db.execute('insert into strings values (?,?)',(index,Text.from_tree(node).content));index+=1;root_node.remove(node)
+            db.execute('drop table if exists formulas');db.execute('create table formulas (id text primary key,coordinate text,formula text)')
+            # Shared formula origins must survive batch offsets and worker/cache restarts.
+            wrapper=worksheet_wrapper(root/'rows.xml')
+            with (root/'rows.xml').open('rb') as source:
+                for _,fragment in row_fragments(source):
+                    row=ET.fromstring(wrapper+fragment+b'</worksheet>')[0]
+                    for cell in row.findall(f'{{{NS}}}c'):
+                        formula=cell.find(f'{{{NS}}}f')
+                        if formula is not None and formula.get('t')=='shared' and formula.text:
+                            db.execute('insert or ignore into formulas values (?,?,?)',(formula.get('si'),cell.get('r'),'='+formula.text))
+            db.commit()
     for f in root.iterdir():os.chmod(f,0o600)
     marker.write_text(binding)
     return root

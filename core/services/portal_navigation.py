@@ -94,12 +94,12 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
     permitted = _permitted_capabilities(user, access)
     items = []
     for key, label, icon, capability in PORTAL_NAV_ITEMS:
-        if key == 'legacy':
-            from core.models import AccessGrant
-            if not user or not user.is_active or (not user.is_superuser and not AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='IT', active=True, branch='', product='').exists()):
-                continue
         if capability not in permitted:
             continue
+        if key == 'legacy':
+            from core.models import AccessGrant
+            if not getattr(user, 'is_active', False) or (not user.is_superuser and not AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='IT', active=True, branch='', product='').exists()):
+                continue
         if key == 'requisition' and 'portal.requisition.write' not in permitted:
             label = 'Orders'
         presentation = portal_screen_presentation(key)

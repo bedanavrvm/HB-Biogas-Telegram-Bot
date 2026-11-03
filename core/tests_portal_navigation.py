@@ -12,6 +12,10 @@ from core.services.portal_navigation import (
 
 
 class PortalNavigationTests(SimpleTestCase):
+    def test_dictionary_identity_cannot_authorize_legacy_import(self):
+        items = self._items_for(['IT'], {'portal.case.read', 'portal.legacy.manage'})
+        self.assertEqual([item['key'] for item in items], ['all', 'settings'])
+
     def test_hb_actions_stays_in_the_drawer_for_hb_staff_and_it(self):
         for role in ('HB_STAFF', 'IT'):
             with self.subTest(role=role), patch(

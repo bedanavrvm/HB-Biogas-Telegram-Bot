@@ -121,6 +121,9 @@ evidence; no data values change. See the
 
 ## Recovery evidence and limits
 
+Repeatable API, PostgreSQL-worker and real Django/Playwright commands are in the
+[regression-suite runbook](portal-legacy-importer-tests.md).
+
 Source bytes and compressed pre-replacement cell values are private LegacyChunk
 records keyed by projection attempt. LegacyUpload state records the selected
 source, destination, old grid dimensions, source headers, staging tab, snapshot

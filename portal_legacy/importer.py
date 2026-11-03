@@ -1,6 +1,7 @@
 """IT-only bounded cutover; PostgreSQL is authoritative, Sheets is a projection."""
 from contextlib import contextmanager
 from datetime import timedelta
+from types import SimpleNamespace
 import hashlib,json,re,time,uuid
 from django.core import signing
 from django.core.exceptions import PermissionDenied,ValidationError
@@ -29,7 +30,8 @@ def authorize(actor,access,group,*,branch=None,product=''):
             decision=portal_access_decision(actor,'portal.legacy.manage',access=access,branch=grant.branch,product=grant.product,group_configuration=group,enforce_group_scope=True)
             if decision.allowed and 'IT' in decision.roles:return
     else:
-        decision=portal_access_decision(actor,'portal.legacy.manage',access=access,branch=branch,product=product,group_configuration=group,enforce_group_scope=True)
+        resource=SimpleNamespace(branch=branch,payment_product=product,group_configuration_id=group.pk)
+        decision=portal_access_decision(actor,'portal.legacy.manage',access=access,resource=resource,group_configuration=group,enforce_group_scope=True)
         if decision.allowed and 'IT' in decision.roles:return
     raise PermissionDenied('Scoped Portal IT authority is required for Legacy Data.')
 
@@ -44,7 +46,10 @@ def create(body,actor,access):
     with transaction.atomic():
         GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
         existing=LegacyUpload.objects.filter(batch__group=group,digest=digest,source_sheet=source_sheet).first()
-        if existing:return existing
+        if existing:
+            if existing.phase=='discarded':
+                existing.phase='uploading';existing.state={};save(existing)
+            return existing
         batch,_=LegacyBatch.objects.get_or_create(group=group,namespace=namespace,defaults={'source_hash':digest,'created_by':actor})
         return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet)
 
@@ -153,6 +158,8 @@ def cleanup_preview(upload,actor):
     from core.services.miniapp_deletion import authorize as deletion_authorize,preview_selection,CASCADE
     deletion_authorize(actor)
     group=upload.batch.group
+    if not upload.drafts.exists():
+        raise ValueError('Stage at least one source record before starting a cutover.')
     if upload.drafts.filter(proposal__review_status='blocked').exists():
         raise ValueError('Correct blocked source rows in the workbook and stage a new version before deleting test data.')
     if LegacyUpload.objects.filter(batch__group=group,source_sheet=upload.source_sheet,phase='complete').exclude(pk=upload.pk).exists():
