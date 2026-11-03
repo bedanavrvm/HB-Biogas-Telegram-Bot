@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "130013b80b608910d21dfae7190d284c7d283d8e9480c2c163a4e493f314d180",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "1c74e092c83b04ebfd716fecdc93388dadd4df4ffbba63ca5e6c56c74949ca0d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
+      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "d1f5931b66bcf79568ca8e56b285ab44a5b1ed625c97790c29bcf5184fc3f39e",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "c29e87ba4a4f312e05a6c616a57175f34f022092e466d7c358067227219e1633",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
+      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
@@ -1001,21 +1001,21 @@
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "aa232c0327498f41a21298f8cb9806606343d76e37fa06be9f7aab29ba0007a1",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "9bef245e3eb1a4685d95ec5d2e6a646247c9c6286de9c4b441dcb850c934f36f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
+      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.css",
-      "sha256": "b181d65903c63be433755fb0226303035e9a726df889028312ad04e8d0fd0798",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "aaa4e83e7598f482f31d5f9cadfb923846bc5f886db680e29c12b753df80e501",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
+      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
-      "sha256": "a4499d4435b747b7de21002fea6f7fd934bb258e550fb4de45183bfd6382e46e",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "4d4df79a607646915e856826f397990e8f7c20114b4f853b48277925ff2edd3f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
+      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
     }
   ],
   "source_roots": [

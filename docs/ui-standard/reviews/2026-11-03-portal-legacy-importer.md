@@ -1,5 +1,13 @@
 # Portal Legacy Data import workspace
 
+The subsequent [register and navigation review](2026-11-03-portal-legacy-eco-register.md)
+supersedes the Master-only scope below: both reviewed registers are supported
+through a dedicated **Legacy changeover → Legacy import** sidebar page.
+Deletion and replacement now preserve the other register, including its cases.
+
+The subsequent user-requested [AG Grid and Cards toggle](2026-11-03-portal-legacy-grid-toggle.md)
+replaces the cards-only review presentation described below.
+
 User-authorized Master Data-only changeover, completed 3 November 2026. Retains
 the existing compact Portal shell, cards, forms, feedback, pagination and
 capability-filtered navigation. No candidate design tokens or approved baseline

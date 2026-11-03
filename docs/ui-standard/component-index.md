@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+The **Legacy changeover → Legacy import** sidebar page owns the Master Data /
+Eco-conserve selector. All Cases contains no importer; register-scoped cleanup
+and projection retain the counterpart. See the
+[source and interaction record](reviews/2026-11-03-portal-legacy-eco-register.md).
+
+Legacy Data's Cards/Table control reuses FarmUp's pinned AG Grid assets and
+compact review styling. See the [source and interaction record](reviews/2026-11-03-portal-legacy-grid-toggle.md).
+
 The dedicated Portal **Legacy Data** workspace uses existing compact cards,
 forms, confirmation dialogs, sticky feedback and 50-row pagination. Its
 source-bound [importer review](reviews/2026-11-03-portal-legacy-importer.md)

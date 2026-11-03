@@ -235,6 +235,9 @@ def commit_row(row_id, *, expected_revision, request_key, actor, access, existin
     if existing_case_id:
         farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=existing_case_id, group_configuration=row.batch.group)
         authorize(actor, access, row.batch.group, farmer=farmer)
+        from .registers import partner_for_source
+        from core.services.requisition_partners import fulfillment_partner_for_farmer
+        if fulfillment_partner_for_farmer(farmer)!=partner_for_source(row.source_sheet):raise ValueError('The existing case belongs to the other register. Retain separate partner cases.')
         if fields.get('national_id') and farmer.national_id and fields['national_id'] != farmer.national_id:
             raise ValueError('Existing case has a different National ID. Resolve identity through the owning identity workflow.')
         if not str(separate_unit_note or '').strip(): raise ValueError('Explain the explicit existing-case reconciliation.')

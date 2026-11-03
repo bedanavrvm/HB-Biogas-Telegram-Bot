@@ -1,5 +1,14 @@
 # Mini App Design Lab
 
+The dedicated **Legacy changeover → Legacy import** sidebar page now offers
+Master Data / Eco-conserve source controls; All Cases contains no importer.
+Register isolation, retained table/cards behaviour and real-shell evidence are
+recorded in [the register review](reviews/2026-11-03-portal-legacy-eco-register.md).
+
+Legacy Data now offers the user's requested FarmUp AG Grid table and Cards
+toggle. The compact source pattern, shared review choices and Playwright evidence
+are recorded in [the layout review](reviews/2026-11-03-portal-legacy-grid-toggle.md).
+
 The 3 November Master Data importer reuses the compact Portal shell in a
 dedicated IT-only Legacy Data menu. Source-bound Playwright and PostgreSQL
 evidence, scale limits and recovery boundaries are in

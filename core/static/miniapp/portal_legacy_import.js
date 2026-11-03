@@ -3,20 +3,108 @@
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let root,active,offset=0,pageTotal=0,current=[],running=false,busy=false,superuser=false,lastNotice='';
+  let reviewMode='table',gridApi=null,gridAssets=null,gridColumns='';
+  let selectedSheet='Master Data',uploads=[];
+  try{reviewMode=sessionStorage.getItem('portal-legacy-review-mode')==='cards'?'cards':'table';}catch{}
+  try{if(sessionStorage.getItem('portal-legacy-source-sheet')==='Eco-conserve')selectedSheet='Eco-conserve';}catch{}
   const node = selector => root.querySelector(selector);
   const feedback = text => {node('[data-feedback]').textContent=text;};
   async function call(path='',body,options={}) {
     const response=await window.PortalMiniAppApi.apiFetch('/legacy/uploads/'+path,body===undefined?{}:{method:'POST',body:JSON.stringify({...body,revision:active?.revision}),...options},window.Telegram?.WebApp);
     if(!response.ok||!response.data?.ok)throw new Error(response.data?.legacy_detail||response.data?.error||'Request outcome unknown. Refresh saved progress before retrying.');
-    if(response.data.upload)active=response.data.upload;
+    if(response.data.upload){active=response.data.upload;uploads=uploads.filter(u=>u.id!==active.id);uploads.unshift(active);renderSavedImports();node('[name="group_id"]').value=active.group_id;}
     return response.data;
   }
-  const command=(action,body={})=>call(`${active.id}/${action}/`,body);
+  const command=(action,body={})=>call(`${active.id}/${action}/`,{...body,source_sheet:active.source_sheet});
+  function renderSavedImports(){
+    node('[data-resume]').innerHTML='<option value="">Choose saved '+esc(selectedSheet)+' import</option>'+uploads.filter(u=>u.source_sheet===selectedSheet).map(u=>`<option value="${u.id}">${esc(u.namespace)} · ${esc(u.phase)}</option>`).join('');
+    if(active)node('[data-resume]').value=active.id;
+  }
+  async function loadIndex(){
+    const owner=node('[name="group_id"]').value;
+    const index=await call('?source_sheet='+encodeURIComponent(selectedSheet));superuser=index.superuser;uploads=index.uploads;
+    node('[name="group_id"]').innerHTML='<option value="">Choose owner</option>'+index.groups.map(g=>`<option value="${g.id}">${esc(g.label)}</option>`).join('');
+    if(index.groups.some(group=>group.id===owner))node('[name="group_id"]').value=owner;
+    renderSavedImports();
+  }
+  const reviewable=row=>!row.committed&&row.proposal.review_status!=='blocked'&&['ready','committing'].includes(active?.phase);
+  const human=value=>String(value||'').replace(/^legacy:/,'Historical: ').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+  const issues=row=>[...(row.proposal.issues||[]),row.proposal.commit_error,row.identity_collision?'Identity match needs review':''].filter(Boolean).join('; ');
+  function rowCard(row){
+    const disabled=busy||!reviewable(row);
+    return `<article class="case360-section"><label class="legacy-row-select"><input type="checkbox" data-select="${row.id}" ${row.approved?'checked':''} ${disabled?'disabled':''}>Row ${row.source_row} · ${esc(row.name)} ${row.committed?'· Imported':''}</label><p>${esc(human(row.proposal.state))}${issues(row)?' · '+esc(issues(row)):''}</p><details><summary>Source facts and history</summary><div class="case360-grid">${Object.entries(row.source_values||{}).filter(([,v])=>v!==''&&v!==null).map(([k,v])=>`<div><strong>${esc(human(k))}</strong><p>${esc(v)}</p></div>`).join('')}</div></details>${!row.committed?`<details><summary>Link or separate unit${row.identity_collision?' - identity match needs review':' (optional)'}</summary><label>Explicit existing case ID<input data-match="${row.id}" value="${esc(row.reconciliation.existing_case_id||'')}" ${disabled?'disabled':''}></label><label>Link / separate-unit explanation<input data-note="${row.id}" value="${esc(row.reconciliation.note||'')}" ${disabled?'disabled':''}></label></details>`:''}</article>`;
+  }
+  function openRow(id){
+    gridApi?.stopEditing();const row=current.find(r=>String(r.id)===id);if(!row||busy)return;
+    node('[data-row-detail]').innerHTML=rowCard(row);
+    node('[data-row-detail] details').open=true;
+    node('[data-row-dialog]').showModal();
+  }
+  async function loadGrid(){
+    if(gridApi)return;
+    if(!gridAssets){
+      const config=window.PORTAL_CONFIG||{},loader=window.MiniAppAssetLoader;
+      gridAssets=Promise.all([...(config.farmupAgGridStyles||[]).map(url=>loader.loadStyle(url)),loader.loadScript(config.farmupAgGridScript,'agGrid')]).catch(error=>{gridAssets=null;throw error;});
+    }
+    await gridAssets;
+    window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
+    gridApi=window.agGrid.createGrid(node('[data-review-grid]'),{
+      theme:'legacy',rowData:[],columnDefs:[],animateRows:false,ensureDomOrder:true,rowHeight:32,headerHeight:32,
+      suppressMovableColumns:true,enableBrowserTooltips:true,alwaysShowHorizontalScroll:true,scrollbarWidth:16,stopEditingWhenCellsLoseFocus:true,
+      getRowId:p=>String(p.data.id),defaultColDef:{sortable:true,resizable:true,filter:'agTextColumnFilter',width:150,tooltipValueGetter:p=>String(p.value??'')},
+      rowClassRules:{'farmup-grid-row-blocked':p=>p.data.proposal.review_status==='blocked','farmup-grid-row-warning':p=>p.data.proposal.review_status!=='blocked'&&Boolean(issues(p.data))},
+    });
+    window.PortalMiniAppHelpers?.bindHoldToCopy?.(node('[data-review-grid]'),'.ag-cell:not([col-id="approval"]):not([col-id="source_row"])');
+  }
+  function columnDefs(keys){
+    const textField=(field,width)=>({colId:field,headerName:human(field),width,valueGetter:p=>p.data.source_values?.[field]??''});
+    const reconciliation=(id,title,key,width)=>({colId:id,headerName:title,width,
+      editable:p=>!busy&&reviewable(p.data),valueGetter:p=>p.data.reconciliation[key]||'',
+      valueSetter:p=>{p.data.reconciliation[key]=String(p.newValue??'');return true;},
+    });
+    return [
+      {field:'source_row',headerName:'Row',width:64,minWidth:64,pinned:'left',filter:false,suppressHeaderMenuButton:true,cellRenderer:p=>{
+        const button=document.createElement('button');button.type='button';button.className='legacy-row-details';button.textContent=p.value;button.dataset.rowOpen=p.data.id;button.disabled=busy;button.setAttribute('aria-label',`Review row ${p.value}`);return button;
+      }},
+      {colId:'approval',headerName:'',headerTooltip:'Approve row',width:40,minWidth:40,maxWidth:40,pinned:'left',sortable:false,filter:false,resizable:false,cellRenderer:p=>{
+        const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='legacy-grid-approval';checkbox.checked=p.data.approved;checkbox.disabled=busy||!reviewable(p.data);checkbox.dataset.select=p.data.id;checkbox.setAttribute('aria-label',`Approve row ${p.data.source_row}`);
+        const label=document.createElement('label');label.className='legacy-grid-approve-target';label.append(checkbox);return label;
+      }},
+      {colId:'customer_name',headerName:'Customer name',width:190,valueGetter:p=>p.data.name},
+      {colId:'review_state',headerName:'Review',width:108,valueGetter:p=>p.data.committed?'Imported':human(p.data.proposal.review_status||'ready'),tooltipValueGetter:p=>issues(p.data),cellRenderer:p=>{
+        const badge=document.createElement('span');badge.className='farmup-row-state '+(p.data.proposal.review_status==='blocked'?'needs_correction':issues(p.data)?'warning':'ready');badge.textContent=p.value;return badge;
+      }},
+      ...['national_id','primary_phone','secondary_phone','county','sub_county','village'].filter(k=>keys.includes(k)).map(k=>textField(k,145)),
+      {colId:'workflow',headerName:'Proposed workflow',width:160,valueGetter:p=>human(p.data.proposal.state)},
+      {colId:'issues',headerName:'Review notes',width:300,valueGetter:p=>issues(p.data)},
+      reconciliation('match','Existing case ID','existing_case_id',220),reconciliation('note','Link / separate-unit explanation','note',260),
+      ...keys.filter(k=>!['source_row','customer_name','national_id','primary_phone','secondary_phone','county','sub_county','village'].includes(k)).map(k=>textField(k,160)),
+      {colId:'imported_case_id',headerName:'Imported case ID',width:250,valueGetter:p=>p.data.farmer_id||''},
+    ];
+  }
+  async function renderReview(){
+    node('[data-rows]').hidden=reviewMode!=='cards';node('[data-grid-wrap]').hidden=reviewMode!=='table';node('[data-table-hint]').hidden=reviewMode!=='table';
+    if(reviewMode==='cards'){node('[data-rows]').innerHTML=current.map(rowCard).join('');return;}
+    node('[data-rows]').replaceChildren();
+    try{
+      await loadGrid();
+      const keys=[...new Set([...Object.values(active.state.bindings||{}),...current.flatMap(r=>Object.keys(r.source_values||{}))])];
+      const key=active.id+JSON.stringify(keys);
+      if(key!==gridColumns){gridApi.setGridOption('columnDefs',columnDefs(keys));gridApi.setFilterModel(null);gridApi.applyColumnState({defaultState:{sort:null}});gridColumns=key;}
+      gridApi.setGridOption('rowData',current);
+    }catch(error){
+      reviewMode='cards';lastNotice=`Table could not load. Cards are available; choose Table to retry. ${error.message}`;await renderReview();
+    }
+  }
   function renderState() {
-    if(!active?.state){root.querySelectorAll('[data-action]').forEach(button=>{button.hidden=true;});node('[data-mapping]').hidden=true;return;}
+    root.querySelectorAll('[data-source-sheet]').forEach(button=>{button.disabled=busy;button.classList.toggle('active',button.dataset.sourceSheet===selectedSheet);button.setAttribute('aria-pressed',String(button.dataset.sourceSheet===selectedSheet));});
+    node('[data-source-description]').textContent=`${selectedSheet} import. ${selectedSheet==='Eco-conserve'?'Master Data':'Eco-conserve'} records and sheet are preserved.`;
+    node('[data-resume]').disabled=busy;node('[data-filter]').disabled=busy||!active?.state;
+    root.querySelectorAll('[data-review-mode]').forEach(button=>{button.disabled=busy||!active?.state;button.classList.toggle('active',button.dataset.reviewMode===reviewMode);button.setAttribute('aria-pressed',String(button.dataset.reviewMode===reviewMode));});
+    if(!active?.state){root.querySelectorAll('[data-action]').forEach(button=>{button.hidden=true;});node('[data-mapping]').hidden=true;node('[data-source]').open=true;node('[data-grid-wrap]').hidden=true;node('[data-rows]').hidden=true;node('[data-table-hint]').hidden=true;return;}
     node('[data-mapping]').hidden=false;
     node('[data-source]').open=active.phase==='uploading';
-    feedback(lastNotice || `${active.filename} · ${active.phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved${active.frozen?' · Portal owner held for cutover':''}`);
+    feedback(lastNotice || `${active.source_sheet} · ${active.filename} · ${active.phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved${active.frozen?' · Portal owner held for cutover':''}`);
     const processing=active.state.projection;
     node('[data-progress]').max=Math.max(processing?.count||active.total,1);node('[data-progress]').value=processing?.offset||active.committed;
     const available={stage:active.phase==='mapping',cleanup:superuser&&['ready','deleting'].includes(active.phase)&&!active.state.cleanup_complete,commit:active.phase==='ready'&&active.state.cleanup_complete,
@@ -31,11 +119,16 @@
     node('[data-action="resume"]').disabled=busy;
     const bindings=active.state.bindings||{};node('[data-mapping-rows]').innerHTML=Object.entries(bindings).map(([i,field])=>`<div><strong>${esc(active.state.headers[i])}</strong><p>${esc(field)}</p></div>`).join('');
     node('[data-mapping]').open=active.phase==='mapping';
+    gridApi?.refreshCells({force:true,columns:['approval','source_row']});
+    const rowsById=new Map(current.map(row=>[String(row.id),row]));
+    root.querySelectorAll('[data-select],[data-match],[data-note]').forEach(input=>{
+      const row=rowsById.get(input.dataset.select||input.dataset.match||input.dataset.note);input.disabled=busy||!row||!reviewable(row);
+    });
   }
   async function refresh() {
     if(!active)return;
     const data=await call(`${active.id}/?offset=${offset}&filter=${encodeURIComponent(node('[data-filter]').value)}`);current=data.rows;pageTotal=data.total;
-    node('[data-rows]').innerHTML=current.map(r=>`<article class="case360-section"><label class="legacy-row-select"><input type="checkbox" data-select="${r.id}" ${r.approved?'checked':''} ${r.committed?'disabled':''}>Row ${r.source_row} · ${esc(r.name)} ${r.committed?'· Imported':''}</label><p>${esc(r.proposal.state)} · ${esc((r.proposal.issues||[]).join('; '))}</p>${r.proposal.commit_error?`<p role="alert">${esc(r.proposal.commit_error)}</p>`:''}<details><summary>Source facts and history</summary><div class="case360-grid">${Object.entries(r.source_values||{}).filter(([,v])=>v!==''&&v!==null).map(([k,v])=>`<div><strong>${esc(k)}</strong><p>${esc(v)}</p></div>`).join('')}</div></details>${!r.committed?`<details><summary>Link or separate unit${r.identity_collision?' - identity match needs review':' (optional)'}</summary><label>Explicit existing case ID<input data-match="${r.id}" value="${esc(r.reconciliation.existing_case_id||'')}"></label><label>Link / separate-unit explanation<input data-note="${r.id}" value="${esc(r.reconciliation.note||'')}"></label></details>`:''}</article>`).join('');
+    await renderReview();
     node('[data-page]').textContent=`${data.total?offset+1:0}–${offset+current.length} of ${data.total}`;
     node('[data-action="previous"]').disabled=offset===0;node('[data-action="next"]').disabled=offset+50>=data.total;renderState();
   }
@@ -53,24 +146,23 @@
     running=false;await refresh();
   }
   async function run(task) {
-    if(busy)return;busy=true;lastNotice='';if(active)renderState();
+    if(busy)return;gridApi?.stopEditing();busy=true;lastNotice='';renderState();
     try{await task();}catch(error){running=false;try{if(active)await refresh();}catch{}lastNotice=error.message;feedback(lastNotice);}finally{busy=false;renderState();}
   }
   async function selection(rows) {
     if(!rows.length||!['ready','committing'].includes(active.phase))return;
-    await command('select',{rows:rows.map(r=>({id:r.id,approved:node(`[data-select="${r.id}"]`).checked,
-      existing_case_id:node(`[data-match="${r.id}"]`)?.value||'',note:node(`[data-note="${r.id}"]`)?.value||''}))});
+    gridApi?.stopEditing();
+    await command('select',{rows:rows.map(r=>({id:r.id,approved:r.approved,
+      existing_case_id:r.reconciliation.existing_case_id||'',note:r.reconciliation.note||''}))});
   }
   async function init() {
     root=document.getElementById('legacy-data-workspace');if(!root||root.dataset.ready)return;root.dataset.ready='true';
-    const index=await call();superuser=index.superuser;
-    node('[name="group_id"]').innerHTML='<option value="">Choose owner</option>'+index.groups.map(g=>`<option value="${g.id}">${esc(g.label)}</option>`).join('');
-    node('[data-resume]').innerHTML='<option value="">Choose saved import</option>'+index.uploads.map(u=>`<option value="${u.id}">${esc(u.namespace)} · ${esc(u.phase)}</option>`).join('');
+    await run(loadIndex);
     node('[data-resume]').onchange=()=>run(async()=>{if(!node('[data-resume]').value)return;active={id:node('[data-resume]').value};offset=0;await refresh();});
     node('[data-upload-form]').onsubmit=event=>{event.preventDefault();run(async()=>{
       const file=node('[name="file"]').files[0];if(!file||file.size>20*1024*1024)throw new Error('Select one XLSX up to 20 MiB.');
       feedback('Reading source checksum…');const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()))).map(v=>v.toString(16).padStart(2,'0')).join('');
-      await call('',{group_id:node('[name="group_id"]').value,namespace:node('[name="namespace"]').value,filename:file.name,size:file.size,digest});
+      await call('',{group_id:node('[name="group_id"]').value,namespace:node('[name="namespace"]').value,filename:file.name,size:file.size,digest,source_sheet:selectedSheet});
       const existing=new Set(active.chunks);let position=0;running=true;
       for(let start=0;start<file.size;start+=512*1024,position++) {
         if(!running||document.hidden){feedback('Upload paused. Re-select the same workbook to resume saved chunks.');return;}
@@ -84,7 +176,28 @@
       running=false;await command('prepare');offset=0;await refresh();
     });};
     node('[data-filter]').onchange=()=>run(async()=>{if(active)await selection(current.filter(r=>!r.committed));offset=0;await refresh();});
+    root.addEventListener('input',event=>{
+      const target=event.target,id=target.dataset.select||target.dataset.match||target.dataset.note;
+      const row=current.find(r=>String(r.id)===id);if(!row||busy||!reviewable(row))return;
+      if(target.dataset.select)row.approved=target.checked;
+      if(target.dataset.match)row.reconciliation.existing_case_id=target.value;
+      if(target.dataset.note)row.reconciliation.note=target.value;
+    });
+    node('[data-row-dialog]').addEventListener('close',()=>{gridApi?.refreshCells({force:true});if(reviewMode==='cards')node('[data-rows]').innerHTML=current.map(rowCard).join('');});
     root.addEventListener('click',event=>{
+      const source=event.target.closest('[data-source-sheet]')?.dataset.sourceSheet;
+      if(source){run(async()=>{
+        if(source===selectedSheet)return;
+        if(active)await selection(current.filter(r=>!r.committed));
+        selectedSheet=source;active=null;current=[];offset=0;pageTotal=0;
+        try{sessionStorage.setItem('portal-legacy-source-sheet',source);}catch{}
+        node('[data-rows]').replaceChildren();gridApi?.setGridOption('rowData',[]);node('[data-page]').textContent='';node('[data-progress]').value=0;node('[data-filter]').value='all';
+        feedback(`Choose a reviewed ${source} workbook or resume its saved import.`);await loadIndex();
+      });return;}
+      const mode=event.target.closest('[data-review-mode]')?.dataset.reviewMode;
+      if(mode){run(async()=>{reviewMode=mode;try{sessionStorage.setItem('portal-legacy-review-mode',mode);}catch{}await renderReview();});return;}
+      const rowId=event.target.closest('[data-row-open]')?.dataset.rowOpen;
+      if(rowId){openRow(rowId);return;}
       const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
       if(action==='pause'){running=false;feedback('Pausing after the current saved chunk.');return;}
       run(async()=>{
@@ -93,16 +206,19 @@
         else if(action==='resume')await process();
         else if(action==='stage'){await command('stage');await process();}
         else if(action==='previous'||action==='next'){await selection(current.filter(r=>!r.committed));offset=Math.max(0,offset+(action==='previous'?-50:50));await refresh();}
-        else if(action==='select_page'){current.filter(r=>!r.committed).forEach(r=>{node(`[data-select="${r.id}"]`).checked=true;});await selection(current.filter(r=>!r.committed));await refresh();}
-        else if(action==='select_all'||action==='unselect_all'){await command('select',{all:true,approved:action==='select_all'});await refresh();}
+        else if(action==='select_page'){
+          const rows=[];if(reviewMode==='table'&&gridApi)gridApi.forEachNodeAfterFilterAndSort(n=>{if(reviewable(n.data))rows.push(n.data);});else rows.push(...current.filter(reviewable));
+          rows.forEach(r=>{r.approved=true;});await selection(current.filter(r=>!r.committed));await refresh();
+        }
+        else if(action==='select_all'||action==='unselect_all'){await selection(current.filter(r=>!r.committed));await command('select',{all:true,approved:action==='select_all'});await refresh();}
         else if(action==='commit'){await selection(current.filter(r=>!r.committed));if(await confirm('Import approved records',`Import the saved selection (${active.selected} approved rows)?`,'Historical gaps remain unknown. Sheet publication stays held.')){await command('commit');await process();}}
         else if(action==='cleanup'){
           running=true;let result;do{result=await command('cleanup_preview');renderState();}while(!result.review.complete&&running&&!document.hidden);running=false;
-          if(result.review.complete&&await confirm('Delete Portal test data',`Delete all ${result.review.count} Portal test cases for this owner and the disclosed dependent records?`,'Impact: '+result.review.impact.map(i=>`${i.category}: ${i.count} ${i.model}`).join('; ')+'. Eco-conserve and Master Data Sheets are not deleted. The owner remains held until cutover finishes.')){await command('cleanup_confirm',{token:result.review.token});await process();}
+          if(result.review.complete&&await confirm('Delete '+active.source_sheet+' test data',`Delete ${result.review.count} ${active.source_sheet} test cases for ${active.group_label} and the disclosed dependent records?`,'Impact: '+result.review.impact.map(i=>`${i.category}: ${i.count} ${i.model}`).join('; ')+'. The other register is preserved. No Sheet rows are deleted in this step. The owner remains held until cutover finishes.')){await command('cleanup_confirm',{token:result.review.token});await process();}
         }
         else if(action==='project'){
           const result=await command('projection_preview');await refresh();
-          if(await confirm('Replace Master Data',`${result.preview.tab} · ${result.preview.spreadsheet}: replace all data rows with ${result.preview.rows} imported cases.`,'Pause manual Master Data edits now. Unmatched old rows will be removed. Headers and formatting stay; Eco-conserve is untouched.')){await command('projection_confirm',{manual_edits_paused:true});await process();}
+          if(await confirm('Replace '+active.source_sheet,`${result.preview.tab} · ${result.preview.spreadsheet}: replace all data rows with ${result.preview.rows} imported cases.`,'Pause manual edits to this register now. Unmatched old rows will be removed. Headers and formatting stay; '+result.preview.preserved_register+' is untouched.')){await command('projection_confirm',{manual_edits_paused:true});await process();}
         }
         else if(action==='discard'){if(await confirm('Discard upload','Remove this uncommitted staging version?','Existing cases and other versions remain.')){await command('discard');await refresh();}}
         else if(action==='restart_projection'){await command('restart_projection');await refresh();}

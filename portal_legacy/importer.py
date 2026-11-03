@@ -11,6 +11,7 @@ from core.models import GroupSheetConfiguration,JawabuFarmerMaster
 from .models import LegacyBatch,LegacyUpload,LegacyChunk,LegacyDraft,LegacyRow
 from . import services,streaming
 from .workbook import propose
+from .registers import partner_for_source,case_ids,owns_case
 
 CHUNK=512*1024
 
@@ -37,14 +38,15 @@ def create(body,actor,access):
     group=GroupSheetConfiguration.objects.get(pk=body.get('group_id'),enabled=True)
     authorize(actor,access,group,branch='')
     namespace=str(body.get('namespace',''));size=int(body.get('size',0));digest=str(body.get('digest',''))
+    source_sheet=str(body.get('source_sheet','Master Data'));partner_for_source(source_sheet)
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',namespace):raise ValueError('Supply a stable cutover namespace.')
     if not 1<=size<=streaming.LIMIT or not re.fullmatch('[a-f0-9]{64}',digest):raise ValueError('Select an XLSX file up to 20 MiB with a SHA256 digest.')
     with transaction.atomic():
         GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
-        existing=LegacyUpload.objects.filter(batch__group=group,digest=digest).first()
+        existing=LegacyUpload.objects.filter(batch__group=group,digest=digest,source_sheet=source_sheet).first()
         if existing:return existing
         batch,_=LegacyBatch.objects.get_or_create(group=group,namespace=namespace,defaults={'source_hash':digest,'created_by':actor})
-        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size)
+        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet)
 
 
 def receive(upload,position,content):
@@ -75,8 +77,8 @@ def save(upload):
 
 
 def payload(upload):
-    return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),
-        'filename':upload.filename,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
+    return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),'group_label':upload.batch.group.display_name or upload.batch.group.sheet_name,
+        'filename':upload.filename,'source_sheet':upload.source_sheet,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
         'chunks':list(upload.chunks.filter(kind='source').values_list('position',flat=True)),
         'size':upload.size,'total':upload.drafts.count(),'committed':upload.drafts.filter(legacy__committed_at__isnull=False).count(),
         'selected':upload.drafts.filter(approved=True).count(),'state':{k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}}
@@ -108,7 +110,7 @@ def stage_step(upload,actor,access):
                 candidate['issues']+= [issue for issue in blocking if issue not in candidate['issues']]
                 candidate['review_status']='blocked' if blocking else 'warning' if candidate['issues'] else 'ready'
                 pending.append(LegacyDraft(upload=upload,source_row=source_row,values=values,proposal=candidate))
-                if previous_count+len(pending)>50000:raise ValueError('Master Data exceeds the 50,000-record limit.')
+                if previous_count+len(pending)>50000:raise ValueError('The selected register exceeds the 50,000-record limit.')
             offset=next_offset
             if len(pending)>=250 or time.monotonic()-started>=5:exhausted=False;break
     with transaction.atomic():
@@ -127,7 +129,7 @@ def inspect_rows(upload,offset=0,filter_by='all'):
     total=qs.count();rows=[]
     for draft in qs.select_related('legacy')[offset:offset+50]:
         row=services.row_payload(draft.legacy) if draft.legacy_id else {'id':str(draft.pk),'name':draft.values.get('customer_name',''),
-            'source_row':draft.source_row,'sheet':'Master Data','proposal':draft.proposal,'source_values':draft.values,'committed':False,'existing_cases':[],'identity_collision':False}
+            'source_row':draft.source_row,'sheet':upload.source_sheet,'proposal':draft.proposal,'source_values':draft.values,'committed':False,'existing_cases':[],'identity_collision':False}
         row.update(id=str(draft.pk),approved=draft.approved,reconciliation=draft.reconciliation)
         if not draft.legacy_id and draft.proposal.get('fields',{}).get('national_id'):
             matches=JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group,national_id=draft.proposal['fields']['national_id']).values('pk','case_reference_number')[:10]
@@ -153,15 +155,16 @@ def cleanup_preview(upload,actor):
     group=upload.batch.group
     if upload.drafts.filter(proposal__review_status='blocked').exists():
         raise ValueError('Correct blocked source rows in the workbook and stage a new version before deleting test data.')
-    if LegacyUpload.objects.filter(batch__group=group,phase='complete').exclude(pk=upload.pk).exists():
-        raise ValueError('This owner already completed its legacy cutover. Use audited customer updates; imported live cases are not test data.')
+    if LegacyUpload.objects.filter(batch__group=group,source_sheet=upload.source_sheet,phase='complete').exclude(pk=upload.pk).exists():
+        raise ValueError('This register already completed its legacy cutover. Use audited customer updates; imported live cases are not test data.')
     # Deletion/publication needs whole-owner authority, not an amalgam of narrow branch grants.
-    if not upload.state.get('cleanup_ids'):
+    if 'cleanup_ids' not in upload.state or upload.state.get('cleanup_source_sheet')!=upload.source_sheet:
         with transaction.atomic():
             GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
             if LegacyUpload.objects.filter(batch__group=group,frozen=True).exclude(pk=upload.pk).exists():raise ValueError('Another cutover owns this group.')
             upload.frozen=True
-            upload.state['cleanup_ids']=[str(v) for v in JawabuFarmerMaster.objects.filter(group_configuration=group).values_list('pk',flat=True)]
+            upload.state['cleanup_ids']=case_ids(upload)
+            upload.state['cleanup_source_sheet']=upload.source_sheet
             upload.state['cleanup_plans']=[];upload.state['cleanup_facts']={};upload.state['cleanup_preview_offset']=0;save(upload)
     ids=upload.state['cleanup_ids'];offset=upload.state['cleanup_preview_offset'];chunk=ids[offset:offset+10]
     if chunk:
@@ -170,7 +173,7 @@ def cleanup_preview(upload,actor):
         from core.services.miniapp_deletion import _row_fingerprint
         for key in plan['deleted']:upload.state['cleanup_facts']['|'.join(key)]=_row_fingerprint(plan['rows'][key])
         for (label,pk),record in plan['rows'].items():
-            if label=='core.JawabuFarmerMaster' and record.group_configuration_id!=group.pk:raise ValueError('A linked case belongs to another Portal owner; reconcile it first.')
+            if label=='core.JawabuFarmerMaster' and not owns_case(upload,record):raise ValueError('A linked case belongs to another owner or register; reconcile it first.')
             owner=getattr(record,'group_configuration_id',None)
             if owner is not None and owner!=group.pk:raise ValueError('Linked operational records belong to another Portal owner. Reconcile ownership before deletion.')
         upload.state['cleanup_plans'].append({'ids':chunk,'fingerprint':plan['fingerprint'],'groups':plan['groups']})
@@ -184,7 +187,7 @@ def cleanup_preview(upload,actor):
                 for group in plan['groups'][category]:
                     key=(category,group['model']);disclosed.setdefault(key,set()).update(group['references'])
         return {'count':len(ids),'complete':True,'impact':[{'category':k[0],'model':k[1],'count':len(v)} for k,v in sorted(disclosed.items())],
-                'token':signing.dumps({'upload':str(upload.pk),'actor':actor.pk,'manifest':manifest},salt='legacy-test-cleanup')}
+                'source_sheet':upload.source_sheet,'token':signing.dumps({'upload':str(upload.pk),'actor':actor.pk,'manifest':manifest,'source_sheet':upload.source_sheet},salt='legacy-test-cleanup')}
     return {'count':len(ids),'reviewed':upload.state['cleanup_preview_offset'],'complete':False}
 
 
@@ -194,15 +197,17 @@ def cleanup_confirm(upload,actor,token):
     if upload.phase!='ready' or not upload.frozen or upload.state.get('cleanup_complete') or upload.drafts.filter(legacy__isnull=False).exists():
         raise ValueError('Test deletion requires a held, reviewed selection before canonical import.')
     signed=signing.loads(token,salt='legacy-test-cleanup',max_age=1800)
-    if signed!={'upload':str(upload.pk),'actor':actor.pk,'manifest':upload.state.get('cleanup_manifest')}:raise ValueError('Deletion selection changed. Preview again.')
+    if upload.state.get('cleanup_source_sheet')!=upload.source_sheet or signed!={'upload':str(upload.pk),'actor':actor.pk,'manifest':upload.state.get('cleanup_manifest'),'source_sheet':upload.source_sheet}:raise ValueError('Deletion selection changed. Preview again.')
     upload.phase='deleting';upload.state['cleanup_started']=True;upload.state['cleanup_remaining']=upload.state['cleanup_ids'];save(upload)
 
 
 def deletion_step(upload,actor):
     from core.services.miniapp_deletion import preview_selection,delete_selection,CASCADE
     remaining=upload.state.get('cleanup_remaining',[])
+    if upload.state.get('cleanup_source_sheet')!=upload.source_sheet:raise ValueError('Review the remaining cleanup selection for this register again.')
     live=[str(v) for v in JawabuFarmerMaster.objects.filter(pk__in=remaining,group_configuration=upload.batch.group).order_by('pk').values_list('pk',flat=True)[:10]]
     if live:
+        if any(not owns_case(upload,case) for case in JawabuFarmerMaster.objects.filter(pk__in=live)):raise ValueError('Cleanup selection includes another register. Review the remaining selection again.')
         plan=preview_selection(model_label='core.JawabuFarmerMaster',ids=live,actor=actor,mode=CASCADE,sheet_policy='legacy_cutover_db_only')
         approved=set(upload.state['cleanup_ids'])
         if any(label=='core.JawabuFarmerMaster' and pk not in approved for label,pk in plan['deleted']):raise ValueError('New case appeared after deletion preview; review impact again.')
@@ -212,7 +217,7 @@ def deletion_step(upload,actor):
         delete_selection(model_label='core.JawabuFarmerMaster',ids=live,actor=actor,mode=CASCADE,fingerprint=plan['fingerprint'],
             request_id='legacy-'+str(upload.pk)+'-'+hashlib.sha256(','.join(live).encode()).hexdigest()[:20],sheet_policy='legacy_cutover_db_only')
     else:
-        if JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group).exists():raise ValueError('A new case exists outside the confirmed test selection. Re-preview cleanup.')
+        if case_ids(upload):raise ValueError('A new case exists outside the confirmed register selection. Re-preview cleanup.')
         upload.state['cleanup_complete']=True;upload.phase='ready'
     save(upload)
 
@@ -226,7 +231,7 @@ def commit_step(upload,actor,access):
                 draft=LegacyDraft.objects.select_for_update().get(pk=draft.pk)
                 if draft.legacy_id:continue
                 authorize(actor,access,upload.batch.group,branch=draft.values.get('branch',''),product=draft.values.get('payment_product',''))
-                row,created=LegacyRow.objects.get_or_create(batch=upload.batch,source_sheet='Master Data',source_row=draft.source_row,
+                row,created=LegacyRow.objects.get_or_create(batch=upload.batch,source_sheet=upload.source_sheet,source_row=draft.source_row,
                     defaults={'source_hash':upload.digest,'values':draft.values,'proposal':draft.proposal})
                 if row.values!=draft.values:raise ValueError('This source row already has different facts. Reconcile its existing provenance.')
                 saved=services.commit_row(row.pk,expected_revision=row.revision,request_key='legacy:'+str(upload.pk)+':'+str(draft.pk),actor=actor,access=access,

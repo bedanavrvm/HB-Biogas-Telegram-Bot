@@ -1,4 +1,4 @@
-"""Explicit IT commands for durable, Master Data-only cutover sessions."""
+"""Explicit IT commands for durable, register-bound cutover sessions."""
 import json
 from datetime import timedelta
 from django.utils import timezone
@@ -18,6 +18,7 @@ from core.models import GroupSheetConfiguration
 from core.services.external_resilience import external_call_budget
 from . import importer,projection
 from .models import LegacyUpload
+from .registers import SOURCE_SHEETS
 from .views import identity
 
 
@@ -35,8 +36,11 @@ def legacy_upload(request,upload_id=None,action='index'):
                 except PermissionDenied:continue
                 groups.append({'id':str(group.pk),'label':group.display_name or group.sheet_name})
             if not groups:raise PermissionDenied('Whole-group Portal IT authority is required.')
-            uploads=LegacyUpload.objects.filter(batch__group_id__in=[g['id'] for g in groups]).exclude(phase='discarded').select_related('batch').order_by('-created_at')[:50]
-            return JsonResponse({'ok':True,'groups':groups,'uploads':[importer.payload(u) for u in uploads],'superuser':actor.is_superuser})
+            uploads=LegacyUpload.objects.filter(batch__group_id__in=[g['id'] for g in groups]).exclude(phase='discarded')
+            if request.GET.get('source_sheet'):
+                source=request.GET['source_sheet'];importer.partner_for_source(source);uploads=uploads.filter(source_sheet=source)
+            uploads=uploads.select_related('batch__group').order_by('-created_at')[:50]
+            return JsonResponse({'ok':True,'groups':groups,'source_sheets':[value for value,label in SOURCE_SHEETS],'uploads':[importer.payload(u) for u in uploads],'superuser':actor.is_superuser})
         if request.method=='POST' and upload_id is None:
             body=json.loads(request.body or '{}')
             if not isinstance(body,dict):raise ValueError('A JSON object is required.')
@@ -54,6 +58,7 @@ def legacy_upload(request,upload_id=None,action='index'):
             else:
                 body=json.loads(request.body or '{}')
                 if not isinstance(body,dict):raise ValueError('A JSON object is required.')
+                if 'source_sheet' in body and body['source_sheet']!=upload.source_sheet:raise ValueError('This upload is bound to its original register. Create a separate upload for the other sheet.')
                 if action not in {'advance','prepare','cleanup_preview'} and body.get('revision')!=upload.revision:raise ValueError('This workspace changed. Refresh saved progress before retrying.')
                 if action=='prepare':importer.prepare(upload)
                 elif action=='stage':

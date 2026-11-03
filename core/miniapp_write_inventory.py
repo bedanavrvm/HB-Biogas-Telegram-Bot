@@ -50,9 +50,9 @@ _add(
     'portal_legacy_uploads portal_legacy_upload portal_legacy_upload_action',
     authentication='portal_auth_required; verified Telegram identity and active Portal staff',
     capability='portal.legacy.manage with whole-owner Portal IT; test cleanup additionally requires active Superuser and testing flag',
-    scope='Exact enabled Portal owner, private source upload and retained per-row provenance',
+    scope='Exact enabled Portal owner, immutable Master Data or Eco-conserve source, private upload and per-row provenance',
     request_key_binding='Canonical Portal request identity, upload digest/chunk position, expected revision and expiring database lease',
-    domain_replay='Source byte hashes, source-row uniqueness, transactional case commits, signed deletion manifest and sheet-scoped replacement marker',
+    domain_replay='Register-bound source byte hashes, source-row uniqueness, transactional case commits, register-scoped signed deletion manifest and sheet replacement marker',
 )
 _add(
     'portal_legacy_workspace portal_legacy_stage portal_legacy_batch portal_legacy_confirm',

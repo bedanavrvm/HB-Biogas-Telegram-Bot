@@ -45,7 +45,7 @@ def bind_headers(headers):
         if not field: continue
         if field in used: raise ValueError(f'Duplicate operational mapping: {label}. Retain only one Cleaned column.')
         used.add(field); bindings[index] = field
-    if not {'source_row','customer_name'} <= used: raise ValueError('Master Data requires Source Row and Customer Name.')
+    if not {'source_row','customer_name'} <= used: raise ValueError('The selected register requires Source Row and Customer Name.')
     return bindings
 
 

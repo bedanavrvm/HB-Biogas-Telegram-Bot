@@ -1,4 +1,4 @@
-"""Explicit replacement of Master Data only. No Eco-conserve worksheet calls."""
+"""Explicit replacement of one selected register, preserving its counterpart."""
 from decimal import Decimal
 import hashlib,json,zlib
 import uuid
@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 from core.services.external_resilience import external_call_budget
 from .models import LegacyChunk,LegacyRow
 from .importer import save,authorize
+from .registers import case_ids,owns_case
 
 
 def checksum(rows):
@@ -21,10 +22,12 @@ def checksum(rows):
 def destination(upload):
     from core.services.sheets import GoogleSheetsService
     config=upload.batch.group;workflow=config.workflow or {}
-    name=str(workflow.get('master_sheet_name') or 'Master Data')
-    if name==str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve'):raise ValueError('Master Data and Eco-conserve destinations must be different.')
+    master=str(workflow.get('master_sheet_name') or 'Master Data').strip()
+    eco=str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve').strip()
+    if master.casefold()==eco.casefold():raise ValueError('Master Data and Eco-conserve destinations must be different.')
+    name=eco if upload.source_sheet=='Eco-conserve' else master
     service=GoogleSheetsService.get_instance(sheet_id=workflow.get('master_sheet_id') or config.sheet_id,sheet_name=name)
-    if not service.is_available():raise ValueError('Master Data is unavailable. Local imported records remain saved.')
+    if not service.is_available():raise ValueError(f'{upload.source_sheet} is unavailable. Local imported records remain saved.')
     # The gateway caches worksheets; grid dimensions may have changed since opening it.
     return service._sheet.spreadsheet.get_worksheet_by_id(service._sheet.id)
 
@@ -32,31 +35,30 @@ def destination(upload):
 def preview(upload,actor,access):
     authorize(actor,access,upload.batch.group,branch='')
     if not upload.state.get('cleanup_complete'):raise ValueError('Complete test cleanup first.')
-    if upload.drafts.filter(legacy__isnull=True).exists():raise ValueError('Account for every Master Data row before replacing the complete projection.')
-    from core.models import JawabuFarmerMaster
-    case_ids=upload.drafts.values_list('legacy__farmer_id',flat=True)
+    if upload.drafts.filter(legacy__isnull=True).exists():raise ValueError('Account for every source row before replacing the selected register.')
+    imported_ids={str(pk) for pk in upload.drafts.values_list('legacy__farmer_id',flat=True)}
     if upload.drafts.values('legacy__farmer_id').distinct().count()!=upload.drafts.count():
         raise ValueError('Multiple source rows link to one case. Reconcile the duplicate bindings before complete replacement.')
-    if JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group).exclude(pk__in=case_ids).exists():
-        raise ValueError('This owner contains cases outside this import. Reconcile them before complete replacement.')
+    if set(case_ids(upload))!=imported_ids:
+        raise ValueError('The selected register contains cases outside this import, or a case is linked to the other register. Reconcile before replacement.')
     sheet=destination(upload)
     workflow=upload.batch.group.workflow or {};header_row=int(workflow.get('master_header_row') or 1)
     headers=sheet.row_values(header_row)
-    if not headers:raise ValueError('Master Data requires an existing header row.')
+    if not headers:raise ValueError('The selected register requires an existing header row.')
     from .workbook import token
-    if not any(token(h) in {'customername','clientname','name'} for h in headers):raise ValueError('Master Data must have a named customer column before replacement.')
+    if not any(token(h) in {'customername','clientname','name'} for h in headers):raise ValueError('The selected register must have a named customer column before replacement.')
     new_headers=list(headers)
     if 'caseid' not in {token(h) for h in headers}:new_headers.append('Case ID')
-    upload.state['projection']={'spreadsheet':sheet.spreadsheet.id,'sheet':sheet.id,'name':sheet.title,
+    upload.state['projection']={'spreadsheet':sheet.spreadsheet.id,'sheet':sheet.id,'name':sheet.title,'source_sheet':upload.source_sheet,
         'header_row':header_row,'headers':headers,'new_headers':new_headers,'old_rows':sheet.row_count,'old_cols':sheet.col_count,
         'count':upload.drafts.count(),'offset':0,'snapshot_hashes':[],'snapshot_kind':'backup_'+str(upload.revision)}
     save(upload)
     return {'spreadsheet':sheet.spreadsheet.id,'tab':sheet.title,'data_start_row':header_row+1,'clear_through_row':sheet.row_count,
-            'clear_columns':sheet.col_count,'rows':upload.drafts.count(),'headers':new_headers,'eco_conserve':'untouched'}
+            'clear_columns':sheet.col_count,'rows':upload.drafts.count(),'headers':new_headers,'source_sheet':upload.source_sheet,'preserved_register':'Master Data' if upload.source_sheet=='Eco-conserve' else 'Eco-conserve'}
 
 
 def confirm(upload,body):
-    if not body.get('manual_edits_paused'):raise ValueError('Pause manual Master Data edits before confirming replacement.')
+    if not body.get('manual_edits_paused'):raise ValueError('Pause manual edits to the selected register before confirming replacement.')
     if not upload.state.get('projection'):raise ValueError('Preview the exact destination first.')
     upload.phase='backup';save(upload)
 
@@ -94,13 +96,15 @@ def record_values(legacy,headers,ordinal):
 
 def advance(upload,actor,access):
     authorize(actor,access,upload.batch.group,branch='')
-    p=upload.state['projection'];sheet=destination(upload)
-    if str(sheet.spreadsheet.id)!=str(p['spreadsheet']) or sheet.id!=p['sheet']:raise ValueError('Destination changed. Re-preview Master Data.')
+    p=upload.state['projection']
+    if p.get('source_sheet','Master Data')!=upload.source_sheet:raise ValueError('The saved projection belongs to another register. Re-preview the destination.')
+    sheet=destination(upload)
+    if str(sheet.spreadsheet.id)!=str(p['spreadsheet']) or sheet.id!=p['sheet']:raise ValueError('Destination changed. Re-preview the selected register.')
     allowed_headers=[p['headers'],p['new_headers']] if upload.phase in {'replacing','readback','complete'} else [p['headers']]
-    if sheet.row_values(p['header_row']) not in allowed_headers:raise ValueError('Master Data headers changed after preview.')
+    if sheet.row_values(p['header_row']) not in allowed_headers:raise ValueError('Selected register headers changed after preview.')
     book=sheet.spreadsheet;offset=p['offset'];width=len(p['new_headers']);column=get_column_letter(max(width,p['old_cols']))
     if upload.phase in {'backup','projecting','verifying'} and (sheet.row_count!=p['old_rows'] or sheet.col_count!=p['old_cols']):
-        raise ValueError('Master Data grid changed after preview. Review replacement again before continuing.')
+        raise ValueError('Selected register grid changed after preview. Review replacement again before continuing.')
     with external_call_budget(8):
         if upload.phase=='backup':
             start=p['header_row']+1+offset;end=min(start+249,p['old_rows'])
@@ -115,14 +119,14 @@ def advance(upload,actor,access):
                         if i<len(row) and row[i]:
                             try:identities.append(uuid.UUID(str(row[i])))
                             except ValueError:pass
-                if JawabuFarmerMaster.objects.filter(pk__in=identities).exclude(group_configuration=upload.batch.group).exists():
-                    raise ValueError('Master Data contains another Portal owner\'s live Case IDs. No replacement performed.')
+                if any(not owns_case(upload,case) for case in JawabuFarmerMaster.objects.filter(pk__in=identities).only('pk','group_configuration_id','legacy_fulfillment_partner','county','hb_sales_person')):
+                    raise ValueError('The destination contains live Case IDs from another owner or register. No replacement performed.')
                 data=zlib.compress(json.dumps(rows,ensure_ascii=False).encode());digest=checksum(rows)
                 chunk,_=LegacyChunk.objects.get_or_create(upload=upload,kind=p.get('snapshot_kind','backup'),position=offset,defaults={'content':data,'digest':digest})
-                if chunk.digest!=digest:raise ValueError('Master Data changed during snapshot. Re-preview the destination.')
+                if chunk.digest!=digest:raise ValueError('Selected register changed during snapshot. Re-preview the destination.')
                 p['snapshot_hashes'].append([start,end,digest]);p['offset']+=250
             else:
-                if p['count']==0:raise ValueError('An empty import cannot replace Master Data.')
+                if p['count']==0:raise ValueError('An empty import cannot replace the selected register.')
                 # Capacity check includes the temporary copy, not a second full backup worksheet.
                 title='_legacy_'+str(upload.pk).replace('-','')[:20]
                 worksheets=book.worksheets();staging=next((w for w in worksheets if w.title==title),None)
@@ -150,7 +154,7 @@ def advance(upload,actor,access):
         elif upload.phase=='verifying':
             if offset<len(p['snapshot_hashes']):
                 start,end,digest=p['snapshot_hashes'][offset]
-                if checksum(sheet.get(f'A{start}:{column}{end}',value_render_option='FORMULA'))!=digest:raise ValueError('Master Data changed since preview. Pause edits and prepare a fresh snapshot.')
+                if checksum(sheet.get(f'A{start}:{column}{end}',value_render_option='FORMULA'))!=digest:raise ValueError('Selected register changed since preview. Pause edits and prepare a fresh snapshot.')
                 p['offset']+=1
             else:upload.phase='replacing'
         elif upload.phase=='replacing':
@@ -159,7 +163,7 @@ def advance(upload,actor,access):
             markers=metadata.get('developerMetadata',[])+[m for s in metadata.get('sheets',[]) if s.get('properties',{}).get('sheetId')==sheet.id for m in s.get('developerMetadata',[])]
             marker=next((m for m in markers if m.get('metadataKey')=='legacy_cutover' and m.get('metadataValue')==str(upload.pk) and m.get('location',{}).get('sheetId')==sheet.id),None)
             if not marker:
-                if sheet.row_count!=p['old_rows'] or sheet.col_count!=p['old_cols']:raise ValueError('Master Data grid changed before replacement. IT must inspect the destination; no replacement was sent.')
+                if sheet.row_count!=p['old_rows'] or sheet.col_count!=p['old_cols']:raise ValueError('Selected register grid changed before replacement. IT must inspect the destination; no replacement was sent.')
                 requests=[]
                 if sheet.row_count<p['count']+p['header_row']:requests.append({'appendDimension':{'sheetId':sheet.id,'dimension':'ROWS','length':p['count']+p['header_row']-sheet.row_count}})
                 if sheet.col_count<width:requests.append({'appendDimension':{'sheetId':sheet.id,'dimension':'COLUMNS','length':width-sheet.col_count}})
@@ -175,7 +179,7 @@ def advance(upload,actor,access):
             if drafts:
                 expected=[record_values(d.legacy,p['new_headers'],offset+i+1) for i,d in enumerate(drafts)]
                 start=p['header_row']+offset+1;end=start+len(drafts)-1
-                if checksum(sheet.get(f'A{start}:{get_column_letter(width)}{end}',value_render_option='FORMULA'))!=checksum(expected):raise ValueError('Master Data readback mismatch. Group remains held; inspect saved snapshot.')
+                if checksum(sheet.get(f'A{start}:{get_column_letter(width)}{end}',value_render_option='FORMULA'))!=checksum(expected):raise ValueError('Selected register readback mismatch. Group remains held; inspect saved snapshot.')
                 with transaction.atomic():
                     LegacyRow.objects.filter(pk__in=[d.legacy_id for d in drafts]).update(publication_ready=True)
                     p['offset']+=len(drafts);save(upload)

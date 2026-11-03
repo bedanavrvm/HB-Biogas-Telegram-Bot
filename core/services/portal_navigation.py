@@ -23,14 +23,14 @@ PORTAL_NAV_ITEMS = (
     ('history', 'Document History', 'archive', 'portal.documents.view'),
     ('farmup', 'Monthly List (FarmUp)', 'file-up', 'portal.farmup.view'),
     ('imports', 'Customer Updates (SysUp)', 'upload', 'portal.imports.view'),
-    ('legacy', 'Legacy Data', 'archive-restore', 'portal.legacy.manage'),
+    ('legacy', 'Legacy import', 'archive-restore', 'portal.legacy.manage'),
     ('reports', 'Reports', 'chart-no-axes-combined', 'portal.reports.view'),
 )
 
 PORTAL_PERSONAL_NAV_ITEM = ('settings', 'Settings', 'settings')
 
 PIPELINE_STAGES = (
-    ('intake', 'Intake', 'inbox', ('farmup', 'imports', 'legacy')),
+    ('intake', 'Intake', 'inbox', ('farmup', 'imports')),
     ('visit', 'Field Visit', 'map-pinned', ('jbl', 'my_visits')),
     ('credit', 'Credit', 'shield-check', ('credit',)),
     ('approval', 'Approval', 'badge-check', ('final', 'payment_approvals')),
@@ -43,7 +43,7 @@ PORTAL_SCREEN_PRESENTATION = {
     'dashboard': {'hub': 'home', 'group': 'Home', 'order': 0},
     'performance': {'hub': 'home', 'group': 'Home', 'order': 1},
     'farmup': {'hub': 'pipeline', 'stage': 'intake', 'group': 'Pipeline · Intake', 'order': 0},
-    'legacy': {'hub': 'pipeline', 'stage': 'intake', 'group': 'Pipeline · Intake', 'order': 2},
+    'legacy': {'hub': 'more', 'group': 'Legacy changeover', 'order': 2},
     'imports': {'hub': 'pipeline', 'stage': 'intake', 'group': 'Pipeline · Intake', 'order': 1},
     'jbl': {'hub': 'pipeline', 'stage': 'visit', 'group': 'Pipeline · Field Visit', 'order': 0},
     'my_visits': {'hub': 'pipeline', 'stage': 'visit', 'group': 'Pipeline · Field Visit', 'order': 1},
@@ -64,7 +64,7 @@ PORTAL_SCREEN_PRESENTATION = {
 }
 
 PORTAL_NAV_GROUP_ORDER = (
-    'Home', 'Pipeline · Intake', 'Pipeline · Field Visit', 'Pipeline · Credit',
+    'Home', 'Legacy changeover', 'Pipeline · Intake', 'Pipeline · Field Visit', 'Pipeline · Credit',
     'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · HB Actions', 'Cases', 'More',
 )
 

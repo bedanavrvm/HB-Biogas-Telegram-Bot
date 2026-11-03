@@ -160,7 +160,7 @@ def _ids_for_row(row, columns):
 
 
 def remove_rows(target):
-    # Cutover intentionally keeps Eco-conserve unchanged, including older queued test cleanup.
+    # Register cutover supersedes exact prior test identities; never let queued cleanup undo its replacement.
     if target.get('model') == 'core.JawabuFarmerMaster':
         from portal_legacy.models import LegacyUpload
         for upload in LegacyUpload.objects.filter(batch__group__group_id=target.get('group_id', ''),
