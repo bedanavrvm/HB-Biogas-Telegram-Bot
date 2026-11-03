@@ -317,7 +317,7 @@
     }
 
     function respectDiagnosticBackoff(response) {
-      if (response.status !== 429) return;
+      if (response.status !== 429 && response.status !== 503) return;
       const header = response.headers?.get?.('Retry-After');
       const seconds = Number(header);
       const delay = header && Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();

@@ -2083,6 +2083,7 @@
       repairHelp.append(button);
     }
     const status = String(health.status || 'down');
+    const maintenanceMode = health.maintenance?.mode || 'live';
     const statusCopy = {
       live: 'Live — Portal is ready for normal work.',
       maintenance: `Under maintenance — staff can view records but new changes are paused.${health.maintenance?.reason ? ` ${health.maintenance.reason}` : ''}`,
@@ -2091,7 +2092,7 @@
     }[status] || 'System readiness could not be confirmed.';
     const maintenanceControls = canManageMaintenance ? `<form class="portal-maintenance-form" data-portal-maintenance-form>
       <h3>Maintenance mode</h3><p>Under maintenance keeps Portal readable and pauses new writes. Existing requests already in progress can finish.</p>
-      <label>Mode<select name="mode"><option value="live"${status !== 'maintenance' ? ' selected' : ''}>Live</option><option value="maintenance"${status === 'maintenance' ? ' selected' : ''}>Under maintenance</option></select></label>
+      <label>Mode<select name="mode"><option value="live"${maintenanceMode !== 'maintenance' ? ' selected' : ''}>Live</option><option value="maintenance"${maintenanceMode === 'maintenance' ? ' selected' : ''}>Under maintenance</option></select></label>
       <label class="maintenance-reason">Reason<textarea name="reason" maxlength="500" placeholder="Required when pausing new Portal changes">${escapeHtml(health.maintenance?.reason || '')}</textarea></label>
       <button type="submit" class="btn btn-secondary">Save maintenance mode</button>
     </form>` : '';

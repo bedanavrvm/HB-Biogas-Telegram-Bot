@@ -327,7 +327,10 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         Q(jawabu_farmer_id__in=farmer_ids) | Q(jawabu_farmer_id=None),
     ).exists():
         raise PortalResetError('A media attachment belongs to another group’s case. Review ownership before resetting.')
-    if JawabuMediaAccessEvent.objects.filter(attachment__group_id=configuration.group_id).exclude(farmer_id__in=farmer_ids).exists():
+    if MediaAttachment.objects.filter(jawabu_farmer_id__in=farmer_ids).exclude(group_id__in=[configuration.group_id,'']).exists():
+        raise PortalResetError('A case has a media attachment owned by another group. Review ownership before resetting.')
+    if (JawabuMediaAccessEvent.objects.filter(attachment__group_id=configuration.group_id,farmer__isnull=False).exclude(farmer_id__in=farmer_ids).exists()
+        or JawabuMediaAccessEvent.objects.filter(farmer_id__in=farmer_ids,attachment__isnull=False).exclude(attachment__group_id__in=[configuration.group_id,'']).exists()):
         raise PortalResetError('A media access record crosses group ownership. Review it before resetting.')
 
     deleted_sheet_rows = _delete_verified_sheet_rows(configuration, farmer_ids)
@@ -383,10 +386,10 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         access = JawabuMediaAccessEvent.objects.filter(
             Q(farmer_id__in=farmer_ids) | Q(attachment__group_id=configuration.group_id),
         )
-        for event in access.only('pk', 'farmer_id', 'attachment_id').iterator():
+        for event in access.only('pk', 'farmer_id', 'attachment_id', 'farmer_id_snapshot', 'attachment_id_snapshot').iterator():
             access.filter(pk=event.pk).update(
-                farmer_id_snapshot=str(event.farmer_id or ''),
-                attachment_id_snapshot=str(event.attachment_id or ''),
+                farmer_id_snapshot=event.farmer_id_snapshot or str(event.farmer_id or ''),
+                attachment_id_snapshot=event.attachment_id_snapshot or str(event.attachment_id or ''),
             )
         access.update(farmer=None, attachment=None)
         MediaAttachment.objects.filter(

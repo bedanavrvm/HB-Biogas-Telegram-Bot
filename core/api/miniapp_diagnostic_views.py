@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from functools import wraps
 
 from django.conf import settings
+from django.db import connections, OperationalError, InterfaceError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -66,6 +68,24 @@ def _error(message: str, *, status: int, code: str) -> JsonResponse:
     return JsonResponse({'ok': False, 'error': message, 'code': code}, status=status)
 
 
+def _retry_diagnostic_database(view):
+    @wraps(view)
+    def wrapped(request,*args,**kwargs):
+        # Only these UUID-idempotent telemetry routes may replay a complete transaction.
+        for attempt in range(2):
+            try:return view(request,*args,**kwargs)
+            except (OperationalError,InterfaceError):
+                database=connections['default']
+                if database.in_atomic_block:raise
+                database.close()
+                if attempt==0:continue
+        response=JsonResponse({'ok':False,'error':'Diagnostics are temporarily unavailable. Keep these events for retry.',
+            'code':'service_unavailable','acknowledged':[]},status=503)
+        response['Retry-After']='5'
+        return response
+    return wrapped
+
+
 def _network_limit(request):
     decision = consume_ip(
         request,
@@ -102,6 +122,7 @@ def _actor_limit(actor):
 @csrf_exempt
 @require_POST
 @miniapp_idempotency_boundary
+@_retry_diagnostic_database
 def miniapp_diagnostic_session_start(request):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True})
@@ -138,6 +159,7 @@ def miniapp_diagnostic_session_start(request):
 @csrf_exempt
 @require_POST
 @miniapp_idempotency_boundary
+@_retry_diagnostic_database
 def miniapp_diagnostic_signals(request, session_uuid):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True, 'acknowledged': []})

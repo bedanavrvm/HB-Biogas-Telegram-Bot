@@ -223,6 +223,7 @@ DATABASES = {
         conn_max_age=config('DATABASE_CONN_MAX_AGE', default=600, cast=int),
     )
 }
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

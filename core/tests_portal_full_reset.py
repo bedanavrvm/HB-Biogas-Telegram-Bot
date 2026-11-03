@@ -67,6 +67,35 @@ class PortalFullResetTests(TestCase):
             reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
         sheets.assert_not_called();self.assertTrue(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
 
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows',return_value=0)
+    def test_retained_media_access_with_missing_farmer_preserves_its_snapshots(self,sheets):
+        attachment=MediaAttachment.objects.create(group_id=self.group.group_id)
+        event=JawabuMediaAccessEvent.objects.create(attachment=attachment,farmer_id_snapshot='retained-case-reference',attachment_id_snapshot=str(attachment.pk))
+        reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
+        event.refresh_from_db()
+        self.assertIsNone(event.farmer_id);self.assertIsNone(event.attachment_id)
+        self.assertEqual(event.farmer_id_snapshot,'retained-case-reference')
+        self.assertEqual(event.attachment_id_snapshot,str(attachment.pk))
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows')
+    def test_live_foreign_farmer_on_owned_media_still_blocks_reset(self,sheets):
+        other=GroupSheetConfiguration.objects.create(group_id='-100foreign-media',workflow={'type':'jawabu_homebiogas'})
+        foreign=JawabuFarmerMaster.objects.create(group_configuration=other)
+        attachment=MediaAttachment.objects.create(group_id=self.group.group_id)
+        event=JawabuMediaAccessEvent.objects.create(farmer=foreign,attachment=attachment)
+        with self.assertRaisesMessage(PortalResetError,'media access record crosses group ownership'):
+            reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
+        sheets.assert_not_called();self.assertTrue(JawabuMediaAccessEvent.objects.filter(pk=event.pk).exists())
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows')
+    def test_owned_case_access_to_foreign_media_blocks_before_deletion(self,sheets):
+        farmer=JawabuFarmerMaster.objects.create(group_configuration=self.group)
+        attachment=MediaAttachment.objects.create(group_id='-100foreign-media')
+        JawabuMediaAccessEvent.objects.create(farmer=farmer,attachment=attachment)
+        with self.assertRaisesMessage(PortalResetError,'media access record crosses group ownership'):
+            reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
+        sheets.assert_not_called();self.assertTrue(MediaAttachment.objects.filter(pk=attachment.pk).exists())
+
     @patch('core.services.portal_full_reset._delete_verified_sheet_rows', return_value=0)
     def test_global_empty_reset_restarts_staff_reference_numbers(self, _sheet_delete):
         first = JawabuFarmerMaster.objects.create(group_configuration=self.group, national_id='12345678')

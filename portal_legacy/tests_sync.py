@@ -13,6 +13,30 @@ from .models import LegacyRow
 @override_settings(TELEGRAM_BOT_TOKEN=BOT_TOKEN,PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True,
     SECURE_SSL_REDIRECT=False,MINIAPP_TEST_DELETION_ENABLED=True,REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True)
 class LegacySyncTests(LegacyHTTPMixin,TestCase):
+    def test_authorized_it_can_release_global_maintenance_without_releasing_cutover(self):
+        from core.models import PortalMaintenanceState
+        from .models import LegacyUpload
+        upload=self.cleanup(self.stage())
+        PortalMaintenanceState.objects.update_or_create(singleton=1,defaults={'mode':'maintenance','reason':'Failed reset recovery'})
+        response=self.client.post(reverse('portal_set_maintenance'),json.dumps({'mode':'live'}),content_type='application/json',
+            **self.headers,HTTP_X_REQUEST_ID=str(uuid.uuid4()))
+        self.assertEqual(response.status_code,200,response.content[:700])
+        self.assertEqual(PortalMaintenanceState.objects.get().mode,'live')
+        self.assertTrue(LegacyUpload.objects.get(pk=upload['id']).frozen)
+        paused=self.client.post(reverse('portal_publication_pump'),json.dumps({}),content_type='application/json',
+            **self.headers,HTTP_X_REQUEST_ID=str(uuid.uuid4()))
+        self.assertTrue(paused.json()['paused'])
+
+    def test_cutover_recovery_does_not_give_officers_maintenance_authority(self):
+        from core.models import PortalMaintenanceState
+        self.cleanup(self.stage())
+        PortalMaintenanceState.objects.update_or_create(singleton=1,defaults={'mode':'maintenance','reason':'Failed reset recovery'})
+        self.staff(role='JBL_OFFICER')
+        response=self.client.post(reverse('portal_set_maintenance'),json.dumps({'mode':'live'}),content_type='application/json',
+            **self.headers,HTTP_X_REQUEST_ID=str(uuid.uuid4()))
+        self.assertEqual(response.status_code,403,response.content[:700])
+        self.assertEqual(PortalMaintenanceState.objects.get().mode,'maintenance')
+
     def test_saved_cases_are_not_reported_as_synced_before_readback(self):
         upload=self.commit(self.stage())
         self.assertEqual(upload['committed'],1)

@@ -14,6 +14,8 @@ def request_blocked(request,kwargs):
     if request.path.startswith('/api/portal/legacy/uploads/'):return False
     # The authenticated pump reports a pause; it cannot publish during a cutover.
     if request.path=='/api/portal/publication/pump/':return False
+    # IT must be able to recover global maintenance without releasing this owner hold.
+    if request.path=='/api/portal/health/maintenance/':return False
     import json
     from core.models import JawabuFarmerMaster,RequisitionBatch,JawabuFarmerUploadBatch,InvoiceUploadBatch
     from payments.models import PaymentBatch

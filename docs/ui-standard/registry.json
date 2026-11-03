@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "1c74e092c83b04ebfd716fecdc93388dadd4df4ffbba63ca5e6c56c74949ca0d",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
-      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
+      "sha256": "cb1ab36772fd17b224b6f0620b782931cd95e4b8bce986add657e3783366d0fa",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
+      "reason": "Recovery correction: show the actual maintenance mode independently of readiness; real Portal Playwright verified explicit IT recovery while retaining the legacy cutover hold. No appearance redesign or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "14bf5e00064056dd534ebb9b248e2737bd2712a4e0d4d583d647acd134dd0459",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
-      "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
+      "sha256": "e89ef309e123ff2e93ed57bc132a7249535a3306780352012a36936949e1436a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
+      "reason": "Nonvisual cache version for the corrected maintenance selector in portal.js v136; source-bound recovery review includes real Portal Playwright evidence."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
@@ -1040,6 +1040,18 @@
       "sha256": "9631bc4ec11b5cead9e11fa7fe878e066e8371fb324d88f668150f8ea7efdcbe",
       "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
       "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/diagnostics.js",
+      "sha256": "08492ec0f822d856582ec71004d29c4fc0c23e04f83332875bbe7aa1c4d90f99",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
+      "reason": "Nonvisual diagnostic recovery: retain unacknowledged telemetry and honor HTTP 503 retry timing; shared script cache version update. Actual Portal/PostgreSQL Playwright verifies physical disconnections, UI responsiveness and original event acknowledgement. No appearance, approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/templates/miniapp_diagnostics.html",
+      "sha256": "e06cec0da39da44f27152a81a9ff239cbf5f38be2d6a3b531b0365adca73dbeb",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
+      "reason": "Nonvisual diagnostic recovery: retain unacknowledged telemetry and honor HTTP 503 retry timing; shared script cache version update. Actual Portal/PostgreSQL Playwright verifies physical disconnections, UI responsiveness and original event acknowledgement. No appearance, approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [

@@ -100,6 +100,9 @@ class LegacyBrowserTests(LegacyHTTPMixin, StaticLiveServerTestCase):
         from core.tests_portal_full_reset import PortalFullResetTests
         from .models import LegacyUpload,LegacyRow
         farmer,batch,upload,row=PortalFullResetTests.legacy_fixture(self)
+        from core.models import MediaAttachment,JawabuMediaAccessEvent
+        media=MediaAttachment.objects.create(group_id=self.group.group_id)
+        retained=JawabuMediaAccessEvent.objects.create(attachment=media,farmer_id_snapshot='previously-deleted-case',attachment_id_snapshot=str(media.pk))
         other=JawabuFarmerMaster.objects.create(group_configuration=self.other,customer_name='OTHER OWNER - RETAIN')
         self.actor.is_staff=True;self.actor.save(update_fields=['is_staff']);self.client.force_login(self.actor)
         root=Path(settings.BASE_DIR)
@@ -112,3 +115,7 @@ class LegacyBrowserTests(LegacyHTTPMixin, StaticLiveServerTestCase):
         self.assertFalse(LegacyUpload.objects.filter(pk=upload.pk).exists())
         self.assertFalse(LegacyRow.objects.filter(pk=row.pk).exists())
         self.assertTrue(JawabuFarmerMaster.objects.filter(pk=other.pk).exists())
+        retained.refresh_from_db()
+        self.assertIsNone(retained.attachment_id)
+        self.assertEqual(retained.farmer_id_snapshot,'previously-deleted-case')
+        self.assertEqual(retained.attachment_id_snapshot,str(media.pk))
