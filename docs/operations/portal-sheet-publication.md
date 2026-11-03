@@ -19,6 +19,15 @@ appends after the last occupied row. Existing case rows are never shifted.
 
 ## Request-assisted sync (no cron)
 
+An unfinished legacy changeover deliberately holds normal publication. The
+visible-session pump reports a successful **paused** response rather than an
+unexpected 503; it does not bypass the hold. Open the saved **Legacy import**
+and follow its Sheet status: finish unimported rows, then **Sync imported rows
+to Sheet**, or **Resume processing** for a confirmed unfinished update.
+The synced counter advances only when rows are verified by readback. The owner
+is released only when the changeover completes. See the
+[legacy importer guide](../runbooks/portal-legacy-importer.md).
+
 While an authorized Portal screen is visible, its shared background request
 advances one eligible Sheet update at a time. This covers FarmUp and later
 Portal case changes, including both Master Data and Eco-conserve. Users can

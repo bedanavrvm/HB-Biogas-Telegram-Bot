@@ -466,12 +466,6 @@
       "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
     },
     {
-      "path": "core/templates/base_shell.html",
-      "sha256": "c29e87ba4a4f312e05a6c616a57175f34f022092e466d7c358067227219e1633",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
-      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
-    },
-    {
       "path": "core/templates/portal/partials/farmer_card.html",
       "sha256": "ccc4d945a04b80102f93b8e6409dcf5b06bec0230b7397fa72b7883e46956c64",
       "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
@@ -964,24 +958,6 @@
       "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
     },
     {
-      "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "9bef245e3eb1a4685d95ec5d2e6a646247c9c6286de9c4b441dcb850c934f36f",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
-      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
-    },
-    {
-      "path": "core/static/miniapp/portal_legacy_import.css",
-      "sha256": "aaa4e83e7598f482f31d5f9cadfb923846bc5f886db680e29c12b753df80e501",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
-      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
-    },
-    {
-      "path": "core/templates/portal/partials/legacy_import.html",
-      "sha256": "4d4df79a607646915e856826f397990e8f7c20114b4f853b48277925ff2edd3f",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
-      "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
-    },
-    {
       "path": "core/templates/complaint_cases/app.html",
       "sha256": "0ffc32c7d6410b82777da485ed261eab557afaaaa072c83ceef2df036f7a994c",
       "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
@@ -1040,6 +1016,30 @@
       "sha256": "d25379875fd9efce82e938ec932b8091762415c327d0661c3a9ca4b045b1a9d2",
       "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
       "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "e8ea7af8bd3346ded2cab610a90e9374b24c89405972da03d1f672fa8d4ec683",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
+      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/templates/portal/partials/legacy_import.html",
+      "sha256": "ea8728b89e3faa767b6e024d12672fcf689a50bb1f8dfa0ef808c9c55ade9229",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
+      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy_import.js",
+      "sha256": "21a60d2f194526080a4103261621a7f3b0cbcceea75b3850443a3b0d762c8dfb",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
+      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy_import.css",
+      "sha256": "23307ffe27f90abfcc96c32464a2ea5ca097ce61fec725de496b4ddd87c4ab53",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
+      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [

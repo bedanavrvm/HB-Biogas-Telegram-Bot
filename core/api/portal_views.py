@@ -4347,6 +4347,10 @@ def portal_publication_pump(request):
     access_error = _portal_any_capability_error(request)
     if access_error:
         return access_error
+    from portal_legacy.models import LegacyUpload
+    if LegacyUpload.objects.filter(frozen=True).exists():
+        return JsonResponse({'ok': True, 'paused': True, 'reason': 'legacy_cutover_maintenance',
+                             'changed': False, 'poll_after_seconds': 60})
     from core.models import IntegrationOperation, JawabuFarmerMaster, IntegrationCircuitState
     from core.services.external_resilience import ExternalCircuitOpen
     from core.services.portal_publication import (

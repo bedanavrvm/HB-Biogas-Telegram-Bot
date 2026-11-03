@@ -8065,7 +8065,8 @@
         "portal_legacy/management/commands/bind_portal_legacy.py",
         "portal_legacy/projection.py",
         "portal_legacy/services.py",
-        "portal_legacy/tests.py"
+        "portal_legacy/tests.py",
+        "portal_legacy/tests_sync.py"
       ],
       "django_model": "portal_legacy.LegacyRow",
       "domain": "portal_legacy",
@@ -8094,6 +8095,7 @@
         "portal_legacy/services.py",
         "portal_legacy/tests.py",
         "portal_legacy/tests_browser.py",
+        "portal_legacy/tests_sync.py",
         "portal_legacy/views.py"
       ]
     },
@@ -8125,6 +8127,7 @@
       "source_of_truth": true,
       "table": "portal_legacy_upload_session",
       "used_by": [
+        "core/api/portal_views.py",
         "core/services/database_catalog.py",
         "core/services/miniapp_deletion_sheets.py",
         "core/services/portal_publication.py",

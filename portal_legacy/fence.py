@@ -12,6 +12,8 @@ def request_blocked(request,kwargs):
     frozen=set(LegacyUpload.objects.filter(frozen=True).values_list('batch__group_id',flat=True))
     if not frozen:return False
     if request.path.startswith('/api/portal/legacy/uploads/'):return False
+    # The authenticated pump reports a pause; it cannot publish during a cutover.
+    if request.path=='/api/portal/publication/pump/':return False
     import json
     from core.models import JawabuFarmerMaster,RequisitionBatch,JawabuFarmerUploadBatch,InvoiceUploadBatch
     from payments.models import PaymentBatch

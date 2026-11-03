@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal Legacy import now distinguishes saved cases from verified Sheet sync,
+shows remaining rows and exposes the required completion/recovery action.
+See the [source and Playwright record](reviews/2026-11-03-portal-legacy-sheet-sync.md).
+
 Complaints **Settings / Workspace tools ? Legacy import** now opens a dedicated
 compact review page with Table/Cards, durable approval, original/proposed values
 and separate background publication. See the [source and interaction record](reviews/2026-11-03-complaints-legacy-import.md).

@@ -49,6 +49,7 @@ def legacy_upload(request,upload_id=None,action='index'):
         upload=LegacyUpload.objects.select_related('batch__group').get(pk=upload_id)
         importer.authorize(actor,access,upload.batch.group,branch='')
         if request.method=='GET':
+            if request.GET.get('summary')=='1':return JsonResponse({'ok':True,'upload':importer.payload(upload)})
             return JsonResponse({'ok':True,'upload':importer.payload(upload),**importer.inspect_rows(upload,request.GET.get('offset',0),request.GET.get('filter','all'))})
         if request.method!='POST':return JsonResponse({'ok':False,'error':'Method not allowed.'},status=405)
         with importer.leased(upload):
@@ -108,7 +109,16 @@ def legacy_upload(request,upload_id=None,action='index'):
                             return JsonResponse({'ok':True,'upload':importer.payload(upload),'wait_seconds':(next_at-timezone.now()).total_seconds()})
                         upload.state['projection_next_at']=(timezone.now()+timedelta(seconds=4)).isoformat()
                         importer.save(upload)
-                        with external_call_budget(8):projection.advance(upload,actor,access)
+                        try:
+                            with external_call_budget(8):projection.advance(upload,actor,access)
+                        except (APIError,RequestException,TimeoutError,ValueError) as exc:
+                            # Preserve the last confirmed cursor, not in-memory work from a failed step.
+                            upload.refresh_from_db()
+                            upload.state['sync_error']=str(exc) if isinstance(exc,ValueError) else 'Google Sheets did not confirm this step. Refresh and resume to verify it safely.'
+                            importer.save(upload)
+                            raise
+                        else:
+                            if upload.state.pop('sync_error',None):importer.save(upload)
                     else:raise ValueError('Nothing is running. Review the current step.')
                 else:raise ValueError('Unknown import action.')
         return JsonResponse({'ok':True,'upload':importer.payload(upload)})

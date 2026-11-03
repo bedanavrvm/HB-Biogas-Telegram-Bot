@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Legacy import's sticky feedback includes verified Sheet counts and actionable
+pending/error states. It retains compact FarmUp review and the destination
+confirmation. See the [source record](reviews/2026-11-03-portal-legacy-sheet-sync.md).
+
 Complaints **Settings / Workspace tools ? Legacy import** now opens a dedicated
 compact review page with Table/Cards, durable approval, original/proposed values
 and separate background publication. See the [source and interaction record](reviews/2026-11-03-complaints-legacy-import.md).

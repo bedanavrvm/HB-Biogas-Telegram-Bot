@@ -58,6 +58,7 @@ class LegacyConcurrentTests(LegacyHTTPMixin, LiveServerTestCase):
 class LegacyBrowserTests(LegacyHTTPMixin, StaticLiveServerTestCase):
     def test_actual_shell_upload_review_commit_resume_and_projection(self):
         self.clock.stop()
+        self.book.lose_ack = True
         root = Path(settings.BASE_DIR)
         workbook = Path(self.directory.name)/'synthetic-browser.xlsx'
         workbook.write_bytes(workbook_bytes([[i+2, f'SYNTHETIC BROWSER {i}', '', '', 5000, 2500, 46000] for i in range(61)]))

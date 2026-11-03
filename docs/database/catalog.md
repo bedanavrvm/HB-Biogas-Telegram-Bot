@@ -2510,8 +2510,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuFarmerMaster`, `portal_legacy.LegacyBatch`
 - Children: `hb_operations.HomeBiogasAction`, `portal_legacy.LegacyDraft`, `portal_legacy.LegacyEvent`
 - Cross-domain parents: `core.JawabuFarmerMaster`
-- Direct ORM writers: `portal_legacy/importer.py`, `portal_legacy/management/commands/bind_portal_legacy.py`, `portal_legacy/projection.py`, `portal_legacy/services.py`, `portal_legacy/tests.py`
-- Used by: `core/services/database_catalog.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_publication.py`, `hb_operations/models.py`, `portal_legacy/importer.py`, `portal_legacy/management/commands/bind_portal_legacy.py`, `portal_legacy/migrations/0001_initial.py`, `portal_legacy/models.py`, `portal_legacy/projection.py`, `portal_legacy/services.py`, `portal_legacy/tests.py`, `portal_legacy/tests_browser.py`, `portal_legacy/views.py`
+- Direct ORM writers: `portal_legacy/importer.py`, `portal_legacy/management/commands/bind_portal_legacy.py`, `portal_legacy/projection.py`, `portal_legacy/services.py`, `portal_legacy/tests.py`, `portal_legacy/tests_sync.py`
+- Used by: `core/services/database_catalog.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_deletion_registry.py`, `core/services/portal_publication.py`, `hb_operations/models.py`, `portal_legacy/importer.py`, `portal_legacy/management/commands/bind_portal_legacy.py`, `portal_legacy/migrations/0001_initial.py`, `portal_legacy/models.py`, `portal_legacy/projection.py`, `portal_legacy/services.py`, `portal_legacy/tests.py`, `portal_legacy/tests_browser.py`, `portal_legacy/tests_sync.py`, `portal_legacy/views.py`
 
 ### `portal_legacy_upload_session`
 
@@ -2522,7 +2522,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `portal_legacy.LegacyChunk`, `portal_legacy.LegacyDraft`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `portal_legacy/importer.py`, `portal_legacy/tests.py`
-- Used by: `core/services/database_catalog.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/portal_publication.py`, `portal_legacy/fence.py`, `portal_legacy/import_views.py`, `portal_legacy/importer.py`, `portal_legacy/migrations/0004_resumable_master_cutover.py`, `portal_legacy/models.py`, `portal_legacy/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/miniapp_deletion_sheets.py`, `core/services/portal_publication.py`, `portal_legacy/fence.py`, `portal_legacy/import_views.py`, `portal_legacy/importer.py`, `portal_legacy/migrations/0004_resumable_master_cutover.py`, `portal_legacy/models.py`, `portal_legacy/tests.py`
 
 ### `portal_recognition_live_standing`
 

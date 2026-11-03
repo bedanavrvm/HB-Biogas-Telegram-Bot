@@ -1,0 +1,17 @@
+create an importer for the complaints
+
+
+Blank Complaint ID allocates a normal CMP reference. Existing cases are never overwritten. For this, i want you to look at the bigger picture. Remember when i told you that the miniapps will all be interlinked in one way or another, the complaints and the portal app are the same in that they operate on the same clients so the lack of id in the complaints should not shock coz the same client is most likely in the portal data - but for this, i'll ensure to clean up and fill the verified ids
+
+
+
+
+
+in portal the width of the first row (ROW) - Reduce by half
+
+The cards need a highlight for ease of identification of cases with issues/needs review
+
+
+identity match needs review - this is not helpful, why was it flagged? what are the problematic values(are they highlighted/diff text colour?
+
+readback verification - for all the cards/cases, can we implement like a small, unintrusive double checkmark icon(maybe green if it matches, grey if it is in db but pending/awaiting sync(hopes that there's sth that will update) and red if the data doesn't match, not present, modified and and x for other system errors/internal errors that cannot be explained) that shows up if the case is synced to the sheet(this should be done by readback verification where the system actual reads the sheet(that row) and verifies that the data in the sheet matches with the data in the db). This should be positioned(brainstorm on its placements, don't put it everywhere uneccessarily) in all the places where a client metadata is (so that if i look at client x in any of the stages, i can confidently say that the client is synced or not

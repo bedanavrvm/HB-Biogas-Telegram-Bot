@@ -74,8 +74,12 @@ evidence; no data values change. See the
    canonical partner and audit evidence. A problematic row is held with its
    reason while saved rows survive. Reconcile source or exact case linkage before
    approving it again. Cross-register case links are rejected. Nothing fabricates
-   historical approval actors, signatures or missing dates.
-6. Account for every source row before selecting **Preview register replacement**.
+   historical approval actors, signatures or missing dates. **Imported** means
+   saved in Django; it does not mean synced to Google Sheets. The separate
+   indicator shows verified/saved rows, awaiting sync and not-yet-imported rows.
+6. Account for every source row before selecting **Sync imported rows to Sheet**.
+   If rows remain, **Review unimported rows** opens the Pending review filter;
+   a Ready-only selection may leave warning rows still requiring review.
    Imported rows must bind to distinct cases and cover every case belonging to
    the selected register for that owner. Counterpart cases remain untouched.
    Review the exact spreadsheet, destination tab, count and headers.
@@ -86,6 +90,14 @@ evidence; no data values change. See the
    headers and formatting survive; Case ID is added if absent. Old unmatched
    data rows in that destination are cleared. Every new row is read back before
    normal publication is enabled. The owner is released only at Complete.
+   The synced count increases only after readback, including during partial
+   verification. Preparing rows or sending a replacement does not count as
+   verified sync. A lost acknowledgement can leave rows on the Sheet while the
+   verified counter remains zero; resume checks the completion marker safely.
+   While this changeover is held, the normal Portal publication pump reports
+   **paused** rather than a 503. It cannot finish an unconfirmed legacy Sheet
+   replacement. The visible incomplete import refreshes its summary every
+   15 seconds; **Refresh saved progress** also updates the counters manually.
 8. Reconcile counts, sampled identities, dates, money, Legacy review and HB
    worklists against the reviewed source. Review consumed order/payment numbers
    and allocator settings against the paper trail before resuming numbered work.

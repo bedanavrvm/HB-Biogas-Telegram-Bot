@@ -49,6 +49,7 @@ def preview(upload,actor,access):
     if not any(token(h) in {'customername','clientname','name'} for h in headers):raise ValueError('The selected register must have a named customer column before replacement.')
     new_headers=list(headers)
     if 'caseid' not in {token(h) for h in headers}:new_headers.append('Case ID')
+    upload.state.pop('sync_error',None)
     upload.state['projection']={'spreadsheet':sheet.spreadsheet.id,'sheet':sheet.id,'name':sheet.title,'source_sheet':upload.source_sheet,
         'header_row':header_row,'headers':headers,'new_headers':new_headers,'old_rows':sheet.row_count,'old_cols':sheet.col_count,
         'count':upload.drafts.count(),'offset':0,'snapshot_hashes':[],'snapshot_kind':'backup_'+str(upload.revision)}

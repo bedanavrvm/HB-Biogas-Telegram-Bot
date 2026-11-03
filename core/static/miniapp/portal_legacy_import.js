@@ -101,14 +101,27 @@
     node('[data-source-description]').textContent=`${selectedSheet} import. ${selectedSheet==='Eco-conserve'?'Master Data':'Eco-conserve'} records and sheet are preserved.`;
     node('[data-resume]').disabled=busy;node('[data-filter]').disabled=busy||!active?.state;
     root.querySelectorAll('[data-review-mode]').forEach(button=>{button.disabled=busy||!active?.state;button.classList.toggle('active',button.dataset.reviewMode===reviewMode);button.setAttribute('aria-pressed',String(button.dataset.reviewMode===reviewMode));});
+    node('[data-sheet-sync]').hidden=!active?.state;
     if(!active?.state){root.querySelectorAll('[data-action]').forEach(button=>{button.hidden=true;});node('[data-mapping]').hidden=true;node('[data-source]').open=true;node('[data-grid-wrap]').hidden=true;node('[data-rows]').hidden=true;node('[data-table-hint]').hidden=true;return;}
     node('[data-mapping]').hidden=false;
     node('[data-source]').open=active.phase==='uploading';
     feedback(lastNotice || `${active.source_sheet} · ${active.filename} · ${active.phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved${active.frozen?' · Portal owner held for cutover':''}`);
     const processing=active.state.projection;
     node('[data-progress]').max=Math.max(processing?.count||active.total,1);node('[data-progress]').value=processing?.offset||active.committed;
+    const sync=active.sheet_sync||{synced:0,pending:active.committed,not_imported:active.total-active.committed,state:'awaiting_import'};
+    node('[data-sheet-sync]').dataset.state=sync.state;
+    node('[data-synced-count]').textContent=`${sync.synced} / ${active.committed}`;
+    node('[data-sync-pending]').textContent=sync.pending;
+    node('[data-not-imported]').textContent=sync.not_imported;
+    node('[data-sync-progress]').max=Math.max(active.committed,1);node('[data-sync-progress]').value=sync.synced;
+    const steps={backup:'Backing up the current Sheet',projecting:'Preparing the Sheet update',verifying:'Checking the prepared update',replacing:'Publishing to the Sheet',readback:'Verifying published rows'};
+    node('[data-sync-message]').textContent=sync.state==='needs_attention'?`Sheet sync needs attention. ${sync.error} Saved records remain in the database. Resume processing to retry the saved step.`:
+      sync.state==='complete'?`Sheet sync complete: ${sync.synced} imported rows verified on ${active.source_sheet}.`:
+      sync.state==='in_progress'?`${busy?steps[active.phase]||'Syncing':'Sheet sync paused'} · ${sync.synced} rows verified. ${busy?'You can pause after the current step.':'Use Resume processing to continue.'}`:
+      sync.state==='awaiting_confirmation'?`Database import finished; Sheet sync has not started. Use “Sync imported rows to Sheet” to review the destination and finish the changeover.`:
+      `Review and import the remaining ${sync.not_imported} source rows before the Sheet can be replaced. ${active.committed} saved in the database; ${sync.synced} verified on the Sheet.`;
     const available={stage:active.phase==='mapping',cleanup:superuser&&['ready','deleting'].includes(active.phase)&&!active.state.cleanup_complete,commit:active.phase==='ready'&&active.state.cleanup_complete,
-      project:active.phase==='ready'&&active.committed===active.total&&active.total>0,restart_projection:['backup','projecting','verifying'].includes(active.phase),cancel_preview:active.frozen&&!active.state.cleanup_started&&active.phase==='ready',discard:!active.frozen&&active.committed===0};
+      project:active.phase==='ready'&&active.committed===active.total&&active.total>0,review_pending:active.phase==='ready'&&sync.not_imported>0,restart_projection:['backup','projecting','verifying'].includes(active.phase),cancel_preview:active.frozen&&!active.state.cleanup_started&&active.phase==='ready',discard:!active.frozen&&active.committed===0};
     for(const [name,enabled] of Object.entries(available)){const button=node(`[data-action="${name}"]`);button.hidden=!enabled;button.disabled=busy||!enabled;}
     for(const name of ["refresh","select_page","select_all","unselect_all","previous","next"]){node(`[data-action="${name}"]`).hidden=false;}
     for(const name of ['refresh','select_page','select_all','unselect_all','previous','next'])node(`[data-action="${name}"]`).disabled=busy||(name==='previous'&&offset===0)||(name==='next'&&offset+50>=pageTotal);
@@ -131,6 +144,15 @@
     await renderReview();
     node('[data-page]').textContent=`${data.total?offset+1:0}–${offset+current.length} of ${data.total}`;
     node('[data-action="previous"]').disabled=offset===0;node('[data-action="next"]').disabled=offset+50>=data.total;renderState();
+  }
+  async function refreshSync() {
+    if(document.hidden||busy||!root?.isConnected||!root.offsetParent||!active?.committed||active.phase==='complete')return;
+    const id=active.id,revision=active.revision;
+    try{
+      const response=await window.PortalMiniAppApi.apiFetch(`/legacy/uploads/${id}/?summary=1`,{},window.Telegram?.WebApp);
+      if(!response.ok||!response.data?.ok||busy||active?.id!==id||active.revision!==revision)return;
+      active=response.data.upload;renderState();
+    }catch{ /* The saved indicator remains; explicit refresh reports connection errors. */ }
   }
   async function confirm(title,text,warning) {
     const dialog=node('[data-confirm]');node('[data-confirm-title]').textContent=title;node('[data-confirm-text]').textContent=text;node('[data-confirm-warning]').textContent=warning;
@@ -211,6 +233,7 @@
           rows.forEach(r=>{r.approved=true;});await selection(current.filter(r=>!r.committed));await refresh();
         }
         else if(action==='select_all'||action==='unselect_all'){await selection(current.filter(r=>!r.committed));await command('select',{all:true,approved:action==='select_all'});await refresh();}
+        else if(action==='review_pending'){await selection(current.filter(r=>!r.committed));node('[data-filter]').value='pending';offset=0;await refresh();}
         else if(action==='commit'){await selection(current.filter(r=>!r.committed));if(await confirm('Import approved records',`Import the saved selection (${active.selected} approved rows)?`,'Historical gaps remain unknown. Sheet publication stays held.')){await command('commit');await process();}}
         else if(action==='cleanup'){
           running=true;let result;do{result=await command('cleanup_preview');renderState();}while(!result.review.complete&&running&&!document.hidden);running=false;
@@ -225,8 +248,9 @@
         else if(action==='cancel_preview'){await command('cancel_preview');await refresh();}
       });
     });
+    window.setInterval(refreshSync,15000);
     renderState();
   }
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)running=false;});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)running=false;else void refreshSync();});
   window.PortalLegacyImporter={init};
 })();

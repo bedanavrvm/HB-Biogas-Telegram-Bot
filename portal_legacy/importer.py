@@ -6,7 +6,7 @@ import hashlib,json,re,time,uuid
 from django.core import signing
 from django.core.exceptions import PermissionDenied,ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count,Q
 from django.utils import timezone
 from core.models import GroupSheetConfiguration,JawabuFarmerMaster
 from .models import LegacyBatch,LegacyUpload,LegacyChunk,LegacyDraft,LegacyRow
@@ -82,11 +82,20 @@ def save(upload):
 
 
 def payload(upload):
+    counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)))
+    total,committed=counts['total'],counts['committed']
+    # Publication permission (including an explicit case link) is not a remote receipt.
+    synced=min(committed,upload.state.get('projection',{}).get('offset',0)) if upload.phase in {'readback','complete'} else 0
+    error=upload.state.get('sync_error','')
+    state=('needs_attention' if error else 'complete' if upload.phase=='complete' else
+           'in_progress' if upload.phase in {'backup','projecting','verifying','replacing','readback'} else
+           'awaiting_confirmation' if committed==total and total else 'awaiting_import')
     return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),'group_label':upload.batch.group.display_name or upload.batch.group.sheet_name,
         'filename':upload.filename,'source_sheet':upload.source_sheet,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
         'chunks':list(upload.chunks.filter(kind='source').values_list('position',flat=True)),
-        'size':upload.size,'total':upload.drafts.count(),'committed':upload.drafts.filter(legacy__committed_at__isnull=False).count(),
-        'selected':upload.drafts.filter(approved=True).count(),'state':{k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}}
+        'size':upload.size,'total':total,'committed':committed,
+        'sheet_sync':{'state':state,'synced':synced,'pending':committed-synced,'not_imported':total-committed,'error':error},
+        'selected':counts['selected'],'state':{k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}}
 
 
 def prepare(upload):
