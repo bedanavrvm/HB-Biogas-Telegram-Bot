@@ -21,6 +21,7 @@
       </div>
       <div class="legacy-import-controls">
         <button type="button" data-action="refresh">Refresh saved progress</button>
+        <button type="button" data-action="save_edits">Save corrections</button>
         <button type="button" data-action="resume">Resume processing</button>
         <button type="button" data-action="pause">Pause after current chunk</button>
         <button type="button" data-action="discard">Discard uncommitted upload</button>
@@ -29,6 +30,7 @@
         <button type="button" data-action="cancel_preview">Cancel deletion preview</button>
         <button type="button" data-action="commit">Import approved rows</button>
         <button type="button" data-action="project" aria-describedby="legacy-sheet-sync-message">Sync imported rows to Sheet</button>
+        <button type="button" data-action="replace">Replace entire register…</button>
         <button type="button" data-action="review_pending">Review unimported rows</button>
         <button type="button" data-action="restart_projection">Review replacement again</button>
       </div>
@@ -39,7 +41,7 @@
       <div class="legacy-import-controls">
       <button type="button" data-action="select_page">Approve displayed rows</button><button type="button" data-action="select_all">Approve all pending rows</button><button type="button" data-action="unselect_all">Clear pending approval</button>
       </div>
-      <p data-table-hint class="meta">50 rows per page. Sort and column filters apply to this page. Open a row number for source facts and history.</p>
+      <p data-table-hint class="meta">50 rows per page. Double-click a pending source field to edit, then Save corrections. Red fields need attention; tinted fields were corrected. Open Row for original values and matching cases. Imported rows are read-only.</p>
       <div data-grid-wrap class="farmup-grid-wrap" role="region" aria-label="Legacy review table. Scroll horizontally for all source fields." tabindex="0"><div data-review-grid class="ag-theme-quartz farmup-grid"></div></div>
       <div data-rows hidden></div><div class="pagination"><button type="button" data-action="previous">Previous 50</button><span data-page></span><button type="button" data-action="next">Next 50</button></div>
     </section>

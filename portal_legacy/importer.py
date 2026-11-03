@@ -6,7 +6,9 @@ import hashlib,json,re,time,uuid
 from django.core import signing
 from django.core.exceptions import PermissionDenied,ValidationError
 from django.db import transaction
-from django.db.models import Count,Q
+from django.db.models import Count,Q,F,Window
+from django.db.models.functions import RowNumber
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 from core.models import GroupSheetConfiguration,JawabuFarmerMaster
 from .models import LegacyBatch,LegacyUpload,LegacyChunk,LegacyDraft,LegacyRow
@@ -82,20 +84,24 @@ def save(upload):
 
 
 def payload(upload):
-    counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)))
+    counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)),verified=Count('pk',filter=Q(legacy__committed_at__isnull=False,reconciliation__sheet_receipt__verified=True)))
     total,committed=counts['total'],counts['committed']
     # Publication permission (including an explicit case link) is not a remote receipt.
-    synced=min(committed,upload.state.get('projection',{}).get('offset',0)) if upload.phase in {'readback','complete'} else 0
+    replacing=upload.phase in {'backup','projecting','verifying','replacing','readback'}
+    synced=min(committed,upload.state.get('projection',{}).get('offset',0)) if replacing else counts['verified']
+    if upload.phase=='complete':synced=committed
     error=upload.state.get('sync_error','')
     state=('needs_attention' if error else 'complete' if upload.phase=='complete' else
-           'in_progress' if upload.phase in {'backup','projecting','verifying','replacing','readback'} else
-           'awaiting_confirmation' if committed==total and total else 'awaiting_import')
+           'in_progress' if replacing or upload.phase=='syncing_rows' else
+           'awaiting_sync' if committed>synced else 'awaiting_import')
+    state_values={k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}
+    if 'row_sync' in state_values:state_values['row_sync']={k:v for k,v in state_values['row_sync'].items() if k not in {'case_rows','plans'}}
     return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),'group_label':upload.batch.group.display_name or upload.batch.group.sheet_name,
         'filename':upload.filename,'source_sheet':upload.source_sheet,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
         'chunks':list(upload.chunks.filter(kind='source').values_list('position',flat=True)),
         'size':upload.size,'total':total,'committed':committed,
         'sheet_sync':{'state':state,'synced':synced,'pending':committed-synced,'not_imported':total-committed,'error':error},
-        'selected':counts['selected'],'state':{k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}}
+        'selected':counts['selected'],'state':state_values}
 
 
 def prepare(upload):
@@ -114,15 +120,7 @@ def stage_step(upload,actor,access):
                 except (KeyError,ValueError,TypeError):raise ValueError(f'Worksheet row {physical}: retain its original Source Row.')
                 if source_row<2:raise ValueError('Source Row must be at least 2.')
                 authorize(actor,access,upload.batch.group,branch=values.get('branch',''),product=values.get('payment_product',''))
-                candidate=propose(values)
-                blocking=[issue for issue in candidate['issues'] if 'invalid amount' in issue]
-                model_fields={f.name:f for f in JawabuFarmerMaster._meta.fields if not f.is_relation}
-                for key,value in candidate['fields'].items():
-                    if key in model_fields and value not in ('',None):
-                        try:model_fields[key].run_validators(model_fields[key].to_python(value))
-                        except ValidationError:blocking.append(f'{key}: value exceeds the supported field format, length or precision.')
-                candidate['issues']+= [issue for issue in blocking if issue not in candidate['issues']]
-                candidate['review_status']='blocked' if blocking else 'warning' if candidate['issues'] else 'ready'
+                candidate=review_proposal(values)
                 pending.append(LegacyDraft(upload=upload,source_row=source_row,values=values,proposal=candidate))
                 if previous_count+len(pending)>50000:raise ValueError('The selected register exceeds the 50,000-record limit.')
             offset=next_offset
@@ -134,21 +132,63 @@ def stage_step(upload,actor,access):
         save(upload)
 
 
+def review_proposal(values):
+    candidate=propose(values)
+    blocking=[issue for issue in candidate['issues'] if 'invalid amount' in issue]
+    model_fields={f.name:f for f in JawabuFarmerMaster._meta.fields if not f.is_relation}
+    for key,value in candidate['fields'].items():
+        if key in model_fields and value not in ('',None):
+            try:model_fields[key].run_validators(model_fields[key].to_python(value))
+            except ValidationError:blocking.append(f'{key}: value exceeds the supported field format, length or precision.')
+    candidate['issues']+= [issue for issue in blocking if issue not in candidate['issues']]
+    candidate['review_status']='blocked' if blocking else 'warning' if candidate['issues'] else 'ready'
+    return candidate
+
+
 def inspect_rows(upload,offset=0,filter_by='all'):
-    qs=upload.drafts.order_by('source_row');offset=max(0,int(offset))
+    identity=KeyTextTransform('national_id',KeyTransform('fields','proposal'))
+    qs=upload.drafts.annotate(review_identity=identity).order_by('source_row');offset=max(0,int(offset))
+    duplicate_ids=upload.drafts.annotate(review_identity=identity).exclude(review_identity__isnull=True).exclude(review_identity='').values('review_identity').annotate(n=Count('pk')).filter(n__gt=1).values('review_identity')
+    existing_ids=JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group).exclude(national_id='').values('national_id')
+    collisions=Q(legacy__isnull=True)&(Q(review_identity__in=duplicate_ids)|Q(review_identity__in=existing_ids))
     if filter_by=='committed':qs=qs.filter(legacy__committed_at__isnull=False)
     elif filter_by=='pending':qs=qs.filter(legacy__committed_at__isnull=True)
     elif filter_by=='selected':qs=qs.filter(approved=True)
-    elif filter_by in {'ready','warning','blocked'}:qs=qs.filter(proposal__review_status=filter_by)
-    total=qs.count();rows=[]
-    for draft in qs.select_related('legacy')[offset:offset+50]:
+    elif filter_by=='ready':qs=qs.filter(legacy__isnull=True,proposal__review_status='ready').exclude(collisions).filter(Q(proposal__commit_error__isnull=True)|Q(proposal__commit_error=''))
+    elif filter_by=='warning':qs=qs.exclude(proposal__review_status='blocked').filter(Q(proposal__review_status='warning')|collisions|(~Q(proposal__commit_error__isnull=True)&~Q(proposal__commit_error='')))
+    elif filter_by=='blocked':qs=qs.filter(proposal__review_status='blocked')
+    total=qs.count();rows=[];drafts=list(qs.select_related('legacy__batch__group')[offset:offset+50])
+    identities={d.proposal.get('fields',{}).get('national_id') for d in drafts if not d.legacy_id}-{None,''}
+    cases={};duplicates={}
+    # Bound each identity's examples without fetching every matching operational case/source row.
+    matches=JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group,national_id__in=identities).annotate(
+        match_number=Window(RowNumber(),partition_by=[F('national_id')],order_by='pk')).filter(match_number__lte=10)
+    for case in matches.values('pk','case_reference_number','customer_name','national_id','primary_phone','branch','legacy_fulfillment_partner'):
+        cases.setdefault(case['national_id'],[]).append({'id':str(case['pk']),'reference':f"JBL-{case['case_reference_number']}",
+            'name':case['customer_name'],'national_id':case['national_id'],'primary_phone':case['primary_phone'],'branch':case['branch'],'partner':case['legacy_fulfillment_partner']})
+    matches=upload.drafts.filter(proposal__fields__national_id__in=identities).annotate(
+        match_number=Window(RowNumber(),partition_by=[F('proposal__fields__national_id')],order_by='source_row')).filter(match_number__lte=11)
+    for match in matches.values('pk','source_row','values__customer_name','proposal__fields__national_id'):
+        duplicates.setdefault(match['proposal__fields__national_id'],[]).append({'id':str(match['pk']),'source_row':match['source_row'],'name':match['values__customer_name']})
+    for draft in drafts:
         row=services.row_payload(draft.legacy) if draft.legacy_id else {'id':str(draft.pk),'name':draft.values.get('customer_name',''),
             'source_row':draft.source_row,'sheet':upload.source_sheet,'proposal':draft.proposal,'source_values':draft.values,'committed':False,'existing_cases':[],'identity_collision':False}
-        row.update(id=str(draft.pk),approved=draft.approved,reconciliation=draft.reconciliation)
-        if not draft.legacy_id and draft.proposal.get('fields',{}).get('national_id'):
-            matches=JawabuFarmerMaster.objects.filter(group_configuration=upload.batch.group,national_id=draft.proposal['fields']['national_id']).values('pk','case_reference_number')[:10]
-            row['existing_cases']=[{'id':str(m['pk']),'reference':f"JBL-{m['case_reference_number']}"} for m in matches]
-            row['identity_collision']=bool(row['existing_cases'])
+        row.update(id=str(draft.pk),approved=draft.approved,reconciliation=draft.reconciliation,
+            original_values=draft.reconciliation.get('original_values',draft.values),field_issues={},duplicate_rows=[])
+        if not draft.legacy_id:
+            identity=draft.proposal.get('fields',{}).get('national_id')
+            row['existing_cases']=cases.get(identity,[])
+            row['duplicate_rows']=[m for m in duplicates.get(identity,[]) if m['id']!=str(draft.pk)][:10]
+            row['identity_collision']=bool(row['existing_cases'] or row['duplicate_rows'])
+        for issue in [*row['proposal'].get('issues',[]),row['proposal'].get('commit_error','')]:
+            if not issue:continue
+            field=issue.split(':',1)[0]
+            fields=[field] if field in row['source_values'] else (
+                ['installation_date','commissioning_date'] if 'predates installation' in issue else
+                ['legacy_outcome','decision_stage','case_comment_history','installation_status','commissioning_status','order_number'] if 'conflict' in issue or 'reconciliation' in issue else [])
+            for field in fields:row['field_issues'].setdefault(field,[]).append(issue)
+        if row['identity_collision']:
+            row['field_issues'].setdefault('national_id',[]).append('The same National ID is present on another case or source row. Confirm the existing case or a separate unit; do not change a correct ID merely to clear this warning.')
         rows.append(row)
     return {'rows':rows,'total':total,'offset':offset}
 
@@ -158,9 +198,37 @@ def select(upload,body):
     if body.get('all') is True:
         upload.drafts.filter(legacy__isnull=True).exclude(proposal__review_status='blocked').update(approved=bool(body.get('approved')))
     else:
+        drafts={str(d.pk):d for d in upload.drafts.filter(pk__in=[item['id'] for item in body.get('rows',[])[:50]],legacy__isnull=True).exclude(proposal__review_status='blocked')}
         for item in body.get('rows',[])[:50]:
+            draft=drafts.get(str(item['id']))
+            if draft is None:continue
             upload.drafts.filter(pk=item['id'],legacy__isnull=True).exclude(proposal__review_status='blocked').update(approved=bool(item.get('approved')),reconciliation={
-                'existing_case_id':str(item.get('existing_case_id','')),'note':str(item.get('note',''))[:2000]})
+                **draft.reconciliation,'existing_case_id':str(item.get('existing_case_id','')),'note':str(item.get('note',''))[:2000]})
+
+
+@transaction.atomic
+def edit(upload,body,actor,access):
+    if upload.phase!='ready':raise ValueError('Pause and finish the current processing step before editing review values.')
+    draft=upload.drafts.select_for_update().get(pk=body.get('id'))
+    if draft.legacy_id:raise ValueError('This row is already imported. Use the case correction workflow; imported source evidence is read-only.')
+    changes=body.get('changes')
+    allowed=set(upload.state.get('bindings',{}).values())-{'source_row','case_id'}
+    if not isinstance(changes,dict) or not changes or not set(changes)<=allowed or any(not isinstance(value,str) for value in changes.values()):
+        raise ValueError('Edit mapped source fields using text values. Source Row and Case ID remain fixed.')
+    changes={key:value.strip() for key,value in changes.items() if value.strip()!=draft.values.get(key,'')}
+    if not changes:return
+    values={**draft.values,**changes}
+    if len(json.dumps(values).encode())>2*1024*1024:raise ValueError('The edited row exceeds the supported 2 MiB limit.')
+    authorize(actor,access,upload.batch.group,branch=draft.values.get('branch',''),product=draft.values.get('payment_product',''))
+    authorize(actor,access,upload.batch.group,branch=values.get('branch',''),product=values.get('payment_product',''))
+    audit=dict(draft.reconciliation);audit.setdefault('original_values',dict(draft.values))
+    audit.setdefault('corrections',[]).append({'actor_id':actor.pk,'at':timezone.now().isoformat(),
+        'before':{key:draft.values.get(key,'') for key in changes},'after':changes})
+    if set(changes)&{'national_id','branch','payment_product'}:
+        audit.pop('existing_case_id',None);audit.pop('note',None)
+    draft.values=values;draft.proposal=review_proposal(values);draft.approved=False;draft.reconciliation=audit;draft.save()
+    upload.state.pop('projection',None)
+    save(upload)
 
 
 def cleanup_preview(upload,actor):

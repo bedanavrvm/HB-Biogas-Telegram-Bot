@@ -35,4 +35,13 @@
 #legacy-data-workspace .legacy-grid-approval { width: 16px; height: 16px; min-height: 0; margin: 0; vertical-align: middle; }
 #legacy-data-workspace .legacy-grid-approve-target { display: flex; align-items: center; justify-content: center; width: 100%; height: 31px; min-height: 0; margin: 0; padding: 0; }
 #legacy-data-workspace .legacy-row-details { display: block; width: 100%; min-height: 28px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--brand-primary); font: inherit; text-align: left; text-decoration: underline; }
+#legacy-data-workspace [col-id="source_row"] { padding-left: 2px; padding-right: 2px; }
+#legacy-data-workspace .legacy-card-warning { border-left: 3px solid var(--portal-status-warning); background: color-mix(in srgb, var(--portal-status-warning) 10%, var(--bg-surface)); }
+#legacy-data-workspace .legacy-card-blocked { border-left: 3px solid var(--portal-status-danger); background: color-mix(in srgb, var(--portal-status-danger) 10%, var(--bg-surface)); }
+#legacy-data-workspace .legacy-card-warning .legacy-review-label { color: var(--portal-status-warning); }
+#legacy-data-workspace .legacy-card-blocked .legacy-review-label, #legacy-data-workspace .legacy-field-issue > strong { color: var(--portal-status-danger); }
+#legacy-data-workspace .legacy-field-issue { border-left: 3px solid var(--portal-status-danger); padding-left: 6px; background: color-mix(in srgb, var(--portal-status-danger) 10%, var(--bg-surface)); }
+#legacy-data-workspace .legacy-field-edited { box-shadow: inset 0 -2px var(--brand-primary); }
+#legacy-data-workspace .legacy-review-issues { margin: 4px 0; padding-left: 17px; font-size: 11px; }
+#legacy-data-workspace .legacy-review-card small { display: block; font-size: 10px; }
 #legacy-data-workspace [data-row-dialog] { width: min(680px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }

@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal legacy review now has editable source fields, explicit identity values,
+highlighted cards/cells and automatic FIFO sync after each saved batch. Historical
+HB reset recovery is included in the [source and Playwright record](reviews/2026-11-03-portal-legacy-review-fifo-reset.md).
+
 Portal Legacy import now distinguishes saved cases from verified Sheet sync,
 shows remaining rows and exposes the required completion/recovery action.
 See the [source and Playwright record](reviews/2026-11-03-portal-legacy-sheet-sync.md).

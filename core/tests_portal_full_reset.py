@@ -23,6 +23,8 @@ from payments.models import PaymentNumberClaim
 
 class PortalFullResetTests(TestCase):
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.actor = get_user_model().objects.create_superuser(
             username='portal-reset-it', email='reset-it@example.test', password='unused',
         )
@@ -30,6 +32,40 @@ class PortalFullResetTests(TestCase):
             group_id='-100portal-reset', workflow={'type': 'jawabu_homebiogas'},
         )
         PortalMaintenanceState.objects.create(singleton=1, mode='maintenance', reason='Reset test')
+
+    def legacy_fixture(self):
+        from portal_legacy.models import LegacyBatch,LegacyUpload,LegacyDraft,LegacyRow,LegacyEvent,LegacyChunk
+        from django.utils import timezone
+        farmer=JawabuFarmerMaster.objects.create(group_configuration=self.group,national_id='12345678',source='portal_legacy')
+        batch=LegacyBatch.objects.create(group=self.group,namespace='reset-legacy',source_hash='0'*64,created_by=self.actor)
+        upload=LegacyUpload.objects.create(batch=batch,actor=self.actor,filename='synthetic.xlsx',digest='0'*64,size=1,frozen=True,phase='ready')
+        row=LegacyRow.objects.create(batch=batch,source_sheet='Master Data',source_row=2,source_hash='0'*64,farmer=farmer,committed_at=timezone.now())
+        LegacyDraft.objects.create(upload=upload,source_row=2,legacy=row)
+        LegacyChunk.objects.create(upload=upload,position=0,content=b'x',digest='0'*64)
+        LegacyEvent.objects.create(row=row,actor=self.actor,request_key='fixture',action='imported')
+        HomeBiogasAction.objects.create(farmer=farmer,legacy_origin=row,source_order_number='OLD 1',source_requisition_version=0)
+        return farmer,batch,upload,row
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows',return_value=0)
+    def test_reset_legacy_hb_baseline_without_signed_order_clears_its_import_hold(self,sheets):
+        from portal_legacy.models import LegacyBatch,LegacyUpload,LegacyRow
+        farmer,batch,upload,row=self.legacy_fixture()
+        result=reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
+        self.assertEqual(result['cases_deleted'],1)
+        self.assertFalse(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
+        self.assertFalse(LegacyUpload.objects.filter(pk=upload.pk).exists())
+        self.assertFalse(LegacyRow.objects.filter(pk=row.pk).exists())
+        self.assertFalse(LegacyBatch.objects.filter(pk=batch.pk).exists())
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows',return_value=0)
+    def test_real_cross_group_order_on_legacy_hb_action_still_blocks(self,sheets):
+        farmer,batch,upload,row=self.legacy_fixture()
+        other=GroupSheetConfiguration.objects.create(group_id='-100other-signed-order',workflow={'type':'jawabu_homebiogas'})
+        order=RequisitionBatch.objects.create(group_configuration=other,order_number='HB-99')
+        HomeBiogasAction.objects.filter(farmer=farmer).update(source_requisition_batch=order)
+        with self.assertRaisesMessage(PortalResetError,'another group’s signed order'):
+            reset_portal_configuration(self.group,actor=self.actor,backup_reference='verified-synthetic-backup')
+        sheets.assert_not_called();self.assertTrue(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
 
     @patch('core.services.portal_full_reset._delete_verified_sheet_rows', return_value=0)
     def test_global_empty_reset_restarts_staff_reference_numbers(self, _sheet_delete):

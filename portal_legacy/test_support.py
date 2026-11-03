@@ -61,6 +61,16 @@ class Sheet:
 
     def hide(self): self.hidden = True
 
+    def batch_get(self,ranges,value_render_option=None):
+        return [self.get(area,value_render_option=value_render_option) for area in ranges]
+
+    def get_all_values(self):
+        return [list(self.cells.get(row,[])) for row in range(1,max(self.cells,default=0)+1)]
+
+    def delete_rows(self,row):
+        self.cells={number-(number>row):values for number,values in self.cells.items() if number!=row}
+        self.row_count-=1
+
 
 class Book:
     """Implements the used Google wire operations, with atomic copy and lost ACK."""
@@ -124,7 +134,7 @@ class Book:
                 sheet.row_count = rows; sheet.col_count = cols; sheet.cells = cells
             self.markers = old_markers
             raise
-        self.replacements.append(destination)
+        if destination is not None:self.replacements.append(destination)
         if self.lose_ack:
             self.lose_ack = False
             raise TimeoutError('Synthetic lost acknowledgement after atomic apply')

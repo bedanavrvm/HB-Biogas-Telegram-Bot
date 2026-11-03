@@ -64,15 +64,21 @@ const {chromium} = require('playwright');
     await page.locator('[data-confirm] button[value=confirm]').click();
     await page.waitForFunction(() => !document.querySelector('[data-action=commit]').hidden&&!document.querySelector('[data-action=commit]').disabled);
     await page.locator('[data-action=commit]').click();
-    await page.locator('[data-confirm][open]').waitFor();await page.locator('[data-confirm] button[value=confirm]').click();
-    await feedback('50 imported');await idle();
+    await page.locator('[data-confirm][open]').waitFor();
+    assert.match(await page.locator('[data-confirm]').innerText(),/automatically in FIFO order/);await shot('fifo-import-confirmation');
+    await page.locator('[data-confirm] button[value=confirm]').click();
+    await page.locator('[data-sheet-sync][data-state=needs_attention]').waitFor();await idle();
     assert.equal(await page.locator('[data-synced-count]').innerText(),'0 / 50');
     assert.equal(await page.locator('[data-imported-count]').innerText(),'50 / 61');
     assert.equal(await page.locator('[data-not-imported]').innerText(),'11');
     await shot('sync-50-imported');
     assert.equal(await page.locator('[data-action=project]').isVisible(),true,'Sheet sync action must explain its prerequisite instead of disappearing after 50 imports');
     assert.equal(await page.locator('[data-action=project]').isDisabled(),true);
-    assert.match(await page.locator('[data-sync-message]').innerText(),/Review unimported rows/);
+    assert.match(await page.locator('[data-sync-message]').innerText(),/did not confirm/);
+    await page.locator('[data-action=resume]').click();
+    await page.waitForFunction(()=>document.querySelector('[data-synced-count]').textContent==='50 / 50');await idle();
+    assert.equal(await page.locator('[data-not-imported]').innerText(),'11');
+    await shot('fifo-50-synced-11-unimported');
     for(const width of [320,390]){
       await page.setViewportSize({width,height:900});
       await page.locator('[data-sheet-sync]').scrollIntoViewIfNeeded();
@@ -103,30 +109,7 @@ const {chromium} = require('playwright');
     await page.locator('[data-resume]').selectOption(pausedUpload);await idle();
     assert.match(await page.locator('[data-sync-message]').innerText(),/Resume processing/);
     await page.locator('[data-action=resume]').click();
-    await feedback('61 imported'); await idle();
-    assert.equal(await page.locator('[data-synced-count]').innerText(),'0 / 61');
-    assert.equal(await page.locator('[data-sync-pending]').innerText(),'61');
-    assert.equal(await page.locator('[data-action=project]').isEnabled(),true);
-    assert.match(await page.locator('[data-sync-message]').innerText(),/Sheet sync has not started/);
-    await shot('sync-awaiting-confirmation');
-    const summary=await page.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes('?summary=1'));
-    assert.equal(summary.status(),200);const savedSummary=await summary.json();
-    assert.equal(savedSummary.upload.sheet_sync.pending,61);assert.equal('rows' in savedSummary,false);
-    await page.locator('[data-action=project]').click(); await page.locator('[data-confirm][open]').waitFor();
-    assert.match(await page.locator('[data-confirm]').innerText(), /Master Data is untouched/);
-    await page.locator('[data-confirm] button[value=cancel]').click();await idle();
-    assert.equal(await page.locator('[data-synced-count]').innerText(),'0 / 61');
-    await page.locator('[data-action=project]').click();await page.locator('[data-confirm][open]').waitFor();
-    await page.locator('[data-confirm] button[value=confirm]').click();
-    await page.locator('[data-sheet-sync][data-state=needs_attention]').waitFor();await idle();
-    assert.equal(await page.locator('[data-synced-count]').innerText(),'0 / 61');
-    assert.match(await page.locator('[data-sync-message]').innerText(),/did not confirm/);
-    await shot('sync-unconfirmed-acknowledgement');
-    const upload=await page.locator('[data-resume]').inputValue();
-    await page.reload();await page.locator(`[data-resume] option[value="${upload}"]`).waitFor({state:'attached'});await idle();
-    await page.locator('[data-resume]').selectOption(upload);await idle();
-    await page.locator('[data-sheet-sync][data-state=needs_attention]').waitFor();
-    await page.locator('[data-action=resume]').click();await feedback('complete');await idle();
+    await page.locator('[data-sheet-sync][data-state=complete]').waitFor();await idle();
     assert.equal(await page.locator('[data-synced-count]').innerText(),'61 / 61');
     assert.equal(await page.locator('[data-sync-pending]').innerText(),'0');
     await page.locator('[data-sheet-sync][data-state=complete]').waitFor();
@@ -139,8 +122,8 @@ const {chromium} = require('playwright');
     assert.deepEqual(errors, []);
     assert.ok(pumpStatuses.length>0&&pumpStatuses.every(status=>status===200),JSON.stringify(pumpStatuses));
     fs.writeFileSync(path.join(config.artifacts,'observations.json'), JSON.stringify({rows:61, source:'Eco-conserve',
-      allCasesImporter:false, reviewSelectionRetained:true, pageTwo:true, complete:true, partialImport:{saved:50,total:61,syncActionVisible:true,syncActionDisabled:true},interruptedImportResumed:true,
-      syncBeforeConfirmation:0,syncedAfterReadback:61,lostAcknowledgementRecovered:true,pumpStatuses,widths:[320,390,1280], scriptErrors:errors},null,2));
+      allCasesImporter:false, reviewSelectionRetained:true, pageTwo:true, complete:true, partialImport:{saved:50,total:61,synced:50,notImported:11},interruptedImportResumed:true,
+      automaticFifo:true,syncedAfterReadback:61,lostAcknowledgementRecovered:true,pumpStatuses,widths:[320,390,1280], scriptErrors:errors},null,2));
     console.log('Real Django/Playwright legacy import completed: 61 rows; source switching, selection, pagination, resume and responsive captures.');
   } catch (error) {
     if(page) {

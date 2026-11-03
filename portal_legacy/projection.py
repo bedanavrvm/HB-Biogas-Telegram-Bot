@@ -61,10 +61,10 @@ def preview(upload,actor,access):
 def confirm(upload,body):
     if not body.get('manual_edits_paused'):raise ValueError('Pause manual edits to the selected register before confirming replacement.')
     if not upload.state.get('projection'):raise ValueError('Preview the exact destination first.')
-    upload.phase='backup';save(upload)
+    upload.frozen=True;upload.phase='backup';save(upload)
 
 
-def record_values(legacy,headers,ordinal):
+def record_values(legacy,headers,ordinal,existing=None):
     from core.services.jawabu_pipeline import master_projection_fields
     from core.services.jawabu_validation import parse_business_date
     from .workbook import token
@@ -92,7 +92,7 @@ def record_values(legacy,headers,ordinal):
     # Historical-only fields are projected only if that explicit column already exists.
     for name,value in legacy.values.items():
         if name.startswith('legacy:'):result[token('LEGACY | '+name[7:]+' | Cleaned')]=str(value)
-    return [result.get(token(h),'') for h in headers]
+    return [result.get(token(h),existing[i] if existing and i<len(existing) else '') for i,h in enumerate(headers)]
 
 
 def advance(upload,actor,access):

@@ -1019,27 +1019,27 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "bacb6e954eebd36ae37c2a3b7b3e1a6a4260073e2487a68285cad01e820de955",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
-      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
+      "sha256": "14bf5e00064056dd534ebb9b248e2737bd2712a4e0d4d583d647acd134dd0459",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
+      "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
-      "sha256": "12ea68ce9f32f7b3a004ed81e7f5c0a490a130591a7641a5fe26dd9e4c4d7d53",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
-      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
+      "sha256": "51e7e47323b97d39e85fdc723e2348ed4c2331eadb5131fc6c9a920e6b260280",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
+      "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "62f3ffc44fc5beb411992a1c2e6d1157399bf75a5b2982d3fb6cac355e2c4620",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
-      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
+      "sha256": "4607efaa5eb2564a6a44d23b3cf919cd9e334b7ef00817fc1bb9c655a96f5aa7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
+      "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.css",
-      "sha256": "23307ffe27f90abfcc96c32464a2ea5ca097ce61fec725de496b4ddd87c4ab53",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
-      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+      "sha256": "9631bc4ec11b5cead9e11fa7fe878e066e8371fb324d88f668150f8ea7efdcbe",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-review-fifo-reset.md",
+      "reason": "User-requested 32 px ROW, issue cards/cells, explicit identity matches, durable source corrections and automatic FIFO sync of already saved cases. Real Django/PostgreSQL Playwright verifies editing, partial publication, lost acknowledgement, reload and legacy reset. Existing compact design and ownership checks retained; no approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [

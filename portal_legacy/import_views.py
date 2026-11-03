@@ -16,7 +16,7 @@ from requests.exceptions import RequestException
 from core.api.portal_views import portal_auth_required
 from core.models import GroupSheetConfiguration
 from core.services.external_resilience import external_call_budget
-from . import importer,projection
+from . import importer,projection,row_sync
 from .models import LegacyUpload
 from .registers import SOURCE_SHEETS
 from .views import identity
@@ -66,6 +66,7 @@ def legacy_upload(request,upload_id=None,action='index'):
                     if upload.phase!='mapping':raise ValueError('Preview the column mapping first.')
                     upload.phase='staging';importer.save(upload)
                 elif action=='select':importer.select(upload,body);importer.save(upload)
+                elif action=='edit':importer.edit(upload,body,actor,access)
                 elif action=='cleanup_preview':
                     if upload.phase not in {'ready','deleting'} or upload.drafts.filter(legacy__isnull=False).exists():raise ValueError('Test cleanup must precede canonical imports.')
                     if upload.phase=='deleting':
@@ -77,6 +78,7 @@ def legacy_upload(request,upload_id=None,action='index'):
                 elif action=='commit':
                     if upload.phase!='ready' or not upload.state.get('cleanup_complete'):raise ValueError('Complete test cleanup and review the import first.')
                     upload.phase='committing';importer.save(upload)
+                elif action=='sync_rows':row_sync.begin(upload)
                 elif action=='projection_preview':
                     if upload.phase!='ready':raise ValueError('Finish the current step before previewing replacement.')
                     with external_call_budget(8):preview=projection.preview(upload,actor,access)
@@ -103,14 +105,16 @@ def legacy_upload(request,upload_id=None,action='index'):
                     elif upload.phase=='committing':
                         results=importer.commit_step(upload,actor,access)
                         return JsonResponse({'ok':True,'upload':importer.payload(upload),'results':results})
-                    elif upload.phase in {'backup','projecting','verifying','replacing','readback'}:
+                    elif upload.phase in {'syncing_rows','backup','projecting','verifying','replacing','readback'}:
                         next_at=parse_datetime(upload.state.get('projection_next_at',''))
                         if next_at and next_at>timezone.now():
                             return JsonResponse({'ok':True,'upload':importer.payload(upload),'wait_seconds':(next_at-timezone.now()).total_seconds()})
-                        upload.state['projection_next_at']=(timezone.now()+timedelta(seconds=4)).isoformat()
+                        upload.state['projection_next_at']=(timezone.now()+timedelta(seconds=10 if upload.phase=='syncing_rows' else 4)).isoformat()
                         importer.save(upload)
                         try:
-                            with external_call_budget(8):projection.advance(upload,actor,access)
+                            with external_call_budget(8):
+                                if upload.phase=='syncing_rows':row_sync.advance(upload,actor,access)
+                                else:projection.advance(upload,actor,access)
                         except (APIError,RequestException,TimeoutError,ValueError) as exc:
                             # Preserve the last confirmed cursor, not in-memory work from a failed step.
                             upload.refresh_from_db()

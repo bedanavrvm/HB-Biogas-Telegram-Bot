@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Legacy review retains FarmUp's compact table and invalid/edited-cell styling,
+adds 32 px ROW and issue cards, and automatically publishes saved cases in FIFO
+order. See the [source and interaction record](reviews/2026-11-03-portal-legacy-review-fifo-reset.md).
+
 Legacy import's sticky feedback includes verified Sheet counts and actionable
 pending/error states. It retains compact FarmUp review and the destination
 confirmation. See the [source record](reviews/2026-11-03-portal-legacy-sheet-sync.md).

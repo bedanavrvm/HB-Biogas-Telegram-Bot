@@ -18,7 +18,7 @@ class LegacySyncTests(LegacyHTTPMixin,TestCase):
         self.assertEqual(upload['committed'],1)
         self.assertEqual(upload['sheet_sync']['synced'],0)
         self.assertEqual(upload['sheet_sync']['pending'],1)
-        self.assertEqual(upload['sheet_sync']['state'],'awaiting_confirmation')
+        self.assertEqual(upload['sheet_sync']['state'],'awaiting_sync')
         self.assertEqual(self.book.replacements,[])
         upload=self.complete(self.projection(upload))
         self.assertEqual(upload['sheet_sync']['synced'],1)
@@ -30,7 +30,7 @@ class LegacySyncTests(LegacyHTTPMixin,TestCase):
         row=self.rows(upload)[0]
         upload=self.request('select',{'rows':[{'id':row['id'],'approved':True}]},upload=upload)['upload']
         upload=self.finish(self.request('commit',upload=upload)['upload'],'committing')
-        self.assertEqual(upload['sheet_sync'],{'state':'awaiting_import','synced':0,'pending':1,'not_imported':1,'error':''})
+        self.assertEqual(upload['sheet_sync'],{'state':'awaiting_sync','synced':0,'pending':1,'not_imported':1,'error':''})
         result=self.request(upload=upload,method='get',query='?summary=1')
         self.assertNotIn('rows',result);self.assertEqual(result['upload']['sheet_sync']['not_imported'],1)
         self.request('projection_preview',upload=upload,status=409)

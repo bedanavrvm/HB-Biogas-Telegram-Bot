@@ -43,6 +43,7 @@ from core.models import (
     JawabuVisitRecord,
 )
 from hb_operations.models import HomeBiogasAction, HomeBiogasActionEvent
+from portal_legacy.models import LegacyBatch, LegacyUpload, LegacyDraft, LegacyRow, LegacyEvent
 from payments.models import (
     PaymentBatch, PaymentBatchCase, PaymentBatchEvent, PaymentCaseReview,
     PaymentReceiptBatch, PaymentReceiptItem,
@@ -105,6 +106,8 @@ def portal_reset_manifest(configuration):
     invoice_uploads = _owned_or_unowned(InvoiceUploadBatch, configuration)
     counts = {
         'cases': len(farmer_ids),
+        'legacy_import_uploads': LegacyUpload.objects.filter(batch__group=configuration).count(),
+        'legacy_import_rows': LegacyRow.objects.filter(batch__group=configuration).count(),
         'farmup_sysup_uploads': JawabuFarmerUploadBatch.objects.filter(group_id=configuration.group_id).count(),
         'visits': JawabuVisitRecord.objects.filter(group_id=configuration.group_id).count(),
         'orders': orders.count(),
@@ -159,7 +162,11 @@ def _delete_verified_sheet_rows(configuration, farmer_ids):
             raise PortalResetError(f'The {tab} Sheet has no expected header row.')
         headers = {normalize_header(value): index for index, value in enumerate(values[header_row - 1])}
         id_column = headers.get(normalize_header('Master Record ID'))
+        if id_column is None:id_column=headers.get(normalize_header('Case ID'))
         if id_column is None:
+            unprojected=set(LegacyRow.objects.filter(farmer_id__in=farmer_ids,publication_ready=False).values_list('farmer_id',flat=True))
+            if unprojected==set(farmer_ids) and not LiveSheetRecordChange.objects.filter(sheet_id=sheet_id,sheet_tab=tab,record_key__in=[str(pk) for pk in farmer_ids],status='success').exists():
+                continue  # Retain raw rows without canonical IDs; their ownership cannot be proved.
             raise PortalResetError(f'The {tab} Sheet has no immutable Master Record ID column.')
         row_numbers = [
             row_number for row_number, row in enumerate(values, start=1)
@@ -285,8 +292,15 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         raise PortalResetError('A case belongs to another group’s payment batch. Review ownership before resetting.')
     if PaymentBatchCase.objects.filter(batch_id__in=payment_ids).exclude(farmer_id__in=farmer_ids).exists():
         raise PortalResetError('A payment batch contains a case owned by another group. Review ownership before resetting.')
-    if HomeBiogasAction.objects.filter(farmer_id__in=farmer_ids).exclude(source_requisition_batch_id__in=order_ids).exists():
+    if HomeBiogasAction.objects.filter(farmer_id__in=farmer_ids,source_requisition_batch__isnull=False).exclude(source_requisition_batch_id__in=order_ids).exists():
         raise PortalResetError('A case belongs to another group’s signed order. Review ownership before resetting.')
+    legacy_rows=LegacyRow.objects.filter(batch__group=configuration)
+    if (LegacyRow.objects.filter(farmer_id__in=farmer_ids).exclude(batch__group=configuration).exists()
+        or legacy_rows.exclude(farmer_id=None).exclude(farmer_id__in=farmer_ids).exists()
+        or LegacyDraft.objects.filter(legacy__in=legacy_rows).exclude(upload__batch__group=configuration).exists()
+        or LegacyDraft.objects.filter(upload__batch__group=configuration,legacy__isnull=False).exclude(legacy__batch__group=configuration).exists()
+        or HomeBiogasAction.objects.filter(legacy_origin__in=legacy_rows).exclude(farmer_id__in=farmer_ids).exists()):
+        raise PortalResetError('Legacy import provenance crosses Portal group ownership. Review its exact case and batch before resetting.')
     if HomeBiogasAction.objects.filter(source_requisition_batch_id__in=order_ids).exclude(farmer_id__in=farmer_ids).exists():
         raise PortalResetError('A signed order contains an HB action owned by another group. Review ownership before resetting.')
     if PaymentReceiptItem.objects.filter(farmer_id__in=farmer_ids).exclude(receipt_batch_id__in=receipt_ids).exists():
@@ -327,6 +341,11 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         actions = HomeBiogasAction.objects.filter(farmer_id__in=farmer_ids)
         HomeBiogasActionEvent.objects.filter(action__in=actions).delete()
         actions.delete()
+
+        LegacyUpload.objects.filter(batch__group=configuration).delete()
+        LegacyEvent.objects.filter(row__in=legacy_rows).delete()
+        legacy_rows.delete()
+        LegacyBatch.objects.filter(group=configuration).delete()
 
         signoffs = DocumentPhysicalSignoff.objects.filter(
             Q(requisition_batch_id__in=order_ids) | Q(payment_document_id__in=document_ids),

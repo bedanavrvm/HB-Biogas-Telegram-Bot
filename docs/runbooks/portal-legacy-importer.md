@@ -55,13 +55,16 @@ evidence; no data values change. See the
 3. Review 50-row pages and Ready/Warnings/Blocked filters. Source facts, proposed
    state, warnings and explicit identity reconciliation are available on each
    row. Invalid money blocks import; incomplete historical identity, dates or
-   workflow evidence are retained with warnings or Legacy review. Correct blocked
-   values/field limits in a new workbook version before test cleanup is allowed.
+   workflow evidence are retained with warnings or Legacy review. Double-click a
+   pending field and choose **Save corrections** to fix blocked values/field limits.
+   Original values and correction history remain available; changed rows require
+   fresh approval. Source Row, Case ID and imported records stay read-only.
    Approve intended records; choices persist across page navigation.
    Table is the default FarmUp-style AG Grid view; use **Cards** to switch back.
    Column sorting/filtering applies to the current 50-row page. Open a row number
    for source facts/history or edit the existing case ID/explanation in the grid.
-   Source values remain read-only. Both layouts retain the same review choices.
+   Affected cells are highlighted and identity matches name the conflicting
+   source rows/cases and values. Both layouts retain the same review choices.
 4. Have the Superuser select **Review test-data deletion**, inspect the owner,
    selected register, case count and dependent-model impact, and confirm. This
    deletes only that owner's test cases assigned to the selected register's
@@ -77,33 +80,27 @@ evidence; no data values change. See the
    historical approval actors, signatures or missing dates. **Imported** means
    saved in Django; it does not mean synced to Google Sheets. The separate
    indicator shows verified/saved rows, awaiting sync and not-yet-imported rows.
-6. Account for every source row before selecting **Sync imported rows to Sheet**.
-   The sync button stays visible after the first import, but is disabled until
-   all source rows are saved. **50 / 61 saved in database** means eleven source
-   rows remain; **0 / 50 synced** describes only the fifty saved cases.
-   If rows remain, **Review unimported rows** opens the Pending review filter;
-   a Ready-only selection may leave warning rows still requiring review.
-   Approve the reviewed pending rows, then select **Import approved rows**.
-   If an approved import was interrupted, use **Resume processing** instead.
-   Once all rows are imported, the sync button enables automatically.
-   Imported rows must bind to distinct cases and cover every case belonging to
-   the selected register for that owner. Counterpart cases remain untouched.
-   Review the exact spreadsheet, destination tab, count and headers.
-   Confirm that manual edits are paused.
-7. Keep the workspace open or resume it later. The app snapshots old data rows,
-   writes and verifies a hidden staging tab, checks the old rows again, then
-   replaces only the selected tab's data values in one provider batch. Existing
-   headers and formatting survive; Case ID is added if absent. Old unmatched
-   data rows in that destination are cleared. Every new row is read back before
-   normal publication is enabled. The owner is released only at Complete.
-   The synced count increases only after readback, including during partial
-   verification. Preparing rows or sending a replacement does not count as
-   verified sync. A lost acknowledgement can leave rows on the Sheet while the
-   verified counter remains zero; resume checks the completion marker safely.
-   While this changeover is held, the normal Portal publication pump reports
-   **paused** rather than a 503. It cannot finish an unconfirmed legacy Sheet
-   replacement. The visible incomplete import refreshes its summary every
-   15 seconds; **Refresh saved progress** also updates the counters manually.
+6. Each saved chunk starts **automatic FIFO Sheet sync**, oldest commit first,
+   before the next import chunk continues. Previously saved cases are included
+   when you resume the saved upload. You can have **52 / 52 synced** while
+   **4,025 not imported** remain for review; those remaining Sheet rows are
+   preserved. You do not need to upload again. **Sync imported rows to Sheet**
+   and **Resume processing** remain recovery controls for saved unsynced work.
+   Review the remaining rows with **Review unimported rows**. Approving displayed
+   rows selects only the current page; **Approve all pending rows** selects all
+   eligible remaining records, which still process in bounded chunks.
+7. Keep the workspace visible or resume it later. The app verifies destination
+   row identities and updates only confirmed imported cases, preserving the
+   counterpart tab and unimported rows. The synced count increases only after
+   readback. Lost acknowledgements retain the exact write plan; resume verifies
+   it before retrying. A failing oldest write holds newer writes in FIFO order.
+   Once all source cases are saved and verified, the import completes and releases
+   its hold. Full-register replacement remains a separate **Replace entire
+   register?** action on a fully imported, held upload: it requires exact
+   destination review and confirmation, snapshots and stages the destination,
+   then clears unmatched old rows. Ordinary FIFO sync never clears unrelated rows.
+   The normal Portal publication pump remains paused during partial cutover;
+   legacy sync runs through the owning importer. Summary refresh is read-only.
 8. Reconcile counts, sampled identities, dates, money, Legacy review and HB
    worklists against the reviewed source. Review consumed order/payment numbers
    and allocator settings against the paper trail before resuming numbered work.
@@ -118,11 +115,13 @@ evidence; no data values change. See the
   restarts; they are not executed or imported as workflow facts.
 - Staging advances by at most 250 records or five seconds; canonical commits
   advance by at most 50 records or five seconds. Each case commits independently.
-- Sheet steps use bounded snapshot/staging/readback pages, an eight-second
-  external-call budget and at least four seconds between publication advances.
-  Spreadsheet capacity includes the temporary staging copy.
+- FIFO sync scans up to 1,000 rows of immutable Sheet IDs per step, prepares up
+  to fifty imported cases / three seconds / 512 KiB per write batch and retains target/checksum/readback receipts in the DB.
+  Provider calls have an eight-second budget with at least ten seconds between
+  FIFO advances (four seconds for full replacement). Full replacement additionally needs temporary staging capacity.
 - Closing/backgrounding Telegram stops the client loop after the current request.
-  Select the original register, **Resume saved import**, then **Resume processing**.
+  Select the original register and **Resume saved import**. Its unsynced saves
+  start syncing; **Resume processing** continues a paused stage or failed write.
   A partial upload requires reselecting the same workbook; retained chunks are
   reused. Source toggles save pending review choices before switching.
 - Lost responses do not mean an unsaved case. Refresh progress first. Expiring
@@ -168,3 +167,18 @@ and [register/navigation review](../ui-standard/reviews/2026-11-03-portal-legacy
 No production deletion, import, Sheet write or deployment was performed. Local
 synthetic scale evidence does not establish production headroom or live provider
 performance; a full 50,000-case commit/projection remains unverified.
+
+## Resetting Portal after legacy intake
+
+The confirmed Admin reset now includes the selected owner?s legacy uploads,
+private chunks, drafts and provenance in its disclosed deletion closure. It
+removes their cutover holds in the database transaction. A historical HB action
+without a signed requisition is valid legacy history, not a foreign signed order.
+Real cross-group order/provenance links still block before Sheet deletion. Raw
+spreadsheet rows without provable case UUID ownership remain in the Sheet.
+
+The reset still needs an active Superuser, verified backup reference and explicit
+confirmation. If an earlier reset failed, maintenance remains enabled until the
+operator resolves it; successful retry does not infer permission to change a
+pre-existing maintenance mode. Check the maintenance state before resuming
+imports. This document does not authorize a production reset.

@@ -22,8 +22,8 @@ appends after the last occupied row. Existing case rows are never shifted.
 An unfinished legacy changeover deliberately holds normal publication. The
 visible-session pump reports a successful **paused** response rather than an
 unexpected 503; it does not bypass the hold. Open the saved **Legacy import**
-and follow its Sheet status: finish unimported rows, then **Sync imported rows
-to Sheet**, or **Resume processing** for a confirmed unfinished update.
+and follow its Sheet status: saved cases sync automatically in FIFO order;
+**Sync imported rows to Sheet** or **Resume processing** retries unfinished work.
 The synced counter advances only when rows are verified by readback. The owner
 is released only when the changeover completes. See the
 [legacy importer guide](../runbooks/portal-legacy-importer.md).
@@ -93,3 +93,17 @@ refreshes will not fix a bad tab name, permissions, or schema mismatch.
 Open any Portal screen to resume pending work and confirm the
 **Sheet synced** badge in FarmUp. Manual **Retry failed sync** creates a reviewed queued
 replacement for an exhausted operation and returns without contacting Google.
+
+## Legacy imported-case FIFO
+
+Legacy cutover now publishes each saved chunk automatically through its own
+register-bound, leased importer queue, ordered by commit time. Selecting a saved
+upload resumes earlier unsynced cases. Bounded provider batches have retained
+target/checksum plans and readback receipts; unknown acknowledgements retry the
+same rows. Unimported source rows are preserved. This path does not enable the
+normal publisher during the cutover hold or add a background worker. Keep the
+legacy page visible, or resume it after closing.
+
+A global `portal_read_only_maintenance` 503 after a failed Admin reset is a
+separate operator maintenance lock. Fix/retry the reset and review maintenance
+state before attempting writes. Do not clear it automatically to force sync.

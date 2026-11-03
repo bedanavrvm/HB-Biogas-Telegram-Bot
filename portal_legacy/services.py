@@ -84,15 +84,15 @@ def stage(content, *, namespace, group, actor, access):
 
 def row_payload(row):
     fields = row.proposal.get('fields', {})
-    identity_collision = bool(fields.get('national_id') and JawabuFarmerMaster.objects.filter(national_id=fields['national_id']).exists())
     matches = JawabuFarmerMaster.objects.filter(group_configuration=row.batch.group,
-        national_id=fields.get('national_id'), branch=row.values.get('branch', '')).values('id', 'case_reference_number') if fields.get('national_id') else []
+        national_id=fields.get('national_id'), branch=row.values.get('branch', '')).exclude(pk=row.farmer_id).values('id', 'case_reference_number')[:10] if fields.get('national_id') and not row.committed_at else []
+    matches=list(matches)
     return {'id': str(row.pk), 'sheet': row.source_sheet, 'source_row': row.source_row,
             'name': row.values.get('customer_name', ''), 'revision': row.revision,
             'proposal': row.proposal, 'farmer_id': str(row.farmer_id or ''),
             'committed': bool(row.committed_at), 'continuation_confirmed': row.continuation_confirmed,
             'source_values': row.values,
-            'identity_collision': identity_collision,
+            'identity_collision': bool(matches),
             'existing_cases': [{'id': str(m['id']), 'reference': f"JBL-{m['case_reference_number']}"} for m in matches]}
 
 
