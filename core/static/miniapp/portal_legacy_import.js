@@ -110,6 +110,7 @@
     node('[data-progress]').max=Math.max(processing?.count||active.total,1);node('[data-progress]').value=processing?.offset||active.committed;
     const sync=active.sheet_sync||{synced:0,pending:active.committed,not_imported:active.total-active.committed,state:'awaiting_import'};
     node('[data-sheet-sync]').dataset.state=sync.state;
+    node('[data-imported-count]').textContent=`${active.committed} / ${active.total}`;
     node('[data-synced-count]').textContent=`${sync.synced} / ${active.committed}`;
     node('[data-sync-pending]').textContent=sync.pending;
     node('[data-not-imported]').textContent=sync.not_imported;
@@ -118,11 +119,13 @@
     node('[data-sync-message]').textContent=sync.state==='needs_attention'?`Sheet sync needs attention. ${sync.error} Saved records remain in the database. Resume processing to retry the saved step.`:
       sync.state==='complete'?`Sheet sync complete: ${sync.synced} imported rows verified on ${active.source_sheet}.`:
       sync.state==='in_progress'?`${busy?steps[active.phase]||'Syncing':'Sheet sync paused'} · ${sync.synced} rows verified. ${busy?'You can pause after the current step.':'Use Resume processing to continue.'}`:
+      active.phase==='committing'?`${active.committed} of ${active.total} source rows saved. ${busy?'Importing the approved selection.':'Import paused. Use “Resume processing” to continue.'} Sheet sync becomes available after every source row is imported.`:
       sync.state==='awaiting_confirmation'?`Database import finished; Sheet sync has not started. Use “Sync imported rows to Sheet” to review the destination and finish the changeover.`:
-      `Review and import the remaining ${sync.not_imported} source rows before the Sheet can be replaced. ${active.committed} saved in the database; ${sync.synced} verified on the Sheet.`;
+      `Sheet sync is waiting for ${sync.not_imported} unimported source rows. Use “Review unimported rows”, approve them, then “Import approved rows”. ${active.committed} of ${active.total} source rows are saved in the database.`;
     const available={stage:active.phase==='mapping',cleanup:superuser&&['ready','deleting'].includes(active.phase)&&!active.state.cleanup_complete,commit:active.phase==='ready'&&active.state.cleanup_complete,
       project:active.phase==='ready'&&active.committed===active.total&&active.total>0,review_pending:active.phase==='ready'&&sync.not_imported>0,restart_projection:['backup','projecting','verifying'].includes(active.phase),cancel_preview:active.frozen&&!active.state.cleanup_started&&active.phase==='ready',discard:!active.frozen&&active.committed===0};
     for(const [name,enabled] of Object.entries(available)){const button=node(`[data-action="${name}"]`);button.hidden=!enabled;button.disabled=busy||!enabled;}
+    node('[data-action="project"]').hidden=active.committed===0||active.phase==='complete';
     for(const name of ["refresh","select_page","select_all","unselect_all","previous","next"]){node(`[data-action="${name}"]`).hidden=false;}
     for(const name of ['refresh','select_page','select_all','unselect_all','previous','next'])node(`[data-action="${name}"]`).disabled=busy||(name==='previous'&&offset===0)||(name==='next'&&offset+50>=pageTotal);
     node('[data-filter]').disabled=busy;node('[data-resume]').disabled=busy;

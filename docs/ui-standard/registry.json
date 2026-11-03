@@ -1019,21 +1019,21 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "e8ea7af8bd3346ded2cab610a90e9374b24c89405972da03d1f672fa8d4ec683",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
-      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+      "sha256": "bacb6e954eebd36ae37c2a3b7b3e1a6a4260073e2487a68285cad01e820de955",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
+      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
-      "sha256": "ea8728b89e3faa767b6e024d12672fcf689a50bb1f8dfa0ef808c9c55ade9229",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
-      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+      "sha256": "12ea68ce9f32f7b3a004ed81e7f5c0a490a130591a7641a5fe26dd9e4c4d7d53",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
+      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "21a60d2f194526080a4103261621a7f3b0cbcceea75b3850443a3b0d762c8dfb",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md",
-      "reason": "User-requested verified Sheet sync counters, explicit pending/confirmation/recovery states and read-only summary refresh. Retains compact Portal/FarmUp layout and destination confirmation; actual Django/PostgreSQL Playwright including lost acknowledgement and resume. No approved baseline or Phase 6 change."
+      "sha256": "62f3ffc44fc5beb411992a1c2e6d1157399bf75a5b2982d3fb6cac355e2c4620",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-sheet-sync.md#follow-up-hidden-sync-after-fifty-imports",
+      "reason": "Keep Sheet sync discoverable after a partial import; explicit saved/source counts and remaining-row or paused-import instructions. Real Django/PostgreSQL Playwright reproduces fifty imports, interrupted request, reload/resume and verified replacement. Existing compact design and replacement safeguards retained; no baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.css",

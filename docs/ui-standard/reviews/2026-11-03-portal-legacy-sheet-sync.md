@@ -15,7 +15,10 @@ No candidate tokens, approved baselines, Phase 6 gate or schema changes.
   saved rows synced**, **awaiting sync**, and **not imported**.
 - Remaining source rows have an explanation and **Review unimported rows**.
   A Ready filter cannot conceal why full replacement is unavailable.
-- A fully imported upload shows **Sync imported rows to Sheet** and explains
+- An upload with saved cases keeps **Sync imported rows to Sheet** visible;
+  it enables after every source row is imported. A separate **saved / source
+  rows** count distinguishes a fifty-row page from the whole workbook.
+  A fully imported upload explains
   that import saved Django records. The existing exact-destination confirmation
   still precedes any replacement. Cancelling leaves verified sync unchanged.
 - Backup, staging, verification, replacement, readback, paused and complete
@@ -65,3 +68,41 @@ its older HB-reader automatic-status assertion still returns 403 instead of
 202. Running that test with the unchanged HEAD `portal_publication_attempt`
 handler reproduces the failure; this fix does not relax those access rules.
 Baseline evidence: `test-results/portal-legacy-sync-existing-reader-baseline.log`.
+
+## Follow-up: hidden sync after fifty imports
+
+The user saw **0 / 50 synced**, fifty saved cases and no sync button. The real
+Playwright journey reproduced that symptom with fifty of sixty-one source
+rows imported: the button's hidden property followed full-replacement
+eligibility. Red evidence: `test-results/portal-legacy-hidden-sync-red.log`.
+This reproduces the reported UI symptom locally; the user's exact live
+upload, phase and remaining-row count have not been inspected.
+
+The button now remains visible after a canonical import, with its existing
+eligibility check controlling whether it is enabled. Its accessible description
+names the remaining-row prerequisite and the **Review unimported rows**,
+approval and **Import approved rows** actions. A **committing** checkpoint
+instead directs the operator to **Resume processing**. Counts show **50 / 61
+saved in database** alongside **0 / 50 synced**. Existing compact controls,
+layout, confirmations and server-side replacement rules are retained. The
+shell script version is incremented; no permission, database, publication
+execution or remote replacement policy changes.
+
+The expanded actual-shell Playwright journey covers the visible disabled
+action at fifty imports, Pending review's eleven remaining rows, an aborted
+advance request, reload/resume of the saved import, enabled sync after all
+sixty-one imports, confirmation cancellation and uncertain remote-acknowledgement
+recovery. Only Google transport is simulated; signed Django HTTP and the
+isolated PostgreSQL database are real. The existing five signed-HTTP sync
+checks also verify incomplete replacement is rejected and receipt/recovery
+counts remain accurate. Final log:
+`test-results/portal-legacy-hidden-sync-final.log`.
+All six focused checks passed, including the real browser journey. JavaScript
+syntax, Django checks, the 217-route inventory and UI source ratchet also passed.
+
+Captures are in `test-results/legacy-importer-automated-browser/`:
+`sync-50-before.png`, `sync-50-imported.png`,
+`sync-50-imported-{320,390}.png`, `sync-import-paused.png`,
+`sync-awaiting-confirmation.png` and the completion captures. The gallery and
+`observations.json` record the journey. No live deployment, production Sheet
+write, physical Telegram-device acceptance or human design approval is claimed.

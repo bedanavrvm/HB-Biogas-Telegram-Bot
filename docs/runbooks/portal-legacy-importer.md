@@ -78,8 +78,14 @@ evidence; no data values change. See the
    saved in Django; it does not mean synced to Google Sheets. The separate
    indicator shows verified/saved rows, awaiting sync and not-yet-imported rows.
 6. Account for every source row before selecting **Sync imported rows to Sheet**.
+   The sync button stays visible after the first import, but is disabled until
+   all source rows are saved. **50 / 61 saved in database** means eleven source
+   rows remain; **0 / 50 synced** describes only the fifty saved cases.
    If rows remain, **Review unimported rows** opens the Pending review filter;
    a Ready-only selection may leave warning rows still requiring review.
+   Approve the reviewed pending rows, then select **Import approved rows**.
+   If an approved import was interrupted, use **Resume processing** instead.
+   Once all rows are imported, the sync button enables automatically.
    Imported rows must bind to distinct cases and cover every case belonging to
    the selected register for that owner. Counterpart cases remain untouched.
    Review the exact spreadsheet, destination tab, count and headers.
