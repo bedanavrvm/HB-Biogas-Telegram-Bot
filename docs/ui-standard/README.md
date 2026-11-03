@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Complaints **Settings / Workspace tools ? Legacy import** now opens a dedicated
+compact review page with Table/Cards, durable approval, original/proposed values
+and separate background publication. See the [source and interaction record](reviews/2026-11-03-complaints-legacy-import.md).
+
 The dedicated **Legacy changeover → Legacy import** sidebar page now offers
 Master Data / Eco-conserve source controls; All Cases contains no importer.
 Register isolation, retained table/cards behaviour and real-shell evidence are

@@ -22,6 +22,12 @@ AGE_BUCKETS = (
 )
 
 
+def elapsed_days(case, *, now=None):
+    start = case.timestamp or case.created_at
+    end = case.date_resolved if case.complaint_status == 'Closed' else (now or timezone.now())
+    return max(0, int((end-start).total_seconds()//86400)) if start and end else None
+
+
 def case_timing(control, case, *, now=None):
     now = now or timezone.now()
     start = control.sla_started_at or case.timestamp or case.created_at

@@ -1,0 +1,25 @@
+erDiagram
+  portal_legacy_batch_root {
+    string id
+  }
+  portal_legacy_chunk_evidence {
+    string id
+  }
+  portal_legacy_draft_record {
+    string id
+  }
+  portal_legacy_event_audit {
+    string id
+  }
+  portal_legacy_row_record {
+    string id
+  }
+  portal_legacy_upload_session {
+    string id
+  }
+  portal_legacy_upload_session ||--o{ portal_legacy_chunk_evidence : contains
+  portal_legacy_row_record ||--o{ portal_legacy_draft_record : contains
+  portal_legacy_upload_session ||--o{ portal_legacy_draft_record : contains
+  portal_legacy_row_record ||--o{ portal_legacy_event_audit : contains
+  portal_legacy_batch_root ||--o{ portal_legacy_row_record : contains
+  portal_legacy_batch_root ||--o{ portal_legacy_upload_session : contains

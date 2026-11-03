@@ -1,6 +1,101 @@
 {
   "tables": [
     {
+      "application_area": "Complaint Legacy",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 6,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "complaint_legacy/services.py"
+      ],
+      "django_model": "complaint_legacy.ImportChunk",
+      "domain": "complaint_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "complaint_legacy.ImportUpload"
+      ],
+      "purpose": "Checksummed original historical Complaints workbook bytes.",
+      "retention": "Retain with imported cases; explicit uncommitted discard only.",
+      "source_of_truth": true,
+      "table": "complaint_legacy_chunk_evidence",
+      "used_by": [
+        "complaint_legacy/migrations/0001_initial.py",
+        "complaint_legacy/models.py",
+        "complaint_legacy/services.py",
+        "core/services/database_catalog.py"
+      ]
+    },
+    {
+      "application_area": "Complaint Legacy",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 9,
+      "cross_domain_parents": [
+        "core.ParsedMessage"
+      ],
+      "direct_orm_writers": [
+        "complaint_legacy/services.py"
+      ],
+      "django_model": "complaint_legacy.ImportRow",
+      "domain": "complaint_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "complaint_legacy.ImportUpload",
+        "core.ParsedMessage"
+      ],
+      "purpose": "Original and proposed historical facts with explicit import approval and canonical case provenance.",
+      "retention": "Retain committed facts with their case; explicit uncommitted discard only.",
+      "source_of_truth": true,
+      "table": "complaint_legacy_row_record",
+      "used_by": [
+        "complaint_legacy/migrations/0001_initial.py",
+        "complaint_legacy/models.py",
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
+        "core/services/database_catalog.py"
+      ]
+    },
+    {
+      "application_area": "Complaint Legacy",
+      "children": [
+        "complaint_legacy.ImportChunk",
+        "complaint_legacy.ImportRow"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 14,
+      "cross_domain_parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "direct_orm_writers": [
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py"
+      ],
+      "django_model": "complaint_legacy.ImportUpload",
+      "domain": "complaint_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "purpose": "Private reviewed historical Complaints source and bounded processing checkpoints.",
+      "retention": "Retain with imported cases; only explicitly discarded uncommitted uploads may lose source bytes. No automatic purge.",
+      "source_of_truth": true,
+      "table": "complaint_legacy_upload_session",
+      "used_by": [
+        "complaint_legacy/migrations/0001_initial.py",
+        "complaint_legacy/models.py",
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
+        "complaint_legacy/views.py",
+        "core/services/database_catalog.py"
+      ]
+    },
+    {
       "application_area": "Complaints",
       "children": [
         "complaint_conversations.CommentMention"
@@ -312,6 +407,7 @@
       "source_of_truth": true,
       "table": "core_accesscontrolpolicystate",
       "used_by": [
+        "complaint_legacy/migrations/0002_it_capability.py",
         "core/services/access_control.py",
         "core/services/fresh_database_baseline.py",
         "core/services/staff_lifecycle.py",
@@ -319,6 +415,7 @@
         "origination/migrations/0003_independent_capabilities.py",
         "origination/migrations/0011_phone_identity_pilot_capability.py",
         "origination/migrations/0015_application_invalidation.py",
+        "portal_legacy/migrations/0005_it_import_capability.py",
         "report_delivery/one_off.py"
       ]
     },
@@ -334,6 +431,7 @@
         "core.Product"
       ],
       "direct_orm_writers": [
+        "complaint_legacy/tests.py",
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
         "core/services/staff_access_readiness.py",
@@ -347,6 +445,7 @@
         "origination/tests_references.py",
         "origination/tests_signing_presentation.py",
         "origination/tests_workflow_improvements.py",
+        "portal_legacy/tests.py",
         "report_delivery/tests.py",
         "report_delivery/tests_complaint_reports.py",
         "report_delivery/tests_one_off.py",
@@ -373,6 +472,8 @@
       "table": "core_accessgrant",
       "used_by": [
         "complaint_conversations/services.py",
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
         "core/api/portal_views.py",
         "core/management/commands/check_portal_role_separation.py",
         "core/services/access_control.py",
@@ -387,6 +488,7 @@
         "core/services/locations.py",
         "core/services/miniapp_deletion_registry.py",
         "core/services/portal_imports.py",
+        "core/services/portal_navigation.py",
         "core/services/portal_recognition.py",
         "core/services/product_catalog.py",
         "core/services/product_catalog_full_reset.py",
@@ -416,6 +518,9 @@
         "origination/tests_signing_plans.py",
         "origination/tests_signing_presentation.py",
         "origination/tests_workflow_improvements.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
         "report_delivery/one_off.py",
         "report_delivery/services.py",
         "report_delivery/tests.py",
@@ -555,6 +660,7 @@
         "complaint_conversations/catalogue.py",
         "complaint_conversations/models.py",
         "complaint_conversations/services.py",
+        "complaint_legacy/tests.py",
         "complaint_publications/services.py",
         "complaint_publications/worker.py",
         "core/services/case_updates.py",
@@ -582,6 +688,7 @@
         "core.OperationalLocation"
       ],
       "direct_orm_writers": [
+        "complaint_legacy/services.py",
         "complaint_publications/services.py",
         "complaint_publications/worker.py",
         "core/services/complaint_cases.py",
@@ -610,6 +717,8 @@
       "source_of_truth": true,
       "table": "core_complaintcasecontrol",
       "used_by": [
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
         "complaint_publications/services.py",
         "complaint_publications/worker.py",
         "core/services/complaint_cases.py",
@@ -631,6 +740,7 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "complaint_legacy/services.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py"
@@ -650,6 +760,8 @@
       "source_of_truth": true,
       "table": "core_complaintcaseevent",
       "used_by": [
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
         "core/services/case_updates.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
@@ -689,6 +801,7 @@
         "complaint_publications/models.py",
         "complaint_publications/services.py",
         "complaint_publications/worker.py",
+        "core/api/browser_complaint_operations.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "core/services/miniapp_deletion_registry.py",
@@ -875,6 +988,7 @@
       "column_count": 4,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_legacy/tests.py",
         "core/services/compliance_audit.py",
         "hb_operations/tests_deposits.py",
         "origination/tests_application_downloads.py",
@@ -886,6 +1000,7 @@
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
+        "portal_legacy/tests.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_enrollment.py",
@@ -907,6 +1022,7 @@
       "source_of_truth": true,
       "table": "core_complianceauditchainstate",
       "used_by": [
+        "complaint_legacy/tests.py",
         "core/services/compliance_audit.py",
         "hb_operations/tests_deposits.py",
         "origination/tests_application_downloads.py",
@@ -918,6 +1034,7 @@
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
+        "portal_legacy/tests.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_enrollment.py",
@@ -1266,6 +1383,7 @@
     {
       "application_area": "Platform",
       "children": [
+        "complaint_legacy.ImportUpload",
         "complaint_publications.UploadAttempt",
         "core.AccessGrant",
         "core.ComplaintCategoryAvailability",
@@ -1289,6 +1407,7 @@
         "payments.PaymentBatch",
         "payments.PaymentReceiptBatch",
         "payments.PaymentSequenceState",
+        "portal_legacy.LegacyBatch",
         "report_delivery.ApprovedRecipient",
         "report_delivery.ReportSchedule",
         "requisitions.OrderSequenceState"
@@ -1297,6 +1416,8 @@
       "column_count": 15,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
         "complaint_publications/worker.py",
         "core/services/fca.py",
         "core/services/staff_telegram_onboarding.py",
@@ -1310,6 +1431,8 @@
         "payments/tests.py",
         "payments/tests_invoice_agreements.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/tests.py",
         "report_delivery/tests.py",
         "report_delivery/tests_complaint_reports.py",
         "report_delivery/tests_one_off.py",
@@ -1330,6 +1453,9 @@
       "source_of_truth": true,
       "table": "core_groupsheetconfiguration",
       "used_by": [
+        "complaint_legacy/models.py",
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
         "complaint_publications/admin.py",
         "complaint_publications/models.py",
         "complaint_publications/services.py",
@@ -1402,6 +1528,12 @@
         "payments/tests.py",
         "payments/tests_invoice_agreements.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_legacy/fence.py",
+        "portal_legacy/import_views.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/models.py",
+        "portal_legacy/tests.py",
+        "portal_legacy/views.py",
         "report_delivery/models.py",
         "report_delivery/settings.py",
         "report_delivery/tests.py",
@@ -1457,6 +1589,7 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "complaint_publications/services.py",
         "complaint_publications/worker.py",
         "core/api/portal_views.py",
         "core/services/complaint_publication.py",
@@ -1470,7 +1603,8 @@
         "origination/tests_approval.py",
         "origination/tests_laf_bootstrap.py",
         "origination/tests_phone_identity.py",
-        "origination/tests_workflow_improvements.py"
+        "origination/tests_workflow_improvements.py",
+        "portal_legacy/tests.py"
       ],
       "django_model": "core.IntegrationOperation",
       "domain": "integration",
@@ -1488,6 +1622,8 @@
       "source_of_truth": true,
       "table": "core_integrationoperation",
       "used_by": [
+        "complaint_legacy/tests.py",
+        "complaint_legacy/tests_browser.py",
         "complaint_publications/models.py",
         "complaint_publications/services.py",
         "complaint_publications/worker.py",
@@ -1523,7 +1659,8 @@
         "origination/tests_laf_bootstrap.py",
         "origination/tests_phone_identity.py",
         "origination/tests_signing_migrations.py",
-        "origination/tests_workflow_improvements.py"
+        "origination/tests_workflow_improvements.py",
+        "portal_legacy/tests.py"
       ]
     },
     {
@@ -1733,6 +1870,7 @@
         "hb_operations/tests.py",
         "payments/models.py",
         "payments/tests.py",
+        "portal_legacy/fence.py",
         "requisitions/tests_operations_api.py"
       ]
     },
@@ -1928,7 +2066,8 @@
         "core/services/jawabu_identity.py",
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
-        "core/services/system_export.py"
+        "core/services/system_export.py",
+        "portal_legacy/services.py"
       ],
       "django_model": "core.JawabuCustomer",
       "domain": "jawabu",
@@ -1950,7 +2089,8 @@
         "core/services/portal_imports.py",
         "core/services/system_export.py",
         "origination/migrations/0001_domain_ownership.py",
-        "origination/models.py"
+        "origination/models.py",
+        "portal_legacy/services.py"
       ]
     },
     {
@@ -2080,10 +2220,11 @@
         "core.PortalVoiceTranscriptionAttempt",
         "hb_operations.HomeBiogasAction",
         "payments.PaymentBatchCase",
-        "payments.PaymentReceiptItem"
+        "payments.PaymentReceiptItem",
+        "portal_legacy.LegacyRow"
       ],
       "classification": "authoritative_record",
-      "column_count": 98,
+      "column_count": 99,
       "cross_domain_parents": [
         "core.GroupSheetConfiguration",
         "core.OperationalLocation",
@@ -2104,6 +2245,9 @@
         "payments/receipt_batches.py",
         "payments/tests.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
+        "portal_legacy/tests_browser.py",
         "report_delivery/tests.py",
         "report_delivery/tests_one_off.py",
         "requisitions/tests.py",
@@ -2189,6 +2333,14 @@
         "payments/services.py",
         "payments/tests.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_legacy/fence.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/models.py",
+        "portal_legacy/projection.py",
+        "portal_legacy/registers.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
+        "portal_legacy/tests_browser.py",
         "report_delivery/tests.py",
         "report_delivery/tests_one_off.py",
         "requisitions/management/commands/audit_finance_order_links.py",
@@ -2248,7 +2400,8 @@
         "core/services/system_export.py",
         "core/services/sysup_review.py",
         "core/services/workflow_links.py",
-        "origination/tests.py"
+        "origination/tests.py",
+        "portal_legacy/fence.py"
       ]
     },
     {
@@ -2866,6 +3019,7 @@
         "origination/tests_field_rules.py",
         "origination/tests_form_projection.py",
         "origination/tests_unsigned_applications.py",
+        "portal_legacy/tests.py",
         "staff_auth/local_complaints_review.py",
         "staff_auth/tests_complaints_operations_transport.py"
       ],
@@ -2900,6 +3054,7 @@
         "origination/tests_form_projection.py",
         "origination/tests_unsigned_applications.py",
         "origination/views.py",
+        "portal_legacy/tests.py",
         "staff_auth/local_complaints_review.py",
         "staff_auth/tests_complaints_operations_transport.py"
       ]
@@ -4215,6 +4370,7 @@
     {
       "application_area": "Complaints",
       "children": [
+        "complaint_legacy.ImportRow",
         "complaint_publications.UploadAttempt",
         "core.CaseUpdate",
         "core.ComplaintCaseControl",
@@ -4226,7 +4382,7 @@
       "column_count": 37,
       "cross_domain_parents": [],
       "direct_orm_writers": [
-        "complaint_publications/worker.py",
+        "complaint_legacy/services.py",
         "core/api/browser_complaint_operations.py",
         "core/api/views.py",
         "core/services/complaint_cases.py",
@@ -4255,6 +4411,10 @@
       "table": "core_parsedmessage",
       "used_by": [
         "complaint_conversations/services.py",
+        "complaint_legacy/models.py",
+        "complaint_legacy/services.py",
+        "complaint_legacy/tests.py",
+        "complaint_legacy/tests_browser.py",
         "complaint_publications/admin.py",
         "complaint_publications/models.py",
         "complaint_publications/services.py",
@@ -4262,6 +4422,7 @@
         "complaint_publications/worker.py",
         "core/api/browser_complaint_operations.py",
         "core/api/browser_complaint_views.py",
+        "core/api/complaint_case_views.py",
         "core/api/views.py",
         "core/services/case_updates.py",
         "core/services/commands.py",
@@ -4556,6 +4717,7 @@
       "column_count": 6,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_legacy/services.py",
         "core/services/complaint_cases.py",
         "core/services/deduplication.py",
         "core/services/group_reset.py",
@@ -4576,6 +4738,7 @@
       "source_of_truth": true,
       "table": "core_processedmessage",
       "used_by": [
+        "complaint_legacy/services.py",
         "core/services/complaint_cases.py",
         "core/services/database_catalog.py",
         "core/services/deduplication.py",
@@ -5051,6 +5214,7 @@
       "column_count": 9,
       "cross_domain_parents": [],
       "direct_orm_writers": [
+        "complaint_legacy/services.py",
         "core/services/complaint_cases.py",
         "core/services/group_reset.py",
         "core/services/sheet_sync.py",
@@ -5072,6 +5236,7 @@
       "source_of_truth": true,
       "table": "core_rawmessage",
       "used_by": [
+        "complaint_legacy/services.py",
         "core/services/complaint_cases.py",
         "core/services/database_catalog.py",
         "core/services/deduplication.py",
@@ -5140,6 +5305,7 @@
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "portal_legacy/fence.py",
         "requisitions/migrations/0004_bind_order_workspaces.py",
         "requisitions/models.py",
         "requisitions/services.py",
@@ -6289,9 +6455,11 @@
         "auth.User"
       ],
       "direct_orm_writers": [
+        "complaint_legacy/tests.py",
         "core/services/staff_lifecycle.py",
         "core/services/staff_telegram_onboarding.py",
         "origination/tests_phone_identity.py",
+        "portal_legacy/tests.py",
         "staff_auth/tests_initial_setup.py"
       ],
       "django_model": "core.UserProfile",
@@ -6306,6 +6474,7 @@
       "source_of_truth": true,
       "table": "core_userprofile",
       "used_by": [
+        "complaint_legacy/tests.py",
         "core/services/access_control.py",
         "core/services/database_catalog.py",
         "core/services/staff_lifecycle.py",
@@ -6313,6 +6482,7 @@
         "core/services/telegram_identity.py",
         "core/services/user_hard_delete.py",
         "origination/tests_phone_identity.py",
+        "portal_legacy/tests.py",
         "staff_auth/tests_initial_setup.py"
       ]
     },
@@ -6484,6 +6654,7 @@
       "source_of_truth": true,
       "table": "core_workflowrolecapability",
       "used_by": [
+        "complaint_legacy/migrations/0002_it_capability.py",
         "core/management/commands/repair_portal_operations_policy.py",
         "core/services/access_control.py",
         "core/services/access_control_reporting.py",
@@ -6502,6 +6673,7 @@
         "origination/tests_application_presentation.py",
         "origination/tests_references.py",
         "origination/tests_signing_presentation.py",
+        "portal_legacy/migrations/0005_it_import_capability.py",
         "report_delivery/tests_one_off.py"
       ]
     },
@@ -6530,8 +6702,10 @@
       "source_of_truth": true,
       "table": "core_workflowrolecapabilityauditevent",
       "used_by": [
+        "complaint_legacy/migrations/0002_it_capability.py",
         "core/services/access_control.py",
-        "hb_operations/tests_deposits.py"
+        "hb_operations/tests_deposits.py",
+        "portal_legacy/migrations/0005_it_import_capability.py"
       ]
     },
     {
@@ -7115,18 +7289,20 @@
         "hb_operations.HomeBiogasActionEvent"
       ],
       "classification": "authoritative_record",
-      "column_count": 22,
+      "column_count": 23,
       "cross_domain_parents": [
         "auth.User",
         "core.DocumentPhysicalSignoff",
         "core.JawabuFarmerMaster",
-        "core.RequisitionBatch"
+        "core.RequisitionBatch",
+        "portal_legacy.LegacyRow"
       ],
       "direct_orm_writers": [
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "hb_operations/services.py",
-        "hb_operations/tests.py"
+        "hb_operations/tests.py",
+        "portal_legacy/services.py"
       ],
       "django_model": "hb_operations.HomeBiogasAction",
       "domain": "homebiogas_operations",
@@ -7138,7 +7314,8 @@
         "auth.User",
         "core.DocumentPhysicalSignoff",
         "core.JawabuFarmerMaster",
-        "core.RequisitionBatch"
+        "core.RequisitionBatch",
+        "portal_legacy.LegacyRow"
       ],
       "purpose": "Authoritative post-order installation and commissioning state for one Portal case.",
       "retention": "Retain permanently with the accepted requisition, case, and installation evidence.",
@@ -7159,7 +7336,8 @@
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
-        "hb_operations/views.py"
+        "hb_operations/views.py",
+        "portal_legacy/services.py"
       ]
     },
     {
@@ -7373,6 +7551,7 @@
         "payments/services.py",
         "payments/tests.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_legacy/fence.py",
         "requisitions/tests.py"
       ]
     },
@@ -7532,7 +7711,8 @@
       "cross_domain_parents": [],
       "direct_orm_writers": [
         "core/services/portal_full_reset.py",
-        "payments/services.py"
+        "payments/services.py",
+        "portal_legacy/tests.py"
       ],
       "django_model": "payments.PaymentNumberClaim",
       "domain": "payments",
@@ -7555,6 +7735,8 @@
         "payments/migrations/0006_bind_payment_numbers.py",
         "payments/models.py",
         "payments/services.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
         "requisitions/tests.py"
       ]
     },
@@ -7684,7 +7866,8 @@
         "core/services/portal_full_reset.py",
         "payments/migrations/0001_initial.py",
         "payments/models.py",
-        "payments/services.py"
+        "payments/services.py",
+        "portal_legacy/services.py"
       ]
     },
     {
@@ -7701,6 +7884,7 @@
       ],
       "direct_orm_writers": [
         "payments/services.py",
+        "portal_legacy/tests.py",
         "requisitions/tests.py"
       ],
       "django_model": "payments.PaymentSequenceState",
@@ -7724,7 +7908,232 @@
         "payments/models.py",
         "payments/services.py",
         "payments/tests.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
         "requisitions/tests.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [
+        "portal_legacy.LegacyRow",
+        "portal_legacy.LegacyUpload"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 6,
+      "cross_domain_parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "direct_orm_writers": [
+        "portal_legacy/importer.py",
+        "portal_legacy/services.py"
+      ],
+      "django_model": "portal_legacy.LegacyBatch",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "core.GroupSheetConfiguration"
+      ],
+      "purpose": "Scoped legacy changeover source manifest.",
+      "retention": "Retain with the canonical case; no automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_batch_root",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/management/commands/bind_portal_legacy.py",
+        "portal_legacy/migrations/0001_initial.py",
+        "portal_legacy/models.py",
+        "portal_legacy/services.py",
+        "portal_legacy/views.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 6,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "portal_legacy/importer.py",
+        "portal_legacy/projection.py",
+        "portal_legacy/tests.py"
+      ],
+      "django_model": "portal_legacy.LegacyChunk",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "portal_legacy.LegacyUpload"
+      ],
+      "purpose": "Checksummed source and pre-replacement Sheet snapshot bytes.",
+      "retention": "Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_chunk_evidence",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/migrations/0004_resumable_master_cutover.py",
+        "portal_legacy/models.py",
+        "portal_legacy/projection.py",
+        "portal_legacy/tests.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [],
+      "classification": "source_evidence",
+      "column_count": 8,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "portal_legacy/importer.py",
+        "portal_legacy/tests.py"
+      ],
+      "django_model": "portal_legacy.LegacyDraft",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "portal_legacy.LegacyRow",
+        "portal_legacy.LegacyUpload"
+      ],
+      "purpose": "Isolated versioned row review and explicit selection.",
+      "retention": "Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_draft_record",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/miniapp_deletion_registry.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/migrations/0004_resumable_master_cutover.py",
+        "portal_legacy/models.py",
+        "portal_legacy/tests.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [],
+      "classification": "immutable_event",
+      "column_count": 7,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "portal_legacy/management/commands/bind_portal_legacy.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py"
+      ],
+      "django_model": "portal_legacy.LegacyEvent",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "portal_legacy.LegacyRow"
+      ],
+      "purpose": "Append-only import and continuation confirmation evidence.",
+      "retention": "Retain with the canonical case; no automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_event_audit",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/miniapp_deletion_registry.py",
+        "portal_legacy/management/commands/bind_portal_legacy.py",
+        "portal_legacy/migrations/0001_initial.py",
+        "portal_legacy/models.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [
+        "hb_operations.HomeBiogasAction",
+        "portal_legacy.LegacyDraft",
+        "portal_legacy.LegacyEvent"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 12,
+      "cross_domain_parents": [
+        "core.JawabuFarmerMaster"
+      ],
+      "direct_orm_writers": [
+        "portal_legacy/importer.py",
+        "portal_legacy/management/commands/bind_portal_legacy.py",
+        "portal_legacy/projection.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py"
+      ],
+      "django_model": "portal_legacy.LegacyRow",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "core.JawabuFarmerMaster",
+        "portal_legacy.LegacyBatch"
+      ],
+      "purpose": "Reviewed source evidence and explicit historical exceptions.",
+      "retention": "Retain with the canonical case; no automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_row_record",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/jawabu_comments.py",
+        "core/services/jawabu_pipeline.py",
+        "core/services/miniapp_deletion_registry.py",
+        "core/services/portal_publication.py",
+        "hb_operations/models.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/management/commands/bind_portal_legacy.py",
+        "portal_legacy/migrations/0001_initial.py",
+        "portal_legacy/models.py",
+        "portal_legacy/projection.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
+        "portal_legacy/tests_browser.py",
+        "portal_legacy/views.py"
+      ]
+    },
+    {
+      "application_area": "Portal Legacy",
+      "children": [
+        "portal_legacy.LegacyChunk",
+        "portal_legacy.LegacyDraft"
+      ],
+      "classification": "authoritative_record",
+      "column_count": 14,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "portal_legacy/importer.py",
+        "portal_legacy/tests.py"
+      ],
+      "django_model": "portal_legacy.LegacyUpload",
+      "domain": "portal_legacy",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User",
+        "portal_legacy.LegacyBatch"
+      ],
+      "purpose": "Private bounded upload and durable cutover progress bound to one selected source register.",
+      "retention": "Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.",
+      "source_of_truth": true,
+      "table": "portal_legacy_upload_session",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/miniapp_deletion_sheets.py",
+        "core/services/portal_publication.py",
+        "portal_legacy/fence.py",
+        "portal_legacy/import_views.py",
+        "portal_legacy/importer.py",
+        "portal_legacy/migrations/0004_resumable_master_cutover.py",
+        "portal_legacy/models.py",
+        "portal_legacy/tests.py"
       ]
     },
     {
@@ -8005,6 +8414,8 @@
         "core/services/miniapp_deletion.py",
         "core/services/miniapp_deletion_registry.py",
         "core/services/portal_full_reset.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
         "requisitions/migrations/0003_ordernumberclaim_orderworkbookversion_and_more.py",
         "requisitions/migrations/0004_bind_order_workspaces.py",
         "requisitions/models.py",
@@ -8040,6 +8451,7 @@
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
         "core/services/portal_full_reset.py",
+        "portal_legacy/services.py",
         "requisitions/migrations/0001_initial.py",
         "requisitions/models.py",
         "requisitions/services.py"
@@ -8077,6 +8489,8 @@
         "core/api/portal_views.py",
         "core/services/database_catalog.py",
         "core/services/portal_full_reset.py",
+        "portal_legacy/services.py",
+        "portal_legacy/tests.py",
         "requisitions/migrations/0001_initial.py",
         "requisitions/migrations/0004_bind_order_workspaces.py",
         "requisitions/models.py",

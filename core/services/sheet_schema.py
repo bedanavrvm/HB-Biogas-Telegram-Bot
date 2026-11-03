@@ -230,7 +230,9 @@ class SheetSchema:
             else ('REOPENED' if parsed_message.complaint_status == 'Reopened' else 'OPEN')
         )
         reported_at = parsed_message.timestamp or parsed_message.created_at
-        if reported_at:
+        if parsed_message.complaint_status == 'Closed' and not parsed_message.date_resolved:
+            projected_days_open = ''
+        elif reported_at:
             days_ended_at = (
                 parsed_message.date_resolved
                 if parsed_message.complaint_status == 'Closed' and parsed_message.date_resolved

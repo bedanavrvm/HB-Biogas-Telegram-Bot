@@ -9,7 +9,7 @@ export type Complaint = {
   key: string; reference: string; customer_name: string; customer_phone: string; secondary_phone: string;
   customer_id: string; county: string; constituency: string; village: string; branch: string;
   category: string; description: string; status: string; needs_details: boolean; reported_at: string;
-  age_label: string; priority?: 'high'|'normal'|'low'; sla?:Sla; days_open?: number; recorded_at?: string; revision: number; sync_status: string; hb_comment_count: number;
+  age_label: string; source_attribution?:{type:string;label:string}; priority?: 'high'|'normal'|'low'; sla?:Sla; days_open?: number|null; recorded_at?: string; revision: number; sync_status: string; hb_comment_count: number;
 };
 export type HistoryChange = { field: string; label: string; old_value?: string | number | boolean | null; new_value?: string | number | boolean | null; previous_recorded?: boolean; old_display?: string; new_display?: string };
 export type HistoryItem = { id: string; action: string; note: string; updated_by: string; actor_affiliation: string; created_at: string; display_changes?: HistoryChange[]; evidence?:Evidence[] };
@@ -17,7 +17,7 @@ export type Evidence = { id: string; name: string; mime_type: string; status: st
 export type Detail = Complaint & { actions: string[]; evidence: Evidence[]; publication?:Publication; location: {latitude: string; longitude: string; url: string}; group_label?: string;
   history: HistoryItem[]; history_truncated: boolean; history_next_cursor: string };
 export type Locations = Record<'branches' | 'counties' | 'sub_counties', { code: string; name: string; parent_code: string }[]>;
-export type Bootstrap = { continuity_key: string; map?: MapConfig; actor: { name: string; roles?:string[]; capabilities: string[] }; location_options: Locations; categories: string[]; counts: Record<string, number>; voice_input: { enabled: boolean; max_seconds: number; fields: string[] }; preferences?: { default_filters: Record<string, string> } };
+export type Bootstrap = { continuity_key: string; legacy_import_allowed?:boolean; map?: MapConfig; actor: { name: string; roles?:string[]; capabilities: string[] }; location_options: Locations; categories: string[]; counts: Record<string, number>; voice_input: { enabled: boolean; max_seconds: number; fields: string[] }; preferences?: { default_filters: Record<string, string> } };
 export type QueueNeighbour = {key:string;page:number};
 export type MapConfig = {enabled:boolean;tile_url:string};
 export type StaffComment = {id:string;body:string;author:string;affiliation:string;created_at:string;format:string;kind:string;

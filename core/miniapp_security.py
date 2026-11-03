@@ -3,6 +3,7 @@ from inspect import unwrap
 
 
 MINIAPP_HTML_VIEWS = {
+    'complaint_legacy.views': frozenset({'telegram_page'}),
     'core.api.views': frozenset({'tat_tracker_app', 'spin_form', 'order_approval_form',
                                  'jawabu_farmers_review', 'fca_review'}),
     'core.api.complaint_case_views': frozenset({'complaint_cases_app'}),

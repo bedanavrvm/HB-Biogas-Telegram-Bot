@@ -2,6 +2,7 @@
 URL routing for the core API.
 """
 from django.urls import include, path
+from complaint_legacy.views import telegram as complaint_legacy_command
 from hb_operations.deposit_views import hb_deposit_list, hb_deposit_detail, hb_deposit_update
 from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
@@ -262,6 +263,10 @@ from portal_legacy.views import workspace as portal_legacy_workspace
 from portal_legacy.import_views import legacy_upload
 
 urlpatterns = [
+    path('complaints/legacy-import/', complaint_legacy_command, name='complaint_legacy_uploads'),
+    path('complaints/legacy-import/template/', complaint_legacy_command, {'action':'template'}, name='complaint_legacy_template'),
+    path('complaints/legacy-import/<uuid:upload_id>/', complaint_legacy_command, name='complaint_legacy_upload'),
+    path('complaints/legacy-import/<uuid:upload_id>/<str:action>/', complaint_legacy_command, name='complaint_legacy_action'),
     path('portal/legacy/uploads/', legacy_upload, name='portal_legacy_uploads'),
     path('portal/legacy/uploads/<uuid:upload_id>/', legacy_upload, name='portal_legacy_upload'),
     path('portal/legacy/uploads/<uuid:upload_id>/<str:action>/', legacy_upload, name='portal_legacy_upload_action'),

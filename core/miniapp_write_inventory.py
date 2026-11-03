@@ -47,6 +47,14 @@ def _add(
 
 
 _add(
+    'complaint_legacy_uploads complaint_legacy_template complaint_legacy_upload complaint_legacy_action',
+    authentication='miniapp_write_response plus signed Telegram Complaint identity; browser uses independent native MFA/CSRF adapter',
+    capability='complaint.legacy.manage plus an active whole-workspace Complaint IT grant or active Superuser',
+    scope='Exact owning Complaint workspace and retained source version; no existing-case overwrite or cross-workflow role authority',
+    request_key_binding='Request identity, file/chunk SHA256 and position, command revision and exclusive expiring upload lease',
+    domain_replay='Stable owner/source namespace/worksheet/row identity and immutable source facts; row transaction and durable Sheet jobs',
+)
+_add(
     'portal_legacy_uploads portal_legacy_upload portal_legacy_upload_action',
     authentication='portal_auth_required; verified Telegram identity and active Portal staff',
     capability='portal.legacy.manage with whole-owner Portal IT; test cleanup additionally requires active Superuser and testing flag',

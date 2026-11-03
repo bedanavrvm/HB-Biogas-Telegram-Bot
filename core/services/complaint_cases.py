@@ -316,6 +316,7 @@ def complaint_case_for_voice(group_config, actor: ComplaintCaseActor, case_id: s
 
 
 def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
+    from complaint_legacy.services import can_manage
     cases = _case_queryset(group_config.group_id, actor=actor)
     from core.services.location_catalog import location_options
     locations = location_options(user=actor.user, access=actor.access)
@@ -339,6 +340,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
             'roles': list(actor.roles or (actor.role,)),
             'capabilities': sorted(complaint_visible_capabilities(actor)),
         },
+        'legacy_import_allowed': can_manage(group_config, actor),
         'statuses': ['pending', 'resolved', 'all'],
         'branches': [item['name'] for item in locations['branches']],
         'location_options': locations,
@@ -585,8 +587,8 @@ def complaint_history_page(case: ParsedMessage, *, cursor=''):
     page = list(updates[:26])
     more = len(page) > 25
     page = page[:25]
-    legacy = not more and bool(case.resolution_details) and not case.case_updates.filter(
-        new_status='Closed').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).exists()
+    legacy = not more and (case.source == 'complaint_legacy' or (bool(case.resolution_details) and not case.case_updates.filter(
+        new_status='Closed').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).exists()))
     rows = complaint_history(case, page, include_legacy_resolution=legacy)
     next_cursor = signing.dumps({'case': str(case.pk), 'at': page[-1].created_at.isoformat(),
                                  'key': str(page[-1].pk)}, salt='complaint-history-page-v1') if more else ''
@@ -693,11 +695,13 @@ def _feedback_text(case, source):
 
 
 def resolution_comments_text(case):
-    return _feedback_text(case, 'mini_app_comment')
+    from complaint_legacy.services import historical_notes
+    return '\n\n'.join(filter(None, (historical_notes(case,'resolution_comments'), _feedback_text(case, 'mini_app_comment'))))
 
 
 def verification_comments_text(case):
-    return _feedback_text(case, 'mini_app_verification_comment')
+    from complaint_legacy.services import historical_notes
+    return '\n\n'.join(filter(None, (historical_notes(case,'jbl_verification_comments'), _feedback_text(case, 'mini_app_verification_comment'))))
 
 
 def verification_comment_case(group_config, actor, case_id, fields, uploaded_files=()):
@@ -1647,15 +1651,15 @@ def update_case_fields(case: ParsedMessage, values: dict[str, Any], resolution_d
 
 
 def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_details: str, resolved_at) -> dict[str, str]:
-    reported_at = case.timestamp or case.created_at
-    ended_at = case.date_resolved if case.complaint_status == 'Closed' and case.date_resolved else timezone.now()
+    from core.services.complaint_timing import elapsed_days
+    days_open = elapsed_days(case)
     updates = {
         'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
         'resolution_details': latest_resolution_text(case),
         'resolution_comments': resolution_comments_text(case),
         'jbl_verification_comments': verification_comments_text(case),
         'resolution_history': resolution_history_text(case),
-        'days_open': max(0, int((ended_at - reported_at).total_seconds() // 86400)),
+        'days_open': days_open if days_open is not None else '',
     }
     if resolved_at:
         updates['date_resolved'] = timezone.localtime(resolved_at).strftime('%d-%m-%y')
@@ -1680,6 +1684,7 @@ def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]
 
 
 def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str, *, request_id='') -> dict[str, Any]:
+    from core.services.complaint_timing import elapsed_days
     if not complaint_sheet_projection_enabled(group_config):
         raise ComplaintCaseError('Sheet projection is disabled. Ask Complaint IT to enable it before retrying.')
     if request_id:
@@ -1707,6 +1712,7 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str, *, re
     if not actor_can(group_config, actor, 'complaint.case.sync.retry', case):
         raise ComplaintCaseError('Your role cannot retry publication for this case.')
     control = ensure_case_control(case, group_config)
+    days_open = elapsed_days(case)
     updates = {
         'status': 'CLOSED' if case.complaint_status == 'Closed' else (
             'REOPENED' if case.complaint_status == 'Reopened' else 'OPEN'
@@ -1716,11 +1722,7 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str, *, re
         'jbl_verification_comments': verification_comments_text(case),
         'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
-        'days_open': max(0, int(((
-            case.date_resolved
-            if case.complaint_status == 'Closed' and case.date_resolved
-            else timezone.now()
-        ) - (case.timestamp or case.created_at)).total_seconds() // 86400)),
+        'days_open': days_open if days_open is not None else '',
     }
     if case.date_resolved:
         updates['date_resolved'] = timezone.localtime(case.date_resolved).strftime('%d-%m-%y')
@@ -1851,7 +1853,8 @@ def latest_resolution_text(case: ParsedMessage) -> str:
 
 
 def resolution_history_text(case: ParsedMessage) -> str:
-    entries = []
+    from complaint_legacy.services import historical_notes
+    entries = list(filter(None, [historical_notes(case,'resolution_history')]))
     for entry in resolution_history_entries(case):
         lines = [entry['reason'], f"{entry['action']} · {entry['timestamp']} · {entry['actor']}"]
         entries.append('\n'.join(line for line in lines if line))
@@ -2104,10 +2107,14 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         }
     elif case.source == 'whatsapp_export':
         source = {'type': 'legacy_batch', 'label': 'Imported from another system'}
+    elif case.source == 'complaint_legacy':
+        source = {'type': 'legacy_workbook', 'label': 'Legacy workbook; historical details may be incomplete'}
     reported_at = case.timestamp or case.created_at
-    age_ended_at = case.date_resolved if resolved and case.date_resolved else timezone.now()
-    age_days = max(0, int((age_ended_at - reported_at).total_seconds() // 86400))
-    if resolved:
+    from core.services.complaint_timing import elapsed_days
+    age_days = elapsed_days(case)
+    if resolved and age_days is None:
+        age_label = 'Closure date unknown'
+    elif resolved:
         age_label = f'Closed after {age_days} day' + ('s' if age_days != 1 else '')
     else:
         age_label = 'Opened today' if age_days == 0 else f'Open for {age_days} day' + ('s' if age_days != 1 else '')
@@ -2247,7 +2254,18 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
             affiliation = ''
         row['actor_affiliation'] = affiliation if affiliation in {'HB', 'JBL'} else ''
         rows.append(row)
-    if include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment') for update in updates):
+    if include_legacy_resolution and case.source == 'complaint_legacy':
+        from complaint_legacy.services import historical_notes
+        imported = case.complaint_legacy_rows.filter(committed_at__isnull=False).order_by('committed_at', 'pk').first()
+        if imported:
+            event = ComplaintCaseEvent.objects.filter(case__parsed_message=case, action='legacy_imported').order_by('created_at', 'pk').first()
+            notes = [f'Historical source snapshot. Reported date: {imported.values.get("date_reported", "")}. Historical authors and unknown closure dates were not inferred.',
+                     imported.values.get('resolution_details', '')]
+            notes.extend(historical_notes(case, field) for field in ('resolution_comments', 'jbl_verification_comments', 'resolution_history'))
+            rows.append({'id': f'legacy-import:{case.pk}', 'action': 'legacy_imported', 'status': imported.proposal['fields']['status'],
+                         'note': '\n\n'.join(filter(None, notes)), 'updated_by': event.actor_label if event else '',
+                         'created_at': format_datetime(imported.committed_at), 'actor_affiliation': ''})
+    elif include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment') for update in updates):
         # Some imported complaints predate CaseUpdate; do not lose their note.
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',

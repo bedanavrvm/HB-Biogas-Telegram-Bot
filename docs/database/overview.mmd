@@ -2,6 +2,7 @@ flowchart LR
   access["Access"]
   audit["Audit"]
   catalog["Catalog"]
+  complaint_legacy["Complaint Legacy"]
   complaints["Complaints"]
   credit_assessment["Credit Assessment"]
   homebiogas_operations["Homebiogas Operations"]
@@ -11,6 +12,7 @@ flowchart LR
   origination["Origination"]
   payments["Payments"]
   platform["Platform"]
+  portal_legacy["Portal Legacy"]
   portal_recognition["Portal Recognition"]
   report_delivery["Report Delivery"]
   requisitions["Requisitions"]
@@ -21,6 +23,8 @@ flowchart LR
   ui_review["Ui Review"]
   access --> catalog
   access --> platform
+  complaint_legacy --> complaints
+  complaint_legacy --> platform
   complaints --> catalog
   complaints --> integration
   complaints --> jawabu
@@ -28,6 +32,7 @@ flowchart LR
   credit_assessment --> tat
   homebiogas_operations --> jawabu
   homebiogas_operations --> platform
+  homebiogas_operations --> portal_legacy
   integration --> platform
   jawabu --> catalog
   jawabu --> order_approval
@@ -42,6 +47,8 @@ flowchart LR
   payments --> platform
   platform --> complaints
   platform --> jawabu
+  portal_legacy --> jawabu
+  portal_legacy --> platform
   report_delivery --> platform
   requisitions --> jawabu
   requisitions --> platform

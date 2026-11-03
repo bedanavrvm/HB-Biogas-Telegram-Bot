@@ -97,6 +97,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.workspace.manage', 'jawabu_portal', 'Use private saved views, pins, and recents', 'IT support', _roles('IT'), ('portal.case.read',)),
     # Complaint cases.
     CapabilityDefinition('complaint.queue.view', 'complaint_cases', 'View complaint queue', 'Cases', _roles('OFFICER', 'MANAGER', 'HB_STAFF', 'IT')),
+    CapabilityDefinition('complaint.legacy.manage', 'complaint_cases', 'Import reviewed historical complaints', 'Legacy import', _roles('IT'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.create', 'complaint_cases', 'Create complaints', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.details.complete', 'complaint_cases', 'Complete missing complaint intake details', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.update', 'complaint_cases', 'Legacy complaint transition endpoint', 'Compatibility', _roles('MANAGER'), ('complaint.queue.view',)),

@@ -25,7 +25,7 @@ CASE_FIELDS = (
     'customer_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
     'constituency', 'village', 'branch', 'category', 'description', 'status',
     'needs_details', 'reported_at', 'recorded_at', 'age_label', 'revision',
-    'hb_comment_count', 'sync_status', 'days_open', 'priority', 'sla',
+    'hb_comment_count', 'sync_status', 'days_open', 'priority', 'sla', 'source_attribution',
 )
 CREATE_FIELDS = frozenset((
     'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',

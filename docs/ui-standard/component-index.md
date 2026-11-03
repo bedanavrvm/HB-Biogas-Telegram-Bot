@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Complaints **Settings / Workspace tools ? Legacy import** now opens a dedicated
+compact review page with Table/Cards, durable approval, original/proposed values
+and separate background publication. See the [source and interaction record](reviews/2026-11-03-complaints-legacy-import.md).
+
 The **Legacy changeover → Legacy import** sidebar page owns the Master Data /
 Eco-conserve selector. All Cases contains no importer; register-scoped cleanup
 and projection retain the counterpart. See the

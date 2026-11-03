@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from core.models import ComplaintCaseControl, IntegrationOperation, ParsedMessage
 from core.services.miniapp_deletion_sheets import guarded_publication
+from core.services.complaint_timing import elapsed_days
 from core.services.external_resilience import (
     execute_operation, external_call_budget, operation_lease_seconds, reserve_operation,
 )
@@ -65,7 +66,7 @@ def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
 
         def publish():
             current = ParsedMessage.objects.get(pk=case.pk)
-            ended = current.date_resolved if current.complaint_status == 'Closed' and current.date_resolved else timezone.now()
+            days_open = elapsed_days(current)
             comments = resolution_comments_text(current)
             if len(comments) > 50000:
                 raise ValueError('Resolution Comments exceeds the Sheet cell limit; all comments remain saved in Django.')
@@ -78,7 +79,7 @@ def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
                 'customer_phone': current.customer_phone, 'customer_id': current.customer_id,
                 'complaint_category': current.complaint_category,
                 'date_resolved': timezone.localtime(current.date_resolved).strftime('%d-%m-%y') if current.date_resolved else '',
-                'days_open': max(0, int((ended - (current.timestamp or current.created_at)).total_seconds() // 86400)),
+                'days_open': days_open if days_open is not None else '',
             }
             for field in ('jbl_verification_comments', 'resolution_history'):
                 if len(updates[field]) > 50000:

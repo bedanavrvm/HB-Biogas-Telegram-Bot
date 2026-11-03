@@ -610,6 +610,7 @@
         ? data.actor.roles : [data.actor.role].filter(Boolean);
       $('actorLine').textContent = [data.actor.name, ...actorRoles].join(' · ');
       if ($('complaintSettingsBtn')) $('complaintSettingsBtn').hidden = false;
+      if ($('complaintLegacyImportBtn')) $('complaintLegacyImportBtn').hidden = !data.legacy_import_allowed;
       $('complaintReportEmailSettings').hidden = !(data.report_email_allowed ?? actorRoles.some(role => ['IT', 'SUPERUSER'].includes(String(role).toUpperCase())));
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
@@ -969,7 +970,7 @@
     });
     grouped.forEach(item => {
       const row = document.createElement('div'); row.className = 'item history-item';
-      const actions = {created:'Complaint recorded by', commented:'HB comment by', verification_commented:'JBL verification comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
+      const actions = {legacy_imported:'Historical complaint imported by', created:'Complaint recorded by', commented:'HB comment by', verification_commented:'JBL verification comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
       const action = actions[item.action] || (item.status === 'Closed' ? 'Resolved by' : item.status === 'Reopened' ? 'Reopened by' : !item.old_status && item.status === 'Open' ? 'Complaint recorded by' : 'Updated by');
       const creation = action === 'Complaint recorded by';
       const content = document.createElement('div');
@@ -2132,6 +2133,14 @@
     $('complaintSettingsOverlay').hidden = false;
     $('complaintSettingsClose').focus();
     telegram?.BackButton?.show();
+  });
+  $('complaintLegacyImportBtn')?.addEventListener('click', () => {
+    closeComplaintSettings();
+    if (document.getElementById('complaint-legacy-frame')) return;
+    const frame = document.createElement('iframe');
+    frame.id = 'complaint-legacy-frame'; frame.title = 'Complaints legacy import';
+    frame.src = '/complaints/legacy-import/?group_id=' + encodeURIComponent(state.groupId);
+    document.body.append(frame); frame.focus();
   });
   $('complaintSettingsClose')?.addEventListener('click', closeComplaintSettings);
   $('complaintSettingsOverlay')?.addEventListener('click', event => { if (event.target === event.currentTarget) closeComplaintSettings(); });

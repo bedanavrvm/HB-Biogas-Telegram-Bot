@@ -1,9 +1,10 @@
 """Native operations contract; gated by browser and Complaint release flags."""
-from django.urls import path
+from django.urls import include, path
 from . import browser_complaint_operations as views
 from complaint_publications import views as publications
 
 urlpatterns = [
+    path('legacy-import/', include('complaint_legacy.browser_urls')),
     path('uploads/', publications.reserve),
     path('uploads/<uuid:attempt_key>/', publications.progress),
     path('uploads/<uuid:attempt_key>/<uuid:file_key>/', publications.receive),

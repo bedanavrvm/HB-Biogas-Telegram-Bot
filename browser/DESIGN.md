@@ -733,3 +733,10 @@ Settings now exposes safe publication diagnostics and queued repair using the
 existing status patterns. [Evidence and limits](../docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md)
 cover missing headers, unavailable publishers, retained backoff and independent
 legacy JBL receipt presentation.
+
+
+Complaints historical import (3 November 2026) adds a capability-filtered
+Workspace tools entry to the shared compact review page. The native page uses
+existing password/MFA cookies and CSRF; the Telegram frame uses its signed
+launch separately. Legacy provenance and unknown closure timing are visible in
+case detail/history. Source and Playwright evidence: [review](../docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md).

@@ -1,8 +1,9 @@
 # Complaints.xlsx: historical importer assessment
 
-Inspected 3 November 2026. Assessment only: the workbook is unchanged and no
-Complaints data, schema, roles, imports or Sheet destinations were modified.
-The legacy-import policy question is pending the user's decision.
+Inspected 3 November 2026. The user subsequently approved implementation, with
+them cleaning Status and Date Reported first. See the [implemented importer](complaints-legacy-import.md).
+The original workbook remains unchanged; no operational cases or provider data
+were imported. The source assessment below remains historical evidence.
 
 **A dedicated historical Complaints importer is feasible.** It needs a governed
 review path because this workbook cannot pass current new-complaint validation.
@@ -138,14 +139,17 @@ IT access. Preserve current cases; the Portal's earlier test-deletion permission
 does not authorize deleting Complaints records. No Sheet replacement or existing
 case overwrite should occur without its own reviewed impact/conflict decision.
 
-## Decisions before implementation
+## Approved implementation and remaining operator review
 
-The user has been asked whether historical rows may retain missing IDs/location
-facts and unknown closure dates with clear legacy warnings, while normal new
-complaints retain current requirements. Until answered, this is a proposal.
+Historical gaps are warnings; Status and Date Reported remain required. Normal
+new complaints retain their strict validation. The dedicated importer now uses
+the app's current 22-column register schema, with explicit legacy header aliases.
+No old complaint deletion, existing-case overwrite or Sheet replacement was
+introduced. Staff select an already configured Complaints owner/destination.
 
-Further decisions after that policy choice: identify the Complaints owner and
-destination, resolve genuinely ambiguous/misaligned rows and duplicates, and
-choose whether publication updates an existing historical register or creates
-a new projection. Those decisions require a concrete staging preview and impact
-review before any canonical import or destructive Sheet replacement.
+A read-only run of the actual importer decoder retained all 1,006 populated
+source rows despite Excel's inflated dimensions: 878 warning rows and 128
+blocked rows before your cleanup. This does not approve those rows or establish
+that they are distinct cases. Original bytes have the same SHA256 above; zero
+canonical/provider writes occurred. Aggregate evidence:
+`test-results/complaints-workbook-assessment/import-parser-check.json`.

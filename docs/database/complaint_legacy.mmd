@@ -1,0 +1,12 @@
+erDiagram
+  complaint_legacy_chunk_evidence {
+    string id
+  }
+  complaint_legacy_row_record {
+    string id
+  }
+  complaint_legacy_upload_session {
+    string id
+  }
+  complaint_legacy_upload_session ||--o{ complaint_legacy_chunk_evidence : contains
+  complaint_legacy_upload_session ||--o{ complaint_legacy_row_record : contains

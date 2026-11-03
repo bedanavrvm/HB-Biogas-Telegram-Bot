@@ -17,8 +17,9 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('portal_legacy', 'origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
+CATALOGUE_APP_LABELS = ('complaint_legacy', 'portal_legacy', 'origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
 USAGE_ROOTS = (
+    ROOT / 'complaint_legacy',
     ROOT / 'portal_legacy',
     ROOT / 'complaint_conversations', ROOT / 'complaint_publications',
     ROOT / 'report_delivery',
@@ -46,6 +47,9 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'complaint_legacy.ImportUpload': {'domain': 'complaint_legacy', 'purpose': 'Private reviewed historical Complaints source and bounded processing checkpoints.', 'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain with imported cases; only explicitly discarded uncommitted uploads may lose source bytes. No automatic purge.'},
+    'complaint_legacy.ImportChunk': {'domain': 'complaint_legacy', 'purpose': 'Checksummed original historical Complaints workbook bytes.', 'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain with imported cases; explicit uncommitted discard only.'},
+    'complaint_legacy.ImportRow': {'domain': 'complaint_legacy', 'purpose': 'Original and proposed historical facts with explicit import approval and canonical case provenance.', 'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain committed facts with their case; explicit uncommitted discard only.'},
     'portal_legacy.LegacyUpload': {'domain': 'portal_legacy', 'purpose': 'Private bounded upload and durable cutover progress bound to one selected source register.', 'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.'},
     'portal_legacy.LegacyChunk': {'domain': 'portal_legacy', 'purpose': 'Checksummed source and pre-replacement Sheet snapshot bytes.', 'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.'},
     'portal_legacy.LegacyDraft': {'domain': 'portal_legacy', 'purpose': 'Isolated versioned row review and explicit selection.', 'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active', 'retention': 'Retain committed import evidence; uncommitted versions require explicit IT discard. No automatic purge.'},

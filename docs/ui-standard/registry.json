@@ -514,18 +514,6 @@
       "reason": "Supporting-document selection follows active placed fields and captured application Loan details; existing option cards show precise field/document conflicts. Manual synthetic Playwright evidence only; no approved baseline or Phase 6 change."
     },
     {
-      "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "2026cf3615d99383b19c0b8f80a8c76d7cd5dd26324cc50c6b142bf69c43acc9",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
-      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
-    },
-    {
-      "path": "core/templates/complaint_cases/app.html",
-      "sha256": "46be71575f16fe6367151873fd7e4afa5b95e1362654c6c260990b280ac50b4f",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-complaints-reopen-attachments.md",
-      "reason": "User-directed reopening attachments using the existing picker; hide Reopen on open cases. Manual Playwright evidence and isolated canonical receipt/history readback; no new styling, test suite or baseline update."
-    },
-    {
       "path": "origination/static/miniapp/origination_signing.js",
       "sha256": "0cb6e6269f1b43a54955585d63621fc685025e6bb05eea5be28b12dd227b166a",
       "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
@@ -652,12 +640,6 @@
       "reason": "ADR 0072: source-bound synthetic role/action demo with ADS forms, selectors, feedback and responsive customer/evidence grid. Hidden native file chooser is a narrow documented exception; visible controls use ADS Button. Optional history note/type and injection slots retain native P2a read-only defaults. Review evidence only; no approved baseline update, production authority or Telegram migration."
     },
     {
-      "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "5128005aa8fa8e0347c232b6622fbcfb894b966cac8519928e86fc8be314ba6a",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
-    },
-    {
       "path": "browser/src/complaints-operations-index.tsx",
       "sha256": "8b621ecdaae378defe7e1c3c0ed1e0096f98665fb82b24b8f42c30347206b389",
       "review_reference": "docs/runbooks/browser-channel-parity.md",
@@ -678,18 +660,6 @@
     {
       "path": "browser/src/complaints-operations-settings.tsx",
       "sha256": "47424779628af9606799b2095ba9f8e625b928ac0e55fcc79839553b9e4e35fc",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
-      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
-    },
-    {
-      "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "1f533ad4447ea3aa437891149a3dd69c2b4923e8d2288e5c54be2c7a400c57d4",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
-    },
-    {
-      "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "0eb1726d316bc42274c411a08f4b5f9e7f117d90de36dbd7f0a936faf1908b1d",
       "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
       "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
     },
@@ -862,12 +832,6 @@
       "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
     },
     {
-      "path": "browser/src/complaints-detail-page.tsx",
-      "sha256": "960e6c761f93558b1d79f838cb95978b6580eaa950411910bc33d801da3a1c7e",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
-      "reason": "User-directed UI correction reviewed through direct browser interaction/screenshots only; no automated acceptance or approved baseline replacement. Responsive exact-parent replies, contextual publication, visible actions, field cards and top notifications."
-    },
-    {
       "path": "browser/src/complaints-detail-map.tsx",
       "sha256": "8bea7db3833d21e604c385e69469cf36f95b66482d30f6a8974d1b1b6f11d3df",
       "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-ui-corrections.md",
@@ -1016,6 +980,66 @@
       "sha256": "4d4df79a607646915e856826f397990e8f7c20114b4f853b48277925ff2edd3f",
       "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-eco-register.md",
       "reason": "User-authorized dedicated Legacy changeover sidebar page, removal from All Cases and Master Data/Eco-conserve selection. Retains compact FarmUp table/cards; manual Playwright and DB/provider readback verify register isolation. No approved baseline or Phase 6 changes."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "0ffc32c7d6410b82777da485ed261eab557afaaaa072c83ceef2df036f7a994c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.css",
+      "sha256": "d88d4c8141f20a468298ed43ba1bf550415ac47d4a62bafb1d762f9970e946d9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "ef40b30be42e2ee0ae633224434d352f9f02cc9b42f1cc8e246fe9da4c12b6ca",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/complaint_legacy.css",
+      "sha256": "3e98dbe1ed727d109bdcec2e8ba23f96fc1ca4357b0b634d88ccd4d16d89abb1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/complaint_legacy.js",
+      "sha256": "e91cce6928b1b13112ba78c2f53e8f494e151f14a8c281571d155a7d4548d97c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "complaint_legacy/templates/complaint_legacy/app.html",
+      "sha256": "3a77efad1ead4225e129f5ea6d2bd94c9f9cff66d8f63e2b764e869a19f0498e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "browser/src/complaints-detail-page.tsx",
+      "sha256": "6273300f41a56cd7cd6dee947f620308eebd19b7d1d011a117046b4e7674274c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "browser/src/complaints-operations-history.tsx",
+      "sha256": "04f4211a536408c4ea55e9d2b04d6c465d89e2da8f5a86271d31be801648d4fa",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "browser/src/complaints-operations-transport.ts",
+      "sha256": "6f0c1354c625b0b5b51c338d06fa1b0cbe9ad54ba4b0ac026c4a2e742fc858ff",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+    },
+    {
+      "path": "browser/src/complaints-operations-workspace.tsx",
+      "sha256": "d25379875fd9efce82e938ec932b8091762415c327d0661c3a9ca4b045b1a9d2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
+      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [
@@ -1028,7 +1052,8 @@
     "codebase-analysis-docs/assets/browser-access-preview",
     "browser/src",
     "complaint_publications/templates",
-    "docs/ui-standard/reviews/portal-ux-options-2026-10-29"
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29",
+    "complaint_legacy/templates"
   ],
   "source_hash_format": "lf-text-v1"
 }

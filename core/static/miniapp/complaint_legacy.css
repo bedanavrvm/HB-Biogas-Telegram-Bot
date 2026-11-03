@@ -1,0 +1,43 @@
+/* Source: compact Complaints panels and FarmUp review density. */
+html:has(#complaint-legacy){overflow-x:clip}
+body:has(#complaint-legacy){overflow:visible}
+#complaint-legacy{max-width:1480px;margin:auto;padding:12px;--import-border:var(--line,#dce2e5);color:var(--text,#172b4d)}
+#complaint-legacy [hidden]{display:none!important}
+#complaint-legacy h1{font-size:20px;margin:0}
+#complaint-legacy p{margin:5px 0;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+#complaint-legacy button,#complaint-legacy input,#complaint-legacy select{font:inherit;font-size:12px;min-height:34px;border:1px solid var(--import-border);border-radius:6px;padding:6px 9px;width:auto}
+#complaint-legacy button{cursor:pointer;margin:0;background:var(--surface,#fff);color:inherit}
+#complaint-legacy button.primary,#complaint-legacy button[aria-pressed=true]{background:#087e86;color:#fff}
+#complaint-legacy button:disabled{opacity:.55;cursor:default}
+#complaint-legacy .import-header{display:flex;flex-direction:row;gap:12px;align-items:center;flex-wrap:wrap;text-align:left;margin:0 0 10px;padding:0}
+#complaint-legacy .import-header>div{flex:1}
+#complaint-legacy .import-header a{font-size:12px;white-space:nowrap}
+#complaint-legacy .import-card,#complaint-legacy .import-feedback{background:var(--surface,#fff);border:1px solid var(--import-border);border-radius:9px;padding:12px;margin:8px 0;min-width:0}
+#complaint-legacy .import-feedback{position:sticky;top:0;z-index:15;background:var(--surface,#f4f8f8);box-shadow:0 2px 5px #0000000b}
+#complaint-legacy .import-feedback strong{font-size:12px;display:block;overflow-wrap:anywhere}
+#complaint-legacy .import-feedback[data-error=true]{border-color:#c9372c;background:var(--surface,#fff2f0)}
+#complaint-legacy progress{width:100%;height:8px;margin:8px 0}
+#complaint-legacy summary{font-size:13px;font-weight:600;cursor:pointer}
+#complaint-legacy label{display:flex;flex-direction:column;gap:4px;font-size:11px;margin:6px 0}
+#complaint-legacy label input,#complaint-legacy label select{width:100%;box-sizing:border-box;min-width:0;background:var(--surface,#fff);color:inherit}
+#complaint-legacy [data-upload]{display:grid;grid-template-columns:1fr 1fr 2fr auto;gap:8px;align-items:end}
+#complaint-legacy [data-upload]>button{margin-bottom:6px}
+#complaint-legacy .import-actions,#complaint-legacy .import-toolbar,#complaint-legacy .import-pagination{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#complaint-legacy .import-toolbar>label{flex:1;min-width:140px}
+#complaint-legacy .import-note{color:var(--muted,#596b76);font-size:11px}
+#complaint-legacy [data-grid]{height:clamp(320px,58vh,680px);--ag-font-size:11px;--ag-row-height:32px;--ag-header-height:32px;--ag-cell-horizontal-padding:6px;--ag-background-color:var(--surface);--ag-foreground-color:var(--text);--ag-header-background-color:var(--raised);--ag-border-color:var(--line)}
+#complaint-legacy [data-grid] input[type=checkbox]{width:16px;min-height:16px;padding:0;margin:0}
+#complaint-legacy [data-grid] button{min-height:28px;border:0;padding:0;color:#087e86;text-decoration:underline;background:transparent}
+#complaint-legacy .import-row-blocked{background:color-mix(in srgb,var(--danger) 12%,var(--surface));color:var(--danger)}
+#complaint-legacy .import-row-warning{background:var(--warning-soft)}
+#complaint-legacy .import-pagination{justify-content:space-between;margin-top:9px;font-size:12px}
+#complaint-legacy .import-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;font-size:11px;overflow-wrap:anywhere}
+#complaint-legacy .import-facts>div{border:1px solid var(--import-border);border-radius:6px;padding:8px}
+#complaint-legacy .import-row-card{border:1px solid var(--import-border);border-radius:7px;padding:10px;margin:7px 0}
+#complaint-legacy .import-row-card label{display:flex;flex-direction:row;align-items:center;font-size:12px}
+#complaint-legacy .import-row-card input[type=checkbox]{width:18px;min-height:18px;margin:0 6px 0 0}
+#complaint-legacy dialog{width:min(780px,calc(100vw - 32px));max-height:85vh;box-sizing:border-box;overflow:auto;border:1px solid var(--import-border);border-radius:10px;background:var(--surface,#fff);color:inherit}
+#complaint-legacy dialog h2{font-size:17px}
+#complaint-legacy table{border-collapse:collapse;width:100%;font-size:11px;table-layout:fixed}
+#complaint-legacy th,#complaint-legacy td{border:1px solid var(--import-border);padding:6px;vertical-align:top;overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:700px){#complaint-legacy{padding:8px}#complaint-legacy [data-upload]{grid-template-columns:1fr 1fr}#complaint-legacy .import-file{grid-column:1/-1}#complaint-legacy .import-header{gap:8px}#complaint-legacy .import-header>button{margin-left:auto}#complaint-legacy .import-feedback{padding:9px}}

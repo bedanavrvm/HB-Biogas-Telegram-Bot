@@ -203,7 +203,9 @@ class ComplaintTimingTests(TestCase):
         self.assertEqual(count, 1)
         sheet = load_workbook(BytesIO(workbook)).active
         self.assertEqual(sheet.max_row, 2)
-        self.assertEqual(sheet.cell(1, 22).value, 'Resolution Time (hours)')
+        from core.services.sheet_schema import COMPLAINT_REGISTER_FIELD_HEADERS
+        self.assertEqual([cell.value for cell in sheet[1]][:22], list(COMPLAINT_REGISTER_FIELD_HEADERS.values()))
+        self.assertEqual(sheet.cell(1, 23).value, 'Resolution Time (hours)')
         private = {'search': 'Synthetic name', **filters}
         encoded = encode_export_filters(private)
         self.assertNotIn('Synthetic name', encoded)
