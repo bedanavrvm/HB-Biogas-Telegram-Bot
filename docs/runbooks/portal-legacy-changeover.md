@@ -101,8 +101,9 @@ re-uploading cannot silently replace newer operational records.
    ```
 
    The command checks current ownership and unchanged row hashes, rejects other
-   Case IDs/duplicate target rows, adds the Case ID header if absent, writes only
-   reviewed UUID bindings and reads them back. Only verified rows are enabled
+   Case IDs/duplicate target rows, adds missing identity headers, writes the
+   readable `JBL-…` Case ID and hidden immutable Master Record ID, and reads
+   both back. Customer fields remain unchanged. Only verified rows are enabled
    for the existing durable publisher. Repeat the same manifest to resume.
    A stale manifest stops further application; prior verified bindings remain.
 6. Drain the existing publication queue through the supported bounded publisher,

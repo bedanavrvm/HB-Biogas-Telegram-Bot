@@ -96,3 +96,23 @@ class LegacySyncTests(LegacyHTTPMixin,TestCase):
         self.assertTrue(response.json()['paused'])
         self.assertEqual(response.json()['reason'],'legacy_cutover_maintenance')
         self.assertEqual(self.book.replacements,[])
+
+    def test_old_uuid_replacement_readback_upgrades_identifiers_after_lost_ack(self):
+        from .models import LegacyUpload
+        upload=self.projection(self.commit(self.stage(workbook_bytes([[i+2,f'READBACK {i}'] for i in range(101)]))))
+        for phase in ('backup','projecting','verifying','replacing'):upload=self.finish(upload,phase)
+        sheet=self.book.service(sheet_name='Master Data')._sheet
+        case_column=sheet.cells[1].index('Case ID');internal_column=sheet.cells[1].index('Master Record ID')
+        for values in sheet.cells.values():
+            if len(values)>internal_column:values.pop(internal_column)
+        for legacy in LegacyRow.objects.all():sheet.cells[legacy.source_row][case_column]=str(legacy.farmer_id)
+        saved=LegacyUpload.objects.get(pk=upload['id'])
+        saved.state['projection']['new_headers'].remove('Master Record ID');saved.save(update_fields=['state'])
+        self.book.lose_ack=True;self.now+=timedelta(seconds=5)
+        self.request('advance',upload=self.request(upload=upload,method='get')['upload'],status=503)
+        finished=self.complete(self.request(upload=upload,method='get')['upload'])
+        self.assertEqual(finished['sheet_sync']['synced'],101)
+        for legacy in LegacyRow.objects.select_related('farmer'):
+            self.assertEqual(sheet.cells[legacy.source_row][case_column],f'JBL-{legacy.farmer.case_reference_number}')
+            self.assertEqual(sheet.cells[legacy.source_row][internal_column],str(legacy.farmer_id))
+        self.assertEqual(self.book.replacements,['Master Data'])

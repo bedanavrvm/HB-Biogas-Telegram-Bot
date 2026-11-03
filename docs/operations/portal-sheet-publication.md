@@ -14,8 +14,16 @@ until the actual Sheet headers have been moved to row 1.
 If historical `No.` values are already inconsistent,
 run the dedicated number-repair command once after checking its dry-run plan;
 ordinary case publication no longer rescans the entire tab to repair history.
-For these tabs, row 1 is headers and row 2 onward is data. Each new case
-appends after the last occupied row. Existing case rows are never shifted.
+For these tabs, row 1 is headers and row 2 onward is data. A new case uses the
+first entirely empty data row, including a gap left by deletion. A header-only
+tab starts at row 2. A row containing any value or formula is occupied, even
+when its customer name is blank. Existing identified cases update in place;
+rows are never automatically moved or compacted.
+
+Visible **Case ID** is the Portal's readable `JBL-…` reference. The immutable
+UUID belongs in hidden **Master Record ID**, which remains the ownership key
+for updates, retries and reset deletion. Legacy imports follow this same split;
+their original **Source Row** is historical provenance, not a destination address.
 
 ## Request-assisted sync (no cron)
 

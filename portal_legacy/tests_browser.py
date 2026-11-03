@@ -63,7 +63,7 @@ class LegacyBrowserTests(LegacyHTTPMixin, StaticLiveServerTestCase):
         eco.cells.pop(2);eco.row_count=65;eco.cells[64]=['UNIMPORTED SHEET ROW - RETAIN']
         root = Path(settings.BASE_DIR)
         workbook = Path(self.directory.name)/'synthetic-browser.xlsx'
-        workbook.write_bytes(workbook_bytes([[i+2, f'SYNTHETIC BROWSER {i}', '', '', 5000, 2500, 46000] for i in range(61)]))
+        workbook.write_bytes(workbook_bytes([[i+100, f'SYNTHETIC BROWSER {i}', '', '', 5000, 2500, 46000] for i in range(61)]))
         master = JawabuFarmerMaster.objects.create(group_configuration=self.group, customer_name='PRESERVED MASTER', legacy_fulfillment_partner='HB')
         result = subprocess.run([os.environ.get('PORTAL_TEST_NODE', 'node'), str(root/'scripts/test_portal_legacy_transport.js')],
                     input=json.dumps({'origin': self.live_server_url, 'initData': self.headers['HTTP_X_TELEGRAM_INIT_DATA'],
@@ -76,6 +76,19 @@ class LegacyBrowserTests(LegacyHTTPMixin, StaticLiveServerTestCase):
         self.assertEqual(JawabuFarmerMaster.objects.filter(legacy_fulfillment_partner='ECOCONSERVE').count(), 61)
         self.assertEqual(self.book.replacements, [])
         self.assertEqual(eco.cells[64],['UNIMPORTED SHEET ROW - RETAIN'])
+        self.assertEqual([eco.cells[row][0] for row in range(2,63)],[f'SYNTHETIC BROWSER {i}' for i in range(61)])
+        headers=eco.cells[1];case_column=headers.index('Case ID');internal_column=headers.index('Master Record ID')
+        self.assertIn(internal_column,eco.hidden_columns)
+        for legacy in LegacyRow.objects.filter(source_sheet='Eco-conserve').select_related('farmer'):
+            values=eco.cells[legacy.source_row-98]
+            self.assertEqual(values[case_column],f'JBL-{legacy.farmer.case_reference_number}')
+            self.assertEqual(values[internal_column],str(legacy.farmer_id))
+        from openpyxl import Workbook
+        from openpyxl.utils import get_column_letter
+        export=Workbook();tab=export.active;tab.title='Eco-conserve'
+        for number in range(1,65):tab.append(eco.cells.get(number,[]))
+        tab.column_dimensions[get_column_letter(internal_column+1)].hidden=True
+        export.save(root/'test-results/legacy-importer-automated-browser/projected-synthetic-sheet.xlsx');export.close()
 
     def test_editable_review_issues_identity_evidence_and_persistence(self):
         self.clock.stop()

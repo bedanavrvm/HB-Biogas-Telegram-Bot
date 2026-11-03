@@ -117,6 +117,8 @@ class JblPipelineServiceTestCase(TestCase):
 
     def setUp(self):
         from core.services.group_config import GroupRegistry
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         # Registry process state is not rolled back with Django's test database.
         # Prevent another workflow's cached configuration leaking into this suite.
         original_registry = GroupRegistry._instance
@@ -644,6 +646,23 @@ class JblPipelineServiceTestCase(TestCase):
                 self.assertEqual(sheet.values[5], [])
                 self.assertEqual(sheet.values[6][0], 2)
                 self.assertEqual(repair_master_sheet_numbers(sheet, header_lookup_from_headers(headers), 5), 0)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_new_publication_uses_first_empty_row_and_preserves_formula_only_rows(self,mock_get_sheets):
+        from core.tests import FakeMasterDataSheet,FakeJawabuService
+        headers=['No.','Case ID','Customer Name','National ID','Primary Phone']
+        self.config.workflow={**self.config.workflow,'master_header_row':1,'master_data_start_row':2}
+        self.config.save(update_fields=['workflow'])
+        for county in ('Kiambu','Nakuru'):
+            with self.subTest(county=county):
+                self.farmer_stage1.county=county;self.farmer_stage1.save(update_fields=['county'])
+                sheet=FakeMasterDataSheet(headers)
+                sheet.values=[headers,['1','','EXISTING','22222222'],['','','=IF(1=1,"","")'],[],['2','','KEEP LAST','33333333']]
+                mock_get_sheets.return_value=FakeJawabuService(sheet)
+                self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+                self.assertEqual(sheet.values[3][headers.index('Customer Name')],'FARMER ONE')
+                self.assertEqual(sheet.values[2],['','','=IF(1=1,"","")'])
+                self.assertEqual(sheet.values[4],['2','','KEEP LAST','33333333'])
 
     def test_master_and_eco_date_columns_use_short_month_and_keep_time(self):
         from core.tests import FakeMasterDataSheet

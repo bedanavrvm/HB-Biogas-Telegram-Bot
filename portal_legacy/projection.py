@@ -49,6 +49,7 @@ def preview(upload,actor,access):
     if not any(token(h) in {'customername','clientname','name'} for h in headers):raise ValueError('The selected register must have a named customer column before replacement.')
     new_headers=list(headers)
     if 'caseid' not in {token(h) for h in headers}:new_headers.append('Case ID')
+    if 'masterrecordid' not in {token(h) for h in headers}:new_headers.append('Master Record ID')
     upload.state.pop('sync_error',None)
     upload.state['projection']={'spreadsheet':sheet.spreadsheet.id,'sheet':sheet.id,'name':sheet.title,'source_sheet':upload.source_sheet,
         'header_row':header_row,'headers':headers,'new_headers':new_headers,'old_rows':sheet.row_count,'old_cols':sheet.col_count,
@@ -66,6 +67,7 @@ def confirm(upload,body):
 
 def record_values(legacy,headers,ordinal,existing=None):
     from core.services.jawabu_pipeline import master_projection_fields
+    from core.services.jawabu_case_reference import display_case_reference
     from core.services.jawabu_validation import parse_business_date
     from .workbook import token
     fields=master_projection_fields(legacy.farmer);result={}
@@ -87,7 +89,7 @@ def record_values(legacy,headers,ordinal,existing=None):
     from .workbook import propose
     parsed=propose(legacy.values)['fields']
     total='' if 'not on sf' in hb.lower() else format(Decimal(parsed.get('deposit_paid_hbg','0'))+Decimal(parsed.get('legacy_deposit_paid_jbl','0')),'.2f')
-    result.update({'caseid':str(legacy.farmer_id),'masterrecordid':str(legacy.farmer_id),'no':str(ordinal),
+    result.update({'caseid':display_case_reference(legacy.farmer),'masterrecordid':str(legacy.farmer_id),'no':str(ordinal),
         'total':total,'depositpaidtojbl':str(jbl),'depositpaidtohbg':str(hb)})
     # Historical-only fields are projected only if that explicit column already exists.
     for name,value in legacy.values.items():
@@ -102,6 +104,8 @@ def advance(upload,actor,access):
     sheet=destination(upload)
     if str(sheet.spreadsheet.id)!=str(p['spreadsheet']) or sheet.id!=p['sheet']:raise ValueError('Destination changed. Re-preview the selected register.')
     allowed_headers=[p['headers'],p['new_headers']] if upload.phase in {'replacing','readback','complete'} else [p['headers']]
+    if upload.phase=='readback' and 'Master Record ID' not in p['new_headers']:
+        allowed_headers.append([*p['new_headers'],'Master Record ID'])
     if sheet.row_values(p['header_row']) not in allowed_headers:raise ValueError('Selected register headers changed after preview.')
     book=sheet.spreadsheet;offset=p['offset'];width=len(p['new_headers']);column=get_column_letter(max(width,p['old_cols']))
     if upload.phase in {'backup','projecting','verifying'} and (sheet.row_count!=p['old_rows'] or sheet.col_count!=p['old_cols']):
@@ -174,13 +178,43 @@ def advance(upload,actor,access):
                     {'createDeveloperMetadata':{'developerMetadata':{'metadataKey':'legacy_cutover','metadataValue':str(upload.pk),'visibility':'DOCUMENT','location':{'sheetId':sheet.id}}}}])
                 if width>len(p['headers']):requests.append({'updateCells':{'range':{'sheetId':sheet.id,'startRowIndex':p['header_row']-1,'endRowIndex':p['header_row'],'startColumnIndex':len(p['headers']),'endColumnIndex':width},'rows':[{'values':[{'userEnteredValue':{'stringValue':v}} for v in p['new_headers'][len(p['headers']):]]}],'fields':'userEnteredValue'}})
                 book.batch_update({'requests':requests})
+            from core.services.jawabu_master import hide_master_system_columns
+            from .workbook import token
+            for index,header in enumerate(p['new_headers'],1):
+                if token(header)=='masterrecordid':hide_master_system_columns(sheet,index,index)
             upload.phase='readback';p['offset']=0
         elif upload.phase=='readback':
             drafts=list(upload.drafts.select_related('legacy__farmer').order_by('source_row')[offset:offset+100])
             if drafts:
+                from .workbook import token
+                missing_internal='masterrecordid' not in {token(h) for h in p['new_headers']}
+                if missing_internal:
+                    p['new_headers'].append('Master Record ID');p['identity_upgrade']=True
+                width=len(p['new_headers'])
                 expected=[record_values(d.legacy,p['new_headers'],offset+i+1) for i,d in enumerate(drafts)]
                 start=p['header_row']+offset+1;end=start+len(drafts)-1
-                if checksum(sheet.get(f'A{start}:{get_column_letter(width)}{end}',value_render_option='FORMULA'))!=checksum(expected):raise ValueError('Selected register readback mismatch. Group remains held; inspect saved snapshot.')
+                actual=sheet.get(f'A{start}:{get_column_letter(min(width,sheet.col_count))}{end}',value_render_option='FORMULA')
+                requests=[];normalized=[]
+                identity_columns={token(header):index for index,header in enumerate(p['new_headers']) if token(header) in {'caseid','masterrecordid'}}
+                for number,(draft,values,wanted) in enumerate(zip(drafts,actual,expected),start):
+                    values=list(values)+['']*max(0,width-len(values))
+                    for kind,index in identity_columns.items():
+                        allowed={wanted[index],str(draft.legacy.farmer_id)}
+                        if kind=='masterrecordid' and p.get('identity_upgrade'):allowed.add('')
+                        if values[index] not in allowed:raise ValueError('Selected register readback mismatch: identity changed. Group remains held.')
+                        if values[index]!=wanted[index]:
+                            requests.append({'updateCells':{'range':{'sheetId':sheet.id,'startRowIndex':number-1,'endRowIndex':number,'startColumnIndex':index,'endColumnIndex':index+1},'rows':[{'values':[{'userEnteredValue':{'stringValue':wanted[index]}}]}],'fields':'userEnteredValue'}})
+                            values[index]=wanted[index]
+                    normalized.append(values)
+                if checksum(normalized)!=checksum(expected):raise ValueError('Selected register readback mismatch. Group remains held; inspect saved snapshot.')
+                if missing_internal:
+                    if width>sheet.col_count:requests.insert(0,{'appendDimension':{'sheetId':sheet.id,'dimension':'COLUMNS','length':width-sheet.col_count}})
+                    requests.append({'updateCells':{'range':{'sheetId':sheet.id,'startRowIndex':p['header_row']-1,'endRowIndex':p['header_row'],'startColumnIndex':width-1,'endColumnIndex':width},'rows':[{'values':[{'userEnteredValue':{'stringValue':'Master Record ID'}}]}],'fields':'userEnteredValue'}})
+                if requests:
+                    book.batch_update({'requests':requests});sheet=book.get_worksheet_by_id(p['sheet'])
+                    if checksum(sheet.get(f'A{start}:{get_column_letter(width)}{end}',value_render_option='FORMULA'))!=checksum(expected):raise ValueError('Selected register identity correction did not verify. Resume the saved readback.')
+                from core.services.jawabu_master import hide_master_system_columns
+                index=identity_columns['masterrecordid']+1;hide_master_system_columns(sheet,index,index)
                 with transaction.atomic():
                     LegacyRow.objects.filter(pk__in=[d.legacy_id for d in drafts]).update(publication_ready=True)
                     p['offset']+=len(drafts);save(upload)

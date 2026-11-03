@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from core.services.sheet_columns import NamedColumns
+from core.services.jawabu_case_reference import display_case_reference
+from core.services.jawabu_master import hide_master_system_columns
 from core.services.sheets import GoogleSheetsService
 from core.services.telegram_identity import user_access
 from core.services.requisition_partners import fulfillment_partner_for_farmer, PARTNER_ECO
@@ -17,9 +19,10 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
 
 
-def row_digest(values, case_column):
+def row_digest(values, case_column, record_column=None):
     data = list(values)
-    if case_column and len(data) >= case_column: data[case_column-1] = ''
+    for column in (case_column,record_column):
+        if column and len(data)>=column:data[column-1]=''
     while data and not str(data[-1]).strip(): data.pop()
     return digest(data)
 
@@ -56,7 +59,8 @@ class Command(BaseCommand):
                 header_row = int(workflow.get('master_header_row') or 1)
                 headers = values[header_row-1]
                 case_col = NamedColumns(headers).column('Case ID', required=False)
-                snapshots[name] = {'sheet': sheet, 'values': values, 'headers': headers, 'header_row': header_row, 'case_col': case_col}
+                record_col = NamedColumns(headers).column('Master Record ID', required=False)
+                snapshots[name] = {'sheet': sheet, 'values': values, 'headers': headers, 'header_row': header_row, 'case_col': case_col,'record_col':record_col}
             return name, snapshots[name]
 
         if not opts['apply']:
@@ -69,7 +73,7 @@ class Command(BaseCommand):
                 if target <= data['header_row'] or target > len(data['values']): raise CommandError('Source row has no live counterpart. Reconcile the row mapping first.')
                 bindings.append({'row_id': str(row.pk), 'case_id': str(row.farmer_id), 'source_sheet': row.source_sheet,
                     'source_row': row.source_row, 'target_sheet': name, 'target_row': target,
-                    'row_hash': row_digest(data['values'][target-1], data['case_col'])})
+                    'row_hash': row_digest(data['values'][target-1], data['case_col'],data['record_col'])})
             manifest = {'batch': str(batch.pk), 'group': str(batch.group_id), 'spreadsheet': str(sheet_id), 'source_hash': batch.source_hash, 'bindings': bindings}
             path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
             self.stdout.write(f'{len(bindings)} proposed bindings exported. Review source/target rows; no Sheet or workflow writes performed.')
@@ -101,13 +105,14 @@ class Command(BaseCommand):
             target = int(item['target_row']); identity = (name, target)
             if identity in seen or target <= data['header_row'] or target > len(data['values']): raise CommandError('Duplicate or invalid live target row.')
             seen.add(identity)
-            current = data['values'][target-1]; col = data['case_col']
+            current = data['values'][target-1]; col = data['record_col'] or data['case_col']
             existing = current[col-1] if col and len(current) >= col else ''
-            if existing and existing != str(row.farmer_id): raise CommandError('Live row already belongs to another Case ID.')
-            if col and any(n != target and len(cells) >= col and cells[col-1] == str(row.farmer_id)
+            identities={str(row.farmer_id),display_case_reference(row.farmer)}
+            if existing and existing not in identities: raise CommandError('Live row already belongs to another Case ID.')
+            if col and any(n != target and len(cells) >= col and cells[col-1] in identities
                            for n, cells in enumerate(data['values'], 1)):
                 raise CommandError('Case ID already occurs on another live row. Reconcile the existing row rather than duplicating its identity.')
-            if row_digest(current, col) != item['row_hash']: raise CommandError('Live row changed after preview. No further bindings applied; review a fresh manifest.')
+            if row_digest(current, data['case_col'],data['record_col']) != item['row_hash']: raise CommandError('Live row changed after preview. No further bindings applied; review a fresh manifest.')
             approved.append((row, name, target, data))
             if len(approved) == opts['limit']: break
         # This command never replaces customer fields, deletes rows or publishes decisions itself.
@@ -118,21 +123,27 @@ class Command(BaseCommand):
             fresh_before = data['sheet'].get_all_values()
             for row, _, target, _ in members:
                 item = next(i for i in manifest['bindings'] if i['row_id'] == str(row.pk))
-                if target > len(fresh_before) or row_digest(fresh_before[target-1], data['case_col']) != item['row_hash']:
+                if target > len(fresh_before) or row_digest(fresh_before[target-1], data['case_col'],data['record_col']) != item['row_hash']:
                     raise CommandError('Live row changed immediately before binding. Re-preview while manual register edits are paused.')
-                existing = fresh_before[target-1][data['case_col']-1] if data['case_col'] and len(fresh_before[target-1]) >= data['case_col'] else ''
-                if existing and existing != str(row.farmer_id):
+                col=data['record_col'] or data['case_col']
+                existing = fresh_before[target-1][col-1] if col and len(fresh_before[target-1]) >= col else ''
+                if existing and existing not in {str(row.farmer_id),display_case_reference(row.farmer)}:
                     raise CommandError('Case ID ownership changed immediately before binding; no overwrite performed.')
-            col = data['case_col'] or len(data['headers'])+1
-            updates = []
-            if not data['case_col']:
-                if col > data['sheet'].col_count: data['sheet'].add_cols(col-data['sheet'].col_count)
-                updates.append({'range': f'{get_column_letter(col)}{data["header_row"]}', 'values': [['Case ID']]})
-            updates.extend({'range': f'{get_column_letter(col)}{target}', 'values': [[str(row.farmer_id)]]} for row, _, target, _ in members)
+            headers=list(data['headers']);updates=[]
+            for header,key in [('Case ID','case_col'),('Master Record ID','record_col')]:
+                if not data[key]:
+                    headers.append(header);data[key]=len(headers)
+                    updates.append({'range':f'{get_column_letter(data[key])}{data["header_row"]}','values':[[header]]})
+            if len(headers)>data['sheet'].col_count:data['sheet'].add_cols(len(headers)-data['sheet'].col_count)
+            for row,_,target,_ in members:
+                updates.extend({'range':f'{get_column_letter(col)}{target}','values':[[value]]} for col,value in
+                    [(data['case_col'],display_case_reference(row.farmer)),(data['record_col'],str(row.farmer_id))])
             data['sheet'].batch_update(updates, value_input_option='RAW')
+            hide_master_system_columns(data['sheet'],data['record_col'],data['record_col'])
             fresh = data['sheet'].get_all_values()
             for row, _, target, _ in members:
-                if len(fresh) < target or len(fresh[target-1]) < col or fresh[target-1][col-1] != str(row.farmer_id):
+                if len(fresh) < target or any(len(fresh[target-1])<col or fresh[target-1][col-1]!=value for col,value in
+                    [(data['case_col'],display_case_reference(row.farmer)),(data['record_col'],str(row.farmer_id))]):
                     raise CommandError('Case ID readback failed; publication remains held for unconfirmed records.')
                 with transaction.atomic():
                     locked = LegacyRow.objects.select_for_update().get(pk=row.pk)

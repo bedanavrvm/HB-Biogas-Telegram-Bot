@@ -1624,7 +1624,7 @@ Mary Njeri njihia
                 for cell in cells:
                     self.update_cell(cell.row, cell.col, cell.value)
 
-            def get_all_values(self):
+            def get_all_values(self, value_render_option=None):
                 return [list(row) for row in self.values]
 
             def update(self, range_name, rows, value_input_option=None):
@@ -1772,7 +1772,7 @@ Mary Njeri njihia
                 for cell in cells:
                     self.update_cell(cell.row, cell.col, cell.value)
 
-            def get_all_values(self):
+            def get_all_values(self, value_render_option=None):
                 return [list(row) for row in self.values]
 
             def update(self, range_name, rows, value_input_option=None):
@@ -1859,7 +1859,7 @@ Mary Njeri njihia
                 for cell in cells:
                     self.update_cell(cell.row, cell.col, cell.value)
 
-            def get_all_values(self):
+            def get_all_values(self, value_render_option=None):
                 return [list(row) for row in self.values]
 
             def update(self, range_name, rows, value_input_option=None):
@@ -2321,7 +2321,7 @@ class FakeMasterDataSheet:
         self.update_options = []
         self.values = [[], [], list(headers), [], list(existing_row or [])]
 
-    def row_values(self, row_number):
+    def row_values(self, row_number, value_render_option=None):
         if row_number <= len(self.values):
             return list(self.values[row_number - 1])
         return []
@@ -2340,7 +2340,7 @@ class FakeMasterDataSheet:
         for cell in cells:
             self.update_cell(cell.row, cell.col, cell.value)
 
-    def get_all_values(self):
+    def get_all_values(self, value_render_option=None):
         return [list(row) for row in self.values]
 
     def update(self, range_notation, values, value_input_option=None, **kwargs):

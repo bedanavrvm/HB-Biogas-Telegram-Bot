@@ -702,7 +702,7 @@ def ensure_master_system_headers(sheet, header_row: int, *, headers: list[str] |
 
 
 def ensure_master_case_id_header(sheet, header_row: int, *, headers: list[str] | None = None) -> list[str]:
-    """Place the immutable visible case UUID between No. and Customer Name.
+    """Place the staff-facing case reference between No. and Customer Name.
 
     Existing production sheets are migrated with a column insertion so
     formulas and staff-entered values shift together. Lightweight test/legacy
@@ -779,6 +779,7 @@ def write_rows_to_master_sheet(
     cleaned_rows: list[dict],
 ) -> dict:
     values = sheet.get_all_values()
+    allocation_values = sheet.get_all_values(value_render_option='FORMULA')
     original_values = [list(row) for row in values]
     header_lookup = header_lookup_from_headers(headers)
     existing = build_master_existing_index(values, header_lookup, data_start_row)
@@ -822,7 +823,7 @@ def write_rows_to_master_sheet(
                     deposit_repairs.append((row_number, row_values))
                 continue
 
-            row_number = next_master_append_row(values, header_lookup, data_start_row)
+            row_number = next_master_append_row(allocation_values, header_lookup, data_start_row)
             row_values = [''] * len(headers)
             # Display numbers count cases, not physical rows (a partner move
             # may leave a blank row in either tab).
@@ -839,6 +840,8 @@ def write_rows_to_master_sheet(
             pending_updates.append((row_number, row_values))
             values = pad_values_to_row(values, row_number, len(headers))
             values[row_number - 1] = row_values
+            allocation_values = pad_values_to_row(allocation_values, row_number, len(headers))
+            allocation_values[row_number - 1] = row_values
             add_master_index_row(existing, row_number, row_values, header_lookup)
             created += 1
         except Exception as exc:  # pragma: no cover - defensive per-row handling
@@ -1243,11 +1246,11 @@ def pad_values_to_row(values: list[list[str]], row_number: int, width: int) -> l
 
 
 def next_master_append_row(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> int:
-    last = data_start_row - 1
+    """Use the first entirely empty data row, including gaps left by deletion."""
     for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
-        if any(str(cell or '').strip() for cell in row):
-            last = row_number
-    return last + 1
+        if not any(str(cell if cell is not None else '').strip() for cell in row):
+            return row_number
+    return max(len(values)+1,data_start_row)
 
 
 def next_master_case_number(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> int:

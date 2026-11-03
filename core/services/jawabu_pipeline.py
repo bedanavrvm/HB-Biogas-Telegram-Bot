@@ -2481,6 +2481,7 @@ def sync_farmer_to_master_sheet(
         master_hbg_deposit_column_indexes,
         repair_master_sheet_numbers,
         next_master_case_number,
+        next_master_append_row,
         set_header_value,
         col_letter,
         update_master_sheet_row,
@@ -2690,13 +2691,8 @@ def sync_farmer_to_master_sheet(
                     note_failure(phase='identity', detail=f'A matching row in {sheet_name} has no distinct National ID; identity review is required.')
                     return False
         if not row_number:
-            # Append after every populated row, not after the last named row:
-            # blank customer-name cells may still contain staff data.
-            populated_rows = [
-                number for number, row in enumerate(values[data_start_row - 1:], start=data_start_row)
-                if any(str(cell or '').strip() for cell in row)
-            ]
-            row_number = max(populated_rows, default=data_start_row - 1) + 1
+            allocation_values = sheet.get_all_values(value_render_option='FORMULA')
+            row_number = next_master_append_row(allocation_values, header_lookup, data_start_row)
             row_values = [''] * len(headers)
             set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
             created_sheet_row = True
@@ -2765,7 +2761,8 @@ def sync_farmer_to_master_sheet(
         # Sheets are outside the database transaction. Refuse to overwrite a
         # row that changed after identification, including an append target
         # occupied by a concurrent staff edit.
-        if list(sheet.row_values(row_number)) != observed_row:
+        current_row = sheet.row_values(row_number, value_render_option='FORMULA') if created_sheet_row else sheet.row_values(row_number)
+        if list(current_row) != observed_row:
             note_failure(phase='verify', detail=f'The selected {sheet_name} row changed before publication; retry after review.')
             return False
 

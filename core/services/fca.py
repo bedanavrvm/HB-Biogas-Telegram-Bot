@@ -931,6 +931,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             raise RuntimeError('Missing Master Data column(s): ' + ', '.join(missing))
 
         values = sheet.get_all_values()
+        allocation_values = sheet.get_all_values(value_render_option='FORMULA')
         original_values = [list(row) for row in values]
         existing = build_fcaup_master_existing_index(values, header_lookup, data_start_row)
         pending_updates = []
@@ -955,7 +956,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             if row_number:
                 row_values = row_values_for_number(values, row_number, len(headers))
             else:
-                row_number = next_master_append_row(values, header_lookup, data_start_row)
+                row_number = next_master_append_row(allocation_values, header_lookup, data_start_row)
                 row_values = [''] * len(headers)
                 set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
                 created_row = True
@@ -970,6 +971,8 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             pending_updates.append((row_number, row_values))
             values = pad_values_to_row(values, row_number, len(headers))
             values[row_number - 1] = row_values
+            allocation_values = pad_values_to_row(allocation_values, row_number, len(headers))
+            allocation_values[row_number - 1] = row_values
             # Ensure database consistency by upserting/updating JawabuFarmerMaster model
             from django.db.models import Q
             from core.models import JawabuFarmerMaster

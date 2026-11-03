@@ -84,7 +84,7 @@ def save(upload):
 
 
 def payload(upload):
-    counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)),verified=Count('pk',filter=Q(legacy__committed_at__isnull=False,reconciliation__sheet_receipt__verified=True)))
+    counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)),verified=Count('pk',filter=Q(legacy__committed_at__isnull=False,reconciliation__sheet_receipt__verified=True,reconciliation__sheet_receipt__reference_format='staff')))
     total,committed=counts['total'],counts['committed']
     # Publication permission (including an explicit case link) is not a remote receipt.
     replacing=upload.phase in {'backup','projecting','verifying','replacing','readback'}
@@ -95,7 +95,7 @@ def payload(upload):
            'in_progress' if replacing or upload.phase=='syncing_rows' else
            'awaiting_sync' if committed>synced else 'awaiting_import')
     state_values={k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}
-    if 'row_sync' in state_values:state_values['row_sync']={k:v for k,v in state_values['row_sync'].items() if k not in {'case_rows','plans'}}
+    if 'row_sync' in state_values:state_values['row_sync']={k:v for k,v in state_values['row_sync'].items() if k not in {'case_rows','plans','empty_rows'}}
     return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),'group_label':upload.batch.group.display_name or upload.batch.group.sheet_name,
         'filename':upload.filename,'source_sheet':upload.source_sheet,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
         'chunks':list(upload.chunks.filter(kind='source').values_list('position',flat=True)),

@@ -28,9 +28,10 @@ def _value(values,headers,names):
 
 
 def _check_identity(draft,values,headers):
+    from core.services.jawabu_case_reference import display_case_reference
     identity=_value(values,headers,{'masterrecordid'}) or _value(values,headers,{'caseid'})
     if identity:
-        if identity!=str(draft.legacy.farmer_id):raise ValueError(f'Source row {draft.source_row}: Sheet Case ID {identity} belongs to another case. No row was overwritten.')
+        if identity not in {str(draft.legacy.farmer_id),display_case_reference(draft.legacy.farmer)}:raise ValueError(f'Source row {draft.source_row}: Sheet Case ID {identity} belongs to another case. No row was overwritten.')
         return
     if not any(str(v).strip() for v in values):return
     original=draft.reconciliation.get('original_values',draft.values)
@@ -50,6 +51,9 @@ def advance(upload,actor,access):
     authorize(actor,access,upload.batch.group,branch='')
     if not upload.frozen:raise ValueError('The cutover hold was released. Refresh before syncing.')
     p=upload.state['row_sync'];sheet=destination(upload);book=sheet.spreadsheet
+    # Finish an uncertain saved write before upgrading its allocation checkpoint.
+    if p['stage']!='prepare' and not p.get('allocation') and not p.get('plans'):
+        p['stage']='prepare'
     if p['stage']=='prepare':
         header_row=int((upload.batch.group.workflow or {}).get('master_header_row') or 1)
         headers=sheet.row_values(header_row)
@@ -58,33 +62,39 @@ def advance(upload,actor,access):
         if 'caseid' not in {token(h) for h in headers}:new_headers.append('Case ID')
         if 'masterrecordid' not in {token(h) for h in headers}:new_headers.append('Master Record ID')
         p.update(spreadsheet=str(book.id),sheet=sheet.id,header_row=header_row,headers=headers,new_headers=new_headers,scan_rows=sheet.row_count,
-            stage='scan' if any(token(h) in {'caseid','masterrecordid'} for h in headers) else 'rows')
+            stage='scan',scan_offset=0,case_rows={},empty_rows=[],allocation='first_empty',next_append=sheet.row_count+1)
         save(upload);return
     if str(book.id)!=p['spreadsheet'] or sheet.id!=p['sheet']:raise ValueError('Sheet destination changed. Restore the reviewed destination before resuming.')
     headers=sheet.row_values(p['header_row'])
     if headers not in (p['headers'],p['new_headers']):raise ValueError('Sheet headers changed. Restore the reviewed headers before resuming.')
     width=len(p['new_headers'])
     if p['stage']=='scan':
-        start=p['header_row']+1+p['scan_offset'];end=min(start+999,p['scan_rows'])
+        start=p['header_row']+1+p['scan_offset'];end=min(start+249,p['scan_rows'])
         if start<=end:
-            columns=[get_column_letter(i+1) for i,h in enumerate(headers) if token(h) in {'masterrecordid','caseid'}]
-            identities=[]
-            for page in sheet.batch_get([f'{col}{start}:{col}{end}' for col in columns],value_render_option='FORMULA'):
-                for number,values in enumerate(page,start):
-                    try:identities.append((number,str(uuid.UUID(str(values[0])))))
-                    except (ValueError,IndexError):pass
+            page=sheet.get(f'A{start}:{get_column_letter(sheet.col_count)}{end}',value_render_option='FORMULA')
+            identities=[];references=[];capacity=upload.drafts.count()
+            for number in range(start,end+1):
+                values=page[number-start] if number-start<len(page) else []
+                if not any(str(v).strip() for v in values) and len(p['empty_rows'])<capacity:p['empty_rows'].append(number)
+                identity=_value(values,headers,{'masterrecordid'}) or _value(values,headers,{'caseid'})
+                try:identities.append((number,str(uuid.UUID(identity))))
+                except ValueError:
+                    if identity.startswith('JBL-') and identity[4:].isdigit():references.append((number,int(identity[4:])))
             owned={str(pk) for pk in upload.drafts.filter(legacy__farmer_id__in=[value for _,value in identities]).values_list('legacy__farmer_id',flat=True)}
+            reference_ids=dict(upload.drafts.filter(legacy__farmer__case_reference_number__in=[value for _,value in references]).values_list('legacy__farmer__case_reference_number','legacy__farmer_id'))
+            identities.extend((number,str(reference_ids[ref])) for number,ref in references if ref in reference_ids)
+            owned.update(str(value) for value in reference_ids.values())
             for number,identity in identities:
                 if identity not in owned:continue
                 if identity in p['case_rows'] and p['case_rows'][identity]!=number:raise ValueError(f'Duplicate Case ID on Sheet rows {p["case_rows"][identity]} and {number}; resolve it before syncing.')
                 p['case_rows'][identity]=number
-            p['scan_offset']+=1000
+            p['scan_offset']+=250
         else:p['stage']='rows'
         save(upload);return
     plans=p.get('plans',[])
     if not plans:
         drafts=list(upload.drafts.filter(legacy__committed_at__isnull=False).filter(
-            Q(reconciliation__sheet_receipt__isnull=True)|Q(reconciliation__sheet_receipt__verified=False)
+            Q(reconciliation__sheet_receipt__isnull=True)|Q(reconciliation__sheet_receipt__verified=False)|Q(reconciliation__sheet_receipt__reference_format__isnull=True)
         ).select_related('legacy__farmer').order_by('legacy__committed_at','pk')[:50])
         if not drafts:
             p['stage']='done';upload.state.pop('sync_error',None);upload.phase=p['return_phase']
@@ -92,7 +102,7 @@ def advance(upload,actor,access):
             save(upload);return
         targets=[p['case_rows'].get(str(d.legacy.farmer_id),d.source_row) for d in drafts]
         if any(row<=p['header_row'] for row in targets):raise ValueError('Source Row points at the Sheet header; no row was overwritten.')
-        column=get_column_letter(min(width,sheet.col_count))
+        column=get_column_letter(sheet.col_count)
         valid=[(i,row) for i,row in enumerate(targets) if row<=sheet.row_count]
         pages=sheet.batch_get([f'A{row}:{column}{row}' for _,row in valid],value_render_option='FORMULA') if valid else []
         existing={index:list(page[0]) if page else [] for (index,_),page in zip(valid,pages)}
@@ -100,6 +110,12 @@ def advance(upload,actor,access):
         for index,(draft,row) in enumerate(zip(drafts,targets)):
             authorize(actor,access,upload.batch.group,branch=draft.values.get('branch',''),product=draft.values.get('payment_product',''))
             old=existing.get(index,[])
+            if str(draft.legacy.farmer_id) not in p['case_rows']:
+                # Source Row is provenance; a newly projected case may already occupy it.
+                if row in p['case_rows'].values():old=[]
+                if not any(str(v).strip() for v in old):
+                    row=p['empty_rows'].pop(0) if p['empty_rows'] else p['next_append']
+                    if row==p['next_append']:p['next_append']+=1
             _check_identity(draft,old,headers)
             values=record_values(draft.legacy,p['new_headers'],row-p['header_row'],existing=old)
             plans.append({'draft':draft.pk,'legacy':str(draft.legacy_id),'case':str(draft.legacy.farmer_id),'row':row,'before':checksum([old]),'values':values})
@@ -131,12 +147,18 @@ def advance(upload,actor,access):
             dimensions.append({'updateCells':{'range':{'sheetId':sheet.id,'startRowIndex':p['header_row']-1,'endRowIndex':p['header_row'],'startColumnIndex':0,'endColumnIndex':width},'rows':[{'values':[{'userEnteredValue':{'stringValue':str(v)}} for v in p['new_headers']]}],'fields':'userEnteredValue'}})
         book.batch_update({'requests':dimensions+requests})
         sheet=book.get_worksheet_by_id(p['sheet'])
+    from core.services.jawabu_master import hide_master_system_columns
+    for index,header in enumerate(p['new_headers'],1):
+        if token(header)=='masterrecordid':hide_master_system_columns(sheet,index,index)
     for plan,values in zip(plans,read()):
         if checksum([values])!=checksum([plan['values']]):raise ValueError(f'Sheet row {plan["row"]} did not verify. Resume to check the saved write before retrying.')
     with transaction.atomic():
         for plan in plans:
-            draft=upload.drafts.select_for_update().get(pk=plan['draft'])
+            draft=upload.drafts.select_for_update(of=('self',)).select_related('legacy__farmer').get(pk=plan['draft'])
             draft.reconciliation['sheet_receipt']={'verified':True,'spreadsheet':p['spreadsheet'],'sheet':sheet.id,'row':plan['row'],'digest':checksum([plan['values']]),'at':timezone.now().isoformat()}
+            from core.services.jawabu_case_reference import display_case_reference
+            case_column=next(i for i,header in enumerate(p['new_headers']) if token(header)=='caseid')
+            if plan['values'][case_column]==display_case_reference(draft.legacy.farmer):draft.reconciliation['sheet_receipt']['reference_format']='staff'
             draft.save(update_fields=['reconciliation']);p['case_rows'][plan['case']]=plan['row']
         LegacyRow.objects.filter(pk__in=[plan['legacy'] for plan in plans]).update(publication_ready=True)
         p.pop('plans');save(upload)

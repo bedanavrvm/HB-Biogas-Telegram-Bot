@@ -101,6 +101,18 @@ evidence; no data values change. See the
    then clears unmatched old rows. Ordinary FIFO sync never clears unrelated rows.
    The normal Portal publication pump remains paused during partial cutover;
    legacy sync runs through the owning importer. Summary refresh is read-only.
+   Existing UUID or readable-reference bindings update their current row. A
+   matching raw source row is also retained in place. When no existing row is
+   bound and the source position is empty, the case uses the first fully empty
+   destination row in FIFO order, starting at row 2 on a header-only sheet.
+   **Source Row** is retained in Django and does not create empty destination
+   rows. Formula-only rows are occupied. Old projected gaps are reused by new
+   cases; existing case rows are not moved. Visible **Case ID** contains `JBL-…`;
+   the exact UUID is retained in hidden **Master Record ID**.
+   Older partial uploads whose receipts predate this identifier format are
+   shown as awaiting sync once more. Resume the saved upload to correct the
+   visible IDs in place and verify them; the database cases are still saved.
+   An uncertain old write is verified before any identifier correction.
 8. Reconcile counts, sampled identities, dates, money, Legacy review and HB
    worklists against the reviewed source. Review consumed order/payment numbers
    and allocator settings against the paper trail before resuming numbered work.
@@ -115,7 +127,8 @@ evidence; no data values change. See the
   restarts; they are not executed or imported as workflow facts.
 - Staging advances by at most 250 records or five seconds; canonical commits
   advance by at most 50 records or five seconds. Each case commits independently.
-- FIFO sync scans up to 1,000 rows of immutable Sheet IDs per step, prepares up
+- FIFO sync scans up to 250 rows per step, including formulas in every column
+  to prove an allocation target is empty. It prepares up
   to fifty imported cases / three seconds / 512 KiB per write batch and retains target/checksum/readback receipts in the DB.
   Provider calls have an eight-second budget with at least ten seconds between
   FIFO advances (four seconds for full replacement). Full replacement additionally needs temporary staging capacity.

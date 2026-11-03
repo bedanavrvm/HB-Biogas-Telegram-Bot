@@ -34,7 +34,7 @@ class Sheet:
     def __init__(self, book, title, rows, cols):
         self.spreadsheet = book; self.title = title; self.row_count = rows
         self.col_count = cols; self.id = len(book.sheets) + 1
-        self.cells = {}; self.hidden = False
+        self.cells = {}; self.hidden = False; self.hidden_columns=set()
 
     def row_values(self, row):
         values = list(self.cells.get(row, []))
@@ -63,6 +63,11 @@ class Sheet:
 
     def batch_get(self,ranges,value_render_option=None):
         return [self.get(area,value_render_option=value_render_option) for area in ranges]
+
+    def add_cols(self,count):self.col_count+=count
+
+    def batch_update(self,updates,value_input_option=None):
+        for update in updates:self.update(range_name=update['range'],values=update['values'],value_input_option=value_input_option)
 
     def get_all_values(self):
         return [list(self.cells.get(row,[])) for row in range(1,max(self.cells,default=0)+1)]
@@ -103,7 +108,7 @@ class Book:
 
     def batch_update(self, body):
         # Apply the provider request as one transaction, including its completion marker.
-        snapshots = [(s, s.row_count, s.col_count, deepcopy(s.cells)) for s in self.sheets]
+        snapshots = [(s, s.row_count, s.col_count, deepcopy(s.cells),set(s.hidden_columns)) for s in self.sheets]
         old_markers = deepcopy(self.markers)
         destination = None
         try:
@@ -128,10 +133,14 @@ class Book:
                         sheet.cells[dest['startRowIndex']+offset+1] = list(original.cells.get(row, []))
                 elif 'createDeveloperMetadata' in request:
                     self.markers.append(deepcopy(request['createDeveloperMetadata']['developerMetadata']))
+                elif 'updateDimensionProperties' in request:
+                    item=request['updateDimensionProperties'];area=item['range']
+                    assert area['dimension']=='COLUMNS' and item['properties']=={'hiddenByUser':True}
+                    self.get_worksheet_by_id(area['sheetId']).hidden_columns.update(range(area['startIndex'],area['endIndex']))
                 else: raise AssertionError('Unimplemented provider operation')
         except Exception:
-            for sheet, rows, cols, cells in snapshots:
-                sheet.row_count = rows; sheet.col_count = cols; sheet.cells = cells
+            for sheet, rows, cols, cells, hidden_columns in snapshots:
+                sheet.row_count = rows; sheet.col_count = cols; sheet.cells = cells;sheet.hidden_columns=hidden_columns
             self.markers = old_markers
             raise
         if destination is not None:self.replacements.append(destination)
