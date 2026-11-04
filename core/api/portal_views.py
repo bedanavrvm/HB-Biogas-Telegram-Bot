@@ -112,10 +112,15 @@ def portal_auth_required(view_func):
             # Maintenance is a read-only safety mode. A request already inside
             # a view remains allowed to finish; only newly admitted writes are
             # rejected, preventing an IT toggle from splitting a live upload.
+            # Filtered reports use POST but only read cases and append access audit.
+            report_read = view_func.__name__ in {
+                'portal_report_preview', 'portal_curated_report', 'portal_curated_report_export',
+                'portal_report_run', 'portal_report_export',
+            }
             from portal_legacy.fence import request_blocked
-            if request_blocked(request, kwargs):
+            if not report_read and request_blocked(request, kwargs):
                 return _finish_portal_response(request, JsonResponse({'ok': False, 'code': 'legacy_cutover_maintenance', 'error': 'This Portal owner is held for legacy cutover. Resume Legacy Data to complete it.'}, status=503), started_at)
-            if view_func.__name__ != 'portal_set_maintenance':
+            if not report_read and view_func.__name__ != 'portal_set_maintenance':
                 from core.services.portal_maintenance import maintenance_write_blocked
 
                 blocked, message = maintenance_write_blocked()

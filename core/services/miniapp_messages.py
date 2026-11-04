@@ -162,6 +162,10 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
         "The Portal is temporarily read-only for maintenance. Your saved work is safe; try again shortly.", 503,
         tone="warning",
     ),
+    "legacy_cutover_maintenance": MiniAppMessage(
+        "Changes are paused while the legacy import is in progress. Your saved work is safe. IT can resume and complete the import from Legacy import.", 503,
+        tone="warning",
+    ),
     "unexpected_error": MiniAppMessage(
         "Something went wrong. Please try again. If it continues, contact JBL and share reference {support_reference}.", 500,
     ),

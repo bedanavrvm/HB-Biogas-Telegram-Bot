@@ -1,0 +1,6 @@
+Complaints - 
+In reports - you need to factor in the reports since the historical import contains missing data(ie resolution date,sla etc)
+maybe you could add in the reports a toggle that ignores historical imported data so that the reports are not misleading esp with the sla stuff and avg resolution time - you can keep other data thats fully expressive/present ie 
+
+
+in the ag grid table, what should field should i click so that i can navigate to the complaint detail ? maybe Complaint id?
