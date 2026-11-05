@@ -245,7 +245,8 @@ def cleanup_preview(upload,actor):
     if 'cleanup_ids' not in upload.state or upload.state.get('cleanup_source_sheet')!=upload.source_sheet:
         with transaction.atomic():
             GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
-            if LegacyUpload.objects.filter(batch__group=group,frozen=True).exclude(pk=upload.pk).exists():raise ValueError('Another cutover owns this group.')
+            if LegacyUpload.objects.filter(batch__group=group,source_sheet=upload.source_sheet,frozen=True).exclude(pk=upload.pk).exists():
+                raise ValueError(f'Another cutover owns {upload.source_sheet}. Resume or cancel that register’s existing cutover first.')
             upload.frozen=True
             upload.state['cleanup_ids']=case_ids(upload)
             upload.state['cleanup_source_sheet']=upload.source_sheet

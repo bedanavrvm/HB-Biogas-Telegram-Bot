@@ -150,6 +150,7 @@ from .portal_views import (
     portal_final_review_queue,
     portal_set_final_decision,
     portal_return_for_rework,
+    portal_case_withdrawal,
     portal_requisition_queue,
     portal_requisition_preview,
     portal_requisition_options,
@@ -506,6 +507,7 @@ urlpatterns = [
     path('portal/final-review-queue/<str:farmer_id>/', portal_auth_required(portal_set_final_decision), name='portal_set_final_decision'),
     path('portal/final-review-queue/<str:farmer_id>/draft/', portal_auth_required(portal_case_workflow_draft), {'workflow': 'final_review'}, name='portal_final_review_draft'),
     path('portal/cases/<str:farmer_id>/return-for-rework/', portal_auth_required(portal_return_for_rework), name='portal_return_for_rework'),
+    path('portal/cases/<str:farmer_id>/withdrawal/', portal_auth_required(portal_case_withdrawal), name='portal_case_withdrawal'),
     # Stage 4 - Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/preview/', portal_auth_required(portal_requisition_preview), name='portal_requisition_preview'),

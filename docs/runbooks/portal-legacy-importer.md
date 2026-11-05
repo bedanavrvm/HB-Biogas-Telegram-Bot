@@ -22,7 +22,10 @@ uses the existing Eco-conserve tab configuration in that spreadsheet; the two
 destination names must differ. Arrange a window that pauses manual edits,
 intake and numbered paperwork. The app holds Portal mutations and publication
 for the whole owner during either cutover and releases it on completion. Run
-the two imports sequentially. It cannot stop people or independent integrations
+the two imports concurrently if needed: each register has its own cutover lock,
+review progress and Sheet destination. A second cutover for the same register is
+blocked. The owner-wide write hold stays active until every held cutover finishes
+or is safely cancelled. It cannot stop people or independent integrations
 editing Google Sheets directly.
 
 Test-data deletion requires an active Superuser and the existing

@@ -335,15 +335,22 @@ class LegacyImporterTests(LegacyHTTPMixin, TestCase):
         self.assertTrue(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
         self.assertTrue(LegacyUpload.objects.get(pk=upload['id']).frozen)
 
-    def test_only_one_cutover_can_hold_an_owner_and_cancel_releases_it(self):
+    def test_register_cutovers_can_overlap_but_same_register_is_exclusive(self):
         master = self.stage()
         eco = self.stage(source='Eco-conserve')
+        another_master = self.stage(workbook_bytes([[2, 'SECOND MASTER']]))
         master = self.request('cleanup_preview', upload=master)['upload']
-        self.request('cleanup_preview', upload=eco, status=409)
+        eco = self.request('cleanup_preview', upload=eco)['upload']
+        self.assertTrue(master['frozen'])
+        self.assertTrue(eco['frozen'])
+        self.request('cleanup_preview', upload=another_master, status=409)
         master = self.request('cancel_preview', upload=master)['upload']
         self.assertFalse(master['frozen'])
-        eco = self.request('cleanup_preview', upload=eco)['upload']
-        self.assertTrue(eco['frozen'])
+        self.assertTrue(LegacyUpload.objects.get(pk=eco['id']).frozen)
+        from portal_legacy.fence import active
+        self.assertTrue(active(self.group.pk))
+        another_master = self.request('cleanup_preview', upload=another_master)['upload']
+        self.assertTrue(another_master['frozen'])
 
     def test_completed_source_cannot_delete_live_import_but_counterpart_can_start(self):
         master = self.complete(self.projection(self.commit(self.stage())))
@@ -353,6 +360,24 @@ class LegacyImporterTests(LegacyHTTPMixin, TestCase):
         eco = self.request('cleanup_preview', upload=eco)['upload']
         self.assertTrue(eco['frozen'])
         self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+
+    def test_eco_can_publish_while_master_review_is_still_held(self):
+        master = self.cleanup(self.stage(workbook_bytes([[2, 'MASTER ONLY', '254711222333', '11122233']])))
+        eco = self.complete(self.projection(self.commit(self.stage(source='Eco-conserve'))))
+        self.assertEqual(eco['phase'], 'complete')
+        self.assertTrue(LegacyUpload.objects.get(pk=master['id']).frozen)
+        self.assertEqual(LegacyUpload.objects.get(pk=master['id']).phase, 'ready')
+        self.assertFalse(LegacyUpload.objects.get(pk=master['id']).drafts.filter(legacy__isnull=False).exists())
+        self.assertEqual(self.book.replacements, ['Eco-conserve'])
+        master = self.request('select', {'all': True, 'approved': True}, upload=master)['upload']
+        master = self.request('commit', upload=master)['upload']
+        master = self.finish(master, 'committing')
+        master = self.complete(self.projection(master))
+        self.assertEqual(master['phase'], 'complete')
+        self.assertEqual(self.book.replacements, ['Eco-conserve', 'Master Data'])
+        self.assertEqual(JawabuFarmerMaster.objects.filter(group_configuration=self.group).count(), 2)
+        from portal_legacy.fence import active
+        self.assertFalse(active(self.group.pk))
         self.assertEqual(master['committed'], 1)
 
     def test_unselected_or_blocked_rows_cannot_enter_commit(self):

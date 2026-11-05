@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal withdrawal reuses compact case sections and inline validation; completed
+Commissioning uses the existing tick. Both register imports retain their current
+review page. See the [source and interaction evidence](reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md).
+
 Complaints customer suggestions adapt TAT's compact matching panel while
 retaining the existing creation form. Both channels share Portal biodata lookup,
 editable autofill and inline legacy review. See the

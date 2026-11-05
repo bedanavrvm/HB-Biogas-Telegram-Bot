@@ -344,6 +344,13 @@
     return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   }
 
+  function displayName(value) {
+    const text = String(value || '');
+    if (text !== text.toUpperCase() && text !== text.toLowerCase()) return text;
+    return text.toLowerCase().replace(/\b\p{L}+/gu, word =>
+      ['jbl', 'hb', 'hbg', 'sla', 'imab', 'it'].includes(word) ? word.toUpperCase() : word[0].toUpperCase() + word.slice(1));
+  }
+
   function jblStatusLabel(farmer) {
     return farmer?.jbl_visit_date || farmer?.jbl_visit_status
       ? deps.fmt(farmer.jbl_visit_status || 'Visit logged')
@@ -377,7 +384,9 @@
   };
 
   function renderCaseFieldValue(key, value) {
-    const text = value == null || value === '' ? '-' : String(value);
+    let text = value == null || value === '' ? '-' : String(value);
+    if (['customer_name', 'system_name', 'lead_name', 'officer', 'system_loan_officer', 'hb_sales_person'].includes(key)) text = displayName(text);
+    if (['county', 'constituency', 'village', 'branch'].includes(key)) text = text.toUpperCase();
     if (['primary_phone', 'secondary_phone', 'phone_number'].includes(key)) return `<span data-miniapp-phone>${deps.escapeHtml(text)}</span>`;
     // GPS links originate in imported/master data. Only turn an explicitly
     // absolute HTTP(S) URL into a link; everything else stays escaped text so
@@ -398,7 +407,7 @@
     ).join('')}</div>`;
   }
 
-  function caseStageFlow(sections, workflowState = '') {
+  function caseStageFlow(sections, workflowState = '', pausedStage = '') {
     const hb = sections.homebiogas || {};
     const steps = [
       ['Intake', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
@@ -417,7 +426,8 @@
     // retained for records created before state integrity existed.
     let current = Object.prototype.hasOwnProperty.call(stateIndex, workflowState)
       ? stateIndex[workflowState] : steps.findIndex(([, complete]) => !complete);
-    if (hb.commissioning_status === 'commissioned') current = steps.length - 1;
+    if (workflowState === 'withdrawn' && pausedStage in stateIndex) current = stateIndex[pausedStage];
+    if (hb.commissioning_status === 'commissioned') current = steps.length;
     else if (hb.installation_status === 'installed') current = 6;
     else if (hb.released_at) current = 5;
     if (current < 0) current = steps.length - 1;
@@ -434,19 +444,19 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false, caseReference = '') {
+  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false, caseReference = '', pausedStage = '') {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
-      ? `IMAB: ${identity.system_name}`
+      ? `IMAB: ${displayName(identity.system_name)}`
       : '';
     const status = currentPipelineState || (sections.invoice?.number ? 'Invoiced'
       : sections.order?.order_number ? 'Ordered'
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Intake received');
     return `<header class="case360-hero">
-      <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><div class="case360-bio">${systemName ? `<span>${deps.escapeHtml(systemName)}</span>` : ''}${identity.national_id ? `<span>ID ${deps.escapeHtml(identity.national_id)}</span>` : ''}${identity.primary_phone ? `<a class="portal-phone-link" href="tel:${deps.escapeHtml(String(identity.primary_phone).replace(/[^+0-9]/g, ''))}">${deps.escapeHtml(identity.primary_phone)}</a>` : ''}${intake.branch ? `<span>${deps.escapeHtml(intake.branch)}</span>` : ''}</div></div>
+      <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(displayName(identity.customer_name || 'Unnamed Customer'))}</h2><div class="case360-bio">${systemName ? `<span>${deps.escapeHtml(systemName)}</span>` : ''}${identity.national_id ? `<span>ID ${deps.escapeHtml(identity.national_id)}</span>` : ''}${identity.primary_phone ? `<a class="portal-phone-link" href="tel:${deps.escapeHtml(String(identity.primary_phone).replace(/[^+0-9]/g, ''))}">${deps.escapeHtml(identity.primary_phone)}</a>` : ''}${intake.branch ? `<span>${deps.escapeHtml(String(intake.branch).toUpperCase())}</span>` : ''}</div></div>
       <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
-    </header>${caseStageFlow(sections, workflowState)}`;
+    </header>${caseStageFlow(sections, workflowState, pausedStage)}`;
   }
 
   function caseCorrectionMarkup(correction) {
@@ -573,7 +583,52 @@
 
   function decisionSummary(context) {
     if (!context) return '';
-    return `<section class="batch-warning deferred-summary"><h3>${deps.escapeHtml(context.outcome)} &#8212; ${deps.escapeHtml(context.stage_label || 'Stage not recorded')}</h3><p><strong>Reason:</strong> ${deps.escapeHtml(context.reason_label || 'Reason not recorded')}</p>${context.comment ? `<p>${deps.escapeHtml(context.comment)}</p>` : ''}${decisionDate(context)}</section>`;
+    return `<section class="batch-warning deferred-summary"><h3>${deps.escapeHtml(context.outcome)} &#8212; ${deps.escapeHtml(humanLabel(context.stage_label || 'Stage Not Recorded'))}</h3><p><strong>Reason:</strong> ${deps.escapeHtml(context.reason_label || 'Reason not recorded')}</p>${context.comment ? `<p>${deps.escapeHtml(context.comment)}</p>` : ''}${decisionDate(context)}</section>`;
+  }
+
+  const WITHDRAWAL_STAGES = {
+    jbl_visit: ['JBL Visit', 'portal.jbl_visit.write'], credit: ['Credit Analysis', 'portal.credit.write'],
+    final_review: ['Head of Rural Review', 'portal.final_review.write'], order: ['Order Preparation', 'portal.requisition.write'],
+  };
+
+  function withdrawalMarkup(farmer) {
+    const resume = farmer.workflow_state === 'withdrawn';
+    let stage = resume ? farmer.withdrawn_stage : farmer.workflow_state === 'deferred' ? farmer.deferred_stage : farmer.workflow_state;
+    if (stage === 'final') stage = 'final_review';
+    if (!WITHDRAWAL_STAGES[stage]) return resume ? '<p class="field-help">The withdrawal stage was not recorded. Ask IT to review the historical source before resuming.</p>' : '';
+    if (!hasCapability(WITHDRAWAL_STAGES[stage][1])) return '';
+    const order = farmer.order_number || farmer.sections?.order?.order_number;
+    if (order || farmer.invoice_number || farmer.sections?.invoice?.number || farmer.sections?.homebiogas?.released_at) return '';
+    const action = resume ? 'Resume Case' : 'Mark Withdrawn';
+    return `<details class="case360-section" data-withdrawal><summary><span>${action}</span><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-grid"><div class="wide"><p class="field-help">${resume ? `Resume this case at ${WITHDRAWAL_STAGES[stage][0]}. Withdrawal does not require reappraisal.` : 'Use when the client chooses not to proceed. Existing evidence is retained.'}</p><label>Required Note<textarea data-withdrawal-note maxlength="4000" rows="2" aria-label="Withdrawal or resumption note"></textarea></label><button type="button" class="btn btn-secondary" data-withdrawal-action="${resume ? 'resume' : 'withdraw'}">${action}</button><p data-withdrawal-error role="alert" hidden></p></div></div></details>`;
+  }
+
+  function wireWithdrawal(root, farmer, detail = false) {
+    const button = root.querySelector('[data-withdrawal-action]');
+    if (!button) return;
+    const key = requestId();
+    button.addEventListener('click', async () => {
+      const reason = root.querySelector('[data-withdrawal-note]').value.trim();
+      const feedback = root.querySelector('[data-withdrawal-error]');
+      if (!reason) { feedback.hidden = false; feedback.textContent = 'Enter a note explaining the client’s decision.'; return; }
+      const id = farmer.id || farmer.farmer_id;
+      if (state().selectedFarmer?.id === id && state().activeMode === 'jbl_visit' && jblMediaItems().length) {
+        feedback.hidden = false; feedback.textContent = 'Save or remove the selected visit attachments before changing the case state.'; return;
+      }
+      button.disabled = true;
+      try {
+        const response = await deps.apiFetch(`/cases/${encodeURIComponent(id)}/withdrawal/`, {method: 'POST',
+          body: JSON.stringify({action: button.dataset.withdrawalAction, reason, workflow_revision: farmer.workflow_revision, request_id: key})});
+        if (!response.ok) throw new Error(response.data?.error || 'The action could not be saved.');
+        if (detail) {
+          const updated = await deps.apiFetch(`/farmers/${encodeURIComponent(id)}/`);
+          if (!updated.ok) throw new Error('Saved. Reload this case to see its updated state.');
+          renderCase360(updated.data.case360, root);
+        } else closeSheet({saveDraft: false});
+        await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+        deps.showToast(button.dataset.withdrawalAction === 'resume' ? 'Case Resumed' : 'Case Marked Withdrawn', 'success');
+      } catch (error) { feedback.hidden = false; feedback.textContent = error.message; button.disabled = false; }
+    });
   }
 
   function renderCase360(data, target) {
@@ -617,11 +672,11 @@
     const invoiceChangeCards = invoiceNameChanges.length ? `<details class="case360-section"><summary><div><h3>Invoice Name Changes</h3><p>Original and corrected invoice history</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${invoiceNameChanges.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.original_invoice || '-')} → ${deps.escapeHtml(item.replacement_invoice || 'Awaiting replacement')}</strong><span>${deps.escapeHtml(humanLabel(item.status || ''))} · ${deps.escapeHtml(item.batch_reference || '')}</span></div>`).join('')}</div></details>` : '';
     const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct), data.case_reference || '')}
+      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct), data.case_reference || '', data.withdrawn_stage || '')}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${decisionSummary(data.decision_context)}${data.legacy ? `<section class="batch-warning"><strong>Legacy record</strong><p>${data.legacy.publication_ready ? 'Register publication enabled after review.' : 'Register publication held until live row bindings are reviewed.'}</p><p>${deps.escapeHtml(data.legacy.source_sheet)} &#183; source row ${deps.escapeHtml(data.legacy.source_row)}</p><p>${deps.escapeHtml(data.legacy.comment || '')}</p>${Object.entries(data.legacy.reported_references || {}).map(([label, value]) => `<p>Reported ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.reported_receipts || {}).map(([label, value]) => `<p>${deps.escapeHtml(label)}: KES ${deps.escapeHtml(value)}</p>`).join('')}${data.legacy.receipt_issue ? `<p role="alert">${deps.escapeHtml(data.legacy.receipt_issue)}</p>` : ''}${Object.entries(data.legacy.historical_fields || {}).map(([label,value]) => `<p><strong>Historical ${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.historical_contacts || {}).map(([label,value]) => `<p role="status">&#9888; ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)} ? incomplete legacy phone</p>`).join('')}${Object.entries(data.legacy.source_notes || {}).map(([label, note]) => `<p><strong>${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(note)}</p>`).join('')}<p>${deps.escapeHtml(data.legacy.issues.join('; '))}</p><p>Not recorded in source: ${deps.escapeHtml((data.legacy.missing_fields || []).join(', ') || 'None of the tracked fields')}</p></section>` : ''}${data.legacy && (!data.legacy.continuation_confirmed || data.legacy.needs_hb_handover) && data.can_correct ? '<section data-legacy-confirm><div data-legacy-form></div><div data-legacy-footer></div></section>' : ''}${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${decisionSummary(data.decision_context)}${withdrawalMarkup(data)}${data.legacy ? `<section class="batch-warning"><strong>Legacy record</strong><p>${data.legacy.publication_ready ? 'Register publication enabled after review.' : 'Register publication held until live row bindings are reviewed.'}</p><p>${deps.escapeHtml(data.legacy.source_sheet)} &#183; source row ${deps.escapeHtml(data.legacy.source_row)}</p><p>${deps.escapeHtml(data.legacy.comment || '')}</p>${Object.entries(data.legacy.reported_references || {}).map(([label, value]) => `<p>Reported ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.reported_receipts || {}).map(([label, value]) => `<p>${deps.escapeHtml(label)}: KES ${deps.escapeHtml(value)}</p>`).join('')}${data.legacy.receipt_issue ? `<p role="alert">${deps.escapeHtml(data.legacy.receipt_issue)}</p>` : ''}${Object.entries(data.legacy.historical_fields || {}).map(([label,value]) => `<p><strong>Historical ${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.historical_contacts || {}).map(([label,value]) => `<p role="status">&#9888; ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)} ? incomplete legacy phone</p>`).join('')}${Object.entries(data.legacy.source_notes || {}).map(([label, note]) => `<p><strong>${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(note)}</p>`).join('')}<p>${deps.escapeHtml(data.legacy.issues.join('; '))}</p><p>Not recorded in source: ${deps.escapeHtml((data.legacy.missing_fields || []).join(', ') || 'None of the tracked fields')}</p></section>` : ''}${data.legacy && (!data.legacy.continuation_confirmed || data.legacy.needs_hb_handover) && data.can_correct ? '<section data-legacy-confirm><div data-legacy-form></div><div data-legacy-footer></div></section>' : ''}${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
         <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
         ${timeline.length ? `<div class="case360-timeline">${timeline.map(renderTimelineEvent).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
@@ -635,6 +690,7 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : `<div class="case360-valid"><strong>${data.legacy ? 'No current validation errors' : 'All checks passed'}</strong><span>${data.legacy ? 'Historical gaps remain unknown; see legacy source details.' : 'All monitored business fields are valid.'}</span></div>`}</section>`;
     root.hidden = false;
     if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
+    wireWithdrawal(root, data, true);
     const legacyConfirm = root.querySelector('[data-legacy-confirm]');
     if (legacyConfirm) {
       window.PortalLegacyCapabilities = ['portal.case.correct'].filter(hasCapability);
@@ -811,7 +867,7 @@
     sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
     sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review');
     sheetOverlay?.classList.toggle('operational-detail-sheet', isOperationalDetail);
-    el('sheet-name').textContent = isNewLead ? 'Create and visit' : (farmer.customer_name || 'Unknown Farmer');
+    el('sheet-name').textContent = isNewLead ? 'Create and visit' : displayName(farmer.customer_name || 'Unknown Farmer');
     const location = deps.locationText(farmer);
     el('sheet-sub').textContent = isNewLead ? 'Add customer details, then log the first JBL visit.' : (location !== '-' ? location : '');
     if (!isNewLead && location === '-' && farmer.primary_phone) el('sheet-sub').innerHTML = `<span data-miniapp-phone>${deps.escapeHtml(farmer.primary_phone)}</span>`;
@@ -840,7 +896,7 @@
         jbl_visit: jblStatusLabel(farmer),
         credit: farmer.credit_decision || 'Pending',
         final_review: farmer.final_decision || 'Under Review',
-        deferred: farmer.workflow_state === 'legacy_review' ? 'Legacy review' : farmer.workflow_state === 'rejected' ? 'Rejected' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
+        deferred: farmer.workflow_state === 'legacy_review' ? 'Legacy review' : farmer.workflow_state === 'rejected' ? 'Rejected' : farmer.workflow_state === 'withdrawn' ? 'Withdrawn' : farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
       };
       headerStatus.hidden = !isOperationalDetail || isNewLead;
       headerStatus.textContent = isOperationalDetail && !isNewLead ? statusByMode[mode] : '';
@@ -946,6 +1002,7 @@
       wireVoiceWidget('final_decision_comment');
     } else if (mode === 'deferred') {
       const rejected = farmer.workflow_state === 'rejected';
+      const withdrawn = farmer.workflow_state === 'withdrawn';
       const next = {
         jbl_visit: ['jbl_visit', 'Log visit', 'portal.jbl_visit.write'],
         credit: ['credit', 'Review credit', 'portal.credit.write'],
@@ -960,18 +1017,18 @@
         ? Object.fromEntries(new Intl.DateTimeFormat('en', {timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'})
           .formatToParts(deferredAt).map(part => [part.type, part.value])) : null;
       const deferredDate = dateParts ? [dateParts.year, dateParts.month, dateParts.day].join('-') : '';
-      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected' : 'Deferred'} &#8212; ${deps.escapeHtml(context.stage_label || stageLabel || 'Stage not recorded')}</h3>
+      formEl.innerHTML = withdrawn ? decisionSummary(farmer.decision_context) : `<section class="batch-warning deferred-summary"><h3>${rejected ? 'Rejected' : 'Deferred'} &#8212; ${deps.escapeHtml(context.stage_label || stageLabel || 'Stage not recorded')}</h3>
         <p><strong>Reason:</strong> ${deps.escapeHtml(reason)}</p>${explanation ? `<p>${deps.escapeHtml(explanation)}</p>` : ''}${decisionDate(context)}${rejected ? '' : `<p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
         <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>`}
         <p>${rejected ? 'View the decision and its reason in Case History.' : farmer.reappraisal_required ? 'Ask Operations to commit a fresh FarmUp appraisal for this existing unit. JBL must then log a new visit before credit or final review.'
           : next && canUpdateMode(next[0], next[2]) ? 'Review the case and complete the existing stage action below.'
             : 'Your role can inspect this case. The responsible team must complete the next action.'}</p></section>`;
-      if (!rejected && farmer.reappraisal_required && hasCapability('portal.farmup.commit')) {
+      if (!withdrawn && !rejected && farmer.reappraisal_required && hasCapability('portal.farmup.commit')) {
         const button = document.createElement('button');
         button.className = 'primary'; button.textContent = 'Open FarmUp';
         button.onclick = () => { closeSheet({ saveDraft: false }); window.PortalAppShell?.navigateUrl?.('/portal/s/farmup/'); };
         footerEl.appendChild(button);
-      } else if (!rejected && !farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
+      } else if (!withdrawn && !rejected && !farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
         const button = document.createElement('button');
         button.className = 'primary';
         button.textContent = next[1];
@@ -980,6 +1037,10 @@
       }
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
+    }
+    if (!isNewLead) {
+      formEl.insertAdjacentHTML('beforeend', withdrawalMarkup(farmer));
+      wireWithdrawal(formEl, farmer);
     }
     sheetOverlay?.classList.add('open');
     window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'), {

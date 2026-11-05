@@ -7,6 +7,13 @@ STAGES = {'jbl_visit': 'JBL visit', 'credit': 'Credit analysis', 'final': 'Head 
 def decision_context(farmer, approvals):
     from core.services.jawabu_pipeline import current_workflow_state
     state = current_workflow_state(farmer)
+    if state == 'withdrawn':
+        from core.services.portal_withdrawals import STAGES as WITHDRAWAL_STAGES
+        event = farmer.pipeline_events.filter(action='case_withdrawn').order_by('-occurred_at', '-created_at').first()
+        return {'outcome': 'Withdrawn', 'stage': farmer.withdrawn_stage,
+                'stage_label': WITHDRAWAL_STAGES.get(farmer.withdrawn_stage, ('Stage Not Recorded', ''))[0],
+                'reason_label': 'Client Chose Not to Proceed' if event else '', 'comment': event.reason if event else '',
+                'recorded_at': event.occurred_at.isoformat() if event else None}
     if state not in {'rejected', 'deferred'}:
         return None
     outcome = 'Rejected' if state == 'rejected' else 'Deferred'

@@ -449,9 +449,9 @@
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "dc643d379aaa4be8480e9a252cc14f279e81132b02f256135b78c3222fdc8609",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "769f4906a162cc43f62e8797f170e8a3838b86ed0100d0dd24704b6547b87c71",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md",
+      "reason": "User-approved compact withdrawal/resume controls, display capitalization and completed Commissioning tick. Signed native-page Playwright evidence; existing patterns retained. No baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "1192ffa43fa51adbafae67c8c354b148c8d11b32aaf055f04fa9564f37f794e7",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "4120461a39fa68c4dea9579a7b60ffb5410cd42642a8b4351d902acd06f55a3d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md",
+      "reason": "User-approved compact withdrawal/resume controls, display capitalization and completed Commissioning tick. Signed native-page Playwright evidence; existing patterns retained. No baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal now supports audited pre-order withdrawal and same-case resumption, a
+completed Commissioning tick, and independent Master Data/Eco-conserve cutovers.
+See the [source and Playwright record](reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md).
+
 Complaints creation now offers selectable Portal biodata suggestions in ID,
 phone and name order on both channels. The compact matching panel, editable
 autofill, historical review states and native/signed Playwright evidence are in

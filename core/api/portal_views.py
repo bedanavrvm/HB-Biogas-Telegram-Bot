@@ -5237,6 +5237,37 @@ def portal_set_final_decision(request, farmer_id: str):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def portal_case_withdrawal(request, farmer_id: str):
+    from core.models import JawabuFarmerMaster
+    from core.services.portal_withdrawals import STAGES, change_withdrawal, withdrawal_stage
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if farmer is None:
+        return JsonResponse({'ok': False, 'error': 'Case not found.'}, status=404)
+    stage = withdrawal_stage(farmer)
+    if stage not in STAGES:
+        return JsonResponse({'ok': False, 'error': 'This case has no confirmed pre-order resume stage.'}, status=400)
+    error = _portal_capability_error(request, STAGES[stage][1], farmer)
+    if error:
+        return error
+    try:
+        body = json.loads(request.body)
+        if not isinstance(body, dict):
+            raise ValueError('Send a JSON object.')
+        farmer = change_withdrawal(
+            farmer, action=body.get('action'), reason=body.get('reason'),
+            expected_revision=_portal_workflow_revision(body), request_id=_portal_request_id(request, body),
+            actor=request.portal_user, stage=stage,
+        )
+    except (ValueError, TypeError) as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'publication': _portal_publication_payload(farmer)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def portal_return_for_rework(request, farmer_id: str):
     """Return an eligible Jawabu case to the preceding accountable stage."""
     from core.models import JawabuFarmerMaster

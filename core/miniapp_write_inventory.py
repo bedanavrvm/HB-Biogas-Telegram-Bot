@@ -716,6 +716,11 @@ _add(
     request_key_binding=_PORTAL_KEY, domain_replay=_PORTAL_REPLAY,
 )
 _add(
+    'portal_case_withdrawal', authentication=_PORTAL_AUTH,
+    capability='Stage-owning Portal write capability', scope=_PORTAL_SCOPE,
+    request_key_binding=_PORTAL_KEY, domain_replay='Exact action, actor, note and revision-bound withdrawal event',
+)
+_add(
     'portal_requisition_preview portal_requisition_finalize',
     authentication=_PORTAL_AUTH, capability='portal.requisition.finalize', scope=_PORTAL_SCOPE,
     request_key_binding=_PORTAL_KEY,

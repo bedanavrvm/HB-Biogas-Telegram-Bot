@@ -227,7 +227,9 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
             return 'Rejected — Credit'
         return 'Rejected'
     if state == JawabuWorkflowState.WITHDRAWN:
-        return 'Withdrawn'
+        from core.services.portal_withdrawals import STAGES
+        label = STAGES.get(farmer.withdrawn_stage, ('', ''))[0]
+        return f'Withdrawn — {label}' if label else 'Withdrawn'
 
     # Payment is deliberately a separate governed workspace. A completed
     # payment changes the payment register, never the delivery stage.
@@ -493,7 +495,7 @@ def deferred_queue(status=''):
     qs = JawabuFarmerMaster.objects.filter(status='active').alias(
         _revisit_state=Case(When(workflow_state='', then=legacy_state),
                             default=F('workflow_state'), output_field=CharField()),
-    ).filter(_revisit_state__in=[JawabuWorkflowState.DEFERRED, JawabuWorkflowState.REJECTED, 'legacy_review'])
+    ).filter(_revisit_state__in=[JawabuWorkflowState.DEFERRED, JawabuWorkflowState.REJECTED, JawabuWorkflowState.WITHDRAWN, 'legacy_review'])
     selected = status if isinstance(status, (list, tuple)) else [status]
     selected = [value for value in selected if value]
     if selected:
@@ -2147,6 +2149,7 @@ def farmer_to_card(
         ),
         'deferred_at': farmer.deferred_at.isoformat() if farmer.deferred_at else None,
         'deferred_stage': farmer.deferred_stage,
+        'withdrawn_stage': farmer.withdrawn_stage,
         'deferred_until': farmer.deferred_until.isoformat() if farmer.deferred_until else None,
         'reappraisal_required': is_reappraisal_required(farmer),
         # Stage 5

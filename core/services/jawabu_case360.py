@@ -357,9 +357,9 @@ def _deferral_intervals(events, start, end) -> list[tuple[datetime, datetime]]:
     deferred_at = None
     for event in events:
         at = event.occurred_at
-        if event.action in {'deferral_started', 'deferred'}:
+        if event.action in {'deferral_started', 'deferred', 'case_withdrawn'}:
             deferred_at = max(at, start) if at < end else None
-        elif event.action in {'deferral_ended', 'reappraisal_restarted'} and deferred_at:
+        elif event.action in {'deferral_ended', 'reappraisal_restarted', 'withdrawal_resumed'} and deferred_at:
             overlap_end = min(at, end)
             if overlap_end > deferred_at:
                 intervals.append((deferred_at, overlap_end))
@@ -509,7 +509,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_
             'wall_clock_minutes': str(minutes) if minutes is not None else None,
             'elapsed_seconds': elapsed_seconds,
             'calculated_at': now.isoformat(),
-            'running': bool(start_event and not end_event and terminal_at is None),
+            'running': bool(start_event and not end_event and terminal_at is None and farmer.workflow_state != 'withdrawn'),
             'business_minutes': str(business_minutes) if business_minutes is not None else None,
             'sla_minutes': str(minutes) if minutes is not None else None,
             'excluded_deferred_minutes': str(excluded),
@@ -574,11 +574,15 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
     return {
         'case_reference': display_case_reference(farmer),
+        'farmer_id': str(farmer.pk),
+        'workflow_revision': int(farmer.workflow_revision or 1),
+        'deferred_stage': farmer.deferred_stage,
         # The current canonical state, rather than historical non-empty
         # fields, owns the case-progress strip. A returned JBL visit can still
         # retain an earlier credit decision for audit without appearing to be
         # simultaneously in two stages.
         'workflow_state': current_workflow_state(farmer),
+        'withdrawn_stage': farmer.withdrawn_stage,
         'current_pipeline_state': current_pipeline_state_label(farmer),
         'sections': {
             'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number, 'lead_name': farmer.lead_name, 'lead_national_id': farmer.lead_national_id, 'lead_primary_phone': farmer.lead_primary_phone},
