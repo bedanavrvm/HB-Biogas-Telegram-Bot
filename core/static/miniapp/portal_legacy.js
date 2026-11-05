@@ -8,7 +8,7 @@
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.legacy_detail || result.data?.error || 'Request failed. Refresh to check saved progress before retrying.');
     return result.data;
   };
-  function confirmation(farmer, form, footer) {
+  function confirmation(farmer, form, footer, onSaved) {
     const legacy = farmer.legacy;
     form.innerHTML = `<section class="batch-warning"><h3>Legacy review</h3><p>Reported decision: ${escape(legacy.reported_outcome || 'Not recorded')}</p><p>Reason: ${escape(legacy.reason || 'Not recorded')}</p><p>${escape(legacy.comment)}</p><p>${escape(legacy.source_sheet)} · source row ${escape(legacy.source_row)}. Missing history remains unknown. Handover confirmation establishes the milestone, not a missing or disputed date.</p></section>`;
     if (!window.PortalAppShell?.hasCapability?.('portal.case.correct') && !document.body.dataset.legacyReviewLocal) {
@@ -21,14 +21,25 @@
       form.querySelector('#legacy-next-state').innerHTML='<option value="ordered">Confirm historical HB handover</option>';
     }
     const button = document.createElement('button'); button.className = 'primary'; button.textContent = 'Confirm legacy continuation'; button.dataset.mainAction = button.textContent;
-    let requestKey = '';
+    let requestKey = '', saved = false;
     button.onclick = async () => {
-      const state = form.querySelector('#legacy-next-state').value, note = form.querySelector('#legacy-stage-note').value.trim();
       const feedback = form.querySelector('#legacy-confirm-feedback');
-      if (!state || !note) { feedback.textContent = 'Choose a stage and explain the source evidence.'; return; }
       button.disabled = true;
-      try { await call(`rows/${legacy.row_id}/confirm/`, {method:'POST', body:JSON.stringify({state,note,revision:legacy.revision,request_id:requestKey || (requestKey=key())})}); feedback.textContent = 'Saved. Refresh this case to continue in its owning workflow.'; }
-      catch (error) { feedback.textContent = error.message; button.disabled = false; }
+      try {
+        if (!saved) {
+          const state = form.querySelector('#legacy-next-state').value, note = form.querySelector('#legacy-stage-note').value.trim();
+          if (!state || !note) { feedback.textContent = 'Choose a stage and explain the source evidence.'; button.disabled = false; return; }
+          await call(`rows/${legacy.row_id}/confirm/`, {method:'POST', body:JSON.stringify({state,note,revision:legacy.revision,request_id:requestKey || (requestKey=key())})});
+          saved = true;
+          form.querySelectorAll('select,textarea').forEach(input => { input.disabled = true; });
+        }
+        feedback.textContent = 'Saved. Updating case…';
+        await onSaved();
+      } catch (error) {
+        feedback.textContent = saved ? 'Saved, but the updated case could not be loaded. Retry loading; your confirmation is retained.' : error.message;
+        if (saved) button.textContent = button.dataset.mainAction = 'Retry loading case';
+        button.disabled = false;
+      }
     };
     footer.append(button);
   }

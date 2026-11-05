@@ -1,5 +1,13 @@
 # Component index and migration hold
 
+Portal withdrawal reuses existing stage dropdowns and comments, with Status
+inside the current case section and same-case resumption. See the
+[source and interaction record](reviews/2026-11-05-portal-withdrawn-stage-status.md).
+
+Legacy continuation reuses existing case rendering, feedback and navigation for
+automatic post-save updates. See the
+[source and interaction record](reviews/2026-11-05-portal-legacy-continuation-refresh.md).
+
 Portal case notices reuse Case 360 details/summary and chevrons with compact
 closed summaries and a provenance-based Legacy badge. See the
 [source and Playwright record](reviews/2026-11-05-portal-compact-case-notices.md).

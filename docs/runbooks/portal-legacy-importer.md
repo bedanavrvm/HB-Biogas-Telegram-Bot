@@ -128,6 +128,82 @@ evidence; no data values change. See the
    worklists against the reviewed source. Review consumed order/payment numbers
    and allocator settings against the paper trail before resuming numbered work.
 
+## Legacy cases awaiting the minimum HB deposit
+
+Accepted operating behaviour (5 November 2026): use the existing **JBL visit**
+continuation and deposit gate. There is no separate Awaiting HB Deposit
+continuation choice or additional pipeline stage.
+
+For an imported historical case awaiting its first JBL visit:
+
+1. Ensure the case is saved in Django and its initial Sheet write is verified.
+   The remaining source rows may still be under review; the whole import need
+   not finish before this case can continue.
+2. Operations/IT opens the case's **Legacy Continuation · Review Required**
+   disclosure. Choose **JBL visit**, explain that the minimum HB deposit is
+   outstanding, and confirm. Use this action only where continuation has not
+   already been confirmed; a case already awaiting a JBL visit needs no rerouting.
+   Saving automatically updates the case page; confirming from a queue drawer
+   opens the updated case details. No manual page refresh is required. If the
+   save succeeds but the updated details cannot load, use **Retry loading case**;
+   this retries the read without submitting the confirmation again.
+3. HB opens **HB Actions → Deposits → Awaiting Deposit** and finds the case.
+   A legacy-review case can already appear in that list, but its deposit editor
+   remains unavailable until it is in an editable pre-visit state.
+4. Authorized Portal HB staff record the **cumulative deposit received by HB**.
+   For example, if KES 2,000 was recorded and a further KES 3,000 is received,
+   enter **5,000**, not 3,000. Updates retain revision checks, audit history and
+   normal queued Sheet publication. A decrease requires a reason.
+5. Blank, unknown, zero or totals below **KES 5,000** keep the JBL visit action
+   blocked. A total of KES 5,000 or more clears the deposit gate and places the
+   case in the deposit workstream's **Cleared** filter. Other queue/workflow
+   requirements still apply.
+
+These are overlapping worklists, not an exclusive transfer: a case meeting JBL
+queue eligibility can remain visible there as **Deposit pending**, with its
+recorded amount and shortfall. Staff cannot activate/log the visit while held;
+the server independently enforces the same gate. HB manages the outstanding
+amount through the Deposits workstream. This follows the existing
+[HB deposit decision](../adr/0059-hb-deposit-gate.md).
+
+Only the HB deposit clears this gate. A historical amount recorded as **Deposit
+Paid to JBL** remains separate evidence; do not relabel or combine it with HB
+receipts merely to reach the minimum. Deposits do not create a signed order,
+installation action or approval. Cases with an already recorded JBL visit are
+not sent backwards merely because historical deposit information is incomplete;
+the pre-visit deposit editor is locked after a recorded JBL visit.
+
+### Client withdrawal after continuation
+
+Once a case has a confirmed continuation stage, choose **Withdrawn** in that
+stage's normal Outcome/Decision dropdown and explain the client's decision in
+Comment. In case details, use **Status** inside the current JBL Visit, Credit
+Analysis, Final Review or Order section. This also permits an authorized JBL
+stage owner to record withdrawal before the deposit gate clears. There is no
+standalone Mark Withdrawn section.
+
+The original stage, intake dates and existing evidence are retained. **Resume
+Case** appears for withdrawn cases with a confirmed originating stage and
+returns the same case to that stage with a required note. It does not bypass
+normal deposit or approval requirements. Unknown historical withdrawal stages
+still require source reconciliation before resumption. Order, invoice, payment
+and fulfilment protections remain in force.
+
+### Missing-date limitation
+
+For legacy cases, the JBL queue currently also requires an **HB visit date** or
+nonblank **sign date**. Consequently, a case missing both may appear in HB
+Deposits and clear the KES 5,000 gate while still remaining absent from the JBL
+queue. Confirming JBL visit continuation does not create either date. Retain
+unknown dates as unknown; use an authorized correction only when source evidence
+establishes the actual value. Refer unresolved cases to Operations/IT rather than
+inventing a date to force queue entry.
+
+This section records the current behaviour and its accepted limitation, checked
+against the continuation service, HB deposit policy/list and JBL queue code. No
+routing change or additional browser verification was performed for this
+documentation update.
+
 ## Capacity and interruption recovery
 
 - Source limit: 20 MiB compressed, 256 MiB expanded, 256 mapped columns and

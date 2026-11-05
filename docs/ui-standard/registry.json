@@ -449,9 +449,9 @@
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "2587b38b4d3c7012ffd2b31c3a6528d644a7e7ad9f41fff6af37127d5d4fcc46",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-compact-case-notices.md",
-      "reason": "User-requested compact collapsible case notices and historical Legacy badge. Existing Case 360 disclosure pattern; source-bound signed Django/PostgreSQL Playwright before/after screenshots and continuation verification. No approved baseline or Phase 6 changes."
+      "sha256": "08b071dce2c9d55d5c63e2e4b8e3b9e3846f62532cfa8115f832b306be6f4711",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawn-stage-status.md",
+      "reason": "User-requested Withdrawn choice in stage status/decision dropdowns; standalone section removed. Existing stage forms and case sections, required reason and established API guards retained. Real signed Django/PostgreSQL Playwright covers four stages, pending deposits, same-case resume, read retry and financial protection. Automatic legacy continuation refresh retained. No approved baseline or Phase 6 migration changes."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
@@ -953,9 +953,9 @@
     },
     {
       "path": "core/static/miniapp/portal_legacy.js",
-      "sha256": "ba1024628590657a93324b5d7dd47783ed196883530f0ec99b585ad6f928bb7d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "9d50c6dbf551f8a468b964a9708c28484242c1b9b93cd0b494bc95800aedee29",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-continuation-refresh.md",
+      "reason": "User-requested automatic case refresh after legacy continuation. Existing case rendering/navigation and inline feedback; signed Django/PostgreSQL Playwright verifies success, drawer handoff, save failure and read-only retry without repeated confirmation. No approved baseline, permission or Phase 6 changes."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "d997c8541810cd7cf4fafccb556e1af547347144c5615d7fec59e66300259090",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-compact-case-notices.md",
-      "reason": "User-requested compact collapsible case notices and historical Legacy badge. Existing Case 360 disclosure pattern; source-bound signed Django/PostgreSQL Playwright before/after screenshots and continuation verification. No approved baseline or Phase 6 changes."
+      "sha256": "93efadfccd3281ac63e03d16ea7f8f25461b74106cf24bb33beb7050de5b4ab4",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawn-stage-status.md",
+      "reason": "User-requested Withdrawn choice in stage status/decision dropdowns; standalone section removed. Existing stage forms and case sections, required reason and established API guards retained. Real signed Django/PostgreSQL Playwright covers four stages, pending deposits, same-case resume, read retry and financial protection. Automatic legacy continuation refresh retained. No approved baseline or Phase 6 migration changes."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

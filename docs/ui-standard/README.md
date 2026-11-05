@@ -1,5 +1,13 @@
 # Mini App Design Lab
 
+Withdrawn is selected in stage status/decision dropdowns; the standalone Mark
+Withdrawn section is removed. See the
+[source and real browser record](reviews/2026-11-05-portal-withdrawn-stage-status.md).
+
+Legacy continuation now refreshes case details automatically after saving, with
+read-only retry if loading fails. See the
+[source and Playwright record](reviews/2026-11-05-portal-legacy-continuation-refresh.md).
+
 Portal case notices now collapse into compact disclosures, with a persistent
 Legacy badge for historical imports. See the
 [before/after and interaction record](reviews/2026-11-05-portal-compact-case-notices.md).

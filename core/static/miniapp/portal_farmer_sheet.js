@@ -398,11 +398,12 @@
     return deps.escapeHtml(text);
   }
 
-  function renderBusinessSection(section, sectionName = '') {
+  function renderBusinessSection(section, sectionName = '', statusEditor = '') {
     const displayed = { ...(section || {}) };
     if (sectionName === 'credit' && displayed.decision_label) displayed.decision = displayed.decision_label;
     delete displayed.decision_label;
-    return `<div class="case360-grid">${Object.entries(displayed).map(([key, value]) =>
+    if (statusEditor) { delete displayed.status; delete displayed.decision; }
+    return `<div class="case360-grid">${statusEditor}${Object.entries(displayed).map(([key, value]) =>
       `<div class="case360-field ${['comment', 'payment_comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(sectionName === 'final_review' && key === 'comment' ? 'Order / requisition comment' : sectionName === 'final_review' && key === 'payment_comment' ? 'Payment comment (COL)' : humanLabel(key))}</span><strong>${renderCaseFieldValue(key, value)}</strong></div>`
     ).join('')}</div>`;
   }
@@ -594,16 +595,70 @@
     final_review: ['Head of Rural Review', 'portal.final_review.write'], order: ['Order Preparation', 'portal.requisition.write'],
   };
 
+  function withdrawalStage(farmer) {
+    return farmer.workflow_state === 'deferred' ? ({final: 'final_review'}[farmer.deferred_stage] || farmer.deferred_stage) : farmer.workflow_state;
+  }
+
+  function canWithdraw(farmer) {
+    const stage = withdrawalStage(farmer);
+    const protectedEvidence = farmer.order_number || farmer.sections?.order?.order_number || farmer.invoice_number || farmer.sections?.invoice?.number || farmer.sections?.homebiogas?.released_at;
+    return !farmer.is_new_jbl_lead && !protectedEvidence && Boolean(WITHDRAWAL_STAGES[stage]) && hasCapability(WITHDRAWAL_STAGES[stage][1]);
+  }
+
+  function stageStatusMarkup(farmer, name) {
+    if (!canWithdraw(farmer) || name !== withdrawalStage(farmer)) return '';
+    const current = farmer.sections?.[name]?.decision_label || farmer.sections?.[name]?.decision || farmer.sections?.[name]?.status || farmer.current_pipeline_state || 'Current Stage';
+    return `<div class="case360-field wide" data-stage-status><label>Status<select data-stage-status-value><option value="">${deps.escapeHtml(current)}</option><option value="Withdrawn">Withdrawn</option></select></label><div data-stage-withdrawal-fields hidden><label>Withdrawal Reason<textarea data-stage-withdrawal-note maxlength="4000" rows="2"></textarea></label><button type="button" class="btn btn-secondary" data-stage-status-save>Save Status</button></div></div>`;
+  }
+
+  async function submitStageWithdrawal(farmer, reason, button, root = null) {
+    const note = String(reason || '').trim();
+    if (!note || note.length > 4000) { deps.showToast('Explain the client withdrawal in a note of 1–4000 characters.', 'error'); return; }
+    if (state().selectedFarmer?.id === (farmer.id || farmer.farmer_id) && state().activeMode === 'jbl_visit' && jblMediaItems().length) {
+      deps.showToast('Save or remove the selected visit attachments before changing the case status.', 'error'); return;
+    }
+    const signature = JSON.stringify([farmer.workflow_revision, note]);
+    if (button.dataset.withdrawalSignature !== signature) {
+      button.dataset.withdrawalSignature = signature;
+      button.dataset.withdrawalKey = requestId();
+    }
+    deps.setButtonLoading?.(button, true, 'Saving…');
+    let failed = false;
+    try {
+      if (!button.dataset.withdrawalSaved) {
+        const response = await deps.apiFetch(`/cases/${encodeURIComponent(farmer.id || farmer.farmer_id)}/withdrawal/`, {method: 'POST',
+          body: JSON.stringify({action: 'withdraw', reason: note, workflow_revision: farmer.workflow_revision, request_id: button.dataset.withdrawalKey})});
+        if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The status could not be saved.');
+        button.dataset.withdrawalSaved = 'true';
+        if (root) button.closest('[data-stage-status]').querySelectorAll('select,textarea').forEach(input => { input.disabled = true; });
+      }
+      if (root) {
+        const updated = await deps.apiFetch(`/farmers/${encodeURIComponent(farmer.id || farmer.farmer_id)}/`);
+        if (!updated.ok || !updated.data?.case360) throw new Error('Status saved. Retry to load the updated case.');
+        if (root.isConnected) renderCase360(updated.data.case360, root);
+      } else {
+        if (state().activeMode === 'jbl_visit') await clearJblVisitDraft(farmer);
+        else if (WORKFLOW_DRAFT_CONFIG[state().activeMode]) await clearWorkflowDraft(farmer, state().activeMode);
+        closeSheet({saveDraft: false});
+      }
+      await Promise.allSettled([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+      deps.showToast('Case status saved: Withdrawn.', 'success');
+    } catch (error) { failed = true; deps.showToast(error.message, 'error'); }
+    finally {
+      deps.setButtonLoading?.(button, false);
+      if (failed && button.dataset.withdrawalSaved) button.textContent = button.dataset.mainAction = 'Retry loading case';
+    }
+  }
+
   function withdrawalMarkup(farmer) {
-    const resume = farmer.workflow_state === 'withdrawn';
-    let stage = resume ? farmer.withdrawn_stage : farmer.workflow_state === 'deferred' ? farmer.deferred_stage : farmer.workflow_state;
+    if (farmer.workflow_state !== 'withdrawn') return '';
+    let stage = farmer.withdrawn_stage;
     if (stage === 'final') stage = 'final_review';
-    if (!WITHDRAWAL_STAGES[stage]) return resume ? '<p class="field-help">The withdrawal stage was not recorded. Ask IT to review the historical source before resuming.</p>' : '';
+    if (!WITHDRAWAL_STAGES[stage]) return '<p class="field-help">The withdrawal stage was not recorded. Ask IT to review the historical source before resuming.</p>';
     if (!hasCapability(WITHDRAWAL_STAGES[stage][1])) return '';
     const order = farmer.order_number || farmer.sections?.order?.order_number;
     if (order || farmer.invoice_number || farmer.sections?.invoice?.number || farmer.sections?.homebiogas?.released_at) return '';
-    const action = resume ? 'Resume Case' : 'Mark Withdrawn';
-    return `<details class="case360-section" data-withdrawal><summary><span>${action}</span><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-grid"><div class="wide"><p class="field-help">${resume ? `Resume this case at ${WITHDRAWAL_STAGES[stage][0]}. Withdrawal does not require reappraisal.` : 'Use when the client chooses not to proceed. Existing evidence is retained.'}</p><label>Required Note<textarea data-withdrawal-note maxlength="4000" rows="2" aria-label="Withdrawal or resumption note"></textarea></label><button type="button" class="btn btn-secondary" data-withdrawal-action="${resume ? 'resume' : 'withdraw'}">${action}</button><p data-withdrawal-error role="alert" hidden></p></div></div></details>`;
+    return `<details class="case360-section" data-withdrawal><summary><span>Resume Case</span><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-grid"><div class="wide"><p class="field-help">Resume this case at ${WITHDRAWAL_STAGES[stage][0]}. Withdrawal does not require reappraisal.</p><label>Required Note<textarea data-withdrawal-note maxlength="4000" rows="2" aria-label="Withdrawal or resumption note"></textarea></label><button type="button" class="btn btn-secondary" data-withdrawal-action="resume">Resume Case</button><p data-withdrawal-error role="alert" hidden></p></div></div></details>`;
   }
 
   function wireWithdrawal(root, farmer, detail = false) {
@@ -629,7 +684,7 @@
           renderCase360(updated.data.case360, root);
         } else closeSheet({saveDraft: false});
         await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
-        deps.showToast(button.dataset.withdrawalAction === 'resume' ? 'Case Resumed' : 'Case Marked Withdrawn', 'success');
+        deps.showToast('Case Resumed', 'success');
       } catch (error) { feedback.hidden = false; feedback.textContent = error.message; button.disabled = false; }
     });
   }
@@ -668,7 +723,7 @@
       - (sectionOrder.indexOf(right) < 0 ? 99 : sectionOrder.indexOf(right)));
     const sectionCards = orderedSections.map(([name, values]) => {
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
-      return `<details class="case360-section" data-case-section="${deps.escapeHtml(name)}"${name === preferredSection ? ' open' : ''}><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
+      return `<details class="case360-section" data-case-section="${deps.escapeHtml(name)}"${name === preferredSection ? ' open' : ''}><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name, stageStatusMarkup(data, name))}</details>`;
     }).join('');
     const relatedCaseCards = relatedCases.length ? `<details class="case360-section"><summary><div><h3>Other Units</h3><p>Prior or repeat-customer applications</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${relatedCases.map(item => `<button type="button" class="case360-related-case" data-related-farmer="${deps.escapeHtml(item.id)}"><strong>Unit ${deps.escapeHtml(item.unit_number)}</strong><span>${deps.escapeHtml(item.customer_name || 'Customer')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></button>`).join('')}</div></details>` : '';
     const householdCards = householdRelationships.length ? `<details class="case360-section"><summary><div><h3>Confirmed Household</h3><p>Distinct identities remain linked, never merged</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${householdRelationships.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.name || 'Household member')}</strong><span>${item.direction === 'to_applicant' ? 'Applicant linked through this household' : deps.escapeHtml(humanLabel(item.relationship_type || ''))} · ID ${deps.escapeHtml(item.national_id || '-')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></div>`).join('')}</div></details>` : '';
@@ -696,10 +751,23 @@
     root.hidden = false;
     if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
     wireWithdrawal(root, data, true);
+    root.querySelectorAll('[data-stage-status]').forEach(editor => {
+      const status = editor.querySelector('[data-stage-status-value]');
+      const fields = editor.querySelector('[data-stage-withdrawal-fields]');
+      status.addEventListener('change', () => { fields.hidden = status.value !== 'Withdrawn'; });
+      editor.querySelector('[data-stage-status-save]').addEventListener('click', event => submitStageWithdrawal(data, editor.querySelector('[data-stage-withdrawal-note]').value, event.currentTarget, root));
+    });
     const legacyConfirm = root.querySelector('[data-legacy-confirm]');
     if (legacyConfirm) {
       window.PortalLegacyCapabilities = ['portal.case.correct'].filter(hasCapability);
-      window.PortalLegacy?.confirmation({legacy:data.legacy}, legacyConfirm.querySelector('[data-legacy-form]'), legacyConfirm.querySelector('[data-legacy-footer]'));
+      window.PortalLegacy?.confirmation({legacy:data.legacy}, legacyConfirm.querySelector('[data-legacy-form]'), legacyConfirm.querySelector('[data-legacy-footer]'), async () => {
+        const response = await deps.apiFetch('/farmers/' + encodeURIComponent(documents.farmer_id) + '/');
+        if (!response.ok || !response.data?.ok || !response.data.case360) throw new Error('Could not load the updated case.');
+        if (!root.isConnected || root.querySelector('[data-legacy-confirm]') !== legacyConfirm) return;
+        renderCase360(response.data.case360, root);
+        deps.showToast('Legacy continuation saved.', 'success');
+        await Promise.allSettled([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+      });
     }
     renderCaseDocumentList(docLinks, root.querySelector('[data-case360-documents]'));
     if (case360CounterCleanup) case360CounterCleanup();
@@ -968,7 +1036,10 @@
     const writeCapability = MODE_WRITE_CAPABILITIES[mode];
     window.PortalLegacyCapabilities = ['portal.case.correct'].filter(hasCapability);
     if (farmer.legacy && farmer.workflow_state === 'legacy_review') {
-      window.PortalLegacy?.confirmation(farmer, formEl, footerEl);
+      window.PortalLegacy?.confirmation(farmer, formEl, footerEl, () => {
+        closeSheet({saveDraft: false});
+        return window.PortalAppShell.navigateUrl('/portal/cases/' + encodeURIComponent(farmer.id) + '/?from=' + encodeURIComponent(state().activePage || 'deferred'));
+      });
     } else if (writeCapability && !canUpdateMode(mode, writeCapability)) {
       formEl.innerHTML = '<div class="field-help">Your role can view this case but is not assigned to update this workflow stage.</div>';
     } else if (mode === 'jbl_visit') {
@@ -1306,7 +1377,7 @@
     const today = state().businessDate || localIsoDate();
     const hbgVisitDate = farmer.hbg_visit_date || '';
     const defaultVisitDate = farmer.jbl_visit_date || today;
-    const statusOptions = state().metaStatuses.filter(status => status !== 'JBL to Schedule Visit').map(status =>
+    const statusOptions = [...new Set([...state().metaStatuses, ...(canWithdraw(farmer) ? ['Withdrawn'] : [])])].filter(status => status !== 'JBL to Schedule Visit').map(status =>
       `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
     const catalogCounties = state().metaLocationCatalog?.counties || (state().metaCounties || []).map(name => ({ code: name, name }));
@@ -1356,7 +1427,7 @@
         <div class="form-row form-row-wide" data-jbl-field="village"><label for="jbl-village">Village / landmark <span class="required-marker" aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village or landmark" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
       </div>
       <p class="jbl-section-label">Comment</p>
-      <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
+      <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" aria-label="Comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
       <p class="jbl-section-label">${canWriteMedia ? `Visit media and location` : `Visit location`}</p>
       <section class="jbl-support-card">
         ${canWriteMedia ? `<div class="media-upload-control">${mediaFields}</div>` : ''}
@@ -2605,7 +2676,7 @@
       ? '<p class="field-help" role="status">Credit approval needs a fresh review. Check the updated case details, then record a new decision.</p>'
       : '';
     const currentDecision = farmer.credit_decision || 'Pending';
-    const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
+    const decisionOptions = [...new Set([...state().metaDecisions, ...(canWithdraw(farmer) ? ['Withdrawn'] : [])])].filter(decision => decision !== 'Pending').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision === 'Deferred / On Hold' ? 'Deferred' : decision)}</option>`
     ).join('');
     const currentImabStatus = farmer.imab_created || 'Pending';
@@ -2665,6 +2736,7 @@
     if (!decision || !reason || !reasonRow) return;
     const syncReason = () => {
       const required = decisionNeedsReason(decision.value);
+      const withdrawn = decision.value === 'Withdrawn';
       const kind = decision.value === 'Deferred / On Hold' ? 'deferred' : 'rejected';
       if (reason.dataset.kind !== kind) {
         reason.innerHTML = '<option value="">Select a reason</option>' + (state().metaPipelineReasons?.[kind] || []).map(item => `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`).join('');
@@ -2677,17 +2749,22 @@
         reason.value = '';
         if (el(`${prefix}-reason-error`)) el(`${prefix}-reason-error`).textContent = '';
       }
-      const needsNote = required && ['r07','d12'].includes(reason.value);
+      const needsNote = withdrawn || required && ['r07','d12'].includes(reason.value);
       if (prefix === 'jbl') {
         const help = el('jbl-reason-error');
         if (help) help.textContent = reason.value === 'r05' ? 'Consent refused or cannot be obtained; use Deferred if the decision is pending.' : reason.value === 'd05' ? 'Additional livestock is expected before proceeding.' : needsNote ? 'Explain the other reason in Comment.' : '';
       }
-      if (noteRow) noteRow.hidden = !required;
+      if (noteRow) noteRow.hidden = !(required || withdrawn);
       if (noteRequiredMarker) noteRequiredMarker.hidden = !needsNote;
       if (note) {
         note.required = needsNote;
         note.setAttribute('aria-required', String(needsNote));
         if (!needsNote && el(`${prefix}-comment-error`)) el(`${prefix}-comment-error`).textContent = '';
+      }
+      const submit = el(prefix === 'jbl' ? 'btn-submit-jbl' : prefix === 'credit' ? 'btn-submit-credit' : 'btn-submit-final');
+      if (submit) {
+        submit.dataset.decisionLabel ||= submit.textContent;
+        submit.textContent = submit.dataset.mainAction = withdrawn ? 'Save Status' : submit.dataset.decisionLabel;
       }
     };
     decision.addEventListener('change', syncReason);
@@ -2816,7 +2893,7 @@
     const finalRecheck = ['invalidated', 'expired'].includes(farmer.approvals?.final_review?.state)
       ? '<p class="field-help" role="status">Head of Rural approval needs a fresh review. Check the updated case details, then record a new decision.</p>'
       : '';
-    const decisionOptions = state().metaFinalDecisions.map(decision =>
+    const decisionOptions = [...new Set([...state().metaFinalDecisions, ...(canWithdraw(farmer) ? ['Withdrawn'] : [])])].map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision === 'Deferred / On Hold' ? 'Deferred' : decision)}</option>`
     ).join('');
     const phoneDigits = String(farmer.primary_phone || '').replace(/\D/g, '');
@@ -3107,6 +3184,7 @@
   async function submitJblVisit() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    if (el('jbl-status')?.value === 'Withdrawn') return submitStageWithdrawal(farmer, el('jbl-comment')?.value, el('btn-submit-jbl'));
     const isNewLead = Boolean(farmer.is_new_jbl_lead);
     const heldIntake = officeDepositHeld();
     if (pendingJblWorkflowConflict) {
@@ -3264,6 +3342,7 @@
   async function submitCreditDecision() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    if (el('credit-decision')?.value === 'Withdrawn') return submitStageWithdrawal(farmer, el('credit-decision-comment')?.value, el('btn-submit-credit'));
     if (window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'))?.validate() === false) return;
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
@@ -3301,6 +3380,7 @@
   async function submitFinalDecision() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    if (el('final-decision')?.value === 'Withdrawn') return submitStageWithdrawal(farmer, el('final-comment')?.value, el('btn-submit-final'));
     if (window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'))?.validate() === false) return;
     const finalDecision = el('final-decision')?.value || '';
     const decisionComment = el('final-comment')?.value || '';
