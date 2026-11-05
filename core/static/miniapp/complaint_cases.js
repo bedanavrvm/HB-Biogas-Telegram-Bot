@@ -786,6 +786,16 @@
     }
     state.currentCase = item;
     $('detailCaseId').textContent = item.reference_number || item.case_id;
+    document.getElementById('complaint-correction')?.remove();
+    if(item.correction_values){
+      const editor=document.createElement('details');editor.id='complaint-correction';
+      const toggle=textNode('summary','✎ Edit complaint fields');toggle.setAttribute('aria-label','Edit complaint fields');editor.appendChild(toggle);
+      const formNode=document.createElement('form');formNode.className='complaint-correction-form';
+      Object.entries(item.correction_values).forEach(([key,value])=>{const label=document.createElement('label');label.appendChild(textNode('span',key==='timestamp'?'Reported date/time (EAT, ISO format)':key==='date_resolved'?'Resolved date/time (EAT, ISO format)':key.replaceAll('_',' ')));const input=document.createElement('input');input.name=key;input.value=value||'';label.appendChild(input);formNode.appendChild(label);});
+      const reason=document.createElement('textarea');reason.name='reason';reason.required=true;reason.placeholder='Correction reason';reason.setAttribute('aria-label','Correction reason');formNode.appendChild(reason);
+      const save=textNode('button','Save correction');save.type='submit';formNode.appendChild(save);editor.appendChild(formNode);$('detailCaseId').parentElement.after(editor);
+      formNode.addEventListener('submit',async event=>{event.preventDefault();save.disabled=true;try{const fields={...Object.fromEntries(new FormData(formNode)),expected_revision:item.revision,client_request_id:pendingWriteId('correct:'+item.case_id,'complaint-correction')};const response=await json('cases/'+encodeURIComponent(item.case_id)+'/correct/',fields,item.group_id||state.groupId);settleWrite('correct:'+item.case_id);renderDetail(response.case);notify('Correction saved.');}catch(error){settleWrite('correct:'+item.case_id,error);if(error.status===409)showConflict(error);else presentError(error);}finally{save.disabled=false;}});
+    }
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
     $('detailStatus').textContent = displayStatus(item.status);
@@ -970,7 +980,7 @@
     });
     grouped.forEach(item => {
       const row = document.createElement('div'); row.className = 'item history-item';
-      const actions = {legacy_imported:'Historical complaint imported by', created:'Complaint recorded by', commented:'HB comment by', verification_commented:'JBL verification comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
+      const actions = {fields_corrected:'Complaint fields corrected by IT', legacy_imported:'Historical complaint imported by', created:'Complaint recorded by', commented:'HB comment by', verification_commented:'JBL verification comment by', resolved:'Resolved by', reopened:'Reopened by', details_completed:'Details completed by', updated:'Updated by'};
       const action = actions[item.action] || (item.status === 'Closed' ? 'Resolved by' : item.status === 'Reopened' ? 'Reopened by' : !item.old_status && item.status === 'Open' ? 'Complaint recorded by' : 'Updated by');
       const creation = action === 'Complaint recorded by';
       const content = document.createElement('div');
@@ -1506,8 +1516,8 @@
     const labels = [
       ['total', 'Total', metrics.total || 0], ['pending', 'Open', metrics.pending || 0],
       ['resolved', 'Closed', metrics.resolved || 0],
-      ['resolution', 'Resolution', window.ComplaintReportCharts.hours(timing.median_resolution_hours)],
-      ['on-time', 'On time', timing.on_time_percent == null ? '—' : timing.on_time_percent + '%'],
+      ['resolution', 'Resolution · app workflow', window.ComplaintReportCharts.hours(timing.median_resolution_hours)],
+      ['on-time', 'On time · app workflow', timing.on_time_percent == null ? '—' : timing.on_time_percent + '%'],
     ];
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label, value]) => {
@@ -1551,6 +1561,14 @@
     state.globalPage = 1; loadGlobalCases(currentTableFilters());
   }
   function renderReportCharts(summary) {
+    let historical=$('complaintReportCharts').parentElement.querySelector('[data-historical-timing]');
+    if(!historical){historical=document.createElement('section');historical.dataset.historicalTiming='';$('complaintReportCharts').after(historical);}
+    historical.replaceChildren();
+    if(currentReportFilters().historical_scope==='include'){
+      historical.appendChild(textNode('p','Historical — may be inaccurate. App timing above excludes historical cases.'));
+      const t=summary.historical?.timing;
+      if(t)for(const [label,value] of [['Historical median resolution',window.ComplaintReportCharts.hours(t.median_resolution_hours)],['Historical median first response',window.ComplaintReportCharts.hours(t.median_response_hours)],['Historical on time (current target estimate)',t.on_time_percent==null?'Not available':t.on_time_percent+'%'],['Timed historical resolutions',t.resolution_count],['Historical timing unavailable',t.resolution_excluded]])historical.appendChild(textNode('p',`${label}: ${value}`));
+    }
     window.ComplaintReportCharts.render(summary, {
       categoryType: state.categoryChartType, onSelect: selectComplaintChart,
       formatPeriod: formatChartPeriodDate,
@@ -1635,12 +1653,12 @@
     formNode.elements.date_from.disabled = mode !== 'custom'; formNode.elements.date_to.disabled = mode !== 'custom';
   }
   function snapshotComplaintReportFilters() {
-    return Array.from($('globalFilters').elements).filter(input => input.name).map(input => [input.name, input.value]);
+    return Array.from($('globalFilters').elements).filter(input => input.name).map(input => [input.name, input.type==='checkbox'?input.checked:input.value]);
   }
   function closeComplaintReportFilters({ applied = false, restoreFocus = true } = {}) {
     if (!state.reportFilterSheetOpen) return;
     if (!applied && state.reportFilterSnapshot) {
-      state.reportFilterSnapshot.forEach(([name, value]) => { $('globalFilters').elements[name].value = value; });
+      state.reportFilterSnapshot.forEach(([name, value]) => { const input=$('globalFilters').elements[name];if(input.type==='checkbox')input.checked=value;else input.value=value; });
       updateReportDateControls();
     }
     state.reportFilterSheetOpen = false;
@@ -1690,6 +1708,7 @@
     for (const name of ['search', 'status', 'branch', 'category', 'date_basis']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
     const mode = formNode.elements.date_mode.value;
     values.date_mode = mode;
+    values.historical_scope = formNode.elements.include_historical.checked ? 'include' : 'exclude';
     if (mode === 'month') [values.date_from, values.date_to] = monthBoundaries(formNode.elements.report_month.value);
     if (mode === 'quarter') {
       if (!formNode.elements.report_year.value) throw new Error('Select a year.');
@@ -1779,7 +1798,8 @@
       defaultColDef: { sortable: true, resizable: !touchManagedColumns, suppressHeaderMenuButton: true, unSortIcon: true },
       columnDefs: [
         { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
-        { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false, cellRenderer: p => { const link=textNode('button',formatReportUppercase(p.value),'report-case-link');link.type='button';link.setAttribute('aria-label',`Open complaint ${p.value}`);link.onclick=()=>openGlobalCase(p.data.record_id);return link;} },
+        { headerName: 'Data origin / timing', field: 'timing_note', width: 250, sortable: false, wrapText:true, autoHeight:true },
         { headerName: 'Date Reported', field: 'date_reported', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Status', field: 'status', width: 170, cellRenderer: reportStatusRenderer },
         { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
@@ -1942,7 +1962,7 @@
     const button = $('exportResultsBtn'); setActionLoading(button, true, 'Downloading');
     try {
       const exportPayload = Object.assign({}, state.exportFilters || {}, {
-        confirm_all: !state.exportFilters, confirm_results: !!state.exportFilters,
+        confirm_all: !state.exportFilters, confirm_results: !!state.exportFilters, historical_scope:currentReportFilters().historical_scope,
         client_request_id: requestId('complaint-export'),
       });
       if (isMobileExportClient()) {

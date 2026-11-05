@@ -32,9 +32,14 @@ def prepare(preset, supplied, queryset):
     if not isinstance(supplied, dict):
         raise PortalReportingError('Choose valid report filters.')
     allowed = {'branch', 'county', 'product', 'search', 'stage', 'date_mode', 'month', 'quarter', 'year', 'from', 'to',
-               'granularity', 'chart_key', 'bucket_key', 'series_key'}
+               'granularity', 'chart_key', 'bucket_key', 'series_key', 'historical_scope'}
     if set(supplied) - allowed or any(not isinstance(v, (str, int)) or isinstance(v, bool) for v in supplied.values()):
         raise PortalReportingError('Choose valid report filters.')
+    from core.services.report_provenance import report_scope
+    try:
+        queryset = report_scope(queryset, 'portal', supplied.get('historical_scope'))
+    except ValueError as exc:
+        raise PortalReportingError(str(exc))
     filters = {key: str(value).strip() for key, value in supplied.items() if value != ''}
     mode = filters.get('date_mode') or ('custom' if filters.get('from') or filters.get('to') else 'all' if preset == 'pipeline' else 'month')
     if mode not in {'all', 'month', 'quarter', 'year', 'custom'}:
@@ -67,6 +72,7 @@ def prepare(preset, supplied, queryset):
         for key in ('from', 'to', 'month', 'quarter', 'year'):
             filters.pop(key, None)
     filters['date_mode'] = mode
+    filters['historical_scope'] = supplied.get('historical_scope') or 'exclude'
     grouping = filters.get('granularity', 'month')
     if grouping not in {'day', 'week', 'month', 'year'}:
         raise PortalReportingError('Choose Day, Week, Month or Year.')
@@ -144,7 +150,7 @@ def insights(preset, queryset, filters, period):
 
     def within(value):
         day = _day(value)
-        return day is not None and (not period or date.fromisoformat(period['from']) <= day <= date.fromisoformat(period['to']))
+        return day is not None and day <= _day(now) and (not period or date.fromisoformat(period['from']) <= day <= date.fromisoformat(period['to']))
 
     def add(key, title, bucket, label, record, *, value=1, series='Cases', kind='bar', context='', unit='cases'):
         chart = charts.setdefault(key, {'id': key, 'title': title, 'type': kind, 'unit': unit,
@@ -155,7 +161,7 @@ def insights(preset, queryset, filters, period):
         membership[(key, bucket, series)].add(record.pk)
 
     events = JawabuPipelineEvent.objects.order_by('occurred_at', 'created_at')
-    query = queryset.select_related('product').order_by('pk')
+    query = queryset.select_related('product', 'homebiogas_action').order_by('pk')
     if preset != 'finance':
         query = query.prefetch_related(Prefetch('pipeline_events', queryset=events, to_attr='_report_events'))
     # Django fetches the prefetched pipeline events per chunk. HB events are
@@ -179,9 +185,11 @@ def insights(preset, queryset, filters, period):
                 hb[event.action.farmer_id].append(event)
         for record in batch:
             state = current_workflow_state(record)
-            if preset == 'pipeline' and (not within(record.created_at) or filters.get('stage') and state != filters['stage']):
+            received_at = record.hbg_visit_date if record.report_historical else record.created_at
+            if preset == 'pipeline' and (period and received_at is None or received_at is not None and not within(received_at) or filters.get('stage') and state != filters['stage']):
                 continue
-            timing = calculate_case_tat(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays) if preset != 'finance' else {}
+            from core.services.portal_report_timing import report_timing
+            timing = report_timing(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays) if preset != 'finance' else {}
             completed = [s for s in timing.get('stages', []) if s.get('completed_at') and within(s['completed_at'])]
             facts = [('Visits', record.jbl_visit_date, record.jbl_visit_status, 'visits'),
                      ('Credit decisions', record.credit_decided_at, record.credit_decision, 'credit'),
@@ -198,7 +206,8 @@ def insights(preset, queryset, filters, period):
                 add(location, f'Cases by {location}', label, label, record)
             if preset == 'pipeline':
                 add('stages', 'Cases by pipeline stage', state, STAGES.get(state, state), record)
-                add('received', 'Cases received over time', _bucket(record.created_at, group), _bucket(record.created_at, group), record, kind='line', context='Received date • current cases in scope')
+                if received_at:
+                    add('received', 'Cases received over time', _bucket(received_at, group), _bucket(received_at, group), record, kind='line', context='Recorded intake/HBG visit date; unknown historical dates excluded')
                 if state not in JAWABU_TERMINAL_STATES | {'deferred'}:
                     running = [s for s in timing.get('stages', []) if s.get('running') and s.get('minutes') is not None]
                     minutes = Decimal(running[-1]['minutes']) if running else None
@@ -213,7 +222,9 @@ def insights(preset, queryset, filters, period):
                     add(key, {'visits': 'Visit outcomes', 'credit': 'Credit decisions', 'final': 'Final decisions'}[key], decision or 'Not recorded', decision or 'Not recorded', record)
                 has_timing = False
                 for stage in completed:
-                    key, label = stage['key'], stage['label']
+                    origin = 'Historical estimate' if record.report_historical else 'App estimate' if stage['target_basis'] == 'current_target_estimate' else 'App workflow'
+                    key, label = stage['key'] + ('|historical' if record.report_historical else '|estimate' if origin == 'App estimate' else ''), stage['label'] + ' · ' + origin
+                    if stage['precision'] == 'date': label += ' · date precision'
                     if stage.get('minutes') is None or not stage.get('started_at') or parse_datetime(stage['started_at']) > parse_datetime(stage['completed_at']):
                         continue
                     has_timing = True
@@ -224,7 +235,9 @@ def insights(preset, queryset, filters, period):
                     membership[('duration', key, 'P90')].add(record.pk)
                     if stage.get('target_minutes') and Decimal(stage['target_minutes']) > 0:
                         outcome = 'Late' if hours * 60 > Decimal(stage['target_minutes']) else 'On time'
-                        add('sla', 'Completed stages against target', key, label, record, series=outcome, context='Completed stages • their recorded targets')
+                        if origin != 'App workflow':
+                            outcome += ' · ' + origin + (' · current target' if stage['target_basis'] == 'current_target_estimate' else '')
+                        add('sla', 'Completed stages against target', key, label, record, series=outcome, context='App workflow uses captured targets; estimates use current targets. Historical dates may be inaccurate.')
                     else:
                         counts['Target unavailable'] += 1
                 if not has_timing:
@@ -249,7 +262,7 @@ def insights(preset, queryset, filters, period):
     if preset == 'outcomes' and measures:
         for key, item in measures.items():
             for series, fraction in [('Median', '.5'), ('P90', '.9')]:
-                chart = charts.setdefault('duration', {'id': 'duration', 'title': 'Completed-stage turnaround', 'type': 'bar', 'unit': 'hours', 'context': 'Elapsed time • approved holds excluded • completed in the selected period', 'buckets': {}, 'series': {}})
+                chart = charts.setdefault('duration', {'id': 'duration', 'title': 'Completed-stage turnaround', 'type': 'bar', 'unit': 'hours', 'context': 'Recorded activity dates; app approved holds excluded. Historical estimates may lack hold history and use date precision.', 'buckets': {}, 'series': {}})
                 chart['buckets'][key] = item['label']
                 chart['series'].setdefault(series, {})[key] = _percentile(item['values'], fraction)
                 chart.setdefault('sample_counts', {})[key] = len(item['values'])

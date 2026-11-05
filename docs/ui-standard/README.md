@@ -1,5 +1,10 @@
 # Mini App Design Lab
 
+Complaints and Portal reports now default to excluding historical imports and
+separate historical timing estimates from measured app performance. Complaint ID
+links, audited IT pencil corrections and scoped local reset recovery are covered
+in [the source and Playwright record](reviews/2026-11-04-historical-reporting-it-corrections-reset.md).
+
 Portal legacy review now has editable source fields, explicit identity values,
 highlighted cards/cells and automatic FIFO sync after each saved batch. Historical
 HB reset recovery is included in the [source and Playwright record](reviews/2026-11-03-portal-legacy-review-fifo-reset.md).

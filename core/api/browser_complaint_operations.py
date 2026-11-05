@@ -34,8 +34,10 @@ CREATE_FIELDS = frozenset((
     'category_inference_token', 'voice_transcription_id', 'browser_draft_revision', 'browser_draft_key',
 ))
 REPORT_FIELDS = frozenset(('branch', 'category', 'status', 'date_from', 'date_to',
-                           'search', 'date_basis', 'metric', 'metric_value'))
+                           'search', 'date_basis', 'metric', 'metric_value', 'historical_scope', 'timing_origin'))
+from core.services.complaint_corrections import correct as correct_case, FIELDS as CORRECTION_FIELDS
 ACTIONS = {
+    'correct': ('complaint.case.manage', correct_case),
     'resolve': ('complaint.case.close', cases.resolve_case),
     'comment': ('complaint.case.comment', cases.comment_case),
     'verification-comment': ('complaint.case.verification.comment', cases.verification_comment_case),
@@ -150,11 +152,13 @@ def project_detail(data, actor, group, *, read_only=False):
     result['history_next_cursor'] = data.get('history_next_cursor', '')
     from complaint_publications.services import is_it
     result['actions'] = [] if read_only else [name for name, (capability, _) in ACTIONS.items()
-                                             if capability in cases.complaint_visible_capabilities(actor) and cases.actor_can(group, actor, capability) and (name != 'retry-publication' or is_it(actor))]
+                                             if capability in cases.complaint_visible_capabilities(actor) and cases.actor_can(group, actor, capability) and (name not in {'retry-publication', 'correct'} or is_it(actor))]
     # Only allowlisted evidence metadata; private storage identifiers never cross.
     result['evidence'] = [{key: item.get(key, '') for key in (
         'id', 'name', 'mime_type', 'previewable', 'status', 'created_at', 'created_at_iso', 'uploaded_by', 'size',
     )} for item in data['evidence']] if not read_only and cases.actor_can(group, actor, 'complaint.case.evidence.view') else []
+    if not read_only and data.get('correction_values'):
+        result['correction_values'] = data['correction_values']
     result['location'] = data['location']
     if not read_only:
         from complaint_publications.services import case_state
@@ -317,6 +321,7 @@ def action(request, group, actor, case_key, action):
     allowed = {'client_request_id', 'expected_revision', 'resolution_text', 'reason', 'comment_text',
                'customer_phone', 'customer_id', 'complaint_category', 'latitude', 'longitude',
                'voice_transcription_id', 'creation_request_id'}
+    if action == 'correct': allowed.update(CORRECTION_FIELDS)
     if set(fields) - allowed:
         raise cases.ComplaintCaseError('Review the complaint action fields.')
     if action == 'retry-publication':
@@ -627,7 +632,7 @@ def export(request, group, actor):
         raise cases.ComplaintCaseError('Review the report filters.')
     validate_report_filters(filters)
     content, count = export_register_xlsx(actor=actor.user, request_id=request_id,
-        filters=filters if body['scope'] == 'filtered' else None)
+        filters=filters if body['scope'] == 'filtered' else {'historical_scope':filters.get('historical_scope','exclude')})
     response = HttpResponse(content, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = content_disposition_header(True, export_filename(filtered=body['scope'] == 'filtered'))
     response['X-Export-Count'] = str(count)

@@ -527,6 +527,9 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
     payload['sheet_projection_enabled'] = complaint_sheet_projection_enabled(group_config)
     if not payload['sheet_projection_enabled'] and payload['sync_status'] in {'pending', 'failed'}:
         payload['sync_status'] = 'suspended'
+    from core.services.complaint_corrections import permitted, values as correction_values
+    if permitted(group_config, actor, case):
+        payload['correction_values'] = correction_values(case)
     payload['raw_message'] = case.raw_message
     payload['resolution_details'] = case.resolution_details
     if paged_history:
@@ -534,15 +537,15 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
         payload['resolution_comments'] = []
         payload['updates'] = page['items']
         payload['history_next_cursor'] = page['next_cursor']
-        resolution = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment']).order_by('-created_at', '-pk').first()
-        reopen = case.case_updates.filter(new_status='Reopened').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).order_by('-created_at', '-pk').first()
+        resolution = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction']).order_by('-created_at', '-pk').first()
+        reopen = case.case_updates.filter(new_status='Reopened').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction')).order_by('-created_at', '-pk').first()
     else:
         payload['resolution_comments'] = [serialize_update(update) for update in
                                           case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
         updates = list(case.case_updates.prefetch_related('evidence').order_by('-created_at', '-pk'))
         payload['updates'] = complaint_history(case, updates)
-        resolution = next((item for item in updates if item.new_status == 'Closed' and item.source not in {'mini_app_comment','mini_app_verification_comment','browser_staff_comment'}), None)
-        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')), None)
+        resolution = next((item for item in updates if item.new_status == 'Closed' and item.source not in {'mini_app_comment','mini_app_verification_comment','browser_staff_comment','mini_app_correction'}), None)
+        reopen = next((item for item in updates if item.new_status == 'Reopened' and item.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction')), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
@@ -588,7 +591,7 @@ def complaint_history_page(case: ParsedMessage, *, cursor=''):
     more = len(page) > 25
     page = page[:25]
     legacy = not more and (case.source == 'complaint_legacy' or (bool(case.resolution_details) and not case.case_updates.filter(
-        new_status='Closed').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')).exists()))
+        new_status='Closed').exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction')).exists()))
     rows = complaint_history(case, page, include_legacy_resolution=legacy)
     next_cursor = signing.dumps({'case': str(case.pk), 'at': page[-1].created_at.isoformat(),
                                  'key': str(page[-1].pk)}, salt='complaint-history-page-v1') if more else ''
@@ -1842,7 +1845,7 @@ def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
 
 
 def latest_resolution_text(case: ParsedMessage) -> str:
-    update = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment']).order_by('-created_at', '-pk').first()
+    update = case.case_updates.filter(new_status='Closed').exclude(source__in=['mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction']).order_by('-created_at', '-pk').first()
     if not update:
         return case.resolution_details or ''
     local_time = timezone.localtime(update.created_at)
@@ -2241,7 +2244,12 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
             row['action'] = ('created' if not update.old_status else
                              'resolved' if update.new_status == 'Closed' else
                              'reopened' if update.new_status == 'Reopened' else 'updated')
-        row['changes'] = recorded_changes(event.before_values, event.after_values, labels=history_labels) if event else recorded_changes(
+        labels = history_labels
+        if event and event.action == 'fields_corrected':
+            labels = {**history_labels, 'customer_id':'National ID', 'sub_county':'Sub-county',
+                'branch_region':'Branch', 'complaint_category':'Complaint type',
+                'complaint_description':'Description', 'timestamp':'Reported at', 'date_resolved':'Resolved at'}
+        row['changes'] = recorded_changes(event.before_values, event.after_values, labels=labels) if event else recorded_changes(
             {'status': update.old_status} if update.old_status else {}, {'status': update.new_status})
         evidence = metadata.get(str(update.pk), {})
         if 'actor_affiliation' in evidence:
@@ -2265,7 +2273,7 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
             rows.append({'id': f'legacy-import:{case.pk}', 'action': 'legacy_imported', 'status': imported.proposal['fields']['status'],
                          'note': '\n\n'.join(filter(None, notes)), 'updated_by': event.actor_label if event else '',
                          'created_at': format_datetime(imported.committed_at), 'actor_affiliation': ''})
-    elif include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment') for update in updates):
+    elif include_legacy_resolution and case.resolution_details and not any(update.new_status == 'Closed' and update.source not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction') for update in updates):
         # Some imported complaints predate CaseUpdate; do not lose their note.
         rows.append({'id': f'legacy-resolution:{case.pk}', 'status': 'Closed',
                      'note': case.resolution_details, 'updated_by': '',

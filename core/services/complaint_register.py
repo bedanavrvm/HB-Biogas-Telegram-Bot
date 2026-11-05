@@ -112,6 +112,17 @@ def _parse_filter_date(value: Any, label: str, *, end: bool = False):
 
 
 def _apply_filters(queryset, filters: dict[str, Any], groups: dict[str, GroupSheetConfiguration]):
+    from core.services.report_provenance import report_scope
+    try:
+        queryset = report_scope(queryset, 'complaints', filters.get('historical_scope'))
+        queryset = queryset.annotate(report_date=Case(When(report_historical=True, then='timestamp'), default=Coalesce('timestamp','created_at')))
+    except ValueError as exc:
+        raise ComplaintCaseError(str(exc))
+    origin = filters.get('timing_origin')
+    if origin not in (None, '', 'native', 'historical'):
+        raise ComplaintCaseError('Choose a valid timing origin.')
+    if origin:
+        queryset = queryset.filter(report_historical=origin == 'historical')
     status = str(filters.get('status') or '').strip().casefold()
     if status in {'pending', 'active'}:
         queryset = queryset.exclude(complaint_status='Closed')
@@ -231,8 +242,12 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         from core.services.complaint_timing import hydrate_timing
         hydrate_timing([case])
     return {
+        'record_id': str(case.pk),
+        'historical': bool(case.complaint_timing.get('historical')),
+        'timing_note': case.complaint_timing.get('timing_note', ''),
+        'target_basis': case.complaint_timing.get('target_basis', 'captured'),
         'complaint_id': control.reference_number or '',
-        'date_reported': _report_datetime(case.timestamp or case.created_at),
+        'date_reported': _report_datetime(case.complaint_timing['reported_at']),
         'status': status,
         'needs_details': needs_details,
         'customer_name': case.customer_name,
@@ -261,10 +276,12 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'resolution_history_count': len(resolution_history_entries(case)),
         'resolution_hours': case.complaint_timing['resolution_hours'],
         'hb_response_hours': case.complaint_timing['hb_response_hours'],
-        'target_hours': control.sla_target_hours,
+        'target_hours': case.complaint_timing['target_hours'],
         'target_outcome': (
             'not_resolved' if case.complaint_status != 'Closed' else
             'not_recorded' if case.complaint_timing['resolution_hours'] is None else
+            'estimate_on_time' if case.complaint_timing['target_basis']=='current_target_estimate' and case.complaint_timing['estimated_on_time'] is True else
+            'estimate_late' if case.complaint_timing['target_basis']=='current_target_estimate' and case.complaint_timing['estimated_on_time'] is False else
             'on_time' if case.complaint_timing['on_time'] is True else
             'late' if case.complaint_timing['on_time'] is False else 'no_target'
         ),
@@ -282,6 +299,17 @@ def _report_queryset():
 
 
 def _apply_report_filters(queryset, filters: dict[str, Any], *, timing=True):
+    from core.services.report_provenance import report_scope
+    try:
+        queryset = report_scope(queryset, 'complaints', filters.get('historical_scope'))
+        queryset = queryset.annotate(report_date=Case(When(report_historical=True, then='timestamp'), default=Coalesce('timestamp','created_at')))
+    except ValueError as exc:
+        raise ComplaintCaseError(str(exc))
+    origin = filters.get('timing_origin')
+    if origin not in (None, '', 'native', 'historical'):
+        raise ComplaintCaseError('Choose a valid timing origin.')
+    if origin:
+        queryset = queryset.filter(report_historical=origin == 'historical')
     status = str(filters.get('status') or '').strip().casefold()
     if status in {'open', 'pending'}:
         queryset = queryset.exclude(complaint_status__in=['Closed', 'Reopened'])
@@ -447,6 +475,17 @@ def _timing_summary(queryset, filters, granularity):
         date_to=_parse_filter_date(filters.get('date_to'), 'End date', end=True),
         granularity=granularity, now=now,
     )
+    scoped = _apply_report_filters(queryset, filters, timing=False)
+    if scoped.filter(report_historical=True).exists():
+        historical = timing_summary(timed_cases(scoped.filter(report_historical=True), now=now),
+            date_from=_parse_filter_date(filters.get('date_from'), 'Start date'),
+            date_to=_parse_filter_date(filters.get('date_to'), 'End date', end=True), granularity=granularity, now=now)
+        native = timing_summary(timed_cases(scoped.filter(report_historical=False), now=now),
+            date_from=_parse_filter_date(filters.get('date_from'), 'Start date'),
+            date_to=_parse_filter_date(filters.get('date_to'), 'End date', end=True), granularity=granularity, now=now)
+        for key in ('timing', 'resolution_trend', 'response_trend', 'resolution_by_category'):
+            result[key] = native[key]
+        result['historical'] = historical
     for key in ('activity', 'reported_outcomes', 'resolution_trend', 'response_trend', 'reopenings'):
         if len(result[key]) > REPORT_MAX_TIME_BUCKETS:
             raise ComplaintCaseError('Narrow the date range or choose a broader time grouping.')
@@ -493,13 +532,13 @@ def complaint_report_summary(
     ]
     from core.services.complaint_timing import timed_cases, timing_summary
     now = timezone.now()
-    card_timing = timing_summary(timed_cases(queryset, now=now), now=now)['timing']
+    card_timing = timing_summary(timed_cases(queryset.filter(report_historical=False), now=now), now=now)['timing']
     return {
         **metrics,
         'card_timing': card_timing,
         'card_coverage': {
-            'resolution': {'eligible': metrics['resolved'], 'contributing': card_timing['resolution_count']},
-            'first_response': {'eligible': metrics['total'], 'contributing': card_timing['response_count']},
+            'resolution': {'eligible': queryset.filter(report_historical=False,complaint_status='Closed').count(), 'contributing': card_timing['resolution_count']},
+            'first_response': {'eligible': queryset.filter(report_historical=False).count(), 'contributing': card_timing['response_count']},
             'on_time': {'eligible': card_timing['resolution_count'],
                         'contributing': card_timing['on_time'] + card_timing['late']},
         },
@@ -643,7 +682,7 @@ def register_case(case_uuid: str, *, paged_history=False, cursor='') -> dict[str
         payload['history_next_cursor'] = page['next_cursor']
         return payload
     payload['updates'] = complaint_history(case)
-    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')))
+    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']).exclude(source__in=('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment', 'mini_app_correction')))
     payload['resolution_comments'] = [serialize_update(update) for update in case.case_updates.filter(source='mini_app_comment').order_by('-created_at', '-pk')]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
     reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
@@ -663,11 +702,11 @@ def export_register_xlsx(*, actor, request_id: str, filters=None) -> tuple[bytes
     from openpyxl.styles import Font, PatternFill
 
     groups = _group_rows()
-    queryset = (_apply_report_filters(_base_queryset(), filters) if filters is not None else _base_queryset()).order_by('-timestamp', '-pk')
+    queryset = _apply_report_filters(_base_queryset(), filters or {}).order_by('-timestamp', '-pk')
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = 'Complaint Cases'
-    sheet.append(EXPORT_FIELDS)
+    sheet.append((*EXPORT_FIELDS, 'Data origin', 'Timing basis', 'SLA target basis'))
     for cell in sheet[1]:
         cell.font = Font(bold=True)
     count = 0
@@ -676,7 +715,7 @@ def export_register_xlsx(*, actor, request_id: str, filters=None) -> tuple[bytes
         row = serialize_report_case(case)
         sheet.append(tuple(_excel_text(value) for value in (
             count, _export_upper(row['complaint_id']),
-            _export_date(case.timestamp or case.created_at),
+            _export_date(case.complaint_timing['reported_at']),
             _export_upper(row['status']), _export_upper(row['customer_name']),
             row['customer_id'], row['phone_number'], row['secondary_phone_number'],
             _export_upper(row['county']), _export_upper(row['constituency']),
@@ -685,6 +724,7 @@ def export_register_xlsx(*, actor, request_id: str, filters=None) -> tuple[bytes
             row['complaint_description'], row['gps_link'], latest_resolution_text(case),
             resolution_comments_text(case), verification_comments_text(case), _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
             row['resolution_hours'], row['hb_response_hours'],
+            'Historical' if row['historical'] else 'App workflow', row['timing_note'], row['target_basis'],
         )))
         sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'
         sheet.cell(row=count + 1, column=20).number_format = 'dd-mmm-yyyy'

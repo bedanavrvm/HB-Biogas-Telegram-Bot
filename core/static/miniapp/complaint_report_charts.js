@@ -53,6 +53,14 @@
         select:row=>({...period(row.label,grouping),date_basis:'reopened',metric:'reopened'}),help:'Complaints returned to open after being resolved. Grouped by reopening date; repeated reopenings of one complaint count once per period.'},
     ];
     for (const spec of specifications) {
+      const h=summary.historical;
+      const key={resolution:'resolution_trend',response:'response_trend',category_time:'resolution_by_category'}[spec.key];
+      if(h&&(key||spec.key==='target')){
+        const oldSelect=spec.select;spec.select=row=>({...oldSelect(row),timing_origin:row.historical?'historical':'native'});
+        const historicalRows=key?h[key]:[{label:'On time',count:h.timing.on_time},{label:'Late',count:h.timing.late}];
+        spec.rows=[...spec.rows.map(row=>({...row,displayLabel:row.label+' · App workflow'})),...historicalRows.map(row=>({...row,historical:true,displayLabel:row.label+' · Historical estimate'}))];
+        spec.note=(spec.note||'')+' Historical — may be inaccurate; current target estimate; date precision.';
+      }
       const slide = document.querySelector(`[data-complaint-chart="${spec.key}"]`);
       if (!slide) continue;
       const canvas = slide.querySelector('canvas'), status = slide.querySelector('.chart-state');
@@ -108,7 +116,7 @@
       const placeholder=document.createElement('option'); placeholder.textContent='Choose cases…'; placeholder.value=''; select.appendChild(placeholder);
       spec.rows.forEach((row,index)=>{
         const option=document.createElement('option'); option.value=String(index);
-        option.textContent=`${timeChart ? formatPeriod(row.label,grouping) : row.label}${row.hours != null ? ` · ${readableHours(row.hours)} · ${row.count} Complaint(s)` : ''}`;
+        option.textContent=`${timeChart ? row.displayLabel || formatPeriod(row.label,grouping) : row.displayLabel || row.label}${row.hours != null ? ` · ${readableHours(row.hours)} · ${row.count} Complaint(s)` : ''}`;
         option.title = option.textContent;
         select.appendChild(option);
       });
@@ -136,13 +144,14 @@
           applySelection();
         },
         plugins:{legend:{display:!!spec.datasets || pie,position:'bottom',labels:{color:text,boxWidth:10}},
-          tooltip:{callbacks:{title:items=>items.length?(timeChart?formatPeriod(rows[items[0].dataIndex].label,grouping):rows[items[0].dataIndex].label):'',afterLabel:context=>spec.hours?`${rows[context.dataIndex].count} Complaint(s)`:''}}},
+          tooltip:{callbacks:{title:items=>items.length?(rows[items[0].dataIndex].displayLabel||(timeChart?formatPeriod(rows[items[0].dataIndex].label,grouping):rows[items[0].dataIndex].label)):'',afterLabel:context=>spec.hours?`${rows[context.dataIndex].count} Complaint(s)`:''}}},
         scales:pie?{}:{x:{beginAtZero:true,ticks:{color:text,maxRotation:0,autoSkip:true,maxTicksLimit:innerWidth<480?4:8},grid:{color:grid}},y:{beginAtZero:true,ticks:{color:text,precision:spec.hours?undefined:0},grid:{color:grid}}},
       }, {unit:spec.hours?'hours':'complaints', label:spec.hours?'Hours':'Complaint(s)', horizontal:spec.horizontal, color:text});
       chartOptions.plugins.tooltip.callbacks.label = context => spec.hours ? readableHours(context.raw)
         : `${context.dataset.label}: ${new Intl.NumberFormat('en-KE').format(context.raw)} Complaint(s)`;
       charts.push(new window.Chart(canvas,{
         type:spec.type || 'bar',data:{labels:rows.map(row=>{
+          if(row.displayLabel)return row.displayLabel;
           if(timeChart)return formatPeriod(row.label,grouping);
           const limit=innerWidth<480?20:32;
           return row.label.length>limit?row.label.slice(0,limit-1)+'…':row.label;

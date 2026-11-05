@@ -54,7 +54,7 @@ def _in(stamp, start, end):
     return stamp is not None and start <= stamp < end
 
 
-def _stats(cases, start, end):
+def _stats(cases, start, end, *, historical_timing=False):
     reported, closed, reopened = set(), set(), set()
     older_closed, other_closed, closed_now_open = set(), set(), set()
     resolution, response, categories = [], [], defaultdict(list)
@@ -75,11 +75,12 @@ def _stats(cases, start, end):
                 closed_now_open.add(case.pk)
         if any(_in(stamp, start, end) for stamp in facts['reopened']):
             reopened.add(case.pk)
-        if case.complaint_status == 'Closed' and _in(facts['resolved_at'], start, end) and facts['resolution_hours'] is not None:
+        eligible = historical_timing or not facts.get('historical')
+        if eligible and case.complaint_status == 'Closed' and _in(facts['resolved_at'], start, end) and facts['resolution_hours'] is not None:
             value = facts['resolution_hours']
             resolution.append(value)
             categories[_category(case)].append(value)
-            target = getattr(case.complaint_control, 'sla_target_hours', None)
+            target = facts.get('target_hours')
             if target and target > 0:
                 targets.add(str(target))
             if facts['on_time'] is True:
@@ -88,7 +89,7 @@ def _stats(cases, start, end):
                 late += 1
             else:
                 no_target += 1
-        if _in(facts['response_at'], start, end) and facts['hb_response_hours'] is not None:
+        if eligible and _in(facts['response_at'], start, end) and facts['hb_response_hours'] is not None:
             response.append(facts['hb_response_hours'])
     return {'Reported': len(reported), 'Resolved in period': len(closed),
             'Reopened in period': len(reopened), 'Median resolution (hours)': median_hours(resolution),
@@ -288,6 +289,12 @@ def complaint_email_projection(base, filters, *, preset='complaints', now=None):
     for key, delta in deltas.items():
         delta['paired_values'] = {'current': current[key], 'previous': previous[key]}
     notices = _age_notices(ages)
+    if filters.get('historical_scope') == 'include':
+        notices.append('Historical — may be inaccurate. App timing excludes historical cases; historical estimates use current targets and may lack hold history.')
+        historical = _stats([case for case in selected if case.complaint_timing.get('historical')], headline_start, headline_end, historical_timing=True)
+        sections.append(_section('Historical timing estimates — may be inaccurate', ['Resolution', 'First response'],
+            [{'label': 'Median hours', 'values': [historical['Median resolution (hours)'], historical['Median HB response (hours)']]}], kind='chart', unit='hours',
+            context=f"Current target estimate; {historical['resolution_count']} timed resolutions; {historical['response_count']} recorded responses. On time: {historical['Resolved on time (%)']}%."))
     if deltas and end < headline_end:
         notices.append('Headline totals cover the selected dates. Comparisons use the shorter matching window shown below.')
         for key, delta in deltas.items():

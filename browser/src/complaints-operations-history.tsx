@@ -11,7 +11,7 @@ import { operation, OperationError, type HistoryItem, type HistoryChange } from 
 import { Section, displayDate } from './complaints-ui';
 import { notify } from './browser-interactions';
 
-const labels: Record<string, string> = { created: 'Complaint recorded', legacy_imported: 'Historical complaint imported', commented: 'HB feedback added', verification_commented: 'JBL verification comment added', staff_commented: 'Staff comment added', resolved: 'Complaint resolved', reopened: 'Complaint reopened', details_completed: 'Missing details completed' };
+const labels: Record<string, string> = { fields_corrected: 'Complaint fields corrected by IT', created: 'Complaint recorded', legacy_imported: 'Historical complaint imported', commented: 'HB feedback added', verification_commented: 'JBL verification comment added', staff_commented: 'Staff comment added', resolved: 'Complaint resolved', reopened: 'Complaint reopened', details_completed: 'Missing details completed' };
 const styles = cssMap({
   row: { borderInlineStartStyle: 'solid', borderInlineStartWidth: token('border.width'), borderInlineStartColor: token('color.border'), paddingInlineStart:token('space.150'), paddingBlock: token('space.100') },
   note: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },

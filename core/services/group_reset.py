@@ -79,8 +79,14 @@ def group_data_counts(
     spin_legacy_name = _spin_legacy_batch_name(spin_legacy_batch_sheet_name)
 
     if workflow_type == 'case':
+        from complaint_legacy.models import ImportUpload, ImportRow
+        from complaint_publications.models import UploadAttempt, UploadFile
         processed_ids, raw_ids = _case_processing_ids(group_id)
         return {
+            'complaint_legacy_uploads': ImportUpload.objects.filter(group__group_id=group_id).count(),
+            'complaint_legacy_rows': ImportRow.objects.filter(upload__group__group_id=group_id).count(),
+            'complaint_upload_attempts': UploadAttempt.objects.filter(group__group_id=group_id).count(),
+            'complaint_upload_files': UploadFile.objects.filter(attempt__group__group_id=group_id).count(),
             'parsed_messages': ParsedMessage.objects.filter(group_id=group_id).count(),
             'case_updates': CaseUpdate.objects.filter(parsed_message__group_id=group_id).count(),
             'processed_messages': ProcessedMessage.objects.filter(id__in=processed_ids).count(),
@@ -241,7 +247,30 @@ def _delete_unaudited_media(group_id: str) -> None:
 
 
 def _reset_complaint_configuration(group_id: str) -> None:
+    from complaint_legacy.models import ImportUpload, ImportRow
+    from complaint_publications.models import UploadAttempt, UploadFile
     processed_ids, raw_ids = _case_processing_ids(group_id)
+
+    # Only the explicitly selected owner's import/upload evidence follows reset.
+    if (ImportRow.objects.filter(case__group_id=group_id).exclude(upload__group__group_id=group_id).exists()
+            or ImportRow.objects.filter(upload__group__group_id=group_id, case__isnull=False).exclude(case__group_id=group_id).exists()
+            or UploadAttempt.objects.filter(case__group_id=group_id).exclude(group__group_id=group_id).exists()
+            or UploadAttempt.objects.filter(group__group_id=group_id, case__isnull=False).exclude(case__group_id=group_id).exists()
+            or UploadFile.objects.filter(evidence__parsed_message__group_id=group_id).exclude(attempt__group__group_id=group_id).exists()
+            or UploadFile.objects.filter(attempt__group__group_id=group_id, evidence__isnull=False).exclude(evidence__parsed_message__group_id=group_id).exists()):
+        raise ValueError('Complaint import or upload evidence crosses group ownership. Review ownership before resetting.')
+    from core.models import IntegrationOperation
+    from django.db.models import Q
+    controls = ComplaintCaseControl.objects.filter(parsed_message__group_id=group_id).values_list('pk', flat=True)
+    files = UploadFile.objects.filter(attempt__group__group_id=group_id).values_list('pk', flat=True)
+    IntegrationOperation.objects.filter(
+        Q(source_model__in=['ComplaintCaseControl', 'core.ComplaintCaseControl'], source_id__in=[str(pk) for pk in controls])
+        | Q(source_model='complaint_publications.UploadFile', source_id__in=[str(pk) for pk in files])
+    ).exclude(status=IntegrationOperation.STATUS_SUCCEEDED).update(
+        status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='source_deleted',
+        last_error='Source removed by confirmed Complaints reset.', next_retry_at=None)
+    UploadAttempt.objects.filter(group__group_id=group_id).delete()
+    ImportUpload.objects.filter(group__group_id=group_id).delete()
 
     # Complaint events and import attribution intentionally use PROTECT during
     # normal operation. This explicitly confirmed reset is the sole destructive

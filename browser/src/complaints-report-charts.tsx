@@ -17,6 +17,7 @@ import { token } from '@atlaskit/tokens';
 type Count = { label: string; count: number };
 type TimingRow = Count & { hours: number | null };
 export type ReportSummary = {
+  historical?: Pick<ReportSummary,'timing'|'resolution_trend'|'response_trend'|'resolution_by_category'>;
   total: number; pending: number; resolved: number; calculated_at: string;
   by_category: Count[]; by_time: Count[];
   filter_options: { branches: Count[]; categories: Count[] };

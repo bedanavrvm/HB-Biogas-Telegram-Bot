@@ -740,3 +740,12 @@ Workspace tools entry to the shared compact review page. The native page uses
 existing password/MFA cookies and CSRF; the Telegram frame uses its signed
 launch separately. Legacy provenance and unknown closure timing are visible in
 case detail/history. Source and Playwright evidence: [review](../docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md).
+
+## Historical reports and IT correction
+
+The 4 November user-approved report changes retain the existing compact controls
+and dialogs. Historical timing estimates stay separate from measured app results;
+Complaint ID opens detail, and scoped Complaints IT has a pencil correction form
+with required reason and audited dates. [Source and native Playwright evidence](../docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md)
+records both themes/channels and the local reset boundary. Existing production
+activation and Phase 6 approvals are unchanged.

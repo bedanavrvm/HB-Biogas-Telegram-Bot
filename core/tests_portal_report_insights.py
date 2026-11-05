@@ -29,7 +29,7 @@ class PortalInsightTests(TestCase):
         self.case(county='NAKURU')
         self.case(county='Nakuru')
         report = self.run_report(filters={'county': 'Nakuru'})
-        self.assertEqual(report['filter_options']['counties'], ['Nakuru'])
+        self.assertEqual(report['filter_options']['counties'], ['NAKURU'])
         self.assertEqual(report['total_rows'], 2)
         self.assertEqual(len(self.chart(report, 'county')['labels']), 1)
 

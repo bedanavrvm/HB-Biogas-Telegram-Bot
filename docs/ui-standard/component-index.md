@@ -1,5 +1,10 @@
 # Component index and migration hold
 
+Historical-aware reports reuse the compact filter bars, charts, grids and
+revision-bound forms. Complaint ID opens detail; Complaints IT has an audited
+pencil editor. [Source and Playwright evidence](reviews/2026-11-04-historical-reporting-it-corrections-reset.md)
+records the adaptation, timing provenance and local reset boundary.
+
 Legacy review retains FarmUp's compact table and invalid/edited-cell styling,
 adds 32 px ROW and issue cards, and automatically publishes saved cases in FIFO
 order. See the [source and interaction record](reviews/2026-11-03-portal-legacy-review-fifo-reset.md).

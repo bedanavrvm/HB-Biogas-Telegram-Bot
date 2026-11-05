@@ -162,3 +162,5 @@
   #portal-reports-root .portal-curated-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
   #portal-reports-root .portal-curated-summary > div { padding:6px 10px; }
 }
+.portal-history-toggle{display:inline-flex;align-items:center;gap:.5rem;margin-block:.5rem}
+.portal-history-toggle input{width:auto;margin:0;flex:none}

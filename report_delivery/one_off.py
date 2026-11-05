@@ -69,7 +69,7 @@ def queue_export(actor, workflow, payload):
                'comparison_dimension', 'comparison_metric', 'heatmap_row', 'heatmap_column',
                'heatmap_metric', 'heatmap_pair', 'chart_dimension', 'chart_metric', 'sla_state',
                'drill_chart', 'drill_series', 'drill_bucket', 'heat_row', 'heat_column', 'chart', 'series', 'bucket',
-               'chart_key', 'series_key', 'bucket_key'}
+               'chart_key', 'series_key', 'bucket_key', 'historical_scope', 'timing_origin'}
     filters = {k: v for k, v in filters.items() if k in allowed}
     configuration = {'workflow': workflow, 'preset': payload.get('preset') or
                      {'jawabu_portal': 'pipeline', 'tat_tracker': 'tat', 'complaint_cases': 'complaints'}[workflow],

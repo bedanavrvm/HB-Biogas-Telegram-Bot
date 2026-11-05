@@ -431,9 +431,9 @@
     },
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "36eda38d0164728205098a12b0bcd3c0a7785799bde0ea84b950797282520a8b",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-stitch-components.md",
-      "reason": "Nonvisual removal of obsolete ADS eslint suppression comments; strict unused-directive reporting remains enabled. Full browser lint and production build verified."
+      "sha256": "bf8703b43ae5b1732c0fbaeac01137d4a57328c2528ffcc057419d40cecdca7e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -647,9 +647,9 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "0da56cf59ab679632ef8cf715d79225dfcd04b10f5a7a4b3532ba6f8045f045b",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-workflow-parity.md",
-      "reason": "User-authorized repair of seven Complaint browser workflow gaps: actual category completion, dependent-location recovery, saved facts, recorded changes, feedback counts, laptop navigation and read-only global report details. Verified with native-session Playwright on the production artifact; candidate source record only, no approved baseline, grant change, release activation or Telegram migration."
+      "sha256": "ea241f9399f4e1c30affb87127f3682d6a78fcd550ce4fb8e92f6cdd9ea873e6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
@@ -665,15 +665,15 @@
     },
     {
       "path": "browser/src/workspace-navigation.ts",
-      "sha256": "a7558910fcae3cbddce685012cb00bfa623478d5871cd67d9f5892f55f01a88f",
-      "review_reference": "docs/ui-standard/reviews/2026-10-28-complaints-main-page.md",
-      "reason": "User-supplied Main Page code/image adopted for the native Complaints queue, with existing authority and forms. Direct browser interaction and screenshot review only; approved baselines and release gates unchanged."
+      "sha256": "1f04645a03648cd5babd01c5970d0eec5cdb6b0a047e0121e661bfec9b657221",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "ddeacdc70a6f6d3519160d5a23be62a4da672c72061f9eb9ae3972c3a8fc8bc8",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
+      "sha256": "b22e1ae5ca62820a6e553fbd405423006aea8c548e06504e3927087e8ca63107",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
@@ -695,9 +695,9 @@
     },
     {
       "path": "browser/src/complaints-report-filters.tsx",
-      "sha256": "470fd8f577e8a0b1d8a52c054b283840d7f1af8a0e70acb1ee69ccc6b440082f",
-      "review_reference": "docs/ui-standard/reviews/2026-10-23-complaints-ui-repair.md",
-      "reason": "F01-F39 manual Complaints UI audit corrections: responsive case/forms/reports/evidence, shared controls and access shell. Current ADS references and bounded compositions: browser/DESIGN.md. Synthetic local candidate only; no baseline approval, Telegram migration, workflow authority or production activation."
+      "sha256": "5b0434a68842003f5a3e758ad3607f114786687f520e6a5b8e68b7629d9df229",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/workspace-task.tsx",
@@ -737,9 +737,9 @@
     },
     {
       "path": "core/static/miniapp/portal_curated_reports.js",
-      "sha256": "242bfcdc543150ff38596d84739a1b934d4d24093d95b5b8a4b79ff8525eee0d",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "81d891bbfc6453a0e92829f73128049f86a3b7fd039a485c977b3d9495da4ff7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_invoices.js",
@@ -755,9 +755,9 @@
     },
     {
       "path": "core/static/miniapp/portal_report_insights.css",
-      "sha256": "5f1a7a5dc97908aacfd0087f8855535edfd1b1edfe662e78739d076d265484e3",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "ad775290dff880b3241633cfd4b961ac626de3ade8b133c90119a84840ce3fa9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/secure_media_viewer.js",
@@ -959,21 +959,21 @@
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "0ffc32c7d6410b82777da485ed261eab557afaaaa072c83ceef2df036f7a994c",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "d352f1261dedad44d2e3c09e44b1664280ea2f23f3c36079c3d2fd387fdd8682",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.css",
-      "sha256": "d88d4c8141f20a468298ed43ba1bf550415ac47d4a62bafb1d762f9970e946d9",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "dd01b3145cd15e15f5266934a2f595f5f0e7a8231bbd3039af586927a4714814",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "ef40b30be42e2ee0ae633224434d352f9f02cc9b42f1cc8e246fe9da4c12b6ca",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "50b08dd935802f4b246d51f45b1d57c5f4f6c88f2a264a6ae9d2eadef7b9d622",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_legacy.css",
@@ -1001,27 +1001,27 @@
     },
     {
       "path": "browser/src/complaints-operations-history.tsx",
-      "sha256": "04f4211a536408c4ea55e9d2b04d6c465d89e2da8f5a86271d31be801648d4fa",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "f2ecb4039088d1421b8809e3722e30f19146327a9ee148e8a6a4d0172698a474",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-operations-transport.ts",
-      "sha256": "6f0c1354c625b0b5b51c338d06fa1b0cbe9ad54ba4b0ac026c4a2e742fc858ff",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "6f2016f47136e6c0da65e61c53638d470248a25645b5242b4b8b5205338c48a6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "d25379875fd9efce82e938ec932b8091762415c327d0661c3a9ca4b045b1a9d2",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "76927caecf6496e71c31e3f3c250405499821ae64306d19e4ebbf18d39e2e2ec",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "e89ef309e123ff2e93ed57bc132a7249535a3306780352012a36936949e1436a",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
-      "reason": "Nonvisual cache version for the corrected maintenance selector in portal.js v136; source-bound recovery review includes real Portal Playwright evidence."
+      "sha256": "1192ffa43fa51adbafae67c8c354b148c8d11b32aaf055f04fa9564f37f794e7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
@@ -1052,6 +1052,12 @@
       "sha256": "e06cec0da39da44f27152a81a9ff239cbf5f38be2d6a3b531b0365adca73dbeb",
       "review_reference": "docs/ui-standard/reviews/2026-11-03-diagnostics-db-and-media-reset-recovery.md",
       "reason": "Nonvisual diagnostic recovery: retain unacknowledged telemetry and honor HTTP 503 retry timing; shared script cache version update. Actual Portal/PostgreSQL Playwright verifies physical disconnections, UI responsiveness and original event acknowledgement. No appearance, approved baseline or Phase 6 change."
+    },
+    {
+      "path": "core/static/miniapp/complaint_report_charts.js",
+      "sha256": "88b625ca525e5fee82653725c2b8f3f877228a565261eb027a37ac551b13f9c3",
+      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
+      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [

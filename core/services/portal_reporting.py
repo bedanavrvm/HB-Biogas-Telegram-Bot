@@ -357,7 +357,7 @@ def _annotated_queryset(queryset):
     )
 
 
-def scoped_case_queryset(*, user, access: dict | None):
+def scoped_case_queryset(*, user, access: dict | None, historical_scope='exclude'):
     """Match the established Portal case read scope; no cross-workflow joins."""
     queryset = JawabuFarmerMaster.objects.filter(status='active')
     if not getattr(user, 'is_superuser', False):
@@ -367,6 +367,11 @@ def scoped_case_queryset(*, user, access: dict | None):
             for branch in branches:
                 branch_scope |= Q(branch__iexact=branch)
             queryset = queryset.filter(branch_scope)
+    from core.services.report_provenance import report_scope
+    try:
+        queryset = report_scope(queryset, 'portal', historical_scope)
+    except ValueError as exc:
+        raise PortalReportingError(str(exc))
     return _annotated_queryset(queryset)
 
 
@@ -657,7 +662,7 @@ def run_definition(*, definition: PortalReportDefinition, user, access: dict | N
             })
     return {
         'definition': definition_payload(definition),
-        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
+        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected] + [{'key': 'data_origin', 'label': 'Data origin', 'type': 'text'}],
         'rows': rows,
         'total_rows': total,
         'shown_rows_limit': min(total, MAX_TABLE_ROWS),
@@ -760,7 +765,7 @@ def preview_chart(*, configuration: Any, chart: Any, user, access: dict | None) 
 
 CURATED_REPORT_FIELDS = {
     'pipeline': ('case_id', 'customer_name', 'branch', 'county', 'workflow_state', 'jbl_visit_status', 'credit_decision', 'final_decision', 'updated_at'),
-    'outcomes': ('case_id', 'customer_name', 'branch', 'jbl_visit_date', 'jbl_visit_status', 'credit_decision', 'credit_decided_at', 'final_decision', 'final_decided_at'),
+    'outcomes': ('case_id', 'customer_name', 'branch', 'hbg_visit_date', 'jbl_visit_date', 'jbl_visit_status', 'credit_decision', 'credit_decided_at', 'final_decision', 'final_decided_at'),
     'finance': ('case_id', 'customer_name', 'branch', 'requisition_date', 'order_number', 'invoice_date', 'invoice_number', 'invoice_amount', 'payment', 'deposit_paid_hbg', 'system_deposit_paid_jbl', 'balance_due'),
 }
 
@@ -776,7 +781,8 @@ def _curated_period(filters: dict[str, Any]) -> tuple[date, date]:
 
 def _curated_dataset(*, preset, filters, user, access, group_configuration=None):
     from core.services.portal_report_insights import prepare, insights
-    queryset = scoped_case_queryset(user=user, access=access)
+    queryset = scoped_case_queryset(user=user, access=access,
+        historical_scope=filters.get('historical_scope') if isinstance(filters, dict) else 'exclude')
     if group_configuration is not None:
         queryset = queryset.filter(group_configuration=group_configuration)
     # The HTTP boundary supplies current grant tuples. Re-resolve them here as
@@ -798,13 +804,14 @@ def _curated_dataset(*, preset, filters, user, access, group_configuration=None)
 def _curated_rows(queryset, selected):
     from core.services.jawabu_pipeline import current_workflow_state
     expressions = {field.expression for field in selected}
-    expressions.update({'pk', 'workflow_state', 'deferred_until', 'order_number', 'final_decision',
+    expressions.update({'pk', 'report_historical', 'workflow_state', 'deferred_until', 'order_number', 'final_decision',
                         'credit_decision', 'jbl_visit_status', 'jbl_visit_date'})
     rows = []
     for raw in queryset.values(*sorted(expressions)):
         raw['workflow_state'] = current_workflow_state(SimpleNamespace(**raw))
         row = {field.key: _report_value(field, raw.get(field.expression)) for field in selected}
         row['record_id'] = str(raw['pk'])
+        row['data_origin'] = 'Historical — may be inaccurate' if raw.get('report_historical') else 'App workflow'
         rows.append(row)
     return rows
 
@@ -824,7 +831,7 @@ def run_curated_report(*, preset: str, filters: Any, user, access: dict | None, 
     return {
         'preset': preset, 'period': period, 'applied_filters': filters,
         'summary': summary,
-        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
+        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected] + [{'key': 'data_origin', 'label': 'Data origin', 'type': 'text'}],
         'rows': rows, 'total_rows': total, 'shown_rows_limit': min(total, MAX_TABLE_ROWS),
         'pagination': {'page': page, 'page_size': PAGE_SIZE, 'pages': pages},
         'charts': charts, 'filter_options': choices, 'run_at': timezone.now().isoformat(),
@@ -840,7 +847,7 @@ def capture_curated_report(*, preset, filters, user, access, group_configuration
     rows = _curated_rows(queryset.order_by('-updated_at', 'id')[:MAX_TABLE_ROWS], selected)
     return {
         'preset': preset, 'period': period, 'applied_filters': filters, 'summary': summary,
-        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
+        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected] + [{'key': 'data_origin', 'label': 'Data origin', 'type': 'text'}],
         'rows': rows, 'total_rows': queryset.count(), 'export_limit': MAX_TABLE_ROWS,
         'charts': charts, 'run_at': timezone.now().isoformat(),
     }

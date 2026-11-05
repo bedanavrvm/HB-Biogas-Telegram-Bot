@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from django.utils import timezone
 
-from core.models import CaseUpdate, ComplianceAuditEvent
+from core.models import CaseUpdate, ComplianceAuditEvent, ComplaintCaseEvent
 
 NAIROBI = ZoneInfo('Africa/Nairobi')
 AGE_BUCKETS = (
@@ -25,28 +25,37 @@ AGE_BUCKETS = (
 def elapsed_days(case, *, now=None):
     start = case.timestamp or case.created_at
     end = case.date_resolved if case.complaint_status == 'Closed' else (now or timezone.now())
-    return max(0, int((end-start).total_seconds()//86400)) if start and end else None
+    return int((end-start).total_seconds()//86400) if start and end and start <= end <= (now or timezone.now()) else None
 
 
 def case_timing(control, case, *, now=None):
     now = now or timezone.now()
-    start = control.sla_started_at or case.timestamp or case.created_at
+    from core.services.report_provenance import is_historical
+    start = case.timestamp if is_historical(case) else control.sla_started_at or case.timestamp or case.created_at
     closed = case.complaint_status == 'Closed'
     end = case.date_resolved if closed else now
     seconds = (end - start).total_seconds() if start and end else None
     if seconds is not None and (seconds < 0 or end > now):
         seconds = None
-    target = control.sla_target_hours
+    historical = is_historical(case)
+    captured = not historical
+    target = control.sla_target_hours if captured else {'high': 24, 'normal': 72, 'low': 120}.get(control.priority)
+    comparison = (seconds <= target * 3600) if closed and seconds is not None and target and target > 0 else None
     resolution = seconds / 3600 if closed and seconds is not None else None
     return {
+        'historical': historical,
+        'target_basis': 'captured' if captured and target else 'current_target_estimate' if target else 'unavailable',
+        'estimated_on_time': comparison if not captured else None,
+        'target_hours': target,
+        'timing_note': 'Historical — may be inaccurate; approximate duration from recorded dates; current target estimate.' if historical else 'Recorded workflow timing' if captured else 'App estimate — target not captured at intake; current target comparison.',
         'elapsed_seconds': seconds,
         'resolution_hours': resolution,
-        'on_time': (seconds <= target * 3600) if closed and seconds is not None and target and target > 0 else None,
+        'on_time': comparison if captured or historical else None,
     }
 
 
 def hydrate_timing(cases, *, now=None):
-    """Attach facts to a bounded list, with two history queries per batch."""
+    """Attach facts with three bounded queries: updates, actor audit and original targets."""
     now = now or timezone.now()
     updates = list(CaseUpdate.objects.filter(parsed_message_id__in=[case.pk for case in cases])
                    .order_by('created_at', 'pk').values('id', 'parsed_message_id', 'created_at',
@@ -56,11 +65,26 @@ def hydrate_timing(cases, *, now=None):
         source_event_id__in=[str(item['id']) for item in updates],
     ).values_list('source_event_id', 'metadata'))
     histories = defaultdict(list)
+    targets = {}
+    for case_id, snapshot in ComplaintCaseEvent.objects.filter(
+            case__parsed_message_id__in=[case.pk for case in cases], action='created'
+    ).order_by('created_at', 'pk').values_list('case__parsed_message_id', 'after_values'):
+        targets.setdefault(case_id, snapshot.get('sla_target_hours'))
     for item in updates:
         histories[item['parsed_message_id']].append(item)
     for case in cases:
-        start = case.complaint_control.sla_started_at or case.timestamp or case.created_at
+        from core.services.report_provenance import is_historical
+        start = case.timestamp if is_historical(case) else case.complaint_control.sla_started_at or case.timestamp or case.created_at
         facts = case_timing(case.complaint_control, case, now=now)
+        if not facts['historical']:
+            target = targets.get(case.pk)
+            captured = isinstance(target, (int, float)) and not isinstance(target, bool) and target > 0
+            if not captured:
+                target = {'high':24, 'normal':72, 'low':120}.get(case.complaint_control.priority)
+            comparison = (facts['resolution_hours'] <= target) if facts['resolution_hours'] is not None and target else None
+            facts.update(target_hours=target, target_basis='captured' if captured else 'current_target_estimate' if target else 'unavailable',
+                on_time=comparison if captured else None, estimated_on_time=comparison if not captured else None,
+                timing_note='Recorded workflow timing; captured target' if captured else 'App estimate — target not retained at intake; current target comparison.')
         closures, reopened, responses, seen = [], [], [], set()
         for item in histories[case.pk]:
             stamp = item['created_at']
@@ -70,7 +94,7 @@ def hydrate_timing(cases, *, now=None):
             if key in seen:
                 continue
             seen.add(key)
-            closing = item['new_status'] == 'Closed' and item['old_status'] != 'Closed' and item['source'] not in ('mini_app_comment', 'browser_staff_comment')
+            closing = item['new_status'] == 'Closed' and item['old_status'] != 'Closed' and item['source'] not in ('mini_app_comment', 'mini_app_verification_comment', 'browser_staff_comment')
             if closing:
                 closures.append(stamp)
             if item['old_status'] == 'Closed' and item['new_status'] == 'Reopened':
@@ -84,7 +108,7 @@ def hydrate_timing(cases, *, now=None):
         if not closures and case.complaint_status == 'Closed' and facts['resolution_hours'] is not None:
             closures.append(case.date_resolved)
         facts.update({
-            'reported_at': case.timestamp or case.created_at, 'resolved_at': case.date_resolved,
+            'reported_at': case.timestamp if facts['historical'] else case.timestamp or case.created_at, 'resolved_at': case.date_resolved,
             'closures': closures, 'reopened': reopened,
             'first_resolution_hours': (closures[0] - start).total_seconds() / 3600 if closures else None,
             'response_at': responses[0] if responses else None,

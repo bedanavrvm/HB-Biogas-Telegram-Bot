@@ -139,6 +139,8 @@ def _complaint_report_filters(payload: dict) -> dict:
         'date_basis': payload.get('date_basis'),
         'metric': payload.get('metric'),
         'metric_value': payload.get('metric_value'),
+        'historical_scope': payload.get('historical_scope'),
+        'timing_origin': payload.get('timing_origin'),
     }
 
 
@@ -597,7 +599,7 @@ def complaint_cases_global_export(request):
     export_request_id = str(
         payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''
     )
-    export_filters = _complaint_report_filters(payload) if payload.get('confirm_results') is True else None
+    export_filters = _complaint_report_filters(payload) if payload.get('confirm_results') is True else {'historical_scope':payload.get('historical_scope') or 'exclude'}
     filename = export_filename(filtered=export_filters is not None)
     from core.services.complaint_register import validate_report_filters, encode_export_filters
     if export_filters is not None:
@@ -899,6 +901,34 @@ def complaint_cases_complete_details(request, case_id: str):
     except Exception as exc:
         return unexpected_miniapp_error(request, exc, workflow='complaints')
     return JsonResponse({'ok': True, 'case': result, 'message': 'Required details completed.'})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_correct(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.manage', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        from core.services.complaint_corrections import correct, permitted
+        if not permitted(group_config, actor):
+            return JsonResponse({'ok': False, 'code': 'permission_denied', 'error': 'Only Complaints IT can correct fields.'}, status=403)
+        result = correct(group_config, actor, case_id, payload)
+    except ComplaintCaseConflict as exc:
+        return _conflict_response(group_config, actor, case_id, exc)
+    except ComplaintCaseError as exc:
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Correction saved.'})
 
 
 def _conflict_response(group_config, actor, case_id: str, exc: ComplaintCaseConflict):

@@ -6,7 +6,7 @@ export type Sla = {state:'on_track'|'due_soon'|'overdue'|'closed'|'unavailable';
 export type PublishedFile = {id:string;name:string;size:number;stage:string;percent:number;received:boolean;evidence:string;attempts:number;next_retry_at:string|null;origin?:'case'|'conversation';comment_key?:string};
 export type Publication = {files:PublishedFile[];needs_attention:boolean;sheet:{key?:string;tracked:boolean;status:string;attempts:number;next_retry_at:string|null};runner_healthy:boolean;can_retry:boolean};
 export type Complaint = {
-  key: string; reference: string; customer_name: string; customer_phone: string; secondary_phone: string;
+  correction_values?:Record<string,string>; key: string; reference: string; customer_name: string; customer_phone: string; secondary_phone: string;
   customer_id: string; county: string; constituency: string; village: string; branch: string;
   category: string; description: string; status: string; needs_details: boolean; reported_at: string;
   age_label: string; source_attribution?:{type:string;label:string}; priority?: 'high'|'normal'|'low'; sla?:Sla; days_open?: number|null; recorded_at?: string; revision: number; sync_status: string; hb_comment_count: number;

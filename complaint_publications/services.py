@@ -28,7 +28,7 @@ _write = ContextVar('complaint_browser_write', default=None)
 def command_capability(path):
     if path == 'cases/create/':
         return 'complaint.case.create', None
-    match = re.fullmatch(r'cases/([a-f0-9-]{36})/(conversation/post|resolve|verification-comment|comment|reopen|complete-details|finish-created|retry-publication)/', path)
+    match = re.fullmatch(r'cases/([a-f0-9-]{36})/(conversation/post|resolve|verification-comment|comment|reopen|complete-details|finish-created|retry-publication|correct)/', path)
     if not match:
         raise cases.ComplaintCaseError('This upload command is unavailable.')
     key, action = match.groups()
@@ -39,11 +39,13 @@ def command_capability(path):
     capability = {'conversation/post': 'complaint.conversation.participate', 'resolve': 'complaint.case.close',
         'comment': 'complaint.case.comment', 'verification-comment': 'complaint.case.verification.comment', 'reopen': 'complaint.case.reopen',
         'complete-details': 'complaint.case.details.complete', 'finish-created': 'complaint.case.create',
-        'retry-publication': 'complaint.case.sync.retry'}[action]
+        'retry-publication': 'complaint.case.sync.retry', 'correct': 'complaint.case.manage'}[action]
     return capability, key
 
 
 def authorize(group, actor, path):
+    if path.endswith('/correct/') and not is_it(actor):
+        raise PermissionDenied
     capability, key = command_capability(path)
     case = ParsedMessage.objects.filter(pk=key, group_id=group.group_id).first() if key else None
     if key and (not case or not cases.actor_can_access_case(group, actor, 'complaint.queue.view', case.message_id)):

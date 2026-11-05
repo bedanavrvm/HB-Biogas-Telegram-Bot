@@ -448,6 +448,9 @@ class BrowserComplaintOperationsTests(TestCase):
             case.save(update_fields=['timestamp', 'date_resolved', 'complaint_status'])
             ComplaintCaseControl.objects.create(parsed_message=case,
                 reference_number=f'CMP-TIMING-{index}', sla_started_at=reported, sla_target_hours=target)
+            # Measured SLA fixtures retain the same creation target evidence as real intake.
+            ComplaintCaseEvent.objects.create(case=case.complaint_control,revision=1,action='created',
+                after_values={'sla_target_hours':target,'sla_started_at':reported.isoformat()})
         for index, case in enumerate(self.cases[3:], start=3):
             case.timestamp = start + timedelta(hours=3)
             case.save(update_fields=['timestamp'])

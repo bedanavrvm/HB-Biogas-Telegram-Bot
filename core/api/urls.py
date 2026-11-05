@@ -1,6 +1,7 @@
 """
 URL routing for the core API.
 """
+from core.api.complaint_case_views import complaint_cases_correct
 from django.urls import include, path
 from complaint_legacy.views import telegram as complaint_legacy_command
 from hb_operations.deposit_views import hb_deposit_list, hb_deposit_detail, hb_deposit_update
@@ -366,6 +367,7 @@ urlpatterns = [
     path('complaints/cases/<str:case_id>/finish-created/', complaint_cases_finish_created, name='complaint_cases_finish_created'),
     path('complaints/cases/<str:case_id>/', complaint_cases_detail, name='complaint_cases_detail'),
     path('complaints/cases/<str:case_id>/update/', complaint_cases_update, name='complaint_cases_update'),
+    path('complaints/cases/<str:case_id>/correct/', complaint_cases_correct, name='complaint_cases_correct'),
     path('complaints/cases/<str:case_id>/complete-details/', complaint_cases_complete_details, name='complaint_cases_complete_details'),
     path('complaints/cases/<str:case_id>/resolve/', complaint_cases_resolve, name='complaint_cases_resolve'),
     path('complaints/cases/<str:case_id>/comments/', complaint_cases_comment, name='complaint_cases_comment'),

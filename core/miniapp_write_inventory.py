@@ -399,6 +399,12 @@ _add(
     domain_replay='Expected revision and request-keyed completion event; original incomplete intake remains auditable',
 )
 _add(
+    'complaint_cases_correct',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.manage plus scoped Complaints IT', scope=_COMPLAINT_SCOPE,
+    request_key_binding='complaint miniapp_write_response plus required canonical key',
+    domain_replay='Revision-checked field correction; exact-payload request key and append-only before/after audit',
+)
+_add(
     'complaint_cases_finish_created',
     authentication=_COMPLAINT_AUTH, capability='complaint.case.create', scope=_COMPLAINT_SCOPE,
     request_key_binding='complaint miniapp_write_response plus required canonical key',

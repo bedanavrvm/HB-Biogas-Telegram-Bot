@@ -43,6 +43,9 @@ class ComplaintTimingTests(TestCase):
         )
         ComplaintCaseControl.objects.create(parsed_message=case, reference_number=f'CMP-TIMING-{index}',
             sla_target_hours=target, sla_started_at=start, sla_due_at=start + timedelta(hours=target))
+        from core.models import ComplaintCaseEvent
+        ComplaintCaseEvent.objects.create(case=case.complaint_control, revision=1, action='created',
+            after_values={'sla_target_hours':target, 'sla_started_at':start.isoformat()})
         return case
 
     def update(self, case, hour, old, new, *, source='mini_app', affiliation=None):
@@ -157,7 +160,8 @@ class ComplaintTimingTests(TestCase):
         for case in cases:
             # Cache the already-loaded controls; timing must not cause N+1 reads.
             case.complaint_control
-        with self.assertNumQueries(2):
+        # One batched query each for updates, actor evidence and creation targets.
+        with self.assertNumQueries(3):
             hydrate_timing(cases, now=self.now)
         broken = cases[0]
         broken.date_resolved = None
