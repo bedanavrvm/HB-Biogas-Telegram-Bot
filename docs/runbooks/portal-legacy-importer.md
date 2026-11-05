@@ -140,8 +140,10 @@ For an imported historical case awaiting its first JBL visit:
    The remaining source rows may still be under review; the whole import need
    not finish before this case can continue.
 2. Operations/IT opens the case's **Legacy Continuation · Review Required**
-   disclosure. Choose **JBL visit**, explain that the minimum HB deposit is
-   outstanding, and confirm. Use this action only where continuation has not
+   disclosure. Review the existing Case Notices, choose **JBL visit**, and
+   confirm. No additional evidence/explanation entry is required. The audit
+   records the actor, selected stage and source sheet/row automatically.
+   Use this action only where continuation has not
    already been confirmed; a case already awaiting a JBL visit needs no rerouting.
    Saving automatically updates the case page; confirming from a queue drawer
    opens the updated case details. No manual page refresh is required. If the

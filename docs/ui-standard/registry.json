@@ -953,9 +953,9 @@
     },
     {
       "path": "core/static/miniapp/portal_legacy.js",
-      "sha256": "9d50c6dbf551f8a468b964a9708c28484242c1b9b93cd0b494bc95800aedee29",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-continuation-refresh.md",
-      "reason": "User-requested automatic case refresh after legacy continuation. Existing case rendering/navigation and inline feedback; signed Django/PostgreSQL Playwright verifies success, drawer handoff, save failure and read-only retry without repeated confirmation. No approved baseline, permission or Phase 6 changes."
+      "sha256": "550bf1f9c9d092ffdc05c26ae2704839237fb26e7d5e8d4a71f12a61483f22a9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-continuation-selection-only.md",
+      "reason": "User-requested selection-only legacy continuation removes duplicate source summary and explanation input. Existing compact dropdown, confirmation and automatic refresh retained. Real signed Django/PostgreSQL Playwright verifies note-free saves, source audit, empty selection, replay and interrupted-network recovery. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "93efadfccd3281ac63e03d16ea7f8f25461b74106cf24bb33beb7050de5b4ab4",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawn-stage-status.md",
-      "reason": "User-requested Withdrawn choice in stage status/decision dropdowns; standalone section removed. Existing stage forms and case sections, required reason and established API guards retained. Real signed Django/PostgreSQL Playwright covers four stages, pending deposits, same-case resume, read retry and financial protection. Automatic legacy continuation refresh retained. No approved baseline or Phase 6 migration changes."
+      "sha256": "654d3a8c3605141a6ae3e4b44c7277a9308c586eca1c042583bbb4c1b408ca3d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-continuation-selection-only.md",
+      "reason": "User-requested selection-only legacy continuation removes duplicate source summary and explanation input. Existing compact dropdown, confirmation and automatic refresh retained. Real signed Django/PostgreSQL Playwright verifies note-free saves, source audit, empty selection, replay and interrupted-network recovery. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

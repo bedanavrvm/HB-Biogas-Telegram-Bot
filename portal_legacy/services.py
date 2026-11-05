@@ -302,7 +302,7 @@ def commit_row(row_id, *, expected_revision, request_key, actor, access, existin
 
 
 @transaction.atomic
-def confirm_stage(row_id, *, state, note, expected_revision, request_key, actor, access):
+def confirm_stage(row_id, *, state, note='', expected_revision, request_key, actor, access):
     row = LegacyRow.objects.select_for_update(of=('self',)).select_related('batch__group').get(pk=row_id)
     if not row.farmer_id: raise ValueError('Import this row before confirming its continuation.')
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=row.farmer_id)
@@ -312,7 +312,7 @@ def confirm_stage(row_id, *, state, note, expected_revision, request_key, actor,
     if replay:
         if replay.action != 'stage_confirmed' or replay.payload != payload: raise ValueError('Request key belongs to different facts.')
         return row
-    if not request_key or len(request_key) > 120 or not payload['note']: raise ValueError('A request key and confirmation explanation are required.')
+    if not request_key or len(request_key) > 120: raise ValueError('A valid request key is required.')
     if row.revision != expected_revision: raise ValueError('The legacy record changed. Refresh and review it again.')
     handover_only = bool(farmer.legacy_fulfillment_partner) and farmer.workflow_state == 'ordered' and not hasattr(farmer, 'homebiogas_action')
     if farmer.workflow_state != 'legacy_review' and not handover_only: raise ValueError('This case already has a continuation stage. Use its owning workflow action.')
@@ -344,7 +344,8 @@ def confirm_stage(row_id, *, state, note, expected_revision, request_key, actor,
     LegacyEvent.objects.create(row=row, actor=actor, request_key=request_key, action='stage_confirmed', payload=payload)
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(farmer, action='legacy_continuation_confirmed', stage_key=state,
-        actor=actor.get_username(), actor_user=actor, request_id=request_key, reason=payload['note'],
+        actor=actor.get_username(), actor_user=actor, request_id=request_key,
+        reason=payload['note'] or f'Legacy continuation selected: {chosen}. Source: {row.source_sheet}, row {row.source_row}.',
         new_values={'workflow_state': state}, revision_before=farmer.workflow_revision-1,
         revision_after=farmer.workflow_revision)
     from core.services.portal_publication import reserve_farmer_publication

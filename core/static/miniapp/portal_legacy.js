@@ -10,16 +10,18 @@
   };
   function confirmation(farmer, form, footer, onSaved) {
     const legacy = farmer.legacy;
-    form.innerHTML = `<section class="batch-warning"><h3>Legacy review</h3><p>Reported decision: ${escape(legacy.reported_outcome || 'Not recorded')}</p><p>Reason: ${escape(legacy.reason || 'Not recorded')}</p><p>${escape(legacy.comment)}</p><p>${escape(legacy.source_sheet)} · source row ${escape(legacy.source_row)}. Missing history remains unknown. Handover confirmation establishes the milestone, not a missing or disputed date.</p></section>`;
+    form.innerHTML = '';
     if (!window.PortalAppShell?.hasCapability?.('portal.case.correct') && !document.body.dataset.legacyReviewLocal) {
       // The API independently checks current scoped Operations/IT authority.
       const caps = window.PortalLegacyCapabilities || [];
       if (!caps.includes('portal.case.correct')) { form.insertAdjacentHTML('beforeend', '<p>Operations/IT must confirm the continuation stage.</p>'); return; }
     }
-    form.insertAdjacentHTML('beforeend', `<label>Confirmed continuation<select id="legacy-next-state"><option value="">Select after reviewing the evidence</option><option value="jbl_visit">JBL visit</option><option value="credit">Credit analysis</option><option value="final_review">Head of Rural review</option><option value="order">Ready for order</option><option value="ordered">Existing order / HB handover</option><option value="withdrawn">Withdrawn</option>${['rejected','deferred'].flatMap(outcome => ['jbl_visit','credit','final'].map(stage => `<option value="${outcome}:${stage}">${outcome} — ${stage}</option>`)).join('')}</select></label><label>Evidence and explanation<textarea id="legacy-stage-note" required></textarea></label><p id="legacy-confirm-feedback" role="status"></p>`);
+    form.insertAdjacentHTML('beforeend', `<label>Confirmed continuation<select id="legacy-next-state"><option value="">Select continuation</option><option value="jbl_visit">JBL visit</option><option value="credit">Credit analysis</option><option value="final_review">Head of Rural review</option><option value="order">Ready for order</option><option value="ordered">Existing order / HB handover</option><option value="withdrawn">Withdrawn</option>${['rejected','deferred'].flatMap(outcome => ['jbl_visit','credit','final'].map(stage => `<option value="${outcome}:${stage}">${outcome} — ${stage}</option>`)).join('')}</select></label><p id="legacy-confirm-feedback" role="status"></p>`);
     if (legacy.needs_hb_handover) {
       form.querySelector('#legacy-next-state').innerHTML='<option value="ordered">Confirm historical HB handover</option>';
     }
+    const continuation = form.querySelector('#legacy-next-state');
+    continuation.addEventListener('change', () => { form.querySelector('#legacy-confirm-feedback').textContent = ''; });
     const button = document.createElement('button'); button.className = 'primary'; button.textContent = 'Confirm legacy continuation'; button.dataset.mainAction = button.textContent;
     let requestKey = '', saved = false;
     button.onclick = async () => {
@@ -27,11 +29,11 @@
       button.disabled = true;
       try {
         if (!saved) {
-          const state = form.querySelector('#legacy-next-state').value, note = form.querySelector('#legacy-stage-note').value.trim();
-          if (!state || !note) { feedback.textContent = 'Choose a stage and explain the source evidence.'; button.disabled = false; return; }
-          await call(`rows/${legacy.row_id}/confirm/`, {method:'POST', body:JSON.stringify({state,note,revision:legacy.revision,request_id:requestKey || (requestKey=key())})});
+          const state = continuation.value;
+          if (!state) { feedback.textContent = 'Choose a continuation stage.'; button.disabled = false; return; }
+          await call(`rows/${legacy.row_id}/confirm/`, {method:'POST', body:JSON.stringify({state,revision:legacy.revision,request_id:requestKey || (requestKey=key())})});
           saved = true;
-          form.querySelectorAll('select,textarea').forEach(input => { input.disabled = true; });
+          continuation.disabled = true;
         }
         feedback.textContent = 'Saved. Updating case…';
         await onSaved();

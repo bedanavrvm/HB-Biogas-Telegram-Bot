@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Legacy continuation now uses selection and confirmation only; source details
+remain in Case Notices. See the
+[source and browser record](reviews/2026-11-05-portal-continuation-selection-only.md).
+
 Withdrawn is selected in stage status/decision dropdowns; the standalone Mark
 Withdrawn section is removed. See the
 [source and real browser record](reviews/2026-11-05-portal-withdrawn-stage-status.md).

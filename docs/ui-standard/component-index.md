@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Legacy continuation retains the compact dropdown and confirm action, removing
+the duplicate source summary and explanation input. See the
+[source and interaction record](reviews/2026-11-05-portal-continuation-selection-only.md).
+
 Portal withdrawal reuses existing stage dropdowns and comments, with Status
 inside the current case section and same-case resumption. See the
 [source and interaction record](reviews/2026-11-05-portal-withdrawn-stage-status.md).
